@@ -29,14 +29,14 @@ These are traceable to accepted ADR decisions, not to the draft protocol.
 | Neutral domain model, per-field provenance, vendor passthrough, no silent loss | ADR-003:25-35 |
 | 38 hotcues, 0-5 ratings, playlist trees, point vs loop cues, constant vs variable beat grids | ../semantic-mapping.md; mixxx-semantics.md |
 
-### Provisional proposals (from draft protocol; pending owner ratification)
+### Proposals with owner update (2026-10-15)
 
-These workload definitions and numerical budgets are **proposed** in the draft admission protocol and are explicitly provisional. The protocol itself states that "All numbers below are proposed engineering budgets, not observed performance" (m1-sqlite-admission-protocol.md:5) and that "Proposed numeric budgets: retain as provisional pre-run engineering budgets" (m1-sqlite-admission-protocol.md:44). They are NOT owner-ratified or measured facts and must not be promoted into accepted criteria. Recording them here is for traceability only.
+These workload definitions and numerical budgets originated as proposals in the draft admission protocol. The owner has since approved the explicit base 500k-track fixture shape and the 30-minute mixed-load rates shown below, and confirmed the no-benchmark/no-dependency gate until the complete protocol and semantic oracle are executable and independently reviewed. This does not settle payload distributions/fan-out, read-class proportions/query selectivities, whether manual edits are included in the 10 req/s stream, a statistical adequacy/confidence target, latency/resource budgets, recovery cases, or the cold-cache method. The protocol's original provisional-budget statements (m1-sqlite-admission-protocol.md:5,44) remain applicable to all unapproved numeric criteria; proposals are not measured performance and must not be promoted into accepted targets.
 
 | Proposal | Source | Status |
 |---------|--------|--------|
-| Deterministic 500k-track fixture, deterministic seed (proposed default workload) | m1-sqlite-admission-protocol.md:27 | Provisional; pending owner ratification (NOT an ADR-002 accepted fact) |
-| 30-minute mixed load, 2 producers (100 scan inserts/s + 100 analysis updates/s), 4 readers (10 req/s total) | m1-sqlite-admission-protocol.md:31 | Provisional; pending owner ratification |
+| Deterministic 500k-track fixture, deterministic seed (proposed default workload) | m1-sqlite-admission-protocol.md:27 | Base size/seed approved 2026-10-15; payload distribution/fan-out and fixture specifics remain open (NOT an ADR-002 accepted fact) |
+| 30-minute mixed load, 2 producers (100 scan inserts/s + 100 analysis updates/s), 4 readers (10 req/s total) | m1-sqlite-admission-protocol.md:31 | Owner-approved base duration/rates 2026-10-15; read-class proportions/query selectivities, analysis payload, and manual-edit share remain open |
 | Read p95<=100ms, p99<=250ms; write submission-to-BEGIN p95<=100ms, p99<=500ms; txn duration p99<=50ms, max 250ms | m1-sqlite-admission-protocol.md:33 | Provisional; pending owner ratification |
 | Queue bound 1024 jobs/64MiB; RSS<=1GiB; post-drain WAL<=64MiB | m1-sqlite-admission-protocol.md:33 | Provisional; pending owner ratification |
 | Overload 2x writes for 60s, explicit backpressure, recover within 60s | m1-sqlite-admission-protocol.md:33 | Provisional; pending owner ratification |
@@ -116,9 +116,9 @@ These workload definitions and numerical budgets are **proposed** in the draft a
 
 ### 2.4 Workload duration
 
-**Current state:** 30 minutes proposed.
+**Current state:** Owner-approved initial 30-minute duration; sufficiency and warm-up treatment remain unresolved.
 
-**Assessment:** 30 minutes is a provisional hypothesis, not established as sufficient. No OxiDJ evidence supports the claim that 30 minutes captures steady-state behavior, WAL growth patterns, or checkpoint/starvation dynamics on the 500k-track fixture — the protocol itself records all budgets as provisional and unmeasured (m1-sqlite-admission-protocol.md:5,44). Insufficiency is an explicit risk: 30 minutes may not capture steady-state tail latency, WAL/checkpoint behavior under checkpoint starvation, or long-run fragmentation/auto-vacuum effects. Sufficiency must be validated (or rejected) by the prototype run, not assumed here. It may serve as a minimum for a first gate only if the owner explicitly ratifies the sufficiency hypothesis and accepts the insufficiency risk. The protocol should specify whether this is a single continuous run or includes warm-up/cool-down phases.
+**Assessment:** The owner approved 30 minutes as an initial run duration, but that duration is not established as sufficient. No OxiDJ evidence supports the claim that 30 minutes captures steady-state behavior, WAL growth patterns, or checkpoint/starvation dynamics on the 500k-track fixture — the protocol itself records all budgets as provisional and unmeasured (m1-sqlite-admission-protocol.md:5,44). Insufficiency is an explicit risk: 30 minutes may not capture steady-state tail latency, WAL/checkpoint behavior under checkpoint starvation, or long-run fragmentation/auto-vacuum effects. Sufficiency must be validated (or rejected) by the prototype run, not assumed here. It may serve as a minimum for a first gate only if the owner explicitly ratifies the sufficiency hypothesis and accepts the insufficiency risk. The protocol should specify whether this is a single continuous run or includes warm-up/cool-down phases.
 
 **Proposed:** 30 minutes of steady-state measurement following a 5-minute warm-up (not recorded). Total wall-clock: 35 minutes per run. Three independently reset runs.
 

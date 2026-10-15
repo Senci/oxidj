@@ -46,7 +46,7 @@ Rust's fast feedback loop is built on layered commands of increasing cost: `carg
 
 **Why nextest matters for agents:** process-per-test isolation means an agent running the full suite is not misbled by cross-test contamination; flaky-test detection distinguishes a nondeterministic test from a real failure; JSON output is machine-parseable for the evidence step in §3.
 
-**OxiDJ status:** `cargo fmt --check` and `cargo clippy` (with `CARGO_BUILD_WARNINGS=deny`) are in the Tier 1 gate via `cargo xtask ci` [FACT] [LOCAL]. `cargo test` (not nextest) is the Tier 2 runner; `cargo nextest` is listed as the recommended runner in `docs/research/rust-quality-gates.md` but not yet installed [FACT] [LOCAL]. A `.config/nextest.toml` with retry/flakiness policy does not exist [FACT] [LOCAL].
+**OxiDJ status:** `cargo fmt --check` and `cargo clippy` (with `CARGO_BUILD_WARNINGS=deny`) are in the Tier 1 gate via `cargo xtask ci` [FACT] [LOCAL]. `cargo test` (not nextest) is the Tier 2 runner; `cargo nextest` is listed as the recommended runner in `docs/research/rust-quality-gates.md` but not yet installed [FACT] [LOCAL]. The `.config/nextest.toml` retry/flakiness policy file exists but is not active: `cargo xtask test` still runs native `cargo test`; the policy will not apply until nextest is adopted [FACT] [LOCAL].
 
 ### 1.5 Deterministic fixtures and parallel-test safety
 
