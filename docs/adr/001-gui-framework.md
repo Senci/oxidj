@@ -22,7 +22,7 @@ OxiDJ needs a cross-platform Rust desktop GUI for M3 (Usable library UI) onward.
 
 Adopt a **prototype-first, evaluate-second** path:
 
-1. **Prototype candidate one:** `egui` / `eframe` — immediate mode gives natural virtualization for dense track lists with the least implementation effort. AccessKit is mandatory since 0.35.
+1. **Prototype candidate one:** `egui` / `eframe` — immediate mode gives natural virtualization for dense track lists with the least implementation effort. AccessKit is available as a **default, disableable** feature (see claim-audit correction below).
 2. **Evaluate candidate two (commercially licensed fallback only):** `Slint` — declarative DSL with built-in `ListView` virtualization and AccessKit by default. **Not available at the free tier under the MIT licence resolution (ADR-009)**; retained only as a fallback conditional on explicit commercial purchase approval.
 3. **Defer:** Tauri 2 (unless a web-tech team is available; adds IPC complexity), iced (no stable AccessKit — disqualified if a11y is hard requirement), GPUI (0 releases in 8.5+ months), Xilem (zero production users).
 
@@ -52,7 +52,7 @@ No framework is committed as the final choice in M0. Two distinct gates apply: (
 - If egui prototype passes the 200k-row + a11y smoke test, it becomes the provisional M3 framework choice (final review).
 - If egui fails a11y or performance gates, Slint is the fallback — **only with explicit commercial purchase approval**, since it is excluded at the free tier under ADR-009.
 - No final dependency is added to the M0 workspace; the prototype lives in a scratch crate.
-- egui's documented a11y gaps (text-input caret/RTL/BiDi) become open risks to document.
+- egui's actual a11y gaps (live regions #2647, `labelled_by` panics #3647) become open risks to document.
 
 ## Open Questions / What Would Change This
 
@@ -126,3 +126,12 @@ No framework is committed as the final choice in M0. Two distinct gates apply: (
 - Record the results and obtain the **later final framework review/decision**. Failure reopens selection; it does not automatically authorize Slint.
 
 **Two distinct gates (explicit):** (1) 200k-row prototype smoke test; (2) 500k rows at 60fps plus representative accessibility/interaction evidence before final commitment.
+
+## Claim audit correction (2026-10-15)
+
+The independent M0-06 claim audit (`docs/research/m0-06-claim-audit.md`) re-opened the load-bearing claims behind this ADR against their primary sources. Two were **unsupported** and are corrected here:
+
+- **AccessKit is not "mandatory since 0.35".** The `eframe` Cargo.toml lists `accesskit` as a **default, disableable** feature, not a hard dependency. The claim originated from a secondary source (GoldStrikeArch) that is internally inconsistent (0.34 vs 0.35). Accessibility is *available* in egui, not forced — which slightly *strengthens* the prototype case (no mandatory dependency) but means accessibility must be explicitly enabled and verified.
+- **The caret/RTL/BiDi gaps were misattributed.** egui issue #2895 is about Linux state persistence (not caret/braille); #1317 does not exist; the caret/braille gaps belong to **Slint** per the same source. egui's actual a11y gaps are #2647 (live regions) and #3647 (`labelled_by` panics).
+
+The audit also flagged, for downstream work: Symphonia's `opus`/`metadata` feature flags do not exist (A3), and "full ALTER TABLE on 3.46+" is unverified (P11). These do not change this ADR's direction.
