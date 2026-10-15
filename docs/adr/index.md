@@ -42,6 +42,8 @@ Context → Decision → Evidence → Options → Consequences → Open Question
 
 ## Pending M1+
 
+ADR-005, ADR-006 and ADR-007 are **intentionally reserved** for M1+ work — 005 for the metadata schema (carrying the ADR-003 field-relationship risk and import-edit-export validation), 006 for the analysis pipeline, and 007 for vendor adapter scope. The numbering gap between ADR-004 and ADR-008 is therefore deliberate: 008/009 were settled during the M0 review round, while 005/006/007 await their M1+ implementations. New ADRs take the next free number; do not reuse a reserved slot.
+
 - ADR-005: Metadata schema (tables, Rust types)
 - ADR-006: Analysis pipeline (BPM, beatgrid, waveform, key)
 - ADR-007: Vendor adapter scope (Serato, Engine DJ, etc.)
