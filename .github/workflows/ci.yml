@@ -28,6 +28,11 @@ jobs:
       - name: Cache build + cargo registry
         uses: Swatinem/rust-cache@v2
 
+      # `ci-full` includes a mandatory cargo-deny licence gate. Install the
+      # verified tool version before invoking the repo-owned gate.
+      - name: Install cargo-deny (mandatory licence gate)
+        run: cargo install cargo-deny --locked --version 0.20.2
+
       # Tier 1 (per handoff, stable, offline): layers + fmt + clippy + check.
       # Tier 2 (tests):            cargo test --workspace --all-features --locked
       # Tier 3 (licence gate):     cargo deny check licenses (ADR-009 MIT allowlist)
@@ -43,15 +48,11 @@ jobs:
       # `continue-on-error`, and installed on demand. The mandatory licence
       # gate (`cargo xtask deny`) already ran inside `ci-full` above.
       # ------------------------------------------------------------------
-      - name: Install Tier-2 advisory tools (cargo-deny/audit/machete/typos)
+      - name: Install Tier-2 advisory tools (cargo-audit/machete/typos)
         continue-on-error: true
         run: |
           curl -L --proto '=https' --tlsv1.2 https://github.com/cargo-bins/cargo-binstall/releases/latest/download/cargo-binstall-x86_64-unknown-linux-musl.tgz | tar xz -C "$HOME/.cargo/bin"
-          cargo binstall -y cargo-deny cargo-audit cargo-machete typos-cli
-
-      - name: cargo deny check (licence, ADR-009)
-        continue-on-error: true
-        run: cargo deny check licenses
+          cargo binstall -y cargo-audit cargo-machete typos-cli
 
       - name: cargo audit (RustSec advisories)
         continue-on-error: true
