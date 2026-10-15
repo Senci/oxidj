@@ -1,7 +1,7 @@
 # M0-06: GUI, Persistence & Audio/Platform — Research Index
 
 **Task:** `t_6fd918a6` — M0-06 GUI, persistence and future platform evaluation
-**Status:** Research complete — review ready
+**Status:** Research complete — scoped Sol reviews completed; ADR-002 accepted; 500k-track admission gate still NOT READY
 **Owner:** oxidj-2
 **Date:** 2026-10-15
 
@@ -53,11 +53,11 @@ This milestone evaluates three architectural boundaries before OxiDJ commits to 
 
 **Avoid:** iced (no stable a11y, no virtualization), GPUI (stalled releases), Xilem (zero production users)
 
-### Persistence: SQLite + WAL + Litestream
-- **Default:** `rusqlite` (bundled) + `rusqlite_migration` + required PRAGMAs
-- **Backup:** Litestream (S3/GCS) for point-in-time recovery
-- **Future sync:** Turso/libSQL embedded replicas when multi-device needed
-- **Migration prep:** Abstraction trait, avoid SQLite-specific SQL
+### Persistence: SQLite, admission gated
+- **Engine:** SQLite/WAL via bundled `rusqlite` + `rusqlite_migration`; `synchronous=FULL` on every writer with commit-success acknowledgement, conditional on the supported storage stack honoring sync.
+- **Gate:** no persistence dependency enters the workspace until the executable 500k-track prototype passes.
+- **Backups:** `.backup` API for snapshots; Litestream is optional replication, not backup strategy or guaranteed RPO. Verify restore and separately protect external assets.
+- **Future sync:** revisit Turso/libSQL only when multi-device sync is required.
 
 ### Audio: CPAL + Symphonia, Engine Separated
 - **Decode/Analysis (M0-M3):** Symphonia (pure Rust, all formats, metadata)
@@ -84,12 +84,10 @@ This milestone evaluates three architectural boundaries before OxiDJ commits to 
 
 ## Next Steps (Post-Review)
 
-1. **Sol review** of all three evaluations
-2. **Prototype** top GUI candidate (egui) with virtualized 100k-row list + a11y smoke test
-3. **Benchmark** SQLite + `rusqlite` with OxiDJ schema (500k tracks, indexes, migrations)
-4. **Spike** Symphonia decode + waveform generation on real DJ library
-5. **Document** CPAL device selection + buffer size strategy per platform
-6. **Update** `plan/STATUS.md` and create M3 task with chosen stack
+1. **Freeze** the executable SQLite 500k-track workload, fixtures, measurement accounting, semantic oracle and recovery matrix with the documented provisional budgets reviewed before run.
+2. **Run** the prototype on the recorded Linux reference stack only after protocol readiness is verified; admit no dependency unless every criterion passes.
+3. **Draft ADR-005** metadata schema after the gate, carrying ADR-003 field-relationship risk and import-edit-export evidence.
+4. **Maintain** cross-platform compatibility as a separate verification requirement.
 
 ---
 

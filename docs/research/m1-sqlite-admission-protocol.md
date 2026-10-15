@@ -10,23 +10,23 @@ ADR-002 is Accepted, but its admission_gate blocks persistence dependencies unti
 
 CONSTRAINTS
 
-Single process, supported local filesystem, WAL, bundled rusqlite, rusqlite_migration, coordinated bounded single writer, short BEGIN IMMEDIATE batches, read pool, and ADR-002 PRAGMAs including synchronous=NORMAL. No product edits, dependency admission, implementation or benchmarks in this task. ADR-005 must independently resolve linked-field semantics; preserving opaque bytes alone does not prove safe edit/export.
+Single process, supported local filesystem, WAL, bundled rusqlite, rusqlite_migration, coordinated bounded single writer, short BEGIN IMMEDIATE batches, read pool, and ADR-002 PRAGMAs including synchronous=FULL. All budgets remain proposed, not measured. No product edits, dependency admission, implementation or benchmarks in this task. ADR-005 must independently resolve linked-field semantics; preserving opaque bytes alone does not prove safe edit/export.
 
-OPTIONS
+OPTIONS (initial-review packet; final ruling below supersedes the unselected option)
 
-A. Adopt the following provisional budgets, freeze unresolved workload/device/durability choices before execution, and require every criterion to pass.
+A. Adopt the following provisional budgets, freeze unresolved workload/device/durability choices before execution, and require every criterion to pass. Initial reviewer recommendation: conditional only.
 
-B. Require zero acknowledged-write loss after power failure, revisiting NORMAL versus FULL before qualification; retain A's other criteria.
+B. Require zero acknowledged-write loss after power failure, revisiting NORMAL versus FULL before qualification; retain A's other criteria. Selected by owner; follow-up Sol review and owner approval resolved it as WAL/FULL with a conditional supported-stack guarantee.
 
-C. Use generic throughput figures or a tiny schema. Reject: neither qualifies the actual workload.
+C. Use generic throughput figures or a tiny schema. Rejected: neither qualifies the actual workload.
 
-CURRENT LEAD PREFERENCE
+FINAL LEAD RULING (2026-10-15)
 
-A, conditional on explicit owner acceptance of the durability contract; otherwise B requires an ADR amendment. Proposed protocol:
+The owner selected zero acknowledged-write loss after OS/power interruption. The follow-up Sol review recommended WAL/FULL and acknowledgement only after successful durable commit, conditional on a supported stack honoring sync; the owner accepted that condition. ADR-002 is amended accordingly. This acceptance does not make the 500k prototype executable: fixture/workload distributions, measurement accounting, live WAL/disk envelope, semantic oracle and recovery matrix must still be frozen. Proposed numerical budgets remain provisional until pre-run review. Current Linux reference-device candidate details appear below.
 
 1. Data: exactly 500,000 initial tracks, deterministic seed, nonuniform text/search selectivity, Unicode, duplicates, nulls, playlists/memberships, cues/loops, variable grids, per-field provenance and opaque payloads. Record cardinalities, payload p50/p95/max, indexes, query plans and actual DB/WAL/asset bytes. Exercise both ADR-003-permitted representation shapes if ADR-005 is unresolved. Payload distributions/fan-out must be grounded in permitted fixtures and approved before running; absent evidence means NOT READY, never assume 100MB. External audio/artwork remain separate assets with a hashed restore manifest.
 
-2. Environment: freeze exact CPU, RAM, storage model, OS/filesystem, SQLite/build versions, PRAGMAs, reader/producer counts, cache policy and power mode. Proposed reference floor: 4 CPU cores, 8 GiB RAM, local SSD; owner must confirm a real qualification device and whether HDD/other OS support blocks admission. Three independently reset runs, including cold-open and warm measurements; every run must pass, report per-operation histograms and counts, no pooled averaging.
+2. Environment: reference-device candidate is the current Linux host `viper`: kernel `7.2.5-3-omarchy`, Omarchy 4.0.4, AMD Ryzen 5 5600X (6C/12T), 31 GiB RAM, Btrfs (`compress=zstd:3`) over LUKS on an ADATA SX8200PNP 1.9 TB NVMe; repository resides under `/home` in the `@home` subvolume. Re-record exact mount/device/kernel/build at run start. Use this as the single Linux performance qualification device; host-only results do not establish cross-platform durability. Freeze SQLite build, FULL PRAGMAs, connection/producer counts, cache policy and power mode. Three independently reset runs, including cold-open and warm measurements; every run must pass, report per-operation histograms and counts, no pooled averaging.
 
 3. Mixed load: proposed 30 minutes, two producers offering 100 scan inserts/s and 100 analysis updates/s concurrently, four readers offering 10 interactive requests/s total. Interleave track lookup, selective/broad search, sorted first/next 100-row pages, playlist pages and manual edits. Measure request-to-materialized-result including queue/pool waits; measure writes from attempted submission to commit. Rates, representative analysis payload, query mix and selectivities need pre-run fixture/owner ratification, not inference from generic TPS.
 
@@ -34,20 +34,20 @@ A, conditional on explicit owner acceptance of the durability contract; otherwis
 
 5. Safety: zero integrity_check/foreign_key_check errors or semantic-oracle mismatches. Fresh creation, populated upgrade including table rebuild, repeat-open/no-op migration and injected migration failure must leave exactly old or new valid state, never partial; proposed migration <=60s, normal reopen-to-first-result <=2s, restore-to-first-result <=120s, timed separately from full verification.
 
-6. Recovery: minimum 30 reproducible process kills across transactions/checkpoints/migration; retain all acknowledged commits and atomicity. Restore two separately retained online backups after later edits/deletion, into clean directories without original DB/WAL; exact snapshot oracle/provenance/payload and asset-manifest match. OS/power interruption is distinct: NORMAL may lose committed transactions; acceptable loss bound and fault-injection method remain owner choices. No power-loss durability claim from process kills.
+6. Recovery: minimum 30 reproducible process kills across transactions/checkpoints/migration; retain all acknowledged commits and atomicity. Independently persist a witness of acknowledged transaction IDs; verify it is not in-memory or unflushed. Restore two separately retained online backups after later edits/deletion, into clean directories without original DB/WAL; exact snapshot oracle/provenance/payload and asset-manifest match. Use the accepted WAL/FULL contract; inject I/O/sync failures around commit/ack boundaries and never report a failed/uncertain commit as saved. Process kills are not power-loss simulations; the zero-loss target is conditional on the named supported stack honoring synchronization. Do not imply that a finite test campaign proves arbitrary hardware behavior.
 
 
 ## Owner decisions received 2026-10-15
 
-- **Durability requirement:** zero acknowledged-write loss after OS/power interruption. This conflicts with ADR-002's current `synchronous=NORMAL` setting. Per official SQLite documentation, `synchronous=FULL` in WAL adds a WAL sync after each commit; that is the candidate to evaluate, not yet an amended ADR or a guarantee against dishonest VFS/storage hardware. An isolated Sol/medium review is pending before changing ADR-002 or claiming qualification.
-- **Performance qualification scope:** one real Linux reference device for the measured gate; cross-platform compatibility is a separate requirement. The exact device and its OS/filesystem/storage details still must be selected and recorded.
+- **Durability requirement and contract:** owner accepted zero acknowledged-write loss after OS/power interruption, conditional on the supported SQLite/VFS/OS/filesystem/storage stack honoring sync/recovery semantics. By the independent Sol recommendation, ADR-002 now specifies WAL `synchronous=FULL` on all writers and acknowledgement only after successful durable transaction commit. This is not a universal guarantee against defective storage or arbitrary hardware failure.
+- **Performance qualification scope:** one real Linux reference device for the measured gate; use current host `viper` as the candidate reference and capture its exact kernel/mount/storage/runtime state at run start. Cross-platform compatibility is a separate requirement and is not established by this qualification.
 - **Proposed numeric budgets:** retain as provisional pre-run engineering budgets. Review questionable targets before execution; they are not measured or binding product guarantees yet.
 
-These owner choices resolve only the product-level direction. The technical workload/fixture, arrival and sample accounting, live WAL/disk envelope, correctness oracle, and recovery-test protocol remain NOT READY until frozen. No benchmark or dependency admission is authorized by these choices alone.
+The owner accepted the conditional storage-stack guarantee on 2026-10-15. The ADR amendment below adopts WAL/FULL and commit-success acknowledgement; that is a supported-stack contract, not a universal guarantee against arbitrary hardware failures. Technical workload/fixture, arrival/sample accounting, live WAL/disk envelope, correctness oracle, and recovery-test protocol remain NOT READY until frozen. No benchmark or dependency admission is authorized by this choice alone.
 
 ## DECISIVE EVIDENCE
 
-ADR-002:11,97,115–119 requires this gate, single-writer coordination, realistic concurrency and recovery. persistence-evaluation.md:29–35 generic NVMe TPS/size estimates are not OxiDJ measurements; :219–220 flags checkpoint/migration risks. ADR-003:119–123 requires relationship-aware validation. SQLite's official pragma_synchronous documentation states NORMAL/WAL commits may roll back after power/system failure but survive application crashes; WAL documentation warns checkpoint starvation.
+ADR-002:11,29–35,119–133 establishes the dependency gate, single-writer coordination, conditional FULL durability and recovery contract. persistence-evaluation.md:26–35 marks third-party TPS/size estimates as generic, not OxiDJ measurements; :219–220 flags checkpoint/migration risks. ADR-003:119–123 requires relationship-aware validation. SQLite's official pragma_synchronous documentation states NORMAL/WAL commits may roll back after power/system failure but survive application crashes; WAL documentation warns checkpoint starvation.
 
 OUTPUT CONTRACT
 

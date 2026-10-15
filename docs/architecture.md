@@ -78,7 +78,8 @@ The detailed semantic mapping across Mixxx, OneLibrary/Rekordbox, and OxiDJ is i
 
 Established by ADR-002. SQLite with WAL mode is the default:
 
-- **Engine:** SQLite, WAL journal mode, `synchronous=NORMAL`.
+- **Engine:** SQLite, WAL journal mode, `synchronous=FULL` on all writing connections; report a write as saved only after the transaction commits successfully.
+- **Durability scope:** zero loss of acknowledged commits after OS/power interruption on a supported SQLite/VFS/OS/filesystem/storage stack that honors sync semantics. This is conditional, not a promise against defective media or devices. One real Linux reference device is the measured performance gate; cross-platform compatibility and platform-specific durability controls are separate evidence obligations.
 - **Rust binding:** `rusqlite` with `bundled` feature.
 - **Migrations:** `rusqlite_migration` via `PRAGMA user_version`.
 - **Connection model:** single writer + read pool, `BEGIN IMMEDIATE`.

@@ -4,16 +4,16 @@ title: Use SQLite with WAL for local-first persistence
 status: Accepted
 date: 2026-10-15
 owners: [oxidj-2]
-sources: [docs/research/persistence-evaluation.md, docs/research/soundcraft.md]
+sources: [docs/research/persistence-evaluation.md, docs/research/soundcraft.md, docs/research/m1-sqlite-review-outcome.md]
 sol_review: completed
-review_status: completed 2026-10-15 (gpt-6.1-sol, reasoning medium) — Option 1 amended; final ruling ACCEPTED 2026-10-15
+review_status: completed 2026-10-15 (gpt-6.1-sol, reasoning medium) — Option 1 amended; final ruling ACCEPTED 2026-10-15; durability amendment reviewed by gpt-6.1-sol on 2026-10-15 and accepted by owner
 review_confidence: medium
-admission_gate: A representative 500k-track prototype must pass before the selected persistence dependencies enter the workspace. Acceptance of the decision is not admission of the dependency. The conditional protocol in docs/research/m1-sqlite-admission-protocol.md is NOT READY for execution until the owner-approved decisions and technical measurement inputs listed in that document are frozen.
+admission_gate: A representative 500k-track prototype must pass before the selected persistence dependencies enter the workspace. Acceptance of the decision is not admission of the dependency. The conditional protocol in docs/research/m1-sqlite-admission-protocol.md is NOT READY for execution until its technical workload, device, measurement, oracle, and recovery inputs are frozen.
 ---
 
 # ADR-002: Persistence Layer
 
-> **Accepted (2026-10-15).** The independent Sol/medium review is complete and the final ruling is ACCEPT. SQLite + WAL with bundled `rusqlite` and `rusqlite_migration` is the selected engine. Acceptance is **not** dependency admission: the persistence dependencies stay out of the workspace until the representative 500k-track prototype gate passes.
+> **Accepted (2026-10-15; durability amendment reviewed and owner-approved 2026-10-15).** SQLite + WAL with bundled `rusqlite` and `rusqlite_migration` is the selected engine. All writers use `synchronous=FULL`; a write is acknowledged only after successful commit. The zero-acknowledged-write-loss target is conditional on the explicitly supported storage/VFS/OS/filesystem stack honoring synchronization and recovery semantics. Acceptance is **not** dependency admission: persistence dependencies stay out of the workspace until the representative 500k-track prototype gate passes.
 
 ## Context
 
@@ -26,7 +26,9 @@ Adopt **SQLite with WAL mode** as the default local-first persistence engine:
 - Rust binding: `rusqlite` with the `bundled` feature (consistent SQLite version, no system dependency).
 - Schema migrations: `rusqlite_migration` (uses `user_version`, plain SQL strings).
 - Connection model: single writer (bounded channel queue) + read pool (`deadpool`/`r2d2`), `BEGIN IMMEDIATE`.
-- Required PRAGMAs on every connection: `journal_mode=WAL`, `synchronous=NORMAL`, `busy_timeout=5000`, `foreign_keys=ON`, `journal_size_limit=67108864`.
+- Required PRAGMAs on every connection: `journal_mode=WAL`, `synchronous=FULL` on every connection that can write application state, `busy_timeout=5000`, `foreign_keys=ON`, `journal_size_limit=67108864`. Verify the effective settings at connection setup; no writer may silently fall back to NORMAL.
+- **Durable acknowledgement:** report a persistent write as saved only after its encompassing transaction commits successfully with FULL sync enabled. Queue admission, SQL statement completion before COMMIT, or UI optimism are not acknowledgements. A commit/sync error is not success; its outcome may require reconciliation.
+- **Durability scope:** the target is zero loss of acknowledged commits after OS crash or power interruption, conditional on the supported SQLite build, VFS, OS, filesystem, controller, and storage device honoring SQLite's sync and recovery contract. This does not cover defective/dishonest storage, media destruction, or unsupported filesystems. WAL is host-local; network-mounted databases are outside this decision. Cross-platform compatibility remains separate, and platform-specific stronger sync controls must be assessed before claiming equivalent durability on another platform.
 - Backups: `Litestream` is **optional** asynchronous replication, not the backup strategy and not a guaranteed RPO; the `SQLite .backup` API covers ad-hoc/CI. Verified restores and separate protection of external assets (audio files, artwork) are still required.
 - Future-proofing: use **domain-facing repository interfaces** rather than a generic SQL-portability trait; add broader portability only when a second backend creates a concrete requirement.
 
@@ -35,8 +37,8 @@ This decision does NOT commit to final schema design — that is deferred to M1 
 ## Evidence
 
 - `persistence-evaluation.md` executive summary (line 17): "SQLite with WAL mode is the recommended default" for single-process local-first architecture.
-- `persistence-evaluation.md` lines 26-35: SQLite performance baselines on NVMe — 50K-100K read queries/sec, 10K-50K write TPS, ~1TB practical limit. OxiDJ's 500k tracks x ~100 columns = ~50-100MB, well within SQLite's comfort zone.
-- `persistence-evaluation.md` lines 37-49: Required PRAGMA settings (WAL, NORMAL, busy_timeout, foreign_keys, journal_size_limit).
+- `persistence-evaluation.md` lines 26-35 contains generic third-party benchmarks and rough size arithmetic only; none are OxiDJ measurements or acceptance evidence, and 500k-track storage footprint remains unknown until the prototype runs.
+- `persistence-evaluation.md` lines 37-49 describes the reviewed PRAGMA settings. The prototype must measure the accepted `synchronous=FULL` configuration; generic benchmark figures using other settings are not acceptance evidence.
 - `persistence-evaluation.md` lines 73-94: `rusqlite` + `bundled` chosen over `sqlx` (~174 crates, ~19s build) and `diesel` (~26 crates, ~21s build) — lighter, faster builds, honest synchronous API.
 - `persistence-evaluation.md` lines 98-122: `rusqlite_migration` uses `PRAGMA user_version` (single integer), plain SQL, tiny crate.
 - `persistence-evaluation.md` lines 128-147: Litestream for point-in-time recovery (RPO ~1s), `.backup` API for ad-hoc. Migration prep: abstraction trait, avoid SQLite-specific SQL (lines 197-201).
@@ -47,7 +49,7 @@ This decision does NOT commit to final schema design — that is deferred to M1 
 
 | Option | Decision | Reason |
 |--------|----------|--------|
-| SQLite + WAL + rusqlite | **Provisional** | Fits single-process local-first; 500k tracks ~100MB; proven at scale |
+| SQLite + WAL + rusqlite | **Accepted (admission gated)** | Fits single-process local-first; durable sync is now required; workload gate still unmet |
 | PostgreSQL | Rejected | Overkill for local app; operational cost; network latency |
 | DuckDB | Rejected | OLAP columnar, not transactional |
 | Redb / sled | Rejected | Key-value, no SQL, no migrations, no tooling |
@@ -68,7 +70,9 @@ This decision does NOT commit to final schema design — that is deferred to M1 
 - Does PostgreSQL become necessary? (Threshold per persistence-evaluation.md lines 186-195: only when 2+ of {write contention, >10K TPS, multi-process writes, >1TB} hit simultaneously.)
 - Network filesystem support: the WAL database requires a **supported local filesystem**; SQLite is explicitly unsupported on NFS/SMB and FUSE is not assured suitable. Document the local-filesystem requirement.
 
-## Sol Review Packet
+## Initial Sol Review Packet (historical; durability amended below)
+
+> This packet records the original engine recommendation. Its original synchronous=NORMAL setting is superseded by the owner-approved WAL/FULL durability amendment below; the 500k admission gate and all later findings remain in force.
 
 **DECISION:** Use SQLite with WAL mode, `rusqlite` (bundled), `rusqlite_migration`, domain-facing repository interfaces. Litestream optional, not the backup strategy.
 
@@ -76,13 +80,13 @@ This decision does NOT commit to final schema design — that is deferred to M1 
 
 **CONSTRAINTS:** Single-process local-first. Must handle 100k-500k tracks. Must support migrations, backups, provenance. No multi-process writes in M0 scope.
 
-**OPTIONS:** SQLite (provisional), PostgreSQL (rejected: overkill), DuckDB (rejected: OLAP), Redb/sled (rejected: no SQL), libSQL (deferred: fork risk), SQLCipher (deferred: not required).
+**OPTIONS:** SQLite + WAL + bundled `rusqlite` + `rusqlite_migration` — **Accepted, dependency admission gated**; PostgreSQL (rejected: overkill), DuckDB (rejected: OLAP), Redb/sled (rejected: no SQL), libSQL (deferred: fork risk), SQLCipher (deferred: not required). The approved durability setting is WAL/FULL; see the amendment below.
 
-**EVIDENCE:** persistence-evaluation.md: SQLite 50-100K read QPS, 10-50K write TPS, ~1TB limit; 500k tracks = ~100MB; rusqlite ~9 crates/8s build vs sqlx ~174 crates/19s; botmonster.com + sesamedisk.com 2026 benchmarks; Litestream RPO ~1s.
+**EVIDENCE (historical context only):** persistence-evaluation.md reports third-party read/write TPS, size, build and Litestream estimates. They are not OxiDJ measurements or admission evidence; the 500k-track footprint is unknown until the prototype measures it.
 
 **CURRENT RECOMMENDATION:** SQLite + WAL + bundled `rusqlite` + `rusqlite_migration` (+ optional Litestream). Confidence: medium. The QPS/TPS/size/build-time/RPO figures are **contextual third-party benchmarks, not OxiDJ acceptance evidence**; the estimated 500k-track footprint is not established. What changes it: proven multi-process write requirement, or dataset approaching 1TB while hitting 2+ other thresholds.
 
-**OUTPUT CONTRACT:** None — the decision is **Accepted**, but the dependency-admission gate is still blocking. Future M1 work creates `prototypes/oxidj-sqlite-probe` to benchmark the OxiDJ schema with 500k tracks (indexes, migrations, concurrency, crash/reopen, retained-backup restore) with measurable pass criteria defined before running it. No Cargo dependency enters the M0 workspace until that prototype passes.
+**OUTPUT CONTRACT:** No schema design or dependency admission. The bounded implementation experiment and acceptance criteria belong to the 500k-track prototype, which must pass before dependencies enter the workspace.
 
 ## Independent Review Outcome (2026-10-15)
 
@@ -117,3 +121,13 @@ This decision does NOT commit to final schema design — that is deferred to M1 
 **Accepted vs admission:** the decision is accepted; the dependencies stay out of the workspace until the prototype gate passes.
 
 **What would reopen the engine choice:** a 500k-track prototype showing sustained writer-queue growth or unacceptable interactive latency under simultaneous scans, analysis updates and search despite short batched transactions and sound indexing; or a failed crash/reopen or retained-backup restore test. A Litestream-specific packaging or restore failure removes Litestream, not SQLite.
+
+## Durability Amendment (2026-10-15)
+
+**Trigger:** the owner selected zero acknowledged-write loss after OS/power interruption. The accepted `synchronous=NORMAL` setting did not match that requirement. An independent follow-up review by `gpt-6.1-sol` via `openai-codex` recommended WAL/FULL, a commit-success acknowledgement boundary, and an explicitly conditional storage-stack guarantee. The owner accepted that condition. The setting and contract above are amended accordingly; no other engine decision or prototype gate is changed.
+
+**Durability contract:** every connection allowed to write must verify `PRAGMA synchronous=FULL` while WAL is active. Application success/"saved" is reported only after the encompassing transaction's commit returns successfully with FULL enabled. Queue acceptance, an individual statement before commit, and optimistic UI state are not durable acknowledgements. A commit/sync error is not success and may leave an uncertain outcome requiring reconciliation. A WAL commit with FULL sync relies on the supported SQLite build/VFS/OS/filesystem/controller/device honoring sync and recovery semantics; this is not a guarantee against defective or dishonest hardware/storage, media destruction, or unsupported filesystems. WAL remains host-local, not a network-filesystem solution. Cross-platform compatibility is separate; do not claim equivalent durability outside a separately qualified stack.
+
+**Qualification consequences:** run the 500k prototype with FULL, not NORMAL; verify effective settings for every writer and assert ack ordering/error propagation. Recovery tests must compare acknowledged transaction IDs against an independently durable witness and inject process/I/O/sync faults around commit boundaries; permit an unacknowledged transaction to survive, but never accept loss of an acknowledged one. Process termination is not a power-loss simulation, and no finite test campaign proves every device. Record the tested host stack and limit the claim to that supported configuration. Proposed latency/throughput/memory budgets remain provisional until pre-run review.
+
+**Primary evidence verified by the lead:** [SQLite synchronous pragma](https://sqlite.org/pragma.html#pragma_synchronous) documents FULL's additional WAL sync at each commit and NORMAL's possible loss after system/power failure; [SQLite WAL](https://sqlite.org/wal.html) documents that FULL syncs each transaction commit while NORMAL omits the sync; [SQLite atomic commit](https://sqlite.org/atomiccommit.html) describes the dependence of commit safety on underlying flush behavior. See the full advisory and lead verification in [`m1-sqlite-review-outcome.md`](../research/m1-sqlite-review-outcome.md).

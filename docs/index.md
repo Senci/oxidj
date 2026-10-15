@@ -48,8 +48,8 @@ Consequences → Open Questions → Sol Review Packet (docs/adr/000-template.md)
   Qt deferred. Final framework commitment gated on a 200k-row virtualized list +
   accessibility evidence.
 - [docs/adr/002-persistence.md](adr/002-persistence.md) — SQLite + WAL with
-  `rusqlite` (bundled) and `rusqlite_migration`. Dependencies stay out of the
-  workspace until a 500k-track prototype passes.
+  `synchronous=FULL` and conditional zero-loss-on-ack contract; persistence
+  dependencies still require a passing 500k-track prototype before admission.
 - [docs/adr/003-metadata-representation.md](adr/003-metadata-representation.md) —
   neutral internal domain model with per-field provenance; preserve constant vs
   variable tempo, point cues vs loop ranges.
@@ -91,12 +91,14 @@ cited with URLs and dates.
 - [docs/research/persistence-evaluation.md](research/persistence-evaluation.md) —
   SQLite vs alternatives for 100k–500k tracks; PRAGMA settings, migrations,
   backup strategy.
+- [docs/research/m1-sqlite-decision-packet.md](research/m1-sqlite-decision-packet.md) —
+  original 680-word Sol input packet for the prototype criteria review (historical).
 - [docs/research/m1-sqlite-admission-protocol.md](research/m1-sqlite-admission-protocol.md) —
-  conditional draft admission protocol for ADR-002's 500k-track prototype; proposed
-  budgets and NOT READY inputs, not an executable gate.
+  current conditional protocol for the 500k-track prototype; owner durability
+  choices are accepted, but technical inputs remain NOT READY.
 - [docs/research/m1-sqlite-review-outcome.md](research/m1-sqlite-review-outcome.md) —
-  verbatim scoped Sol recommendation and lead ruling; dependency admission remains
-  blocked until owner and measurement prerequisites are resolved.
+  initial acceptance-criteria recommendation and follow-up durability review,
+  source verification, owner-approved WAL/FULL amendment; prototype remains NOT READY.
 - [docs/research/rust-agent-workflow.md](research/rust-agent-workflow.md) —
   M0-02 Rust toolchain and agent workflow audit (tooling, citations, smoke test).
 - [docs/research/rust-quality-gates.md](research/rust-quality-gates.md) — M0-10

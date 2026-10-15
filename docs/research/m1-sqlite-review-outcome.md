@@ -2,7 +2,9 @@
 
 Task: t_93530bfb
 Scope: acceptance-criteria decision only; no implementation or benchmarks.
-Companion packet: m1-sqlite-decision-packet.md (680 whitespace-delimited words).
+Companion input packet: [`m1-sqlite-decision-packet.md`](m1-sqlite-decision-packet.md) (680 whitespace-delimited words; preserved verbatim).
+
+> This is the initial criteria review. Its owner-choice blockers were resolved in the later follow-up durability review and owner decision below; the technical protocol inputs remain open.
 
 ## Review provenance
 
@@ -41,17 +43,17 @@ Source transcript handle: /home/senci/.hermes/profiles/oxidj-2/cache/delegation/
 
 ## Lead ruling
 
-Accept the recommendation as advisory and adopt A ONLY as a conditional draft protocol. No executable gate, dependency admission, benchmark authorization, or schema approval follows from this task. ADR-002 remains Accepted with its original admission gate unmet. A task completing this decision packet is not the prototype passing.
+**Initial lead ruling (superseded by the final owner-approved durability ruling below):** Accept the original reviewer recommendation as advisory and adopt A ONLY as a conditional draft protocol. No executable gate, dependency admission, benchmark authorization, or schema approval follows from that initial task. ADR-002 remained Accepted with its original admission gate unmet. A task completing the decision packet is not the prototype passing.
 
 Retain the packet's numerical budgets as proposed engineering budgets, not product guarantees or measured feasibility. Their rationale is bounded desktop response, bounded resource use, no silent loss and reproducible recovery—not the research note's generic TPS or 50–100MB estimate. Precise numeric feasibility and user suitability are unestablished. The reviewer correctly identifies that percentages without arrival/sample definitions and a post-drain WAL cap cannot prove stability or bounded live disk usage.
 
-### Unresolved prerequisites — explicitly NOT READY
+### Initial owner blockers — resolved below; technical inputs remain NOT READY
 
-Owner decisions:
+Initial review blockers and current state:
 
-- Durability: acceptable acknowledged-write loss after OS/power interruption, if any, and recovery-point objective. NORMAL does not supply a zero-loss guarantee. If zero loss is required, revisit FULL and amend ADR-002 before measurement. Neither a loss duration nor an allowable transaction count has been chosen.
-- Real qualification device and support boundary: approve or replace proposed 4-core/8GiB/local-SSD reference floor; decide whether HDD and additional operating systems gate dependency admission. No real device is designated here.
-- Product budgets: approve or revise proposed latency, throughput, memory, migration, reopen and restore limits BEFORE results exist. The packet is a recommendation, not owner consent.
+- **Durability (resolved):** the owner selected zero acknowledged-write loss after OS/power interruption and accepted the conditional supported-stack contract. ADR-002 now uses WAL/FULL with successful-commit acknowledgement; see the amendment below.
+- **Reference device (candidate selected):** use the current Linux `viper` host for the measured gate, with environment details recorded in `m1-sqlite-admission-protocol.md`; re-record exact state at run start. Cross-platform compatibility remains separate.
+- **Product budgets (partially resolved):** proposed numeric limits remain provisional engineering budgets. Review feasibility before execution; they are not binding product guarantees or measured feasibility.
 
 Technical protocol decisions still required before execution:
 
@@ -78,4 +80,14 @@ Primary-source verification, fetched during this task:
 - https://sqlite.org/pragma.html#pragma_synchronous: "WAL mode does lose durability. A transaction committed in WAL mode with synchronous=NORMAL might roll back following a power loss or system crash. Transactions are durable across application crashes regardless of the synchronous setting or journal mode." This supports distinguishing process-kill retention from power-loss retention; no physical fault injection was performed.
 - https://sqlite.org/wal.html section 6: checkpoint starvation can grow the WAL while readers prevent completion. Therefore journal_size_limit and post-drain size cannot establish a live disk bound.
 
-No third-party performance estimate is promoted to an OxiDJ benchmark. No benchmark, test of SQLite, schema implementation, or product/dependency edit was performed.
+## Independent durability review (2026-10-15)
+
+Follow-up task: `t_8129833d`. Actual isolated review returned under model `gpt-6.1-sol` / provider `openai-codex`; the card requested medium reasoning, but effective effort was not independently echoed in the run metadata. The review was advisory, tool-free, and produced no project writes or benchmark.
+
+**Recommendation:** use WAL with `synchronous=FULL` on every writer and define the saved/acknowledged boundary at successful durable transaction commit. Queue admission, statement completion inside a transaction, and optimistic UI updates are not durable acknowledgements; failed/uncertain commits receive no success report and may require reconciliation. State the zero-loss target conditionally on the supported SQLite build, VFS, OS, filesystem, controller, and storage honoring sync/recovery semantics. Do not promise protection against defective storage, media destruction, or unsupported filesystems; WAL/network-filesystem limitations remain. Assess platform-specific stronger sync controls separately before making cross-platform durability claims.
+
+**Qualification evidence advised:** verify effective FULL on every writer; verify acknowledgement ordering and commit/sync error propagation; reopen against an independently persisted witness of acknowledged transaction IDs; exercise process termination and injected I/O/sync failures around transaction/ack boundaries, allowing unacknowledged transactions to appear but never losing acknowledged ones. A durable witness must not be in-memory or unflushed. Process kills do not simulate power loss. The reviewer considers destructive power-cut testing useful on a named stack but not inherently required to admit the dependency conditionally; neither it nor a finite test campaign proves universal hardware behavior. Run the performance gate with FULL, not NORMAL.
+
+**Lead verification:** official SQLite `pragma_synchronous` documents FULL's additional WAL sync after each commit in WAL mode and NORMAL's possible rollback after power/system failure; official WAL docs confirm host-local operation and one writer, with checkpointing constraints. Official pragma docs describe `fullfsync` and `checkpoint_fullfsync` as platform-specific controls (F_FULLFSYNC supported on macOS). The recommendation is consistent with sources. The owner accepted the conditional storage-stack scope on 2026-10-15; ADR-002 now records the WAL/FULL amendment and acknowledgement boundary. The prototype admission gate remains unmet.
+
+**Owner decision (2026-10-15): accepted the conditional system contract** — zero acknowledged-write loss on explicitly supported SQLite/VFS/OS/filesystem/storage stacks that honor synchronization, with no universal claim against arbitrary defective hardware. See the ADR-002 durability amendment and the operational limits above. Prototype inputs remain NOT READY; no dependency admission follows.

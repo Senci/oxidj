@@ -1,6 +1,6 @@
 # M0-06: Persistence Layer Evaluation
 
-**Status:** Research complete — review ready
+**Status:** Research complete — ADR-002 accepted with conditional WAL/FULL durability; 500k-track admission prototype NOT READY
 **Owner:** oxidj-2
 **Date:** 2026-10-15
 
@@ -22,7 +22,7 @@ OxiDJ needs a local-first persistence layer for hundreds of thousands of tracks 
 
 ## SQLite in Production (2026 Reality Check)
 
-### Performance Baselines (Modern NVMe)
+### Third-Party Performance Claims (Context Only; Not OxiDJ Evidence)
 
 | Metric | Value | Source |
 |--------|-------|--------|
@@ -32,23 +32,25 @@ OxiDJ needs a local-first persistence layer for hundreds of thousands of tracks 
 | Single-writer latency | 0.1–1 ms per transaction | botmonster.com |
 | Lock contention threshold | ~20 concurrent writers | Shivek Khurana benchmark |
 
-**OxiDJ context:** A DJ library with 500k tracks × ~100 columns ≈ 50–100 MB. Well within SQLite's comfort zone. Write workload is import/analysis (batch, sequential), not high-concurrency OLTP.
+**OxiDJ context:** 500k tracks × ~100 columns was a rough arithmetic estimate only; actual storage depends on indexes, payloads, metadata relationships, and SQLite page/WAL overhead. It is not an observed OxiDJ database size. The 500k-track prototype must measure it. Generic published baselines below do not qualify OxiDJ's workload or durability settings.
 
 ### Required PRAGMA Settings (Production)
 
 ```sql
--- Apply on EVERY connection
-PRAGMA journal_mode = WAL;           -- Readers never block writer; one writer
-PRAGMA synchronous = NORMAL;         -- Safe with WAL; 2-5x faster writes
+-- Apply these settings to every relevant connection; verify effective values at open
+PRAGMA journal_mode = WAL;           -- Persistent mode; one writer, readers can overlap
+PRAGMA synchronous = FULL;           -- Selected for the conditional acknowledged-write durability contract
 PRAGMA cache_size = -64000;          -- 64 MB page cache (adjust to 10-25% RAM)
 PRAGMA mmap_size = 268435456;        -- 256 MB memory-map for reads
 PRAGMA busy_timeout = 5000;          -- Wait 5s for write lock (not instant SQLITE_BUSY)
 PRAGMA foreign_keys = ON;            -- Enforce referential integrity (not persistent!)
-PRAGMA journal_size_limit = 67108864; -- Cap WAL at 64 MB
+PRAGMA journal_size_limit = 67108864; -- Reclaim limit after journal reset; not a live WAL hard cap
 PRAGMA auto_vacuum = INCREMENTAL;    -- Incremental vacuuming
 ```
 
-**Sources:** [botmonster.com](https://botmonster.com/coding/sqlite-application-database-when-how-to-use/), [sesamedisk.com](https://sesamedisk.com/sqlite-in-production-2026-benchmarks-limits/), [SQLite docs](https://sqlite.org/pragma.html).
+**Selected durability rule:** WAL + `synchronous=FULL` on all writers is required because OxiDJ targets zero acknowledged-write loss on the supported storage stack. FULL adds a sync per WAL transaction commit; NORMAL can omit that sync and may roll back recent commits after power/system failure. See [SQLite synchronous pragma](https://sqlite.org/pragma.html#pragma_synchronous), [WAL](https://sqlite.org/wal.html), and [atomic commit](https://sqlite.org/atomiccommit.html). This is a conditional contract, not a claim against storage that fails to honor sync.
+
+**Third-party performance-claim sources:** [botmonster.com](https://botmonster.com/coding/sqlite-application-database-when-how-to-use/), [sesamedisk.com](https://sesamedisk.com/sqlite-in-production-2026-benchmarks-limits/), and [SQLite docs](https://sqlite.org/pragma.html). These generic values are context only, not measurements or admission evidence.
 
 ### Concurrency Model for OxiDJ
 
