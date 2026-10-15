@@ -96,6 +96,9 @@ cited with URLs and dates.
 - [docs/research/m1-sqlite-admission-protocol.md](research/m1-sqlite-admission-protocol.md) —
   current conditional protocol for the 500k-track prototype; owner durability
   choices are accepted, but technical inputs remain NOT READY.
+- [docs/research/m1-sqlite-readiness-note.md](research/m1-sqlite-readiness-note.md) —
+  independent NOT READY assessment of the 500k protocol's unresolved workload,
+  statistics, recovery, cold-cache, and ADR-005-dependent oracle inputs; not a benchmark result.
 - [docs/research/m1-sqlite-review-outcome.md](research/m1-sqlite-review-outcome.md) —
   initial acceptance-criteria recommendation and follow-up durability review,
   source verification, owner-approved WAL/FULL amendment; prototype remains NOT READY.

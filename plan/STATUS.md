@@ -6,7 +6,7 @@
 
 ## Current objective
 
-M1 Library core (TrackId → neutral domain model, storage trait, first import round-trip). ADR-002 is accepted with WAL/FULL and conditional zero-loss-on-ack semantics; the 500k-track gate is still NOT READY because its workload, fixtures, measurement accounting, semantic oracle, WAL/disk envelope, and recovery matrix are not yet frozen. Persistence dependencies remain blocked. See the protocol and both scoped Sol reviews in `docs/research/`.
+M1 Library core (TrackId → neutral domain model, storage trait, first import round-trip). ADR-002 is accepted with WAL/FULL and conditional zero-loss-on-ack semantics; the 500k-track gate is still NOT READY because its workload, fixtures, measurement accounting, semantic oracle, WAL/disk envelope, and recovery matrix are not yet frozen. Persistence dependencies remain blocked. See the admission protocol, independent NOT READY readiness assessment, and both scoped Sol reviews in `docs/research/`; the readiness assessment is not a frozen qualification gate.
 
 ## M0-09 Verification Summary (independent, lead-run)
 
@@ -59,12 +59,13 @@ M0-08's handoff evidence was re-run verbatim on the integrated checkout:
 
 ## Next tasks
 
-1. **Freeze the SQLite qualification protocol** — owner contract is now set; finish fixture/workload distributions, open-loop measurement accounting, live WAL/disk envelope, semantic oracle, and recovery fault matrix. Review the proposed numeric budgets before any run. The 500k prototype remains NOT READY and persistence dependencies stay out until criteria are executable and it passes.
-2. **ADR-005 (metadata schema)** — carry the ADR-003 field-relationship risk; define relationship-aware edits and decision-bearing import-edit-export fixtures. Its schema decision does not depend on adding SQLite dependencies.
-3. **Run the isolated 500k-track SQLite prototype** — only after its protocol is executable and reviewed; failure reopens ADR-002 only for engine-level issues.
-4. **M1 Library core** — neutral domain model beyond TrackId, storage trait only after ADR-002 admission gate passes, then synthetic Mixxx import/semantic round-trip.
-5. **Tier-2 tooling audit** — cargo-deny exists locally; nextest/machete/typos/audit are missing. Decide local install mechanism and confirm CI integration before relying on local Tier 2.
-6. **ADR-001 GUI prototype** — egui/eframe virtualized 200k-row list at 60fps + AccessKit tree smoke test (NVDA/VoiceOver/Orca) before final framework commitment.
+1. **Close schema-independent SQLite protocol gaps** — finish workload/fixture distributions, arrival and sample accounting, live WAL/disk limits, and recovery fault details; review provisional budgets before any run. Keep the full protocol NOT READY while ADR-005-dependent semantic/migration inputs remain unresolved.
+2. **ADR-005 (metadata schema)** — carry the ADR-003 field-relationship risk; define relationship-aware edits and decision-bearing import-edit-export fixtures before freezing the schema-dependent semantic/migration oracle.
+3. **Complete and freeze the full SQLite qualification protocol** — integrate the approved ADR-005 schema/fixtures and make every qualification criterion executable and reviewed. No benchmark before this gate is met.
+4. **Run the isolated 500k-track SQLite prototype** — only after the full protocol is executable and reviewed; failure reopens ADR-002 only for engine-level issues.
+5. **M1 Library core** — neutral domain model beyond TrackId, storage trait only after ADR-002 admission gate passes, then synthetic Mixxx import/semantic round-trip.
+6. **Tier-2 tooling audit** — cargo-deny exists locally; nextest/machete/typos/audit are missing. Decide local install mechanism and confirm CI integration before relying on local Tier 2.
+7. **ADR-001 GUI prototype** — egui/eframe virtualized 200k-row list at 60fps + AccessKit tree smoke test (NVDA/VoiceOver/Orca) before final framework commitment.
 
 ## Risks (carried forward from M0)
 

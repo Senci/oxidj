@@ -84,10 +84,11 @@ This milestone evaluates three architectural boundaries before OxiDJ commits to 
 
 ## Next Steps (Post-Review)
 
-1. **Freeze** the executable SQLite 500k-track workload, fixtures, measurement accounting, semantic oracle and recovery matrix with the documented provisional budgets reviewed before run.
-2. **Run** the prototype on the recorded Linux reference stack only after protocol readiness is verified; admit no dependency unless every criterion passes.
-3. **Draft ADR-005** metadata schema after the gate, carrying ADR-003 field-relationship risk and import-edit-export evidence.
-4. **Maintain** cross-platform compatibility as a separate verification requirement.
+1. **Close schema-independent protocol gaps** — settle the workload/arrival/sample-accounting model, live WAL/disk envelope, recovery fault matrix, and review the provisional budgets. Do not run a benchmark while any qualification input remains open.
+2. **Resolve ADR-005** — define the metadata schema, relationship-aware edits, and decision-bearing import-edit-export fixtures, carrying ADR-003 field-relationship risk.
+3. **Complete and freeze the full protocol** — finish schema-dependent fixture, semantic-oracle, and migration criteria after ADR-005; review all inputs before any run.
+4. **Run** the 500k-track prototype on the recorded Linux reference stack only after protocol readiness is verified; admit no persistence dependency unless every agreed criterion passes.
+5. **Maintain** cross-platform compatibility as a separate verification requirement.
 
 ---
 
