@@ -1,0 +1,9 @@
+node_modules/
+dist/
+coverage/
+*.log
+LICENSE
+bun.lock
+package-lock.json
+yarn.lock
+*.min.js

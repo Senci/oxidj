@@ -1,0 +1,289 @@
+/*
+ * OxiDJ teaser — FILE #0042 stylesheet.
+ *
+ * Dark is the default (it is a dossier, after all). The theme flips to a
+ * light "reading room" palette when the OS asks for it via
+ * `prefers-color-scheme: light`. Contrast choices are documented in the
+ * README; every text pairing clears WCAG AA (4.5:1) in both themes.
+ */
+
+:root {
+  --bg: #0a0a0f;
+  --bg-panel: #111118;
+  --text: #e8e6e3;
+  --text-muted: #9a978f;
+  --accent: #c0392b;
+  --accent-dark: #96281b;
+  --accent-bright: #e74c3c;
+  --stamp: #c9a36a;
+  --bar: rgba(0, 0, 0, 0.55);
+  --rule: #2a2a33;
+  --scanline: rgba(255, 255, 255, 0.02);
+  --grain: rgba(255, 255, 255, 0.012);
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg: #f4f2ea;
+    --bg-panel: #eceade;
+    --text: #1a1a14;
+    --text-muted: #5c584c;
+    --accent: #a93226;
+    --accent-dark: #8c2a1f;
+    --accent-bright: #c0392b;
+    --stamp: #7a5c2e;
+    --bar: rgba(60, 50, 30, 0.18);
+    --rule: #d8d4c6;
+    --scanline: rgba(0, 0, 0, 0.02);
+    --grain: rgba(0, 0, 0, 0.012);
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background-color: var(--bg);
+  color: var(--text);
+  font-family:
+    'SFMono-Regular', 'JetBrains Mono', 'Fira Code', Menlo, Consolas, 'Liberation Mono', monospace;
+  font-size: 15px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Subtle scanline + paper-grain texture, CSS only. */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  pointer-events: none;
+  background:
+    repeating-linear-gradient(
+      to bottom,
+      var(--scanline) 0,
+      var(--scanline) 1px,
+      transparent 1px,
+      transparent 3px
+    ),
+    radial-gradient(ellipse at center, transparent 55%, var(--grain) 100%);
+}
+
+#app {
+  position: relative;
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 2rem 1.25rem 3rem;
+  z-index: 1;
+}
+
+.case-header {
+  position: relative;
+  text-align: center;
+  border-bottom: 1px solid var(--rule);
+  padding-bottom: 1.25rem;
+  margin-bottom: 1.5rem;
+}
+
+.stamp {
+  position: absolute;
+  top: 0.25rem;
+  right: 0;
+  padding: 0.15rem 0.6rem;
+  border: 3px solid var(--accent-bright);
+  border-radius: 3px;
+  color: var(--accent-bright);
+  font-weight: 700;
+  font-size: 0.85rem;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  transform: rotate(6deg);
+  opacity: 0.55;
+  pointer-events: none;
+}
+
+.eyes-only {
+  margin: 0 0 0.25rem;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  letter-spacing: 0.35em;
+  text-transform: uppercase;
+}
+
+h1 {
+  margin: 0.15rem 0 0.25rem;
+  font-size: 2.4rem;
+  letter-spacing: 0.12em;
+  color: var(--text);
+}
+
+.subtitle,
+.status {
+  margin: 0.1rem 0;
+  font-size: 0.95rem;
+  letter-spacing: 0.08em;
+}
+
+.status {
+  color: var(--accent-bright);
+  font-weight: 700;
+}
+
+.panel {
+  background-color: var(--bg-panel);
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  padding: 1.1rem 1.25rem;
+  margin-bottom: 1.25rem;
+}
+
+.panel h2 {
+  margin: 0 0 0.75rem;
+  font-size: 1rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--accent-bright);
+  border-bottom: 1px dashed var(--rule);
+  padding-bottom: 0.4rem;
+}
+
+.dossier-fields {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 0.35rem 1rem;
+  margin: 0;
+}
+
+.field-label {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.field-value {
+  margin: 0;
+}
+
+.redacted {
+  background-color: var(--bar);
+  color: var(--text);
+  padding: 0 0.25em;
+  border-radius: 1px;
+  letter-spacing: 0.05em;
+}
+
+.evidence-log {
+  margin: 0;
+  padding-left: 1.4rem;
+}
+
+.evidence-entry {
+  margin-bottom: 0.55rem;
+}
+
+.evidence-entry::marker {
+  color: var(--text-muted);
+}
+
+.evidence-time {
+  color: var(--accent-bright);
+  font-weight: 700;
+  margin-right: 0.5em;
+}
+
+.analysis-output,
+.asylum-output {
+  min-height: 1.6em;
+  margin: 0.25rem 0 0;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--accent-bright);
+}
+
+.asylum-button {
+  font: inherit;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: #ffffff;
+  background-color: var(--accent);
+  border: 1px solid var(--accent-bright);
+  border-radius: 3px;
+  padding: 0.55rem 1.25rem;
+  cursor: pointer;
+  text-transform: uppercase;
+  transition:
+    background-color 120ms ease,
+    transform 120ms ease;
+}
+
+.asylum-button:hover {
+  background-color: var(--accent-dark);
+  border-color: var(--accent);
+}
+
+.asylum-button:focus-visible {
+  outline: 2px solid var(--text);
+  outline-offset: 2px;
+}
+
+.asylum-button:active {
+  transform: translateY(1px);
+}
+
+.case-footer {
+  margin-top: 2rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--rule);
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+.case-footer a {
+  color: var(--accent-bright);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.case-footer a:focus-visible {
+  outline: 2px solid var(--text);
+  outline-offset: 2px;
+}
+
+.noscript-note {
+  text-align: center;
+  color: var(--accent-bright);
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  padding: 2rem;
+}
+
+@media (max-width: 560px) {
+  .dossier-fields {
+    grid-template-columns: 1fr;
+    gap: 0.15rem 0;
+  }
+
+  .field-label {
+    margin-top: 0.6rem;
+  }
+}
+
+/* Respect users who prefer reduced motion: drop transitions entirely. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}

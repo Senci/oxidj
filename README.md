@@ -29,6 +29,7 @@ The first major product proof — the MVP (idea.md) — is library-first: import
 
 - [docs/index.md](docs/index.md) — every document in the repository, grouped by purpose.
 - [docs/glossary.md](docs/glossary.md) — DJ and domain vocabulary (beatgrid, cues, loops, provenance, vendor formats).
+- [site/README.md](site/README.md) — the "FILE #0042" teaser site: what it is, and how to build and test it locally.
 - [plan/STATUS.md](plan/STATUS.md) — current milestone, blockers, and next tasks.
 - [AGENTS.md](AGENTS.md) — rules for agent contributors.
 
