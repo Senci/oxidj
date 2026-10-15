@@ -1,0 +1,95 @@
+Probe cwd: /home/senci/.hermes/profiles/oxidj-2/cache/scratch/oxidj-rust-smoke.Lbufyc
+rustc 1.99.0 (b940084d7 2026-09-28)
+binary: rustc
+commit-hash: b940084d7eb6a299eb4bfeb8e34901bc051e7ac4
+commit-date: 2026-09-28
+host: x86_64-unknown-linux-gnu
+release: 1.99.0
+LLVM version: 23.1.1
+cargo 1.99.0 (5f94df478 2026-08-27)
+rustfmt 1.10.0-stable (b940084d7e 2026-09-28)
+clippy 0.1.99 (b940084d7e 2026-09-28)
+rust-analyzer 1.99.0 (b940084 2026-09-28)
+    Creating library `oxidj_toolchain_probe` package
+note: see more `Cargo.toml` keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+    Checking oxidj_toolchain_probe v0.1.0 (/home/senci/.hermes/profiles/oxidj-2/cache/scratch/oxidj-rust-smoke.Lbufyc/crate)
+{"reason":"compiler-message","package_id":"path+file:///home/senci/.hermes/profiles/oxidj-2/cache/scratch/oxidj-rust-smoke.Lbufyc/crate#oxidj_toolchain_probe@0.1.0","manifest_path":"/home/senci/.hermes/profiles/oxidj-2/cache/scratch/oxidj-rust-smoke.Lbufyc/crate/Cargo.toml","target":{"kind":["lib"],"crate_types":["lib"],"name":"oxidj_toolchain_probe","src_path":"/home/senci/.hermes/profiles/oxidj-2/cache/scratch/oxidj-rust-smoke.Lbufyc/crate/src/lib.rs","edition":"2024","doc":true,"doctest":true,"test":true},"message":{"rendered":"error[E0308]: mismatched types\n --> src/lib.rs:1:26\n  |\n1 | pub fn answer() -> u32 { \"wrong type\" }\n  |                    ---   ^^^^^^^^^^^^ expected `u32`, found `&str`\n  |                    |\n  |                    expected `u32` because of return type\n\n","$message_type":"diagnostic","children":[],"level":"error","message":"mismatched types","spans":[{"byte_end":37,"byte_start":25,"column_end":38,"column_start":26,"expansion":null,"file_name":"src/lib.rs","is_primary":true,"label":"expected `u32`, found `&str`","line_end":1,"line_start":1,"suggested_replacement":null,"suggestion_applicability":null,"text":[{"highlight_end":38,"highlight_start":26,"text":"pub fn answer() -> u32 { \"wrong type\" }"}]},{"byte_end":22,"byte_start":19,"column_end":23,"column_start":20,"expansion":null,"file_name":"src/lib.rs","is_primary":false,"label":"expected `u32` because of return type","line_end":1,"line_start":1,"suggested_replacement":null,"suggestion_applicability":null,"text":[{"highlight_end":23,"highlight_start":20,"text":"pub fn answer() -> u32 { \"wrong type\" }"}]}],"code":{"code":"E0308","explanation":"Expected type did not match the received type.\n\nErroneous code examples:\n\n```compile_fail,E0308\nfn plus_one(x: i32) -> i32 {\n    x + 1\n}\n\nplus_one(\"Not a number\");\n//       ^^^^^^^^^^^^^^ expected `i32`, found `&str`\n\nif \"Not a bool\" {\n// ^^^^^^^^^^^^ expected `bool`, found `&str`\n}\n\nlet x: f32 = \"Not a float\";\n//     ---   ^^^^^^^^^^^^^ expected `f32`, found `&str`\n//     |\n//     expected due to this\n```\n\nThis error occurs when an expression was used in a place where the compiler\nexpected an expression of a different type. It can occur in several cases, the\nmost common being when calling a function and passing an argument which has a\ndifferent type than the matching type in the function declaration.\n"}}}
+{"reason":"compiler-message","package_id":"path+file:///home/senci/.hermes/profiles/oxidj-2/cache/scratch/oxidj-rust-smoke.Lbufyc/crate#oxidj_toolchain_probe@0.1.0","manifest_path":"/home/senci/.hermes/profiles/oxidj-2/cache/scratch/oxidj-rust-smoke.Lbufyc/crate/Cargo.toml","target":{"kind":["lib"],"crate_types":["lib"],"name":"oxidj_toolchain_probe","src_path":"/home/senci/.hermes/profiles/oxidj-2/cache/scratch/oxidj-rust-smoke.Lbufyc/crate/src/lib.rs","edition":"2024","doc":true,"doctest":true,"test":true},"message":{"rendered":"For more information about this error, try `rustc --explain E0308`.\n","$message_type":"diagnostic","children":[],"level":"failure-note","message":"For more information about this error, try `rustc --explain E0308`.","spans":[],"code":null}}
+error: could not compile `oxidj_toolchain_probe` (lib) due to 1 previous error
+{"reason":"build-finished","success":false}
+Expected failure observed: compiler type error
+Diff in /home/senci/.hermes/profiles/oxidj-2/cache/scratch/oxidj-rust-smoke.Lbufyc/crate/src/lib.rs:1:
+-pub fn answer()->u32{42}
++pub fn answer() -> u32 {
++    42
++}
+ 
+Expected failure observed: formatter drift
+    Checking oxidj_toolchain_probe v0.1.0 (/home/senci/.hermes/profiles/oxidj-2/cache/scratch/oxidj-rust-smoke.Lbufyc/crate)
+error: equal expressions as operands to `==`
+ --> src/lib.rs:3:5
+  |
+3 |     value == value
+  |     ^^^^^^^^^^^^^^
+  |
+  = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#eq_op
+  = note: `#[deny(clippy::eq_op)]` on by default
+
+error: could not compile `oxidj_toolchain_probe` (lib) due to 1 previous error
+warning: build failed, waiting for other jobs to finish...
+error: could not compile `oxidj_toolchain_probe` (lib test) due to 1 previous error
+Expected failure observed: Clippy eq_op
+   Compiling oxidj_toolchain_probe v0.1.0 (/home/senci/.hermes/profiles/oxidj-2/cache/scratch/oxidj-rust-smoke.Lbufyc/crate)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.10s
+     Running unittests src/lib.rs (/home/senci/.hermes/profiles/oxidj-2/cache/scratch/oxidj-rust-smoke.Lbufyc/target/debug/deps/oxidj_toolchain_probe-b5a5eea7baff2722)
+
+running 1 test
+test tests::answer_is_42 ... FAILED
+
+failures:
+
+---- tests::answer_is_42 stdout ----
+
+thread 'tests::answer_is_42' (803061) panicked at src/lib.rs:14:9:
+assertion `left == right` failed
+  left: 41
+ right: 42
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    tests::answer_is_42
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `--lib`
+Expected failure observed: regression test RED
+    Checking oxidj_toolchain_probe v0.1.0 (/home/senci/.hermes/profiles/oxidj-2/cache/scratch/oxidj-rust-smoke.Lbufyc/crate)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.05s
+    Checking oxidj_toolchain_probe v0.1.0 (/home/senci/.hermes/profiles/oxidj-2/cache/scratch/oxidj-rust-smoke.Lbufyc/crate)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.07s
+   Compiling oxidj_toolchain_probe v0.1.0 (/home/senci/.hermes/profiles/oxidj-2/cache/scratch/oxidj-rust-smoke.Lbufyc/crate)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.11s
+     Running unittests src/lib.rs (/home/senci/.hermes/profiles/oxidj-2/cache/scratch/oxidj-rust-smoke.Lbufyc/target/debug/deps/oxidj_toolchain_probe-b5a5eea7baff2722)
+
+running 1 test
+test tests::answer_is_42 ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/public_api.rs (/home/senci/.hermes/profiles/oxidj-2/cache/scratch/oxidj-rust-smoke.Lbufyc/target/debug/deps/public_api-bd5ee5ec9ccfa003)
+
+running 1 test
+test public_api_is_42 ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests oxidj_toolchain_probe
+
+running 1 test
+test src/lib.rs - answer (line 3) ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+all doctests ran in 0.11s; merged doctests compilation took 0.11s
+PASS: compiler, formatter, Clippy, RED/GREEN regression, unit/integration/doctests

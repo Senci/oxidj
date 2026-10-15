@@ -1,0 +1,162 @@
+M0-03 verification — 2026-10-15
+
+PASS external checkout matches pinned commit 3a28a657692c1b98b28c276d8f61df9471074f0f
+PASS external checkout has no source modifications
+PASS exact-body SHA-256 m0-03-soundcraft-architecture.md
+PASS source range Cargo.toml:1-72
+PASS source range AGENTS.md:1-69
+PASS source range docs/architecture.md:1-75
+PASS source range crates/ui-egui/Cargo.toml:1-38
+PASS source range xtask/src/main.rs:19-81
+PASS source range xtask/src/main.rs:83-169
+PASS exact-body SHA-256 m0-03-soundcraft-execution.md
+PASS source range crates/engine/src/cmd/mod.rs:45-103
+PASS source range crates/engine/src/lib.rs:36-54
+PASS source range crates/engine/src/lib.rs:298-378
+PASS source range crates/model/src/source.rs:9-26
+PASS source range crates/model/src/source.rs:58-101
+PASS source range crates/model/src/session.rs:529-585
+PASS source range crates/engine/src/io.rs:28-75
+PASS source range crates/engine/src/io.rs:895-1011
+PASS source range crates/engine/src/file_access.rs:1-21
+PASS source range crates/automation/src/lib.rs:20-79
+PASS source range docs/mcp.md:20-85
+PASS source range crates/playback/src/lib.rs:208-233
+PASS exact-body SHA-256 m0-03-soundcraft-identity.md
+PASS exact-body SHA-256 m0-03-soundcraft-official-site.md
+PASS exact-body SHA-256 m0-03-soundcraft-tests-and-distribution.md
+PASS source range crates/engine/tests/hostile_params.rs:63-107
+PASS source range crates/engine/tests/hostile_sessions.rs:1-85
+PASS source range crates/automation/tests/agent_tasks.rs:1-110
+PASS source range docs/control-protocol.md:15-58
+PASS source range .github/workflows/release.yml:1-42
+PASS source range .github/workflows/packaging-lint.yml:1-23
+PASS source range packaging/linux/flatpak/ai.storyteller.soundcraft.yml:18-74
+PASS source range NOTICE:1-17
+PASS source range ATTRIBUTION.md:1-46
+PASS wiki declared page count equals filesystem count 6
+PASS wiki index covers soundcraft
+PASS wikilink soundcraft -> cargo-workspaces
+PASS wikilink soundcraft -> compiler-driven-rust-agent-workflow
+PASS wikilink soundcraft -> workspace-build-and-test
+PASS wiki index covers shared-lockfile
+PASS wikilink shared-lockfile -> cargo-workspaces
+PASS wikilink shared-lockfile -> workspace-build-and-test
+PASS wiki index covers cargo-workspaces
+PASS wikilink cargo-workspaces -> shared-lockfile
+PASS wikilink cargo-workspaces -> workspace-build-and-test
+PASS wiki index covers workspace-build-and-test
+PASS wikilink workspace-build-and-test -> cargo-workspaces
+PASS wikilink workspace-build-and-test -> shared-lockfile
+PASS wikilink workspace-build-and-test -> compiler-driven-rust-agent-workflow
+PASS wiki index covers model-routing-rust-agents
+PASS wikilink model-routing-rust-agents -> compiler-driven-rust-agent-workflow
+PASS wikilink model-routing-rust-agents -> workspace-build-and-test
+PASS wiki index covers compiler-driven-rust-agent-workflow
+PASS wikilink compiler-driven-rust-agent-workflow -> cargo-workspaces
+PASS wikilink compiler-driven-rust-agent-workflow -> shared-lockfile
+PASS wikilink compiler-driven-rust-agent-workflow -> workspace-build-and-test
+PASS wikilink compiler-driven-rust-agent-workflow -> soundcraft
+PASS wikilink compiler-driven-rust-agent-workflow -> model-routing-rust-agents
+PASS SoundCraft frontmatter title
+PASS SoundCraft frontmatter created
+PASS SoundCraft frontmatter updated
+PASS SoundCraft frontmatter type
+PASS SoundCraft frontmatter tags
+PASS SoundCraft frontmatter sources
+PASS SoundCraft frontmatter confidence
+PASS SoundCraft wiki page below 200 lines
+PASS SoundCraft raw reference raw/articles/m0-03-soundcraft-official-site.md
+PASS SoundCraft raw reference raw/articles/m0-03-soundcraft-identity.md
+PASS SoundCraft raw reference raw/articles/m0-03-soundcraft-architecture.md
+PASS SoundCraft raw reference raw/articles/m0-03-soundcraft-execution.md
+PASS SoundCraft raw reference raw/articles/m0-03-soundcraft-tests-and-distribution.md
+PASS SoundCraft raw reference raw/articles/m0-03-soundcraft-identity.md
+PASS SoundCraft raw reference raw/articles/m0-03-soundcraft-official-site.md
+PASS SoundCraft raw reference raw/articles/m0-03-soundcraft-architecture.md
+PASS SoundCraft raw reference raw/articles/m0-03-soundcraft-architecture.md
+PASS SoundCraft raw reference raw/articles/m0-03-soundcraft-execution.md
+PASS SoundCraft raw reference raw/articles/m0-03-soundcraft-execution.md
+PASS SoundCraft raw reference raw/articles/m0-03-soundcraft-execution.md
+PASS SoundCraft raw reference raw/articles/m0-03-soundcraft-architecture.md
+PASS SoundCraft raw reference raw/articles/m0-03-soundcraft-execution.md
+PASS SoundCraft raw reference raw/articles/m0-03-soundcraft-tests-and-distribution.md
+PASS SoundCraft raw reference raw/articles/m0-03-soundcraft-tests-and-distribution.md
+PASS repo note cited source Cargo.toml
+PASS repo note cited source AGENTS.md
+PASS repo note cited source xtask/src/main.rs
+PASS repo note cited source crates/engine/src/cmd/mod.rs
+PASS repo note cited source crates/engine/src/lib.rs
+PASS repo note cited source crates/automation/src/lib.rs
+PASS repo note cited source docs/mcp.md
+PASS repo note cited source crates/model/src/source.rs
+PASS repo note cited source crates/model/src/session.rs
+PASS repo note cited source docs/architecture.md
+PASS repo note cited source crates/engine/src/io.rs
+PASS repo note cited source crates/engine/src/file_access.rs
+PASS repo note cited source crates/engine/tests/hostile_params.rs
+PASS repo note cited source crates/engine/tests/hostile_sessions.rs
+PASS repo note cited source crates/automation/tests/agent_tasks.rs
+PASS repo note cited source crates/playback/src/lib.rs
+PASS repo note cited source docs/architecture.md
+PASS repo note cited source .github/workflows/release.yml
+PASS repo note cited source .github/workflows/packaging-lint.yml
+PASS repo note cited source packaging/linux/flatpak/ai.storyteller.soundcraft.yml
+PASS repo note cited source NOTICE
+PASS repo note cited source ATTRIBUTION.md
+PASS repo note cited source crates/ui-egui/Cargo.toml
+PASS repo note cited source docs/control-protocol.md
+PASS repo classification ADOPT
+PASS repo classification ADAPT
+PASS repo classification DEFER
+PASS repo classification REJECT
+PASS concurrent model-routing wiki additions preserved
+
+Note: an initial subprocess rerun could not locate cargo in the Python kernel PATH; subsequent runs use the terminal tool environment.
+
+COMMAND: cargo xtask layers
+CWD: /home/senci/.hermes/profiles/oxidj-2/cache/scratch/soundcraft-primary
+EXIT: 0
+Finished `dev` profile [optimized + debuginfo] target(s) in 0.10s
+     Running `target/debug/xtask layers`
+layers: ok
+COMMAND: cargo xtask assets
+CWD: /home/senci/.hermes/profiles/oxidj-2/cache/scratch/soundcraft-primary
+EXIT: 0
+Finished `dev` profile [optimized + debuginfo] target(s) in 0.06s
+     Running `target/debug/xtask assets`
+assets: ok
+COMMAND: cargo test --locked -q -p soundcraft-time -p soundcraft-model
+CWD: /home/senci/.hermes/profiles/oxidj-2/cache/scratch/soundcraft-primary
+EXIT: 0
+running 35 tests
+...................................
+test result: ok. 35 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 29 tests
+.............................
+test result: ok. 29 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 3 tests
+...
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+COMMAND: git diff --check
+CWD: /home/senci/dev/oxidj/.worktrees/t_9703f381
+EXIT: 0
+
+COMMAND: git status --short
+CWD: /home/senci/dev/oxidj/.worktrees/t_9703f381
+EXIT: 0
+?? docs/research/soundcraft.md

@@ -1,0 +1,138 @@
+---
+id: 004
+title: Separate core, library, storage, analysis, audio, and realtime engine crates
+status: Provisional
+date: 2026-10-15
+owners: [oxidj-2]
+sources: [docs/research/soundcraft.md, docs/research/audio-platform-evaluation.md, docs/research/gui-evaluation.md, docs/research/persistence-evaluation.md, docs/research/rust-agent-workflow.md]
+sol_review: required
+review_status: completed 2026-10-15 (gpt-6.1-sol, reasoning medium) — Option 1 with incremental crate creation; M0 = core + cli only
+review_confidence: high
+provisional_reason: Direction confirmed, but the review replaced a fixed crate inventory with incremental creation gated on implemented responsibility. The accepted artifact is the dependency-rule set, not a crate count.
+---
+
+# ADR-004: Crate Boundaries
+
+> **Provisional (M0-07).** Evidence-backed recommendation, not yet accepted architecture. The research evaluation concluded independent Sol review is **not required** for this decision, but the M0-07 integration gate has not yet been independently signed off and the Nous-only free-model routing policy currently suspends independent review. The `oxidj-engine` crate is explicitly deferred to M4 (no realtime-audio implementation in M0).
+
+## Context
+
+OxiDJ must separate domain logic, adapters, UI, persistence, audio decoding/analysis, and the future realtime engine so that each can be built, tested, and versioned independently. SoundCraft's `cargo xtask layers` gate validates UI dependencies do not leak into the library and that adapters are isolated. The audio evaluation mandates that the realtime engine (CPAL + RT-safe DSP) be a separate crate from offline decode/analysis (Symphonia). GUI and persistence must not define the domain model.
+
+## Decision
+
+Adopt a layered crate architecture with one-way dependency edges:
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                    oxidj-cli (binary)                    │
+│                    Command-first entry point             │
+├─────────────────────────────────────────────────────────┤
+│  oxidj-ui          (egui/Slint, M3)                     │
+├─────────────────────────────────────────────────────────┤
+│  oxidj-adapters — vendor format crates                  │
+│  (oxidj-mixxx, oxidj-rekordbox, oxidj-serato, ...)      │
+├─────────────────────────────────────────────────────────┤
+│     oxidj-library  — import/export, metadata pipeline   │
+│              ↑ depends on oxidj-core                    │
+├─────────────────────────────────────────────────────────┤
+│     oxidj-storage  — SQLite persistence, migrations     │
+│              ↑ depends on oxidj-core                    │
+├─────────────────────────────────────────────────────────┤
+│     oxidj-analysis — BPM, beatgrid, waveform, key       │
+│              ↑ depends on oxidj-core                    │
+├─────────────────────────────────────────────────────────┤
+│     oxidj-audio  — Symphonia decode (M0-M3, offline)    │
+│              ↑ depends on oxidj-core                    │
+├─────────────────────────────────────────────────────────┤
+│     oxidj-core   — neutral domain model                 │
+│     (Track, Cue, BeatGrid, Playlist, Provenance, ...)   │
+│     NO UI, NO persistence, NO audio, NO vendor deps      │
+└─────────────────────────────────────────────────────────┘
+```
+
+The **realtime engine** (`oxidj-engine`: CPAL + dasp/fundsp/rubato) is a separate crate with strictly one dependency edge — `oxidj-core` — and is **not created in M0**. It enters only at M4.
+
+**Command-first application layer:** All operations (import, edit, export, analysis) flow through typed internal commands in `oxidj-core` or `oxidj-library`, usable by GUI, CLI, tests, and future automation without duplication. (soundcraft.md ADOPT: "One application-operation path for UI and headless callers.")
+
+**M0 scope:** Only `oxidj-core` and `oxidj-cli` are scaffolded. Adapters, storage, analysis, audio, and UI are deferred to M1–M3.
+
+## Evidence
+
+- `soundcraft.md` lines 54 (ADOPT): "Keep UI dependencies out of the library/domain and adapters."
+- `soundcraft.md` lines 56-57 (ADOPT): "One application-operation path for UI and headless callers."
+- `soundcraft.md` lines 60 (ADAPT): "Command registry and JSON control boundary — prefer typed internal requests/results."
+- `soundcraft.md` lines 64 (ADAPT): "Separation of stored metadata and decoded caches" — durable provenance separate from replaceable analysis.
+- `soundcraft.md` lines 18 (E2): `cargo xtask layers` detects registered upward dependencies and UI-name denylist.
+- `audio-platform-evaluation.md` lines 104-121: "Realtime audio isolated from ordinary application code." Lines 200-219: `oxidj-audio` crate with NO cpal dependency; lines 222-240: separate `oxidj-engine` crate (M4+) with cpal + RT-safe DSP.
+- `audio-platform-evaluation.md` lines 107-121: Library/Analysis (no realtime reqs) vs. Realtime Engine (separate crate, RT-safe).
+- `gui-evaluation.md` cross-cutting: "GUI framework must work with rusqlite (sync) or sqlx (async) read pool" — no UI→core coupling in the other direction.
+- `rust-agent-workflow.md` / `cargo-workspaces.md`: workspace shares one lockfile; tests target all members or one package with `-p`.
+- `soundcraft.md` REJECT #1: "Whole-session JSON plus eagerly decoded media as the library storage design" — A DJ collection is not a DAW session.
+
+## Options Considered
+
+| Option | Decision | Reason |
+|--------|----------|--------|
+| Layered crate separation (this ADR) | **Provisional** | Enforces dependencies, supports M0 scaffolding, isolates realtime |
+| Single monorepo crate | Rejected | UI/audio/storage coupling; violates SoundCraft ADOPT layer separation |
+| Mirror SoundCraft's 7 DAW layers | Rejected | OxiDJ is a library manager, not a DAW — different scope |
+| Include realtime engine in M0 | Rejected | No realtime-audio implementation in M0 (acceptance criteria) |
+| Vendor formats in core | Rejected | Violates "vendor formats behind adapters" (idea.md) |
+
+## Consequences
+
+- `oxidj-core` has zero dependencies on UI, audio, persistence, or vendor crates — enforceable with a `cargo xtask layers` gate (adapted from SoundCraft).
+- The command-first pattern means GUI and CLI share the same import/edit/export path — testable without a window.
+- Adapters are isolated crates; adding a new vendor format (e.g., Engine DJ) does not touch core.
+- `oxidj-engine` (M4+) depends only on `oxidj-core` — realtime safety is enforced by a single dependency edge.
+- M0 scaffolding is minimal: only core + CLI. No premature wiring to GUI, storage, or audio.
+
+## Open Questions / What Would Change This
+
+- Does `oxidj-core` need a dependency on `oxidj-audio` for analysis types? (Proposed: no — core defines neutral types; analysis crate adapts them. Validate when schema is designed.)
+- Should storage be a crate or part of core? (Proposed: separate crate — core is pure domain, no persistence knowledge. Validate with first migration.)
+- Name for the realtime engine crate: `oxidj-engine` (SoundCraft uses this) or `oxidj-rt` (more explicit)? (Open — decided when M4 is planned.)
+- Workspace layout: Cargo workspace at root with all crates, or nested? (Open — M0-08 workspace task will decide.)
+
+## Sol Review Packet
+
+> **Review status: M0-07 integration gate pending.** Independent Sol review is not required by research for this decision; the M0-07 integration gate has not yet been independently signed off. This packet documents the decision for the lead integration gate.
+
+**DECISION:** Layered crate architecture — core (domain only) at the bottom, with library, storage, analysis, audio, adapters, and UI in layers above; a separate realtime engine crate (oxidj-engine) enters only at M4. Command-first operations flow through core/library. M0 scaffolds only core + CLI.
+
+**WHY NOW:** Crate boundaries are difficult-to-reverse (restructuring after code is written costs migration effort). SoundCraft and the audio evaluation both provide evidence. M0-08 (Cargo workspace) depends on this layout.
+
+**CONSTRAINTS:** Core must have zero UI/audio/persistence/vendor dependencies. Realtime engine must be isolated (no CPAL in library/analysis crate). No M5 or realtime-audio implementation in M0. Vendor formats behind adapters. One command path for UI and headless callers.
+
+**OPTIONS:** (1) Layered crates — provisional; (2) single crate — rejected (coupling); (3) mirror SoundCraft's 7 layers — rejected (wrong scope); (4) realtime engine in M0 — rejected (no realtime in M0).
+
+**EVIDENCE:** soundcraft.md line 56 (ADOPT layer separation), line 57 (ADOPT command-first), line 60 (ADAPT typed requests), line 64 (ADAPT metadata/cache separation), line 56/E3 (xtask layers gate); audio-platform-evaluation.md lines 104-121, 200-240 (isolate realtime, separate engine crate); gui-evaluation.md cross-cutting (GUI↔persistence boundary); idea.md (vendor formats behind adapters, realtime isolated from application code).
+
+**CURRENT RECOMMENDATION:** Layered crates with core at the bottom, engine deferred to M4. Confidence: high (four research notes converge). What changes it: finding that core needs to reference audio types at definition time — mitigated by defining neutral types in core, adapters in analysis/audio crates.
+
+**OUTPUT CONTRACT:** M0-08 workspace task inherits these **dependency rules**. Future M1+ tasks create the remaining crates as their responsibilities are actually implemented. Layer gate (`cargo xtask layers`) adapted from SoundCraft must pass before M1.
+
+> **Superseded in part by the review below:** this line originally read "no Cargo workspace is created in M0 until the decision transitions to Accepted". The independent review explicitly approved bootstrapping `oxidj-core` + `oxidj-cli` now and approving the dependency rules ahead of a crate inventory, so M0-08 proceeds on that basis while the ADR stays `Provisional`.
+
+## Independent Review Outcome (2026-10-15)
+
+**Reviewer:** `gpt-6.1-sol` via `openai-codex`, reasoning **medium**, isolated delegate (no tools, no delegation, this decision only).
+
+**Recommendation returned:** Option 1 **with incremental crate creation** — approve the **dependency rules** now, not a fixed six- or seven-crate inventory. M0 contains only `oxidj-core` and `oxidj-cli`. `oxidj-library` appears when application commands actually arrive; storage, analysis, vendor adapters and `oxidj-engine` appear only when implemented.
+
+**Confidence: high.**
+
+**Why the fixed inventory was rejected:**
+
+- Six or seven crates are premature while responsibilities and ADR-003 are still unsettled. Empty crates add public interfaces and coordination cost without enforcing a meaningful boundary — an empty `adapters` crate protects nothing.
+- Splitting cohesive private modules *before* stable APIs or persisted contracts exist is cheap; untangling coupled implementations afterwards is not. Layering pays only where the boundary is already known, and merging later still costs import and API churn without recovering the premature interface design.
+- **"Zero dependencies" means zero *infrastructure* dependencies, not zero external crates.** Core owns domain IDs and timestamp semantics using small foundational types or newtypes where justified. Serialization belongs in storage/adapter DTOs by default; any serialization dependency inside core must be an explicit, argued exception. A generic shared-types crate is rejected.
+- **Offline decoding is not realtime audio I/O.** Analysis may own file decoding and PCM processing without device access; extract a shared decoding crate only if a second consumer genuinely needs it. Device I/O and realtime execution stay deferred to `oxidj-engine`.
+- UI and CLI must call the **same library command handlers** and never touch persistence directly. Core holds domain types and rules — not application orchestration.
+
+**Counterargument recorded:** modules cannot enforce crate-level dependency isolation. Starting with fewer crates makes accidental coupling easier, and extraction becomes expensive once storage, an async runtime or vendor types leak across boundaries. Creating populated library/storage boundaries immediately would be safer **if** M1 implementation were starting alongside M0.
+
+**Consequence for M0-08:** the workspace bootstraps `oxidj-core` + `oxidj-cli` **only**. The real deliverable is the **dependency-rule gate** — an xtask check that fails on a forbidden edge — which stays meaningful as crates are added, rather than a scaffold of empty crates.
+
+**What would change the decision:** concrete concurrent M0 implementations requiring independent dependency sets, compilation targets or ownership; or an imminent realtime deliverable, which would justify `oxidj-engine` early. Offline decoding alone would not.
