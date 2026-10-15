@@ -2,14 +2,12 @@
 #
 # OxiDJ is MIT-licensed. An accidental copyleft dependency would silently
 # re-license the distributed binary, so this is enforced as a *build gate*, not
-# a convention. Only the licenses listed in `allow` are permitted; every other
-# license — including all copyleft families (GPL-2.0 / GPL-3.0 / LGPL-2.1 /
-# LGPL-3.0 / AGPL-1.0 / AGPL-3.0 / SSPL-1.0) — is denied by default because it
-# is not in the allow list.
+# a convention. Only the licenses in `allow` are permitted; every other license —
+# including all copyleft families (GPL-2.0 / GPL-3.0 / LGPL-2.1 / LGPL-3.0 /
+# AGPL-1.0 / AGPL-3.0 / SSPL-1.0) — is denied because it is not allow-listed.
 #
 # Run:  cargo deny check licenses      (or:  cargo xtask deny)
 # Docs: https://embarkstudios.github.io/cargo-deny/
-# Format reference: §6 sources in docs/research/rust-quality-gates.md.
 
 [licenses]
 allow = [
@@ -21,6 +19,3 @@ allow = [
     "Unicode-DFS-2016",
     "Zlib",
 ]
-# Crates that carry no license at all are rejected outright — they would be
-# un-distributable as MIT binaries.
-unlicensed = "deny"

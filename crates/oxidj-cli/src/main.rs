@@ -61,10 +61,7 @@ fn print_usage() {
 
 fn main() -> std::process::ExitCode {
     let args: Vec<String> = std::env::args().collect();
-    let code = match u8::try_from(run(&args)) {
-        Ok(c) => c,
-        Err(_) => 1,
-    };
+    let code = u8::try_from(run(&args)).unwrap_or(1);
     std::process::ExitCode::from(code)
 }
 

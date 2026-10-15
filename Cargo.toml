@@ -34,16 +34,26 @@ rust-version = "1.99.0"
 license = "MIT"
 description = "OxiDJ: a modern, open-source DJ library and performance application."
 
+# Internal workspace dependencies, centralised so member crates inherit the
+# version/edition from [workspace.package] via `{ workspace = true }`.
+[workspace.dependencies]
+oxidj-core = { path = "crates/oxidj-core", version = "0.1.0" }
+
 # --- In-repo lint policy (reproducible on a fresh clone; M0-10 §0.2 / §0.4) ---
 # `cargo::` lints (emitted by Cargo itself) are nightly-only on the 1.99 stable
 # toolchain and are deliberately excluded from the stable gate (M0-10 §0.1).
 # `[build] warnings = "deny"` in .cargo/config.toml turns rustc + clippy warnings
 # into hard errors so the gate fails loudly on any lint.
 [workspace.lints.rust]
-rust_2018_idioms = "deny"
+# `rust_2018_idioms` is a GROUP, so it must sit at a lower priority than the
+# individual lints below or Clippy's lint_groups_priority fires.
+rust_2018_idioms = { level = "deny", priority = -1 }
 unused_crate_dependencies = "warn"
 
 [workspace.lints.clippy]
-# Default-on clippy groups only. Pedantic / nursery / cargo / restriction are
-# opt-in (high false-positive rate) and are not enabled wholesale (M0-10 §0.2).
-all = "deny"
+# Default-on clippy groups only (pedantic/nursery/cargo/restriction are opt-in).
+# `all` is a GROUP, so it must sit at a lower priority than the individual
+# lints below (todo / unimplemented) or lint_groups_priority fires.
+all = { level = "deny", priority = -1 }
+todo = "deny"
+unimplemented = "deny"

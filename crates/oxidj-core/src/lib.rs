@@ -98,11 +98,11 @@ mod tests {
 
     #[test]
     fn identity_roundtrips_through_string() {
-        let id = TrackId::new(2024_10_15).unwrap();
+        let id = TrackId::new(20_241_015).unwrap();
         let rendered = id.to_string();
         let reparsed: TrackId = rendered.parse().unwrap();
         assert_eq!(reparsed, id);
-        assert_eq!(reparsed.as_u64(), 2024_10_15);
+        assert_eq!(reparsed.as_u64(), 20_241_015);
     }
 
     #[test]

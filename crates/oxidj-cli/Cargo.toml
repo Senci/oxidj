@@ -14,7 +14,7 @@ path = "src/main.rs"
 # CLI depends on core only. It never touches persistence, audio, or vendor
 # adapters directly (ADR-004): all commands flow through core handlers.
 [dependencies]
-oxidj-core = { workspace = true, path = "../oxidj-core" }
+oxidj-core = { workspace = true }
 
 [lints]
 workspace = true

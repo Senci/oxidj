@@ -1,0 +1,70 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+env:
+  CARGO_TERM_COLOR: auto
+
+# SECURITY: this workflow interpolates NO untrusted inputs (${{ github.event.* }},
+# PR/issue bodies, commit messages, etc.) into any `run:` command — every step is
+# a fixed string — so there is no command-injection surface.
+
+# The compiler is pinned by rust-toolchain.toml (channel = "1.99.0", profile
+# minimal, components rustfmt / clippy / rust-analyzer / rust-src). The GitHub
+# runner's rustup installs that exact toolchain on the first `cargo` invocation,
+# so there is no separate install step that could drift from the pin.
+
+jobs:
+  gate:
+    name: cargo xtask ci-full
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache build + cargo registry
+        uses: Swatinem/rust-cache@v2
+
+      # Tier 1 (per handoff, stable, offline): layers + fmt + clippy + check.
+      # Tier 2 (tests):            cargo test --workspace --all-features --locked
+      # Tier 3 (licence gate):     cargo deny check licenses (ADR-009 MIT allowlist)
+      #
+      # CI calls the repo-owned gate command. It does NOT inline or duplicate the
+      # cargo commands a worker runs, so a green CI run is the same result a
+      # worker's `cargo xtask ci` produced (M0-10: self-documenting gate).
+      - name: cargo xtask ci-full (Tier 1 + 2 + 3)
+        run: cargo xtask ci-full
+
+      # ------------------------------------------------------------------
+      # Optional Tier-2 advisories. Not the hard gate: they are advisory,
+      # `continue-on-error`, and installed on demand. The mandatory licence
+      # gate (`cargo xtask deny`) already ran inside `ci-full` above.
+      # ------------------------------------------------------------------
+      - name: Install Tier-2 advisory tools (cargo-deny/audit/machete/typos)
+        continue-on-error: true
+        run: |
+          curl -L --proto '=https' --tlsv1.2 https://github.com/cargo-bins/cargo-binstall/releases/latest/download/cargo-binstall-x86_64-unknown-linux-musl.tgz | tar xz -C "$HOME/.cargo/bin"
+          cargo binstall -y cargo-deny cargo-audit cargo-machete typos-cli
+
+      - name: cargo deny check (licence, ADR-009)
+        continue-on-error: true
+        run: cargo deny check licenses
+
+      - name: cargo audit (RustSec advisories)
+        continue-on-error: true
+        run: cargo audit
+
+      - name: cargo machete (unused declared deps)
+        continue-on-error: true
+        run: cargo machete --json || true
+
+      - name: typos (spell check)
+        continue-on-error: true
+        run: typos --format json || true
+
+      # Tier-3 nightly-only analyses (miri / cargo-udeps / cargo-semver-checks) are
+      # deliberately NOT on the PR path. They run on a scheduled job against a
+      # pinned nightly toolchain. See docs/handoff-checklist.md.

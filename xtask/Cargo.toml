@@ -1,0 +1,21 @@
+[package]
+name = "xtask"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "OxiDJ repo-owned task runner (build-time tool; never a product dependency)."
+publish = false
+
+[[bin]]
+name = "xtask"
+path = "src/main.rs"
+
+# Build-time only. `serde_json` parses `cargo metadata --no-deps` output for the
+# dependency-layer guard. It is never a runtime dependency of oxidj-core or
+# oxidj-cli; the licence gate (cargo-deny) vets it along with the whole tree.
+[dependencies]
+serde_json = "1"
+
+[lints]
+workspace = true
