@@ -1,19 +1,18 @@
 ---
 id: 003
 title: Adopt neutral internal domain model with provenance
-status: Provisional
+status: Accepted
 date: 2026-10-15
 owners: [oxidj-2]
 sources: [docs/research/mixxx-semantics.md, docs/research/interoperability.md, docs/research/soundcraft.md, docs/semantic-mapping.md]
-sol_review: required
-review_status: completed 2026-10-15 (gpt-6.1-sol, reasoning medium) — Option 1 confirmed, with a live counter-risk recorded
+sol_review: completed
+review_status: completed 2026-10-15 (gpt-6.1-sol, reasoning medium) — Option 1 confirmed; final ruling ACCEPTED 2026-10-15
 review_confidence: high
-provisional_reason: The direction is confirmed by review, but the reviewer recorded a counter-risk (field-level provenance does not capture relationships between fields) that must be resolved by import-edit-export validation before this is accepted.
 ---
 
 # ADR-003: Metadata Representation
 
-> **Provisional (M0-07).** Evidence-backed recommendation, not yet accepted architecture. The required independent Sol/high review has not been performed and is suspended under the Nous-only free-model routing policy (see M0-07 comment, 2026-10-15). This is the most difficult-to-reverse M0 decision; do not treat it as accepted until the review gate is restored and completed.
+> **Accepted (2026-10-15).** The independent Sol/medium review is complete and the final ruling is **ACCEPT**. This is the most difficult-to-reverse M0 decision. Acceptance validates the **constraint map**, not a schema: `ADR-005` (M1) must still resolve the field-relationship risk and pass decision-bearing fixture validation.
 
 > **Difficult-to-reverse.** This decision establishes the internal metadata representation. Once data enters OxiDJ's model, changing how identity, provenance, or vendor-field preservation works requires migration of every user's library. This is the most consequential M0 architectural decision.
 
@@ -77,7 +76,7 @@ This decision sets the **constraint map** for the metadata schema (ADR-005, defe
 
 ## Sol Review Packet
 
-> **Review status: SUSPENDED.** The required independent Sol/high review has not been performed and is suspended under the Nous-only free-model routing policy (see M0-07 comment, 2026-10-15). This packet is prepared for when the review gate is restored; do not treat the recommendation as reviewed.
+> **Review status: COMPLETED 2026-10-15 (gpt-6.1-sol, reasoning medium). Final ruling: ACCEPT.** The review gate is satisfied. The recommendation is accepted as the constraint map; `ADR-005` carries the field-relationship risk and the decision-bearing fixture validation.
 
 **DECISION:** Adopt a neutral internal domain model with per-field provenance, vendor-metadata preservation (no flattening, no silent discard), and non-destructive import/export with loss reporting. Internal identity is independent of vendor IDs and file paths.
 
@@ -107,4 +106,20 @@ This decision sets the **constraint map** for the metadata schema (ADR-005, defe
 
 **Consequence for the work:** the provenance direction is accepted, but it must not be treated as sufficient by itself. The import-edit-export round-trip validation is now **decision-bearing rather than a nicety** — representative fixtures showing vendor semantics that depend on inseparable structures would favour source-native records with neutral projections and edit overlays. Flattening and discarding remain rejected either way.
 
-**Status remains `Provisional`.** `ADR-005` (metadata schema, M1) must carry the field-relationship risk explicitly instead of assuming per-field provenance solves it.
+**Status: `Accepted` (final ruling 2026-10-15).** The review gate is satisfied. `ADR-005` (metadata schema, M1) must carry the field-relationship risk explicitly instead of assuming per-field provenance solves it.
+
+## Final Ruling (2026-10-15)
+
+**Reviewer:** `gpt-6.1-sol` via `openai-codex`, reasoning **medium**, isolated delegate (no tools, no delegation, this decision only).
+
+**Ruling: ACCEPT Option 1 as ADR-003's constraint map; transition ADR-003 to `Accepted`.** The completed independent Sol/medium review satisfies the review gate. Acceptance does **not** validate a schema or establish that per-field provenance plus opaque payloads is sufficient for safe export.
+
+**ADR-005 (M1) must explicitly carry:**
+
+- **The live field-relationship risk:** edits to cues, beat grids, or other linked structures may invalidate retained vendor metadata. Preserving bytes is not proof of preserving meaning.
+- **An explicit representation choice:** evaluate source-native records with a neutral projection and edit overlays against a richer neutral representation. ADR-003 permits either implementation; it does not mandate source-native storage prematurely.
+- **Relationship-aware edit/export rules:** specify how dependent metadata is retained, updated, invalidated, or withheld with an explicit loss report. Blind passthrough of potentially stale payloads is unacceptable.
+- **Decision-bearing fixture validation:** representative import-unchanged-export and import-edit-export cases must exercise coupled fields, variable-tempo structures, point/range cues, unknown vendor fields, and identity across relocation or conflicting source IDs. Check semantic relationships, provenance, and reported loss — not merely parseability or retained bytes.
+- **A binding outcome:** if fixtures expose inseparable vendor structures that the proposed neutral schema cannot safely preserve, prefer source-native records plus neutral projection and explicit edit overlays before schema acceptance. Unresolved failures block ADR-005 acceptance.
+
+Independent identity, non-destructive handling, preservation of unsupported metadata, and no silent flattening/discard remain binding regardless of storage design.

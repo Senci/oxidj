@@ -1,19 +1,18 @@
 ---
 id: 004
 title: Separate core, library, storage, analysis, audio, and realtime engine crates
-status: Provisional
+status: Accepted
 date: 2026-10-15
 owners: [oxidj-2]
 sources: [docs/research/soundcraft.md, docs/research/audio-platform-evaluation.md, docs/research/gui-evaluation.md, docs/research/persistence-evaluation.md, docs/research/rust-agent-workflow.md]
-sol_review: required
-review_status: completed 2026-10-15 (gpt-6.1-sol, reasoning medium) — Option 1 with incremental crate creation; M0 = core + cli only
+sol_review: completed
+review_status: completed 2026-10-15 (gpt-6.1-sol, reasoning medium) — Option 1 with incremental crate creation; final ruling ACCEPTED 2026-10-15
 review_confidence: high
-provisional_reason: Direction confirmed, but the review replaced a fixed crate inventory with incremental creation gated on implemented responsibility. The accepted artifact is the dependency-rule set, not a crate count.
 ---
 
 # ADR-004: Crate Boundaries
 
-> **Provisional (M0-07).** Evidence-backed recommendation, not yet accepted architecture. The research evaluation concluded independent Sol review is **not required** for this decision, but the M0-07 integration gate has not yet been independently signed off and the Nous-only free-model routing policy currently suspends independent review. The `oxidj-engine` crate is explicitly deferred to M4 (no realtime-audio implementation in M0).
+> **Accepted (2026-10-15).** The independent Sol/medium review is complete and the final ruling is **ACCEPT**. The accepted boundary is the **dependency-rule set**, not a fixed crate inventory. The `oxidj-engine` crate is explicitly deferred to M4 (no realtime-audio implementation in M0).
 
 ## Context
 
@@ -97,7 +96,7 @@ The **realtime engine** (`oxidj-engine`: CPAL + dasp/fundsp/rubato) is a separat
 
 ## Sol Review Packet
 
-> **Review status: M0-07 integration gate pending.** Independent Sol review is not required by research for this decision; the M0-07 integration gate has not yet been independently signed off. This packet documents the decision for the lead integration gate.
+> **Review status: COMPLETED 2026-10-15 (gpt-6.1-sol, reasoning medium). Final ruling: ACCEPT.** The review gate is satisfied. The dependency rules are accepted; M0-08 bootstraps `oxidj-core` + `oxidj-cli` only and owns the layer gate.
 
 **DECISION:** Layered crate architecture — core (domain only) at the bottom, with library, storage, analysis, audio, adapters, and UI in layers above; a separate realtime engine crate (oxidj-engine) enters only at M4. Command-first operations flow through core/library. M0 scaffolds only core + CLI.
 
@@ -136,3 +135,21 @@ The **realtime engine** (`oxidj-engine`: CPAL + dasp/fundsp/rubato) is a separat
 **Consequence for M0-08:** the workspace bootstraps `oxidj-core` + `oxidj-cli` **only**. The real deliverable is the **dependency-rule gate** — an xtask check that fails on a forbidden edge — which stays meaningful as crates are added, rather than a scaffold of empty crates.
 
 **What would change the decision:** concrete concurrent M0 implementations requiring independent dependency sets, compilation targets or ownership; or an imminent realtime deliverable, which would justify `oxidj-engine` early. Offline decoding alone would not.
+
+## Final Ruling (2026-10-15)
+
+**Reviewer:** `gpt-6.1-sol` via `openai-codex`, reasoning **medium**, isolated delegate (no tools, no delegation, this decision only).
+
+**Ruling: ACCEPT ADR-004, Option 1 with incremental crate creation. Transition to `Accepted`. Confidence: high.**
+
+- The accepted boundary is the **dependency-rule set**, not a fixed crate inventory. Empty crates provide no protection.
+- `oxidj-core` owns domain types and rules, with **zero infrastructure dependencies**: no UI, audio, persistence, or vendor dependencies. Justified foundational external crates are permitted.
+- Create `oxidj-library` when application command handlers arrive; CLI and UI must share those handlers rather than access persistence directly. Add other crates only when their implemented responsibilities warrant isolation. `oxidj-engine` remains deferred to **M4**.
+
+**M0-08 acceptance criteria (binding):**
+
+1. A working Cargo workspace containing only `oxidj-core` and `oxidj-cli` as product crates; xtask tooling is permitted.
+2. An executable `cargo xtask layers` gate enforcing the dependency rules.
+3. Verification that the gate **passes the valid workspace and fails on a deliberately planted forbidden dependency edge**, followed by removal of that edge and a passing rerun.
+
+The ADR's suggestion that a single dependency edge guarantees realtime safety must not be treated as a safety proof.
