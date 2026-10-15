@@ -37,7 +37,7 @@ M0-08's handoff evidence was re-run verbatim on the integrated checkout:
 
 **M0:** none — M0-09 gates all pass.
 
-**M1:** persistence prototype is NOT READY to run and the selected persistence dependencies must remain outside the workspace until it passes. The owner must decide the durability contract (including acceptable acknowledged-write loss on OS/power failure), qualification device/platform boundary, and whether to approve or revise the proposed numeric budgets. The technical protocol must also freeze realistic fixtures, open-loop workload/measurement accounting, live WAL/disk limits, semantic oracle, and recovery fault matrix. Details: `docs/research/m1-sqlite-admission-protocol.md` and the verbatim Sol review at `docs/research/m1-sqlite-review-outcome.md`.
+**M1:** the 500k-track SQLite prototype is NOT READY to run; persistence dependencies remain blocked. Owner decisions: zero acknowledged-write loss after OS/power interruption (review the ADR-002 `synchronous=NORMAL` setting before qualification), one real Linux reference device for the measured gate with cross-platform compatibility tracked separately, and retain proposed numeric budgets as provisional pending pre-run review. A scoped Sol/medium durability review is now queued; technical workload/fixture distributions, open-loop measurement accounting, live WAL/disk limits, semantic oracle, and recovery fault matrix also need freezing. Details: `docs/research/m1-sqlite-admission-protocol.md` and the verbatim Sol review at `docs/research/m1-sqlite-review-outcome.md`.
 
 ## Recent important decisions
 

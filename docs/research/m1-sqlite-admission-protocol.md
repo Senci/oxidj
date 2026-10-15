@@ -36,7 +36,16 @@ A, conditional on explicit owner acceptance of the durability contract; otherwis
 
 6. Recovery: minimum 30 reproducible process kills across transactions/checkpoints/migration; retain all acknowledged commits and atomicity. Restore two separately retained online backups after later edits/deletion, into clean directories without original DB/WAL; exact snapshot oracle/provenance/payload and asset-manifest match. OS/power interruption is distinct: NORMAL may lose committed transactions; acceptable loss bound and fault-injection method remain owner choices. No power-loss durability claim from process kills.
 
-DECISIVE EVIDENCE
+
+## Owner decisions received 2026-10-15
+
+- **Durability requirement:** zero acknowledged-write loss after OS/power interruption. This conflicts with ADR-002's current `synchronous=NORMAL` setting. Per official SQLite documentation, `synchronous=FULL` in WAL adds a WAL sync after each commit; that is the candidate to evaluate, not yet an amended ADR or a guarantee against dishonest VFS/storage hardware. An isolated Sol/medium review is pending before changing ADR-002 or claiming qualification.
+- **Performance qualification scope:** one real Linux reference device for the measured gate; cross-platform compatibility is a separate requirement. The exact device and its OS/filesystem/storage details still must be selected and recorded.
+- **Proposed numeric budgets:** retain as provisional pre-run engineering budgets. Review questionable targets before execution; they are not measured or binding product guarantees yet.
+
+These owner choices resolve only the product-level direction. The technical workload/fixture, arrival and sample accounting, live WAL/disk envelope, correctness oracle, and recovery-test protocol remain NOT READY until frozen. No benchmark or dependency admission is authorized by these choices alone.
+
+## DECISIVE EVIDENCE
 
 ADR-002:11,97,115–119 requires this gate, single-writer coordination, realistic concurrency and recovery. persistence-evaluation.md:29–35 generic NVMe TPS/size estimates are not OxiDJ measurements; :219–220 flags checkpoint/migration risks. ADR-003:119–123 requires relationship-aware validation. SQLite's official pragma_synchronous documentation states NORMAL/WAL commits may roll back after power/system failure but survive application crashes; WAL documentation warns checkpoint starvation.
 
