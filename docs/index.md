@@ -9,9 +9,7 @@ open questions, not commitments. The `docs/adr/` documents are **architecture de
 `docs/adr/index.md` records all six architecture ADRs and the licence ADR as
 `Accepted` after their independent Sol reviews, but stresses that *“Accepted ≠
 unconditional”* — each carries tracked preconditions that gate implementation.
-`docs/architecture.md` labels the M0 baseline `PROVISIONAL (M0-07)` and
-`plan/STATUS.md` describes the ADRs as Provisional, not Accepted. Check those
-sources for the full precondition list before treating any direction as settled.
+`docs/architecture.md` labels the M0 baseline `ACCEPTED` following the independent ADR reviews and reconciliation; `plan/STATUS.md` records the M0 gate as verified complete and tracks M1 preconditions. Check the ADRs and live plan for the current status before treating any direction as ready to implement.
 
 A `[evidence]` tag marks research/analysis documents; a `[decision]` tag marks
 ADRs. Policy and planning documents are neither.
@@ -28,7 +26,7 @@ Read these first.
   and conventions. Read before editing any file.
 - [docs/architecture.md](architecture.md) — the M0 architecture baseline
   (crate layout, domain model, persistence, audio, GUI). Read for the current
-  design direction; labelled PROVISIONAL (M0-07) pending review.
+  accepted decision baseline and its tracked implementation preconditions.
 - [docs/development.md](development.md) — developer setup: toolchain install,
   the compiler-driven agent loop, and worktree isolation. Read to set up a dev
   environment or write code.
@@ -93,6 +91,12 @@ cited with URLs and dates.
 - [docs/research/persistence-evaluation.md](research/persistence-evaluation.md) —
   SQLite vs alternatives for 100k–500k tracks; PRAGMA settings, migrations,
   backup strategy.
+- [docs/research/m1-sqlite-admission-protocol.md](research/m1-sqlite-admission-protocol.md) —
+  conditional draft admission protocol for ADR-002's 500k-track prototype; proposed
+  budgets and NOT READY inputs, not an executable gate.
+- [docs/research/m1-sqlite-review-outcome.md](research/m1-sqlite-review-outcome.md) —
+  verbatim scoped Sol recommendation and lead ruling; dependency admission remains
+  blocked until owner and measurement prerequisites are resolved.
 - [docs/research/rust-agent-workflow.md](research/rust-agent-workflow.md) —
   M0-02 Rust toolchain and agent workflow audit (tooling, citations, smoke test).
 - [docs/research/rust-quality-gates.md](research/rust-quality-gates.md) — M0-10

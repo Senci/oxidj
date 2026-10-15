@@ -6,7 +6,7 @@
 
 ## Current objective
 
-M1 Library core (TrackId → neutral domain model, storage trait, first import round-trip). The free Nous worker (`poolside/laguna-s-2.1:free`) is the default for bounded tasks; Sol/medium is scoped to important decisions and hard Rust reasoning (see `docs/agent-model-policy.md`).
+M1 Library core (TrackId → neutral domain model, storage trait, first import round-trip). Its first critical gate is not ready to execute: the 500k-track SQLite prototype needs explicit owner decisions and a frozen technical measurement contract. Persistence dependencies remain blocked. The scoped Sol/medium review is complete; see the conditional protocol in `docs/research/m1-sqlite-admission-protocol.md`.
 
 ## M0-09 Verification Summary (independent, lead-run)
 
@@ -35,7 +35,9 @@ M0-08's handoff evidence was re-run verbatim on the integrated checkout:
 
 ## Blockers
 
-(None — M0-09 gates all pass)
+**M0:** none — M0-09 gates all pass.
+
+**M1:** persistence prototype is NOT READY to run and the selected persistence dependencies must remain outside the workspace until it passes. The owner must decide the durability contract (including acceptable acknowledged-write loss on OS/power failure), qualification device/platform boundary, and whether to approve or revise the proposed numeric budgets. The technical protocol must also freeze realistic fixtures, open-loop workload/measurement accounting, live WAL/disk limits, semantic oracle, and recovery fault matrix. Details: `docs/research/m1-sqlite-admission-protocol.md` and the verbatim Sol review at `docs/research/m1-sqlite-review-outcome.md`.
 
 ## Recent important decisions
 
@@ -50,6 +52,7 @@ M0-08's handoff evidence was re-run verbatim on the integrated checkout:
 - **Free-route enforcement is applied to running work, not just config.** Profile default and delegation were switched to `nous:meituan/longcat-2.5-preview:free`; the two workers that were still executing on OpenRouter were reclaimed and re-dispatched on the pinned Nous route, preserving their artifacts. A repin alone does not move a worker that is already mid-flight.
 - **Independent verification is delegated to `sova` on a free model.** A source audit of the M0-06 evaluations (`M0-06X`) checks each load-bearing claim against the exact cited passage, because the free worker that wrote them already produced one loose citation and leaned on an AI-authored community repo. Audits verify; they do not add recommendations.
 - Preserve the existing Luna lead and isolated Sol/high decision-review routes; do not authorize PAYG implicitly.
+- **M1 SQLite admission protocol is conditional, not executable.** An isolated Sol/medium review recommends the proposed criteria only after unresolved owner choices and measurement inputs are frozen. The proposed numbers are engineering budgets, not validated product requirements or observed feasibility. NORMAL/WAL may roll back acknowledged commits after OS/power failure; process-kill tests do not prove power-loss durability. No benchmark or schema test has run, and ADR-002's admission gate remains unmet. See `docs/research/m1-sqlite-admission-protocol.md` and `docs/research/m1-sqlite-review-outcome.md`.
 - Limit dispatch to two global workers and one per profile; disable automatic decomposition.
 - Do not mistake a passing test in the wrong directory for safe worker validation; require explicit isolation and whole-repository readback.
 - Use Luna for easy tasks; reserve Sol/high for consequential independent review or escalation. Sol is not a quota fallback for Luna. Sova was asked for current model-routing best practices; incorporate its findings after they arrive and are checked.
@@ -57,10 +60,12 @@ M0-08's handoff evidence was re-run verbatim on the integrated checkout:
 
 ## Next tasks
 
-1. **M1 Library core** — build the neutral domain model beyond the TrackId scaffold: storage trait (ADR-002, gated on the 500k-track prototype precondition), first import round-trip on a synthetic Mixxx collection fixture, and the import-edit-export semantic round-trip test strategy (`docs/testing.md`).
-2. **ADR-005 (metadata schema)** — carries forward the ADR-003 field-relationship risk and resolves the ADR numbering gap (005–007 reserved for M1+).
-3. **ADR-002 persistence prototype gate** — build the 500k-track SQLite + `rusqlite` benchmark before the persistence dependency enters the workspace (acceptance of the decision ≠ dependency admission).
-4. **ADR-001 GUI prototype** — egui/eframe virtualized 200k-row list at 60fps + AccessKit tree smoke test (NVDA/VoiceOver/Orca) before final framework commitment.
+1. **Resolve the SQLite prototype protocol with the owner** — durability/loss contract, qualification device and platform boundary, and approve/revise proposed budgets. Then freeze test data/workload distributions, measurement accounting, live WAL/disk envelope, semantic oracle, and recovery fault matrix. Until then, prototype is NOT READY and dependencies stay out of the workspace.
+2. **ADR-005 (metadata schema)** — carry the ADR-003 field-relationship risk; define relationship-aware edits and decision-bearing import-edit-export fixtures. Its schema decision does not depend on adding SQLite dependencies.
+3. **Run the isolated 500k-track SQLite prototype** — only after its protocol is executable and reviewed; failure reopens ADR-002 only for engine-level issues.
+4. **M1 Library core** — neutral domain model beyond TrackId, storage trait only after ADR-002 admission gate passes, then synthetic Mixxx import/semantic round-trip.
+5. **Tier-2 tooling audit** — cargo-deny exists locally; nextest/machete/typos/audit are missing. Decide local install mechanism and confirm CI integration before relying on local Tier 2.
+6. **ADR-001 GUI prototype** — egui/eframe virtualized 200k-row list at 60fps + AccessKit tree smoke test (NVDA/VoiceOver/Orca) before final framework commitment.
 
 ## Risks (carried forward from M0)
 

@@ -8,7 +8,7 @@ sources: [docs/research/persistence-evaluation.md, docs/research/soundcraft.md]
 sol_review: completed
 review_status: completed 2026-10-15 (gpt-6.1-sol, reasoning medium) — Option 1 amended; final ruling ACCEPTED 2026-10-15
 review_confidence: medium
-admission_gate: A representative 500k-track prototype must pass before the selected persistence dependencies enter the workspace. Acceptance of the decision is not admission of the dependency.
+admission_gate: A representative 500k-track prototype must pass before the selected persistence dependencies enter the workspace. Acceptance of the decision is not admission of the dependency. The conditional protocol in docs/research/m1-sqlite-admission-protocol.md is NOT READY for execution until the owner-approved decisions and technical measurement inputs listed in that document are frozen.
 ---
 
 # ADR-002: Persistence Layer
