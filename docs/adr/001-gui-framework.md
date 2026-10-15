@@ -1,19 +1,18 @@
 ---
 id: 001
 title: Select GUI framework via prototype-first evaluation
-status: Provisional
-review_status: completed 2026-10-15 (gpt-6.1-sol, reasoning low) — egui prototype confirmed, Slint compared, Qt deferred; confidence medium
+status: Accepted
+review_status: completed 2026-10-15 (gpt-6.1-sol, reasoning low) — egui prototype confirmed, Slint compared, Qt deferred; final ruling ACCEPTED 2026-10-15
 review_confidence: medium
 date: 2026-10-15
 owners: [oxidj-2]
 sources: [docs/research/gui-evaluation.md, docs/research/soundcraft.md]
-sol_review: required
-provisional_reason: Required independent Sol/high review not yet completed; suspended under the Nous-only free-model routing policy. Final framework commitment is additionally gated on the 200k-row virtualization + a11y prototype.
+sol_review: completed
 ---
 
 # ADR-001: GUI Framework
 
-> **Provisional (M0-07).** Evidence-backed recommendation, not yet accepted architecture. The required independent Sol/high review has not been performed and is suspended under the Nous-only free-model routing policy (see M0-07 comment, 2026-10-15). The final framework commitment is additionally gated on a 200k-row virtualized-list + AccessKit smoke-test prototype. Do not add a GUI dependency to the M0 workspace until the decision transitions to Accepted.
+> **Accepted (2026-10-15) — prototype direction, not final framework commitment.** The independent Sol review (low effort) is complete and the final ruling is ACCEPT. egui/eframe is the prototype-first direction; Slint is retained only as a commercially licensed fallback; Qt is deferred on Rust-binding API-stability grounds. This does **not** commit to a production framework: the final commitment is gated on the 200k-row virtualized-list + AccessKit smoke test, then 500k rows at 60fps plus representative accessibility and interaction evidence. Do not add a GUI dependency to the M0 workspace.
 
 ## Context
 
@@ -24,10 +23,10 @@ OxiDJ needs a cross-platform Rust desktop GUI for M3 (Usable library UI) onward.
 Adopt a **prototype-first, evaluate-second** path:
 
 1. **Prototype candidate one:** `egui` / `eframe` — immediate mode gives natural virtualization for dense track lists with the least implementation effort. AccessKit is mandatory since 0.35.
-2. **Evaluate candidate two:** `Slint` — declarative DSL with built-in `ListView` virtualization and AccessKit by default; evaluate if design-tool workflow matters.
+2. **Evaluate candidate two (commercially licensed fallback only):** `Slint` — declarative DSL with built-in `ListView` virtualization and AccessKit by default. **Not available at the free tier under the MIT licence resolution (ADR-009)**; retained only as a fallback conditional on explicit commercial purchase approval.
 3. **Defer:** Tauri 2 (unless a web-tech team is available; adds IPC complexity), iced (no stable AccessKit — disqualified if a11y is hard requirement), GPUI (0 releases in 8.5+ months), Xilem (zero production users).
 
-No framework is committed as the final choice in M0. The egui prototype must demonstrate a 200k-row virtualized list with an a11y smoke test before a final Sol review.
+No framework is committed as the final choice in M0. Two distinct gates apply: (1) the egui prototype must demonstrate a 200k-row virtualized list with an AccessKit smoke test; (2) final commitment additionally requires 500k rows at 60fps plus representative screen-reader, keyboard multi-selection and drag-and-drop evidence, then a later final framework review.
 
 ## Evidence
 
@@ -42,7 +41,7 @@ No framework is committed as the final choice in M0. The egui prototype must dem
 | Option | Status | Reason |
 |--------|--------|--------|
 | egui/eframe prototype first | **Prototype candidate 1** | Fastest iteration, natural virtualization, AccessKit mandatory |
-| Slint evaluate | **Prototype candidate 2** | Declarative, built-in virtualization, design tool |
+| Slint | **Commercial fallback only** | Not free-tier under MIT (ADR-009); requires purchase approval |
 | Tauri 2 | Deferred | Web-tech team availability, IPC complexity |
 | iced | Rejected | No stable a11y (6+ years), no built-in virtualization |
 | GPUI | Deferred | 0 releases in 8.5 months |
@@ -50,8 +49,8 @@ No framework is committed as the final choice in M0. The egui prototype must dem
 
 ## Consequences
 
-- If egui prototype passes the 200k-row + a11y smoke test, it becomes the provisional M3 framework choice (final Sol review).
-- If egui fails a11y or performance gates, Slint is the fallback.
+- If egui prototype passes the 200k-row + a11y smoke test, it becomes the provisional M3 framework choice (final review).
+- If egui fails a11y or performance gates, Slint is the fallback — **only with explicit commercial purchase approval**, since it is excluded at the free tier under ADR-009.
 - No final dependency is added to the M0 workspace; the prototype lives in a scratch crate.
 - egui's documented a11y gaps (text-input caret/RTL/BiDi) become open risks to document.
 
@@ -64,7 +63,7 @@ No framework is committed as the final choice in M0. The egui prototype must dem
 
 ## Sol Review Packet
 
-> **Review status: SUSPENDED.** The required independent Sol/high review has not been performed and is suspended under the Nous-only free-model routing policy (see M0-07 comment, 2026-10-15). This packet is prepared for when the review gate is restored; do not treat the recommendation as reviewed.
+> **Review status: COMPLETED 2026-10-15 (gpt-6.1-sol, reasoning low). Final ruling: ACCEPT** (prototype direction). The review gate is satisfied; the recommendation is accepted as the prototype direction, with the final framework commitment still gated on prototype evidence.
 
 **DECISION:** Prototype in egui first for M3 library UI; evaluate Slint as alternative; defer Tauri (unless web-tech team), iced (a11y gap), GPUI (stalled), Xilem (no production users). Final framework commitment gated on 200k-row virtualized list + a11y smoke-test results.
 
@@ -107,3 +106,23 @@ No framework is committed as the final choice in M0. The egui prototype must dem
 - **Slint is excluded at the free tier.** It remains reachable only by purchasing a commercial licence — an explicit commercial decision, not a technical one.
 - **egui/eframe is therefore the framework to prototype**, which is what the review recommended anyway. The prototype gate is unchanged: screen-reader table navigation, keyboard multi-selection and drag-and-drop must pass *alongside* the 500k-row performance target.
 - Qt/LGPL remains theoretically compatible with MIT, but Qt stays deferred on API-stability grounds.
+
+## Final Ruling (2026-10-15)
+
+**Reviewer:** `gpt-6.1-sol` via `openai-codex`, reasoning **low**, isolated delegate (no tools, no delegation, this decision only).
+
+**Ruling: ACCEPT ADR-001 as the prototype-direction decision — not as the final framework commitment.** The recorded independent review and licensing resolution settle that scope. The unrun prototype does **not** block accepting this direction; it still blocks committing to a production framework.
+
+**Accepted direction:**
+- Prototype **egui/eframe first**.
+- Retain **Slint only as a commercially licensed fallback**, conditional on explicit purchase approval. It is not an available free-tier fallback under the recorded MIT licensing resolution.
+- **Defer Qt** on Rust-binding API-stability grounds, not licensing disqualification.
+
+**Tracked preconditions for the separate final commitment:**
+- Run the **200k-row virtualized-list + AccessKit smoke-test prototype**.
+- Demonstrate representative workload performance at **500k rows and 60fps**; the 200k smoke test alone cannot satisfy the recorded scale requirement.
+- Validate usable **screen-reader table navigation, focus/table semantics, keyboard multi-selection, and drag-and-drop**, with real screen-reader testing across supported platforms. AccessKit presence alone is insufficient.
+- Keep the application layer **UI-independent and command-first**, and the probe isolated from production/workspace GUI dependencies until final approval.
+- Record the results and obtain the **later final framework review/decision**. Failure reopens selection; it does not automatically authorize Slint.
+
+**Two distinct gates (explicit):** (1) 200k-row prototype smoke test; (2) 500k rows at 60fps plus representative accessibility/interaction evidence before final commitment.
