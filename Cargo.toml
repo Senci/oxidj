@@ -1,0 +1,49 @@
+# OxiDJ — Rust-first open-source DJ library and performance application.
+#
+# Root *virtual* workspace manifest (M0-08). M0 contains exactly two product
+# crates, per ADR-004's independent review:
+#
+#   crates/oxidj-core  neutral domain model and rules  (layer 0, bottom)
+#   crates/oxidj-cli   command-line entry point         (layer 1, calls core)
+#
+# No storage / audio / analysis / adapters / UI crates are scaffolded here —
+# they are created only when their functionality is actually needed (ADR-004).
+# The boundary that enforces this — and stays meaningful as crates are added — is
+# the `cargo xtask layers` gate, which is demonstrated to FAIL on a planted
+# forbidden edge (see docs/layers-policy.md).
+#
+# License: MIT (ADR-009) — enforced as a build gate by `cargo deny check licenses`
+# via deny.toml. Quality gate: `cargo xtask ci` (Tier 1, every handoff).
+# Tier breakdown and handoff checklist: docs/handoff-checklist.md.
+
+[workspace]
+resolver = "2"
+members = [
+    "crates/oxidj-core",
+    "crates/oxidj-cli",
+    "xtask",
+]
+# A bare `cargo build` / `cargo test` at the root covers the product crates only.
+# `xtask` (a build-time tool) is invoked explicitly via `cargo xtask`.
+default-members = ["crates/oxidj-core", "crates/oxidj-cli"]
+
+[workspace.package]
+edition = "2024"
+version = "0.1.0"
+rust-version = "1.99.0"
+license = "MIT"
+description = "OxiDJ: a modern, open-source DJ library and performance application."
+
+# --- In-repo lint policy (reproducible on a fresh clone; M0-10 §0.2 / §0.4) ---
+# `cargo::` lints (emitted by Cargo itself) are nightly-only on the 1.99 stable
+# toolchain and are deliberately excluded from the stable gate (M0-10 §0.1).
+# `[build] warnings = "deny"` in .cargo/config.toml turns rustc + clippy warnings
+# into hard errors so the gate fails loudly on any lint.
+[workspace.lints.rust]
+rust_2018_idioms = "deny"
+unused_crate_dependencies = "warn"
+
+[workspace.lints.clippy]
+# Default-on clippy groups only. Pedantic / nursery / cargo / restriction are
+# opt-in (high false-positive rate) and are not enabled wholesale (M0-10 §0.2).
+all = "deny"

@@ -1,0 +1,20 @@
+[package]
+name = "oxidj-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "OxiDJ neutral domain model and rules (identities, provenance, timestamps)."
+# Not published: internal workspace crate.
+publish = false
+
+# M0 (ADR-004): core has zero *infrastructure* dependencies by design — no UI,
+# audio, persistence, serialization or vendor crates. Domain identities and
+# timestamp semantics are owned here as small newtypes over `std`/`core`. This
+# does NOT forbid adding a small domain crate on M1; it forbids leaking
+# persistence/audio/UI concerns into the domain layer. That boundary is enforced
+# by `cargo xtask layers`.
+[dependencies]
+
+[lints]
+workspace = true

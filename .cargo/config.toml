@@ -1,0 +1,16 @@
+# Persistent Cargo configuration for OxiDJ.
+#
+# `build.warnings = "deny"` is the committed, reproducible form of the stable
+# lint gate (M0-10 §0.2). It makes *every* rustc + Clippy warning a hard error
+# on a plain `cargo build` / `cargo test` / `cargo clippy` — so a fresh clone
+# fails on warnings without any per-shell env var. The `cargo xtask ci` command
+# also sets CARGO_BUILD_WARNINGS=deny explicitly so the gate is self-contained
+# even if a worker's shell overrides this config.
+[build]
+warnings = "deny"
+
+# `cargo xtask <subcommand>` resolves to `cargo run --package xtask -- <subcommand>`.
+# xtask is a workspace member but not a `default-member`, so the repo-owned task
+# commands are reached only through this explicit alias.
+[alias]
+xtask = "run --package xtask --"

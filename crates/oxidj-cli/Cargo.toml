@@ -1,0 +1,20 @@
+[package]
+name = "oxidj-cli"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "OxiDJ command-line entry point; calls oxidj-core command handlers only."
+publish = false
+
+[[bin]]
+name = "oxidj-cli"
+path = "src/main.rs"
+
+# CLI depends on core only. It never touches persistence, audio, or vendor
+# adapters directly (ADR-004): all commands flow through core handlers.
+[dependencies]
+oxidj-core = { workspace = true, path = "../oxidj-core" }
+
+[lints]
+workspace = true

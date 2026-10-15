@@ -1,0 +1,14 @@
+# Clippy configuration for OxiDJ.
+#
+# `msrv` tells Clippy which Rust version to target for lint selection, so it does
+# not recommend constructs that would break the declared `rust-version` (1.99.0)
+# in the workspace manifest. This is a lint-time hint, not an MSRV assertion —
+# it only affects which lint suggestions fire, and only on stable toolchains.
+msrv = "1.99.0"
+
+# Disallow `todo!()` / `unimplemented!()` in non-test code so an unfinished
+# branch cannot ship green through the gate.
+disallowed-methods = [
+    { path = "std::todo", reason = "todo!() must not ship in production code" },
+    { path = "std::unimplemented", reason = "unimplemented!() must not ship in production code" },
+]

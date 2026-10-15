@@ -1,19 +1,18 @@
 ---
 id: 008
 title: Audio engine foundation — CPAL I/O with a replaceable time-stretch engine
-status: Provisional
+status: Accepted
 date: 2026-10-15
 owners: [oxidj-2]
 sources: [docs/research/audio-platform-evaluation.md]
-sol_review: required
-review_status: completed 2026-10-15 (gpt-6.1-sol, reasoning low) — Option 1 provisional, confidence medium
+sol_review: completed
+review_status: completed 2026-10-15 (gpt-6.1-sol, reasoning low) — Option 1; final ruling ACCEPTED 2026-10-15
 review_confidence: medium
-provisional_reason: The review supports CPAL + Signalsmith as a candidate, not a production qualification. DJ-grade latency, device recovery and stretch quality on real DJ material are all unmeasured.
 ---
 
 # ADR-008: Audio Engine Foundation
 
-> **Provisional.** No realtime audio is implemented in M0. This ADR fixes the *boundary* and the *candidate* foundation so later work does not have to rework the library and analysis crates.
+> **Accepted (2026-10-15).** No realtime audio is implemented in M0. This ADR fixes the *boundary* and the *candidate* foundation (CPAL for device I/O, Signalsmith Stretch behind an engine-independent, replaceable trait) so later work does not have to rework the library and analysis crates. The foundation is **not** production-qualified: DJ-grade latency, device recovery and stretch quality on real DJ material are unmeasured.
 
 ## Context
 
@@ -79,3 +78,25 @@ This is what M0 must actually define, per the review:
 ## Licensing resolution (2026-10-15)
 
 `ADR-009` licences OxiDJ under **MIT**. Rubber Band is therefore excluded on **two independent grounds** — its GPL-2.0+/commercial licence is incompatible with MIT distribution, and its Rust bindings (`rubberband` 0.1.5) have **208 lifetime downloads**, meaning the Rust path is unproven regardless. Signalsmith Stretch (MIT) is compatible and remains the first implementation behind the replaceable trait. A commercial engine such as Elastique would require an explicit commercial decision and is not contemplated now.
+
+## Final Ruling (2026-10-15)
+
+**Reviewer:** `gpt-6.1-sol` via `openai-codex`, reasoning **low**, isolated delegate (no tools, no delegation, this decision only).
+
+**Ruling: ACCEPT Option 1. ADR-008 may transition to `Accepted`.** CPAL is the selected device-I/O foundation; Signalsmith Stretch is the first implementation behind an engine-independent, replaceable trait. This accepts an **architectural foundation — not production qualification** and not a claim of DJ-grade performance.
+
+The absence of measured latency/xrun targets **does not block this M0 decision**: no realtime engine is being delivered, and the required boundaries preserve replacement options. It **does block treating the stack as validated**.
+
+**Risks carried forward:**
+- Unmeasured monitoring latency, callback jitter, xruns, backend availability, multichannel routing, and device recovery.
+- Unmeasured Signalsmith transient/scratching quality, processing latency, and worst-case callback cost.
+- Unknown CPAL device-management effort; Linux realtime-priority setup and opt-in Windows ASIO build requirements.
+- Commercial alternatives remain subject to technical evidence and explicit licensing approval. MIT-compatible distribution excludes GPL-linked Rubber Band absent commercial rights; low binding adoption signals uncertainty, not proof of technical failure.
+
+**Before committing to full engine implementation**, define numerical pass/fail targets and run a bounded qualification spike:
+- Measure wired end-to-end monitoring latency, callback timing and xruns under representative two-deck load, with specified devices, backends, sample rates, buffer sizes, and test duration.
+- Exercise required output/cue routing, device loss/reconnection, configuration changes, and recovery outside the callback.
+- Measure stretch latency/frame accounting and worst-case processing budgets; assess transients, tempo/pitch changes, and scratching using representative DJ material and blinded comparisons.
+- Verify preallocation and absence of callback allocation/blocking, plus shared-clock scheduling accuracy with stretch-latency compensation.
+
+All seven recorded **M0 boundary requirements remain mandatory**, including replaceable I/O/stretch and unsupported Bluetooth output. Failed qualification triggers the ADR's recorded reconsideration criteria — not a rewrite of library/analysis boundaries.

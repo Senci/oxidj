@@ -1,0 +1,12 @@
+# OxiDJ toolchain pin (M0-02 + M0-08).
+#
+# M0-02 verified the host on a real stable Rust/Cargo 1.99.0. Pinning the exact
+# compiler makes every worker's dev environment reproducible — not just the
+# original author's. This is a *compiler pin*, NOT an MSRV assertion: the declared
+# MSRV lives as `rust-version` in the workspace Cargo.toml (and `msrv` in
+# clippy.toml). Refresh the pin deliberately with committed toolchain-install +
+# green-gate evidence; never silently.
+[toolchain]
+channel = "1.99.0"
+profile = "minimal"
+components = ["rustfmt", "clippy", "rust-analyzer", "rust-src"]
