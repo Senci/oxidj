@@ -5,47 +5,47 @@ the real output as evidence before it is marked `complete`. A task that has not
 run the gate is not complete, however finished the code looks.
 
 This checklist is the required evidence format. Fill it in verbatim; paste real
-output, never a paraphrase. Tier policy comes from
-`docs/research/rust-quality-gates.md` (M0-10); commands are the repo-owned
-`cargo xtask` invocations, so a fresh clone + one command reproduces the result.
+output, never a paraphrase. Current tier policy is defined by `AGENTS.md`, the
+repo-owned `cargo xtask` gates, and `.github/workflows/ci.yml`; the research gate
+report is background, not the current implementation spec.
 
 > Toolchain: **stable Rust/Cargo 1.99.0** (pinned by `rust-toolchain.toml`).
-> Tier-1 commands use only rustup components already installed on the host.
-> Tier-2/3 tools (`cargo-deny`, `cargo-audit`, `cargo-machete`, `typos`, and the
-> `+nightly` Tier-3 set) are provisioned by CI / as justified.
+> Tier 1 (`cargo xtask ci`) uses the pinned stable components.
+> CI's `cargo xtask ci-full` includes tests and the mandatory `cargo-deny`
+> licence gate (pinned at 0.20.2). `cargo audit`, `cargo machete`, and `typos`
+> are best-effort CI advisories (`continue-on-error`); they may be absent locally.
+> The current gate uses native `cargo test`, not `cargo-nextest`.
 
 ---
 
-## Tier 1 — mandatory evidence on **every** handoff (stable, offline, fast)
+## Tier 1 — mandatory evidence on **every** handoff (stable, fast; no advisory scans)
 
 Run `cargo xtask ci` and paste its output. It runs, in order:
-`layers` → `fmt` → `clippy` → `check`. All four must report `PASS`.
+`layers` → `fmt` → `clippy` → `check`. All four must report `PASS`. The gate
+avoids remote advisory-database scans, but Cargo may fetch locked dependencies
+when the local cache is cold.
 
 - [ ] `cargo xtask ci` → every step `PASS (exit 0)`.
       Paste: the full `cargo xtask ci` output (or at least the per-step
       `==> [layers] PASS`, `==> [fmt] PASS`, `==> [clippy] PASS`,
       `==> [check] PASS` lines and the `=> ci summary: ... [all pass]` line).
 
-## Tier 2 — required before requesting review (CI / pre-merge)
+## Tier 2 — required CI / pre-merge gate
 
-- [ ] `cargo xtask test` → all tests pass (unit + integration + doctests).
-      Paste: the final `test result: ok` summary lines.
-- [ ] `cargo machete --json` → no unused declared deps. (advisory; review
-      output, do not auto-fix blindly — it is imprecise). Paste: the JSON
-      summary line.
-- [ ] `typos --format json` → no findings, exit `0`. Paste: exit code + `0` lines.
-- [ ] `cargo audit` → no advisories (or only pre-approved, auditable ignores
-      with `reason`+`expires`). Paste: the summary line.
+- [ ] `cargo xtask ci-full` → green CI run including workspace tests and the mandatory `cargo deny check licenses` gate. Paste the run link and final summary.
+- [ ] Optional advisory jobs (`cargo audit`, `cargo machete --json`, `typos --format json`) → if run, paste their output. These CI steps use `continue-on-error`; missing local binaries are `SKIPPED`, not a failing handoff.
+- `cargo-nextest` is not part of the current gate; CI uses native `cargo test`.
 
-## Tier 3 — reviewer / schedule responsibility (not every handoff)
+## Tier 3 — deferred analyses (not a handoff prerequisite)
 
-- [ ] `cargo deny check licenses` (ADR-009: MIT; GPL/LGPL/AGPL/SSPL denied).
-      This **is** in the CI gate (`cargo xtask ci-full`). Paste the summary.
-- [ ] Nightly suite (scheduled, pinned nightly — NOT on the handoff host):
-      `cargo +nightly miri test`, `cargo +nightly udeps`,
-      `cargo +nightly semver-checks check-release`. Paste job link + exit codes.
-- [ ] Mutation score (scheduled): `cargo mutants` → `mutants.out/outcomes.json`
-      score ≥ target. Paste the `Score:` line.
+No in-repository scheduled Tier-3 workflow is currently configured. Do not claim
+these checks ran, and do not block handoffs on them. If a pinned nightly/release
+workflow is added later, retain its job link, toolchain pin, exit codes, and
+summary for:
+
+- `cargo +nightly miri test`, `cargo +nightly udeps`, and
+  `cargo +nightly semver-checks check-release`.
+- `cargo mutants` → `mutants.out/outcomes.json`; report the `Score:` line.
 
 ---
 

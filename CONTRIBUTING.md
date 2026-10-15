@@ -31,32 +31,25 @@ for build-dependencies; `cc --version` succeeded on the reference host
 
 ## The tiered quality gate
 
-The repo-owned gate is `cargo xtask` (xtask/src/main.rs). Authoritative tier
-definitions are in `docs/research/rust-quality-gates.md §7`; the required
-evidence format for handoffs is in `docs/handoff-checklist.md`.
+The repo-owned gate is `cargo xtask` (xtask/src/main.rs). Current tier configuration is defined by `AGENTS.md` and `.github/workflows/ci.yml`; the research gate report is background, not current implementation. The required evidence format for handoffs is in `docs/handoff-checklist.md`.
 
-- **Tier 1 — every coding handoff (stable, offline, fast).**
+- **Tier 1 — every coding handoff (stable, fast).**
   `cargo xtask ci` runs `layers` → `fmt` → `clippy` → `check`. All four must
   report `PASS`. This **must pass** before a task is marked complete.
-- **Tier 2 — before requesting review (CI / pre-merge).**
-  `cargo xtask test` (all tests pass), `cargo machete --json` (no unused deps),
-  `typos --format json` (no findings), `cargo audit` (no advisories), and the
-  licence gate `cargo deny check licenses` (ADR-009).
-- **Tier 3 — nightly / scheduled / release only (not on every handoff).**
-  `cargo +nightly miri test`, `cargo +nightly udeps`,
-  `cargo +nightly semver-checks check-release`, `cargo mutants`,
-  `cargo hack`, `cargo bloat`, `cargo vet`, `cargo outdated`.
+- **Tier 2 — required CI / pre-merge gate.** GitHub CI runs `cargo xtask ci-full`, including the workspace tests and mandatory `cargo deny check licenses` licence gate. The workflow installs `cargo-deny` 0.20.2 before the full gate.
+- **Optional advisory checks.** CI attempts `cargo audit`, `cargo machete --json`, and `typos --format json` as best-effort checks with `continue-on-error`; missing local binaries are not a handoff failure. The current gate uses native `cargo test`, not `cargo-nextest`.
+- **Tier 3 — deferred analyses (not configured in repo CI).** Candidate slow/nightly checks include `cargo +nightly miri test`, `cargo +nightly udeps`, `cargo +nightly semver-checks check-release`, `cargo mutants`, `cargo hack`, `cargo bloat`, `cargo vet`, and `cargo outdated`.
 
-A pull request must pass **Tier 1** (the handoff gate) and **Tier 2** (tests
-and the licence gate before merge). CI runs `cargo xtask ci-full`
-(Tier 1 + tests + `cargo deny check licenses`) on every push and pull request
-to `master` (`.github/workflows/ci.yml`). Tier 3 runs on a scheduled nightly
-against a pinned nightly toolchain — never on the stable handoff host
-(docs/handoff-checklist.md §Tier 3; docs/research/rust-quality-gates.md §7).
+A pull request must pass **Tier 1** (the local handoff gate) and the required
+`cargo xtask ci-full` CI run (tests + licence gate); best-effort advisory checks
+are reported separately and do not block the merge. The only workflow currently
+in `.github/workflows` runs on push and pull request; no Tier-3 schedule is
+configured. If Tier 3 is later approved and scheduled, use a pinned nightly and
+keep those checks off the stable handoff path.
 
-> Tier 1 is **offline by design** (rust-quality-gates.md §7 item 3): network-
-> dependent tools never run on the handoff path, so a worker does not fail
-> because the network is unavailable.
+> Tier 1 is **stable-only and fast**. It does not query remote advisory
+> databases; a fresh Cargo cache may still fetch locked crate dependencies, so
+> do not describe the command as guaranteed network-independent.
 
 ## Commits and pull requests
 

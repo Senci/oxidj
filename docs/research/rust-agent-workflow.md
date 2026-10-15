@@ -87,3 +87,7 @@ Provenance checks passed all nine M0-02 body hashes and the four currently index
 For M0-08: use a reviewed exact compiler pin (tested 1.99.0); baseline fmt + default Clippy + explicit workspace build/unit/integration/doctests. Add helpers only when their policy and dependency graph justify them. Keep tests semantically independent and lawful fixtures deterministic. Do not create M1 models here.
 
 No commits or pushes were made. Parent completion does not merge these uncommitted worktree files; lead integration must copy/apply the approved docs and script into M0-08's workspace. Canonical model-policy/status edits from M0-01 remain untouched; do not replace them with this worktree's older versions.
+
+## Subsequent implementation resolution
+
+The `SKIP` rows above record the M0-02 bootstrap audit only. Subsequent implementation pins `cargo-deny` 0.20.2 as the mandatory license gate in `cargo xtask ci-full`; `cargo-audit`, `cargo-machete`, and `typos` are best-effort CI advisories, while `cargo-nextest` remains deferred until the test suite justifies it. No blanket local tool install was made. See `docs/development.md`, `docs/handoff-checklist.md`, and `.github/workflows/ci.yml` for current behavior.

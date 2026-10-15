@@ -33,14 +33,14 @@ jobs:
       - name: Install cargo-deny (mandatory licence gate)
         run: cargo install cargo-deny --locked --version 0.20.2
 
-      # Tier 1 (per handoff, stable, offline): layers + fmt + clippy + check.
+      # Tier 1 (per handoff, stable, fast): layers + fmt + clippy + check; no advisory scans.
       # Tier 2 (tests):            cargo test --workspace --all-features --locked
-      # Tier 3 (licence gate):     cargo deny check licenses (ADR-009 MIT allowlist)
+      # Tier 2 (licence gate):     cargo deny check licenses (ADR-009 MIT allowlist)
       #
-      # CI calls the repo-owned gate command. It does NOT inline or duplicate the
-      # cargo commands a worker runs, so a green CI run is the same result a
-      # worker's `cargo xtask ci` produced (M0-10: self-documenting gate).
-      - name: cargo xtask ci-full (Tier 1 + 2 + 3)
+      # CI calls the repo-owned full-gate command rather than duplicating shell steps.
+      # `cargo xtask ci-full` runs Tier 1 plus native tests and the mandatory
+      # licence check; `cargo xtask ci` is the Tier-1 handoff portion.
+      - name: cargo xtask ci-full (Tier 1 + Tier 2)
         run: cargo xtask ci-full
 
       # ------------------------------------------------------------------
@@ -66,6 +66,6 @@ jobs:
         continue-on-error: true
         run: typos --format json || true
 
-      # Tier-3 nightly-only analyses (miri / cargo-udeps / cargo-semver-checks) are
-      # deliberately NOT on the PR path. They run on a scheduled job against a
-      # pinned nightly toolchain. See docs/handoff-checklist.md.
+      # Tier-3 analyses are deferred: no scheduled workflow is currently
+      # configured here. If adopted, run them in a separate pinned-nightly job.
+      # See docs/handoff-checklist.md for the current handoff contract.

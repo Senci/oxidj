@@ -332,7 +332,7 @@ fn cmd_deny() -> i32 {
     run_cargo_step("deny", &["deny", "check", "licenses"], &[])
 }
 
-/// Tier 1 — the per-handoff gate. Stable-only, offline-capable, fast.
+/// Tier 1 — the per-handoff gate. Stable-only and fast; no remote advisory scans (Cargo may fetch a cold cache).
 fn cmd_ci() -> i32 {
     println!("cargo xtask ci — Tier 1 per-handoff gate (stable 1.99.0)");
     if let Some(failed) = stop_on_fail("layers", cmd_layers()) {
@@ -352,7 +352,7 @@ fn cmd_ci() -> i32 {
     0
 }
 
-/// Full CI gate: Tier 1 + Tier-2 tests + Tier-3 licence gate (ADR-009).
+/// Full CI gate: Tier 1 + Tier-2 tests + mandatory Tier-2 licence gate (ADR-009).
 fn cmd_ci_full() -> i32 {
     println!("cargo xtask ci-full — CI gate (Tier 1 + tests + licence)");
     if let Some(failed) = stop_on_fail("ci", cmd_ci()) {
@@ -382,14 +382,16 @@ fn stop_on_fail(step: &str, code: i32) -> Option<i32> {
 fn show_help() -> i32 {
     println!("cargo xtask — OxiDJ repo-owned task runner");
     println!();
-    println!("Tier 1 (per handoff, stable, offline):");
+    println!("Tier 1 (per handoff, stable, fast; no advisory scans):");
     println!("  ci         layers + fmt + clippy + check");
     println!("  layers     ADR-004 dependency-layer guard");
     println!("  fmt        cargo fmt --all -- --check");
-    println!("  clippy     cargo clippy --workspace --all-targets --all-features --locked");
+    println!(
+        "  clippy     cargo clippy --workspace --all-targets --all-features --keep-going --locked"
+    );
     println!("  check      cargo check --workspace --all-targets --all-features --locked");
     println!();
-    println!("Tier 2 / 3 (CI):");
+    println!("Tier 2 (CI/full gate):");
     println!("  test       cargo test --workspace --all-features --locked");
     println!("  deny       cargo deny check licenses (ADR-009 MIT allowlist)");
     println!("  ci-full    ci + test + deny");

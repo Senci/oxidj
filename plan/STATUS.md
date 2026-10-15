@@ -31,7 +31,7 @@ reproduction + CLI smoke). All gates green:
 M0-08's handoff evidence was re-run verbatim on the integrated checkout:
 - Gate output, CLI smoke, planted-violation message, and rust-analyzer stats all **match** the pasted evidence
 - **One discrepancy:** M0-08's metadata reported "18 passed" tests; the gate's `cargo test --workspace` actually runs **22** (the 4 `oxidj-cli` unit tests were omitted from the count). The gate command is correct and green; the count was under-reported. Not a gate failure
-- M0-10's nine lead decisions are all implemented in the workspace (offline Tier 1, MSRV declared, licence check at Tier 2, nightly quarantined to CI) and verified
+- M0-10's required workspace gates are implemented and verified: stable Tier 1, declared MSRV, mandatory cargo-deny licence check in `ci-full`, and best-effort Tier-2 advisories. Tier-3 analyses are deferred; no scheduled workflow exists in `.github/workflows`.
 
 ## Blockers
 
@@ -64,8 +64,11 @@ M0-08's handoff evidence was re-run verbatim on the integrated checkout:
 3. **Complete and freeze the full SQLite qualification protocol** — integrate the approved ADR-005 schema/fixtures and make every qualification criterion executable and reviewed. No benchmark before this gate is met.
 4. **Run the isolated 500k-track SQLite prototype** — only after the full protocol is executable and reviewed; failure reopens ADR-002 only for engine-level issues.
 5. **M1 Library core** — neutral domain model beyond TrackId, storage trait only after ADR-002 admission gate passes, then synthetic Mixxx import/semantic round-trip.
-6. **Tier-2 tooling audit** — cargo-deny exists locally; nextest/machete/typos/audit are missing. Decide local install mechanism and confirm CI integration before relying on local Tier 2.
-7. **ADR-001 GUI prototype** — egui/eframe virtualized 200k-row list at 60fps + AccessKit tree smoke test (NVDA/VoiceOver/Orca) before final framework commitment.
+6. **ADR-001 GUI prototype** — egui/eframe virtualized 200k-row list at 60fps + AccessKit tree smoke test (NVDA/VoiceOver/Orca) before final framework commitment.
+
+## Local Tier-2 tool availability (audited)
+
+`cargo-deny 0.20.2` is installed locally and is required by `cargo xtask ci-full`; CI installs the pinned version before the full gate. `cargo-nextest`, `cargo-machete`, `typos`, and `cargo-audit` are absent locally. CI uses native `cargo test` and attempts the latter three as best-effort, non-blocking advisories. No local install is justified before the product dependency graph or test suite creates a concrete need; the tool-install audit is complete without a blanket install. See `docs/development.md` and `docs/handoff-checklist.md` for the current policy.
 
 ## Risks (carried forward from M0)
 
@@ -75,4 +78,4 @@ M0-08's handoff evidence was re-run verbatim on the integrated checkout:
 | Metadata edit can silently corrupt retained opaque vendor fields | ADR-003 | Open (carried to M1) | Import-edit-export semantic round-trip test (independent importer + exporter) becomes decision-bearing in ADR-005. |
 | CPAL + Signalsmith Stretch not DJ-grade qualified | ADR-008 | Medium confidence | 7-point data boundary defined in M0; latency/xrun targets, multichannel routing, device-recovery remain unmeasured. Bounded qualification spike required before full engine implementation. |
 | Free worker route expires / capacity-limited | model-policy | Approaching expiry (2026-10-31) | `poolside/laguna-s-2.1:free` approved for bounded tasks only; Sol/medium for important work. Re-validate after expiry date. |
-| No nightly toolchain for Tier-3 analysis | M0-10 | Quarantined to CI | miri/udeps/semver-checks run on scheduled CI with pinned nightly; never enters the handoff environment. |
+| No in-repository Tier-3 schedule | M0-10 | Deferred, nonblocking | `.github/workflows/ci.yml` is the only workflow and has push/PR triggers; Miri/udeps/semver-checks/mutants are not scheduled. Add a pinned-nightly job only if justified. |

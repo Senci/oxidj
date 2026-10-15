@@ -181,23 +181,26 @@ result summary (Proof-or-Stop execution attestation — research item 8.2,
 [PROOF-OR-STOP]). For example:
 
 ```sh
-cargo xtask ci        # paste the per-step PASS lines + the summary line
-cargo xtask test      # paste the final "test result: ok" lines
-cargo machete --json  # paste the JSON summary
-typos --format json   # paste exit code + 0 lines
-cargo audit           # paste the summary line
+cargo xtask ci        # mandatory local handoff gate: layers + fmt + clippy + check
+cargo xtask ci-full   # required CI gate: native tests + mandatory cargo-deny licence check
+
+# Optional, best-effort CI advisories (continue-on-error):
+cargo audit
+cargo machete --json
+typos --format json
 ```
 
-Tier policy (stable Rust/Cargo 1.99.0; Tier 1 is offline-only):
+Tier policy (stable Rust/Cargo 1.99.0; Tier 1 is stable-only and fast, with no advisory registry scans; a cold Cargo cache may still fetch locked dependencies):
 
 | Tier | Runs at | Toolset | Evidence format |
 |------|---------|---------|-----------------|
-| 1 | every handoff | `fmt`, `clippy` (`-D warnings`), `cargo check` via `cargo xtask ci` | per-step `PASS (exit 0)` |
-| 2 | CI / pre-merge | `cargo xtask test`, `cargo machete --json`, `typos`, `cargo audit`, `cargo deny check licenses` (ADR-009) | summary lines / JSON |
-| 3 | scheduled / release | `cargo +nightly miri`, `udeps`, `semver-checks`, `cargo mutants` | job link + exit codes |
+| 1 | every handoff | `cargo xtask ci` (`fmt`, `clippy`, `cargo check`, layers guard) | per-step `PASS (exit 0)` |
+| 2 | CI / pre-merge | Required: `cargo xtask ci-full` (native tests + mandatory `cargo deny check licenses`); optional: `cargo audit`, `cargo machete --json`, `typos` (`continue-on-error`) | required run link/summary; optional results if available |
+| 3 | deferred / if scheduled | `cargo +nightly miri`, `udeps`, `semver-checks`, `cargo mutants` | pin + job link when configured; no current in-repo job |
 
-Tier 1 must be stable-only and fast (target < ~2 min warm). Tier 3 is nightly or
-slow — never on the handoff path (research, `docs/research/rust-quality-gates.md`).
+Tier 1 must be stable-only and fast (target < ~2 min warm). Tier 3 remains
+deferred: no scheduled workflow is configured in this repo. If introduced, run it
+on a pinned nightly off the handoff path.
 
 ### 4.4 Bug-reproduction invariant
 
@@ -302,13 +305,9 @@ names the tools that make it actionable (research item 6, [INFERENCE],
 Use these at format boundaries and in the M1+ persistence/parsers/integration
 suites (see `docs/testing.md`).
 
-### 8.2 The nextest CI profile
+### 8.2 Deferred test-runner adoption
 
-A committed `.config/nextest.toml` makes the CI flakiness policy explicit and
-machine-readable (research item 7, [OPINION], [NEXTEST-LIST]). `cargo-nextest`
-itself is not yet installed on the handoff host (documented in
-`docs/research/rust-quality-gates.md`); wiring `cargo nextest run --profile ci`
-into `cargo xtask test` is a follow-up once nextest is provisioned.
+The repository contains `.config/nextest.toml`, but the current CI/full gate runs native `cargo test`; `cargo-nextest` is absent locally and is not installed by CI. The bootstrap audit deferred it because native Cargo tests suffice for the current product suite. Revisit adoption only if the suite demonstrates a measurable need for per-test isolation, retries, timeouts, or runtime gains. The profile file is inert until Nextest is wired into the gate; do not treat it as a current prerequisite.
 
 ### 8.3 Existing rules that need no change
 

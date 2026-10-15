@@ -36,17 +36,17 @@ The smoke script creates and removes a dependency-free crate under `$TMPDIR` (fa
 
 ## Quality gate
 
-The repo-owned, three-tier gate is defined by `docs/research/rust-quality-gates.md` (lead decisions, §7) and implemented as `cargo xtask` (`xtask/src/main.rs`). CI runs `cargo xtask ci-full`; the per-handoff gate is `cargo xtask ci`.
+The repo-owned gate is defined by `AGENTS.md` and implemented as `cargo xtask` (`xtask/src/main.rs`). CI runs `cargo xtask ci-full`; the per-handoff gate is `cargo xtask ci`. The research gate report is background, not the current command source.
 
-### Tier 1 — every coding handoff (stable only, offline, <2 min warm)
+### Tier 1 — every coding handoff (stable, fast, <2 min warm)
 
-Tier 1 uses only rustup components already on the host (`rustfmt`, `clippy`) and needs no network (§7.3), so an agent loop cannot fail because the network did. Run `cargo xtask ci` (the repo-owned wrapper), or the exact raw commands from §7:
+Tier 1 uses stable `rustfmt`/`clippy` and the project layers guard. It makes no network advisory-database calls, but Cargo may fetch locked dependencies if the local cache is cold. Run `cargo xtask ci` (the repo-owned wrapper) or the matching raw commands below:
 
 ```sh
 cargo xtask layers                                              # ADR-004 dependency guard; must PASS (fails on a planted forbidden edge)
 cargo fmt --all -- --check                                       # exit 0
-CARGO_BUILD_WARNINGS=deny cargo clippy --all-targets --all-features --keep-going   # 0 warnings
-cargo check --all-targets --all-features                         # exit 0
+CARGO_BUILD_WARNINGS=deny cargo clippy --workspace --all-targets --all-features --keep-going --locked   # 0 warnings
+cargo check --workspace --all-targets --all-features --locked                         # exit 0
 ```
 
 The committed `[build] warnings = "deny"` in `.cargo/config.toml` is the persistent form of the warnings-deny rule (§7.3); `CARGO_BUILD_WARNINGS=deny` is set redundantly by `cargo xtask ci` so the gate is self-contained even if a shell overrides the config. `--keep-going` surfaces *all* lints, not just the first error. A clean-tree Tier-1 run is the bar for any handoff evidence.
@@ -56,36 +56,40 @@ The committed `[build] warnings = "deny"` in `.cargo/config.toml` is the persist
 Run by CI via `cargo xtask ci-full` (tests + the licence gate):
 
 ```sh
-cargo test --workspace --all-features --locked     # or: cargo nextest run --all-features
-cargo deny check licenses bans sources             # ADR-009 — MIT allow-list; GPL/LGPL/AGPL/SSPL denied by default
+cargo test --workspace --all-features --locked     # native test runner used by ci-full
+cargo deny check licenses             # ADR-009 — MIT allow-list; GPL/LGPL/AGPL/SSPL denied by default
 ```
 
-The licence gate is **Tier 2, not Tier 3** — a deliberate deviation from the research (§7.10). `ADR-009` makes the permissive-only policy an *enforced build gate*; a scheduled (Tier-3) check would let an accidental copyleft dependency reach a release before anyone notices, so `cargo deny check licenses bans sources` runs **pre-merge**, while its advisory portion (`cargo audit`) stays Tier 3. `deny.toml` allow-lists MIT, Apache-2.0, BSD-2-Clause, BSD-3-Clause, ISC, Unicode-DFS-2016, Zlib; every other license — including all of the GPL/LGPL/AGPL/SSPL families — is denied by default because it is not allow-listed. Rubber Band, Slint's free tier, and Qt are therefore unavailable without an explicit commercial/licensing decision.
+The licence gate is **Tier 2 and mandatory in the full gate**: `ADR-009` makes the permissive-only policy an enforced build gate, so `cargo deny check licenses` runs in `cargo xtask ci-full` before merge; the CI workflow installs pinned cargo-deny 0.20.2 before the gate. The separate advisory scan `cargo audit` runs as a best-effort, non-blocking CI check. `deny.toml` allow-lists MIT, Apache-2.0, BSD-2-Clause, BSD-3-Clause, ISC, Unicode-DFS-2016, Zlib; every other license — including all of the GPL/LGPL/AGPL/SSPL families — is denied by default because it is not allow-listed. Rubber Band, Slint's free tier, and Qt are therefore unavailable without an explicit commercial/licensing decision.
 
-> **Tier 2 tools are not installed in this environment.** `cargo-deny` and the rest of the Tier-2/3 toolset (`cargo-audit`, `cargo-machete`, `typos`, `cargo-nextest`, `cargo-mutants`) are provisioned by CI / as justified (rust-quality-gates.md §3), so Tier 2 cannot currently run locally — use `cargo xtask ci` (Tier 1) for local verification and let CI run the full pre-merge gate. See `docs/handoff-checklist.md` for the required evidence format.
+- **Local availability:** `cargo-deny 0.20.2` is installed on the current development host and is required if running `cargo xtask ci-full` locally; GitHub CI installs the pinned version first. `cargo-audit`, `cargo-machete`, and `typos` are absent locally but attempted by CI as best-effort, non-blocking advisories. `cargo-nextest` and `cargo-mutants` are not used by the current gate; tests use native `cargo test`, and Nextest remains deferred until the product suite demonstrates a need. `cargo xtask ci` is the required local fast gate; do not install the optional tool set wholesale. See `docs/handoff-checklist.md` for evidence requirements.
 
-### Tier 3 — nightly / scheduled (NOT on every handoff)
+### Tier 3 — deferred analyses (not currently scheduled in this repository)
 
-Quarantined to a dedicated pinned nightly that never enters the handoff environment (§7.6):
+These are candidate slow/nightly checks, not part of the current gate. The only
+workflow in `.github/workflows` has push/pull-request triggers; no scheduled
+Tier-3 job exists. If these analyses are later adopted, isolate them in a
+pinned nightly workflow that never enters the handoff environment:
 
 ```sh
 cargo +nightly miri test                       # UB in executed paths (only crates with `unsafe`)
 cargo +nightly udeps                           # precise unused deps
 cargo +nightly semver-checks check-release     # breaking public API vs baseline (nightly rustdoc JSON)
-cargo mutants                                  # mutation score (mutants.out/outcomes.json) — enabled only after cargo-nextest flakiness detection is stable (§7.7)
+cargo mutants                                  # mutation score (mutants.out/outcomes.json) — enable only after test stability is established
 ```
 
-`miri`/`mutants` can take tens of minutes → run on a schedule, not every PR (rust-quality-gates.md budget).
+`miri`/`mutants` can take tens of minutes; schedule them only after a dedicated
+workflow is configured, not as an assumed current CI check.
 
-### Tooling install
+### Optional tooling (install only for a justified need)
 
-Tier 1 uses rustup components (installed in §Setup: `rustup component add --toolchain stable rustfmt clippy rust-analyzer rust-src`). To provision the Tier-2/3 toolset locally:
+Tier 1 uses the pinned rustup components described in §Setup. `cargo xtask ci-full` additionally requires cargo-deny; if it is absent locally, install the same version used by CI with this user-local command (no sudo):
 
 ```sh
-cargo install cargo-deny cargo-audit cargo-machete typos cargo-nextest cargo-mutants
-rustup toolchain install nightly --component miri
-cargo +nightly install cargo-udeps cargo-semver-checks
+cargo install cargo-deny --locked --version 0.20.2
 ```
+
+`cargo-audit`, `cargo-machete`, and `typos` are best-effort CI advisories and do not need to be installed for the local Tier-1 handoff gate. `cargo-nextest`, `cargo-mutants`, and nightly-only analyzers are not used by the current required gate; defer them until a reviewed project need justifies the installation. Do not install the entire candidate tool list wholesale.
 
 ### MSRV
 

@@ -126,7 +126,7 @@ cargo audit
 ```
 Budget: tens of seconds to ~3 min. `--message-format=json` versions are machine-parseable by CI for the "evidence" step.
 
-### Tier 3 — CI scheduled / release gating (nightly OR slow; NOT on every handoff)
+### Tier 3 — proposed schedule / release gate (not currently configured; nightly OR slow; NOT on every handoff)
 ```sh
 # --- nightly-only analyses ---
 cargo +nightly miri test                      # UB in executed paths (only for crates with `unsafe`)
@@ -229,11 +229,11 @@ The rust-analyzer book documents the **capabilities** (diagnostics, code actions
 ## 5. Unresolved questions and decisions needed (not more research)
 
 1. **Pick one API/semver gate.** `cargo-semver-checks` and `cargo-public-api` overlap (both nightly, both unstable rustdoc JSON). *Decision:* adopt `cargo-semver-checks` (rust-lang, richer lint set) and drop `cargo-public-api` unless raw API diffing is separately required. [DEPENDENCY: lead]
-2. **Supply-chain trio granularity.** `cargo audit` (RustSec only, fast) vs `cargo-deny` advisories (RustSec + GHSA + CVSS 4.0) overlap. *Decision:* keep both — `cargo audit` on every CI attempt (Tier 2) and `cargo deny check` for policy (Tier 3), OR consolidate to `cargo-deny` only. [DEPENDENCY: lead]
-3. **Is network allowed in Tier 1 (every handoff)?** `cargo audit` and `cargo-deny`/`cargo-outdated` hit the registry/network. An offline-only handoff gate cannot run them. *Decision:* Tier-1 = fmt+clippy+check only (offline); supply-chain/network tools are CI/Tier-2+. [DEPENDENCY: lead]
+2. **Supply-chain trio granularity (resolved by implementation).** Keep both with distinct blocking status: `cargo-deny` policy (`licenses`) is mandatory in `cargo xtask ci-full`, pinned at 0.20.2; `cargo audit` is a best-effort, non-blocking CI advisory (`continue-on-error`). Revisit consolidation only if later evidence justifies dropping one.
+3. **Network in Tier 1 (resolved by implementation).** `cargo xtask ci` runs local layers/fmt/clippy/check without remote advisory-database scans. It is stable-only and fast, but may fetch missing locked crates when the Cargo cache is cold; do not describe it as guaranteed offline. Supply-chain checks are not part of the Tier-1 command.
 4. **MSRV policy.** OxiDJ has no declared MSRV. Clippy `msrv` (`clippy.toml`) and `[lints]` edition groups depend on a declared `rust-version`. *Decision:* set `rust-version` in `Cargo.toml` and `msrv` in `clippy.toml` = current stable (1.99.0) with a planned policy. [DEPENDENCY: lead]
 5. **Agent LSP client budget.** Building a stdio LSP client into the agent loop is heavier than `--message-format=json`. *Decision:* start with the JSON-fallback; add the LSP-direct path only if rust-analyzer's code-action suggestions measurably reduce agent iteration. *No primary study confirms the latter.* [DEPENDENCY: lead/research]
-6. **Nightly toolchain policy.** Several Tier-3 tools need nightly (miri, cargo-udeps, cargo-semver-checks, cargo-public-api). The host has no nightly. *Decision:* run Tier-3 on a **dedicated nightly** in scheduled CI (pin a specific nightly per cargo-semver-checks recommendation [SEMVER-readme]); do **not** add nightly to the handoff environment. [DEPENDENCY: lead]
+6. **Nightly toolchain policy (deferred).** Several Tier-3 tools need nightly (`miri`, `cargo-udeps`, `cargo-semver-checks`, `cargo-public-api`). *Proposal if Tier 3 is enabled:* run them on a dedicated pinned nightly in a scheduled workflow; the current repository has no such workflow. Do **not** add nightly to the handoff environment. [DEPENDENCY: lead, only if Tier 3 is justified]
 7. **Flaky-test gate for mutation testing.** `cargo-mutants` "requires non-flaky tests" [MUTANTS]. *Decision:* only enable after `cargo nextest` flakiness detection is proven stable. [DEPENDENCY: lead]
 8. **taplo inclusion.** OxiDJ's only TOML is `Cargo.toml` (Cargo's own parser already validates it). taplo adds schema validation + formatting. *Decision:* adopt taplo only if custom `.toml` config is introduced beyond `Cargo.toml`. [DEPENDENCY: lead]
 9. **cargo-outdated staleness.** Older maintainer (kbknapp, v0.19.0) vs `cargo-update`. *Decision:* keep for "schedule" use but do not make it a blocking gate. [DEPENDENCY: lead]
@@ -296,14 +296,14 @@ The nine items in §5 are decided here. They are tooling and configuration choic
 
 1. **API/semver gate — one, not two.** Adopt `cargo-semver-checks`; drop `cargo-public-api`. They overlap (both nightly, both unstable rustdoc JSON) and semver-checks carries the rust-lang lint set. Release gating only.
 2. **Supply-chain granularity — keep both.** `cargo audit` on every CI attempt (fast, the RustSec reference) and `cargo deny check` for full policy. The overlap is real but cheap, and they answer different questions.
-3. **Tier 1 is offline.** `fmt` + `clippy` + `check` only. Network-dependent tools never run on the handoff path: an agent loop must not fail because the network did. This is the decision that makes the handoff gate reliable rather than aspirational.
+3. **Tier 1 avoids explicit advisory scans, but is not guaranteed offline.** The implemented path is layers + `fmt` + `clippy` + `check` and makes no remote advisory-database calls; Cargo may still fetch locked crates when the cache is cold.
 4. **MSRV declared.** `rust-version = "1.99.0"` in the workspace manifest and `msrv` in `clippy.toml`, matching the installed stable toolchain. Revisit when a real MSRV support policy exists; declaring *something* is what makes `[lints]` edition groups and clippy's `msrv` lint meaningful.
 5. **Agent diagnostics start on the JSON path, not LSP.** Use `cargo clippy --message-format=json`. The LSP-direct client is **deferred until it measurably reduces agent iterations** — §4 is explicit that the argument for LSP is capability-based and that no study supports it. Building an LSP client on an unproven premise is exactly the kind of premature complexity this project keeps rejecting.
-6. **Nightly is quarantined to scheduled CI.** A dedicated pinned nightly exists only for Tier 3. Nightly must never enter the handoff environment — that is also what keeps Tier 1 honest about being stable-only.
+6. **Nightly analysis stays off the stable handoff path.** A dedicated pinned-nightly schedule is the proposed location if Tier 3 is enabled; the current repository has no scheduled workflow configured.
 7. **Mutation testing waits for test stability.** `cargo-mutants` is enabled only after `cargo-nextest` flakiness detection has proven stable. Mutation scores computed on a flaky suite are noise.
 8. **taplo excluded for now.** OxiDJ's only TOML is `Cargo.toml`, which Cargo's own parser already validates; taplo also self-describes as young. Revisit if custom `.toml` configuration appears.
 9. **`cargo-outdated` is advisory.** Scheduled output only, never a blocking gate.
-10. **Deviation — the licence check is Tier 2, not Tier 3.** The research places `cargo deny check` in Tier 3 (scheduled). `ADR-009` requires the permissive-only licence policy to be **enforced**, and a scheduled check lets an accidental copyleft dependency reach a release before anyone notices. So `cargo deny check licenses bans sources` runs **pre-merge (Tier 2)**, while the advisory portion stays in Tier 3 where its network dependency belongs.
+10. **Deviation — the licence check is Tier 2, not Tier 3.** The research places `cargo deny check` in Tier 3 (scheduled). `ADR-009` requires the permissive-only licence policy to be **enforced**, and a scheduled check lets an accidental copyleft dependency reach a release before anyone notices. So `cargo deny check licenses` runs **pre-merge (Tier 2)**. The advisory tools (`cargo audit`, `cargo machete`, `typos`) are separate best-effort, non-blocking Tier-2 CI steps; no scheduled Tier-3 workflow is currently configured.
 
 ### Verification performed by the lead
 

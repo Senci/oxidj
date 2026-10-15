@@ -48,7 +48,7 @@ A fresh clone reproduces the gate with one command:
 git clone <repo> && cd oxidj && cargo xtask ci
 ```
 
-The gate is tiered: Tier 1 (stable, offline, fast) on every coding handoff; Tier 2 on CI/pre-merge; Tier 3 (nightly or slow) on a schedule. Every handoff must paste real Tier-1 output (docs/handoff-checklist.md; docs/research/rust-quality-gates.md §7).
+The gate is tiered: Tier 1 (stable, fast; no advisory scans) on every coding handoff; Tier 2 on CI/pre-merge; Tier 3 analyses are deferred and not yet wired to an in-repository schedule. Every handoff must paste real Tier-1 output (`docs/handoff-checklist.md`); current commands live in `cargo xtask` and `.github/workflows/ci.yml`.
 
 ## Licence
 
