@@ -117,6 +117,10 @@ Engineering rules and conventions, committed in-repo for reproducibility.
 - [docs/agent-model-policy.md](agent-model-policy.md) — model routing, Sol
   delegation lane (medium reasoning for important work), verified free fallback
   chain, worker validation.
+- [docs/agentic-workflow.md](agentic-workflow.md) — the agentic-Rust workflow:
+  what a worker must do and show on every card, mapped to the M0-D4 research.
+- [docs/worktree-isolation.md](worktree-isolation.md) — one worktree and one
+  `target/` per agent; the `CARGO_TARGET_DIR` rule and the worker checklist.
 - [docs/layers-policy.md](layers-policy.md) — the dependency-layer model and the
   `cargo xtask layers` guard (ADR-004); how the gate stays meaningful as crates
   are added.

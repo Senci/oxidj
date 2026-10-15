@@ -1,0 +1,20 @@
+# nextest configuration for OxiDJ (M0-D6, research item 7 / [OPINION]).
+#
+# This file makes the Tier-2 CI flakiness policy explicit and machine-readable.
+# Activate it with:  cargo nextest run --profile ci --all-features
+#
+# `cargo-nextest` is NOT yet installed on the handoff host (see
+# docs/research/rust-quality-gates.md §5). Wiring `cargo nextest run --profile ci`
+# into `cargo xtask test` is a follow-up once nextest is provisioned. Until then
+# `cargo xtask test` (cargo test) is the Tier-2 runner (docs/handoff-checklist.md).
+#
+# Field names validated against nextest's official repo-config schema:
+# https://nexte.st/schemas/repo-config.json
+
+[profile.ci]
+# Retry failed tests twice to detect/flake-past transient failures.
+retries = 2
+# Stop the run after the first still-failing test (fail-fast, then report).
+fail-fast = true
+# Show captured output when a test completes and again at the end of the run.
+failure-output = "immediate-final"
