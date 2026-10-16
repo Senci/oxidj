@@ -40,10 +40,12 @@ All reviews ran on the Sol lane, one decision per packet, no tools and no delega
 See [`000-template.md`](000-template.md) for the decision packet format. Each ADR follows:
 Context → Decision → Evidence → Options → Consequences → Open Questions → Sol Review Packet.
 
-## Pending M1+
+## Proposed and pending M1+
 
-ADR-005, ADR-006 and ADR-007 are **intentionally reserved** for M1+ work — 005 for the metadata schema (carrying the ADR-003 field-relationship risk and import-edit-export validation), 006 for the analysis pipeline, and 007 for vendor adapter scope. The numbering gap between ADR-004 and ADR-008 is therefore deliberate: 008/009 were settled during the M0 review round, while 005/006/007 await their M1+ implementations. New ADRs take the next free number; do not reuse a reserved slot.
+**ADR-005 (Proposed):** [Source-Native Metadata Records with Neutral Projection and Edit Overlays](005-metadata-schema.md) — carries the ADR-003 field-relationship risk and defines the relationship-aware import-edit-export fixtures in [`005-relationship-fixtures.md`](005-relationship-fixtures.md). Drafted and proposed; requires independent Sol review before schema acceptance. No implementation, persistence dependency, or benchmark is authorized by the proposal alone.
 
-- ADR-005: Metadata schema (tables, Rust types)
-- ADR-006: Analysis pipeline (BPM, beatgrid, waveform, key)
-- ADR-007: Vendor adapter scope (Serato, Engine DJ, etc.)
+ADR-006 and ADR-007 are intentionally reserved for M1+ work — 006 for the analysis pipeline, and 007 for vendor adapter scope. The numbering gap between ADR-004 and ADR-008 is therefore deliberate: 008/009 were settled during the M0 review round, while 005/006/007 await their M1+ implementations. New ADRs take the next free number; do not reuse a reserved slot.
+
+- ADR-005: Source-native records + neutral projection + edit overlays — Proposed, requires Sol review
+- ADR-006: Analysis pipeline (BPM, beatgrid, waveform, key) — Reserved
+- ADR-007: Vendor adapter scope (Serato, Engine DJ, etc.) — Reserved
