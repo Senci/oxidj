@@ -9,7 +9,19 @@
 
 ## Verdict: NOT READY
 
-The protocol is structurally sound and grounded in accepted decisions, but it is not yet executable. Six categories of inputs remain unfrozen: fixture distributions, arrival/sample accounting, live WAL/disk envelope, semantic oracle, recovery fault matrix, and numerical budget feasibility. Each is identified below with its smallest missing evidence or decision.
+The readiness assessment remains **NOT READY** after owner ratification: remaining work is technical—freeze the synthetic workload, complete the semantic oracle, and implement/test enforcement. Owner decisions are recorded; no additional approval is needed for these reversible technical choices. The initial assessment below records proposal-time findings; the current checklist and updates supersede the old pending-approval labels.
+
+## Owner ratification update (2026-10-15)
+
+The owner approved the recommendations recorded in the canonical admission protocol:
+
+- **Finite-campaign sampling:** scheduled open-loop offers; five-minute fixed warm-up outside 30 measured minutes; three separate runs; exact nearest-rank p95/p99 per class/run; descriptive floors of 2,000 p95 and 10,000 p99 observations per class/run; under-floor cells are NOT DEMONSTRATED, not PASS; no pooling or population-confidence claim. Extend the common measured window after the class mix is set if needed to reach the p99 floor for every in-scope class. These floors are not confidence guarantees.
+- **Recovery:** coverage-first P0 matrix replaces 30 kills as acceptance definition; independent commit/ack witness, exact operation/history oracle, two stable-boundary online backup restores, three deterministic seeds per applicable site/shape. P1 OS/physical interruption is separate from generic dependency admission and requires separate authorization/evidence for a named deployment/support claim.
+- **WAL/disk and qualification budgets:** first-prototype pass/fail targets are approved, unmeasured, and not product guarantees. The current live-WAL/checkpoint/free-space envelope and enforcement rules are in `m1-sqlite-admission-protocol.md`; `T` must be bounded before claiming the hard ceiling. No total-storage cap until fixture, assets, backup scope, and retention are fixed.
+- **Cold-cache:** use a disposable pre-provisioned VM or dedicated runner; do not clear caches on the normal workstation.
+- **ADR-005:** source-native records + neutral projection + edit overlays are approved only as a candidate direction for drafting and fixture validation, not as final schema acceptance.
+
+Still open: exact read-class taxonomy/proportions/selectivities, manual-edit rate/inclusion, analysis payloads, scan-insert/growth and transaction-shape assumptions, asset copy/reference and backup-retention policy, overload semantics, executable VFS/witness/backup oracles, ADR-005 relationship fixtures, reference-device selection, and selected bundled SQLite build. `viper` remains a candidate only. No benchmark, fault experiment, prototype, or persistence dependency has started or is authorized before the full protocol and semantic oracle are independently reviewed.
 
 ---
 
@@ -31,19 +43,19 @@ These are traceable to accepted ADR decisions, not to the draft protocol.
 
 ### Proposals with owner update (2026-10-15)
 
-These workload definitions and numerical budgets originated as proposals in the draft admission protocol. The owner has since approved the explicit base 500k-track fixture shape and the 30-minute mixed-load rates shown below, and confirmed the no-benchmark/no-dependency gate until the complete protocol and semantic oracle are executable and independently reviewed. This does not settle payload distributions/fan-out, read-class proportions/query selectivities, whether manual edits are included in the 10 req/s stream, a statistical adequacy/confidence target, latency/resource budgets, recovery cases, or the cold-cache method. The protocol's original provisional-budget statements (m1-sqlite-admission-protocol.md:5,44) remain applicable to all unapproved numeric criteria; proposals are not measured performance and must not be promoted into accepted targets.
+These workload and budget items originated as proposals. Since this assessment, the owner ratified the finite-campaign sample rules, first-prototype acceptance targets, recovery P0/P1 policy, WAL/disk envelope, and disposable cold-cache method in the update above. Those inputs are now owner-approved but remain unmeasured and are not product guarantees. Still open are payload/fan-out and scan-growth assumptions, read-class proportions/selectivities, manual-edit share, assets/backups/retention, executable overload and recovery harness details, the per-batch WAL-growth bound, and ADR-005-dependent semantics. The 20% per-class illustration remains unratified and is not a representative mix.
 
 | Proposal | Source | Status |
 |---------|--------|--------|
 | Deterministic 500k-track fixture, deterministic seed (proposed default workload) | m1-sqlite-admission-protocol.md:27 | Base size/seed approved 2026-10-15; payload distribution/fan-out and fixture specifics remain open (NOT an ADR-002 accepted fact) |
-| 30-minute mixed load, 2 producers (100 scan inserts/s + 100 analysis updates/s), 4 readers (10 req/s total) | m1-sqlite-admission-protocol.md:31 | Owner-approved base duration/rates 2026-10-15; read-class proportions/query selectivities, analysis payload, and manual-edit share remain open |
-| Read p95<=100ms, p99<=250ms; write submission-to-BEGIN p95<=100ms, p99<=500ms; txn duration p99<=50ms, max 250ms | m1-sqlite-admission-protocol.md:33 | Provisional; pending owner ratification |
-| Queue bound 1024 jobs/64MiB; RSS<=1GiB; post-drain WAL<=64MiB | m1-sqlite-admission-protocol.md:33 | Provisional; pending owner ratification |
-| Overload 2x writes for 60s, explicit backpressure, recover within 60s | m1-sqlite-admission-protocol.md:33 | Provisional; pending owner ratification |
-| Migration<=60s, reopen<=2s, restore<=120s | m1-sqlite-admission-protocol.md:35 | Provisional; pending owner ratification |
-| 30 process kills across transactions/checkpoints/migration | m1-sqlite-admission-protocol.md:37 | Provisional; pending owner ratification |
-| Two online backups, restore after edits/deletion, exact snapshot match | m1-sqlite-admission-protocol.md:37 | Provisional; pending owner ratification |
-| Reference device `viper` (Ryzen 5 5600X, 31GiB, Btrfs zstd:3 over LUKS on NVMe) | m1-sqlite-admission-protocol.md:29 | Candidate; pending owner selection and pre-run re-recording |
+| 30-minute measured mixed load, 2 producers (100 scan inserts/s + 100 analysis updates/s), 4 readers (10 req/s total) | m1-sqlite-admission-protocol.md:30 | Base rates approved; 5-minute warm-up, three separate runs, finite-campaign method and duration-extension rule approved; class proportions/selectivities, payload and manual-edit share remain open |
+| Read p95<=100ms, p99<=250ms; write submission-to-BEGIN p95<=100ms, p99<=500ms; txn duration p99<=50ms, max 250ms | m1-sqlite-admission-protocol.md:32 | Owner-approved first-prototype targets; unmeasured and not product guarantees |
+| Queue bound 1024 jobs/64MiB; RSS<=1GiB; post-checkpoint WAL<=64MiB; live WAL<=256MiB | m1-sqlite-admission-protocol.md:32-33 | Owner-approved first-prototype targets; hard live ceiling requires a validated per-batch growth bound; total storage remains open |
+| Overload 2x writes for 60s, explicit backpressure, recover within 60s | m1-sqlite-admission-protocol.md:32 | Target approved; reader schedule and exact rejection/retry semantics still need executable specification |
+| Migration<=60s, reopen<=2s, restore<=120s | m1-sqlite-admission-protocol.md:36 | Owner-approved first-prototype targets; unmeasured; schema-dependent implementation remains open |
+| 30 process kills across transactions/checkpoints/migration | m1-sqlite-admission-protocol.md:37 | Superseded: owner approved coverage-first P0 matrix; 30 kills alone are not the acceptance definition |
+| Two online backups, stable-boundary restore without original DB/WAL | m1-sqlite-admission-protocol.md:37 | Two qualification restores approved; product asset/backup retention scope remains open |
+| Reference device `viper` (Ryzen 5 5600X, 31GiB, Btrfs zstd:3 over LUKS on NVMe) | m1-sqlite-admission-protocol.md:28 | Lead-selected candidate; revalidate full environment at run start |
 
 ### Assumptions (not established by repository evidence)
 
@@ -64,7 +76,7 @@ These workload definitions and numerical budgets originated as proposals in the 
 
 ---
 
-## 2. Gap-by-gap assessment
+## 2. Proposal-time gap detail (current status is summarized above)
 
 ### 2.1 Query/arrival/sample accounting
 
@@ -75,27 +87,27 @@ These workload definitions and numerical budgets originated as proposals in the 
 - Minimum sample counts per class per run for statistical validity
 - Cold-cache procedure (OS page cache drop between runs? SQLite cache flush?)
 
-**Proposed definitions (executable defaults, pending owner approval):**
+**Proposal-time definitions (current owner-approved choices are summarized at the top; remaining specifics are lead-owned technical defaults):**
 
-- **Arrival model:** open-loop. Each reader issues requests at a fixed rate independent of completion. This prevents a slow query from artificially reducing arrival rate and masking backlog. Record actual inter-arrival jitter.
-- **Percentile estimator:** exact histogram. Bucket width is a resolution trade-off, not an approximation: 1ms buckets provide millisecond-level resolution only — they do NOT provide sub-millisecond resolution. If sub-millisecond resolution is required, use finer buckets (e.g., 0.1ms or microsecond). Report p50, p95, p99 (the protocol's acceptance percentiles — m1-sqlite-admission-protocol.md:33), plus max, min, mean, stddev. p99.9 is NOT an acceptance percentile. Do not report it as a reliable measured metric without a separately justified sample plan; if shown for exploration, mark it descriptive-only, include the class sample count, and never use it for pass/fail.
-- **Minimum samples:** proposed default, recalculated from the protocol's actual aggregate rate. The protocol specifies 4 readers at 10 req/s total over a 30-minute steady-state window, yielding approximately 10 x 30 x 60 = 18,000 total reader samples. For illustration only, if the 10 req/s stream is reads-only and the approved mix contains five read classes at uniform 20% each, that is approximately 10 x 0.20 x 30 x 60 = 3,600 samples per class. The protocol does not yet settle the exact read-class grouping or whether manual edits are part of that reader rate; recompute after those inputs are ratified. At ~3,600 samples/class the p99 tail has only ~36 observations (the ~3,564th ordered value is p99), and the p99.9 tail has only ~3.6 observations (the ~3,596th ordered value is p99.9) — too few for reliable p99.9 resolution. For this illustration, p95 and p99 yield approximately 180 and 36 upper-tail observations, respectively; these counts permit empirical point estimates but do not establish statistical confidence or adequacy, which remains an owner-approved protocol input. This does NOT support p99.9 as an acceptance or reliably measured metric. A 1,000-sample class would yield only ~1 observation beyond p99.9, which is insufficient; do not treat that count alone as a confidence standard without a justified sample plan. This is a **proposed** target derived from the provisional protocol, not an accepted statistical standard.
-- **Cold-cache procedure:** PROVISIONAL — NOT READY. Dropping the OS page cache (`echo 3 > /proc/sys/vm/drop_caches`) requires root and evicts filesystem cache for the **entire host**. Linux `drop_caches` is global and cannot be scoped to a single filesystem or path, so it cannot be safely run on a shared host without displacing other workloads' caches. It must NOT be recommended as a casual step. Cold-cache measurement remains NOT READY until a controlled method is defined and validated, e.g. a fresh disposable VM with the fixture pre-provisioned and untouched since boot, or explicitly authorized host-wide cache eviction on a dedicated disposable host. For warm runs, execute a warm-up pass equal to 10% of the measurement duration before recording.
-- **Query class proportions:** a uniform mix is a simple synthetic coverage baseline that exercises each approved class; it is not evidence of a representative OxiDJ workload. The class set, proportions, and whether manual edits are included in the 10 req/s reader rate all need owner ratification.
+- **Arrival model:** owner-approved scheduled open-loop. Generate offers independently of completion from a predeclared deterministic schedule; report actual inter-arrival jitter and all terminal outcomes.
+- **Percentile estimator:** retain raw monotonic durations; calculate exact nearest-rank p95 and p99 per class and run. Do not use approximate histogram buckets for pass/fail. p99.9 is not an acceptance percentile.
+- **Minimum samples:** owner-approved descriptive rank-resolution floors are 2,000 observations for p95 and 10,000 for p99 per class/run. These are not statistical confidence guarantees. Under-floor cells are NOT DEMONSTRATED and cannot pass; keep runs separate, with no pooling or post-hoc regrouping. After the synthetic class rates are frozen, extend the common measured window to satisfy the p99 floor for each in-scope positive-rate class.
+- **Cold-cache procedure:** owner-approved disposable pre-provisioned VM or dedicated runner. Validate that environment before qualification. Do not use host-wide `drop_caches` on the normal workstation.
+- **Query-class mix:** if representative usage data is unavailable, use a deterministic synthetic coverage profile only; clearly state that it does not estimate typical OxiDJ usage. The lead owns the exact class proportions, selectivities, and manual-edit share as reversible test inputs.
 
-**Verdict:** NOT READY. Query class proportions, minimum sample targets, and the cold-cache method need owner ratification and a controlled runner; host-owner authorization is required if the method evicts the host-wide page cache. The definitions above are proposals, not approved criteria.
+**Verdict:** These owner-level method choices are resolved. The protocol remains NOT READY until the lead freezes a concrete synthetic schedule, exact per-class rates, payload/growth inputs, and the executable accounting harness; no further owner approval is needed.
 
 ### 2.2 Latency estimators and minimum samples
 
-**Current state:** p95/p99 are mentioned but no estimator or minimum sample count is defined.
+**At assessment time:** p95/p99 were mentioned without an estimator or minimum sample count; the owner-approved method and floors are recorded above.
 
-**Proposed:** See 2.1 above. Exact histogram with 1ms bucket resolution (or finer if sub-ms is required); proposed sample target recalculated from the protocol's aggregate rate (~3,600 per class over the 30-minute steady-state window). Both the estimator choice and the sample count are provisional defaults.
+**Current approach:** raw duration samples, exact nearest-rank p95/p99 per class and run; owner-approved descriptive floors are 2,000 samples for p95 and 10,000 for p99. These floors are not confidence guarantees. Run separately; no pooling. Extend the common measurement interval from the synthetic class rates so all in-scope classes can meet the p99 floor.
 
-**Verdict:** NOT READY (pending owner approval of the estimator choice and sample-count target).
+**Verdict:** Sampling method and descriptive floors are owner-approved; exact class rates and sufficient duration remain to be frozen from the synthetic coverage profile.
 
 ### 2.3 Offered/accepted/completed write accounting
 
-**Current state:** The protocol says "count blocked/rejected submissions, no lost accepted work" and "completed throughput must match offered throughput" under target load. It does not define:
+**At assessment time:** The protocol said "count blocked/rejected submissions, no lost accepted work" and "completed throughput must match offered throughput" under target load, but did not define the accounting boundaries below. The following are lead-owned executable defaults, not requests for owner approval:
 - The boundary between "offered" and "accepted" (is queue admission the acceptance point?)
 - Whether rejected work at target load is a failure or expected behavior
 - How to account for writes that are accepted but whose transaction fails at commit
@@ -108,56 +120,49 @@ These workload definitions and numerical budgets originated as proposals in the 
 - **Rejected:** the queue is full (1024 jobs or 64MiB). Record timestamp, payload bytes, and rejection reason.
 - **Failed:** the job was accepted but the transaction failed at commit. Record timestamp and error. A failed job is NOT a lost accepted work if the failure is reported to the producer and the producer may retry; it IS a lost accepted work if the failure is silent.
 
-**Accounting rule:** under target load, completed must equal offered (per m1-sqlite-admission-protocol.md:33) — i.e. no silent drops of accepted work. Each accepted job is accounted for as completed (successful commit + ack), failed (accepted but its commit failed and was reported — NOT silently dropped, not completed), or rejected (queue full, must be reported). `completed == accepted` holds only with zero commit failures; a reported failure is counted as failed, and its retry is a new offered job. This rule is provisional pending owner ratification, particularly of the target-load "completed must equal offered" requirement and whether any target-load rejection is permitted.
+**Accounting rule:** every offer has one recorded terminal outcome: completed after commit and acknowledgement; rejected before queue acceptance; or failed after acceptance. No silent drops. At normal target load, any rejection or failure prevents PASS because completed throughput must match offered. During the 2x overload interval, explicit queue-full rejections are permitted but reported; no retry is issued during that interval so scheduled arrivals stay fixed. A later retry is a new offer. Backlog is accepted but not-yet-terminal work, sampled each second. These are lead-owned test-harness rules; no further owner approval is needed.
 
 **Backlog metric:** accepted minus completed, sampled every second. Report as a time series, not just a final value.
 
-**Verdict:** NOT READY. The definitions above are executable but need owner ratification, particularly the "completed must match offered" rule and whether any target-load rejection is permitted.
+**Verdict:** The accounting rules are defined; executable instrumentation and independent review remain before protocol freeze.
 
 ### 2.4 Workload duration
 
-**Current state:** Owner-approved initial 30-minute duration; sufficiency and warm-up treatment remain unresolved.
+**Current state:** Owner-approved base is five minutes of warm-up outside 30 measured minutes, with three independent runs; the measured window must extend to satisfy every in-scope p99 class floor.
 
-**Assessment:** The owner approved 30 minutes as an initial run duration, but that duration is not established as sufficient. No OxiDJ evidence supports the claim that 30 minutes captures steady-state behavior, WAL growth patterns, or checkpoint/starvation dynamics on the 500k-track fixture — the protocol itself records all budgets as provisional and unmeasured (m1-sqlite-admission-protocol.md:5,44). Insufficiency is an explicit risk: 30 minutes may not capture steady-state tail latency, WAL/checkpoint behavior under checkpoint starvation, or long-run fragmentation/auto-vacuum effects. Sufficiency must be validated (or rejected) by the prototype run, not assumed here. It may serve as a minimum for a first gate only if the owner explicitly ratifies the sufficiency hypothesis and accepts the insufficiency risk. The protocol should specify whether this is a single continuous run or includes warm-up/cool-down phases.
+**Assessment:** 30 measured minutes is the approved baseline, not a promise that all classes meet the p99 sample floor. The common measured window will be extended from the final synthetic class rates. This is a finite-campaign qualification, not a population-confidence study. Long-duration effects outside the frozen test envelope are not claimed.
 
-**Proposed:** 30 minutes of steady-state measurement following a 5-minute warm-up (not recorded). Total wall-clock: 35 minutes per run. Three independently reset runs.
+**Current method:** five-minute warm-up, then a common measured duration of at least 30 minutes and long enough for each in-scope p99 class to reach 10,000 samples; three independently reset runs. The warm-up is excluded from percentile calculations but its offered work and fixture growth are recorded.
 
-**Verdict:** NOT READY (pending owner approval of warm-up exclusion).
+**Verdict:** Five-minute warm-up outside 30 measured minutes is owner-approved; extend the duration after the in-scope mix is fixed to meet per-class p99 floors.
 
 ### 2.5 Overload/backpressure
 
-**Current state:** "Overload at twice offered writes for 60s must backpressure explicitly, retain interactive budgets and recover/drain within 60s."
+**Current state:** The owner approved this overload target. The protocol now specifies normal-rate readers, reported queue-full rejection without retry during the fixed 60-second burst, then recovery until accepted backlog is drained and returns to its pre-burst baseline within 60 seconds.
 
 **Gaps:**
 - What is the reader schedule during overload? Do readers continue at 10 req/s or are they throttled?
 - What does "explicit backpressure" mean operationally? Reject new writes? Slow producers? Both?
 - How is "recover/drain within 60s" measured? From the end of the overload period?
 
-**Proposed definitions:**
+**Lead-owned executable defaults:** readers continue at 10 interactive requests/s. When the queue is full, each offered write gets an immediate, counted `Busy` rejection; no retry is issued during the fixed 60-second overload interval, preserving the scheduled arrival stream. At overload end, resume base rates and measure until all previously accepted work is complete and backlog returns to its pre-burst baseline; require <=60 seconds. Target-load rejection or failure is a run failure.
 
-- **Reader schedule during overload:** readers continue at their normal 10 req/s. The overload tests whether interactive reads retain their budgets under write pressure.
-- **Explicit backpressure:** when the queue is full, producers receive an immediate rejection (not a silent drop). The rejection is counted and reported. Producers may retry with exponential backoff (base 100ms, max 5s, jittered).
-- **Recovery measurement:** from the end of the 60s overload period, measure time until backlog returns to the pre-overload level and all queued writes complete. Must be <=60s.
-
-**Verdict:** NOT READY. Reader schedule during overload and backpressure semantics need owner ratification.
+**Verdict:** No further owner input is needed; the implementation and independent review remain open.
 
 ### 2.6 Live WAL/free-disk bounds/checkpoint starvation
 
-**Current state:** journal_size_limit=64MiB is set but acknowledged as "not a live hard cap." The post-drain WAL target (<=64MiB) does not bound live WAL growth during reader/checkpoint starvation. No live WAL bound, free-disk floor, or reader-lifetime policy is defined.
+**Current state:** the owner approved a 128 MiB high-water response, 256 MiB live-WAL qualification ceiling, <=64 MiB only after verified checkpoint/recovery, managed read snapshots <=5 seconds, and >=1 GiB free after operation reservation with resume only at >=2 GiB plus headroom. `journal_size_limit` remains a residual size control, not a live cap.
 
 **SQLite semantics (official sources):**
 - WAL mode uses a shared-memory index (shm file) and a write-ahead log (wal file). The WAL file grows as transactions commit and is reset when a checkpoint completes. [SQLite WAL documentation](https://sqlite.org/wal.html)
 - Checkpoint starvation occurs when readers prevent the WAL from being fully checkpointed, causing the WAL file to grow without bound. [SQLite WAL documentation, section 6](https://sqlite.org/wal.html)
 - journal_size_limit is NOT a checkpoint trigger. Per the official pragma docs, it limits the size of rollback-journal and WAL files **left in the file-system after transactions or checkpoints**: each time a transaction commits or a WAL file resets, SQLite compares the WAL size to the limit and truncates it if larger (the default limit is -1 = no limit). Checkpoints are triggered by `wal_autocheckpoint` (default 1000 pages), not by `journal_size_limit`. The WAL can still exceed the limit between checkpoints (e.g., during checkpoint starvation, when no checkpoint runs to apply the truncation), so this is not a live hard cap — see the proposed live-WAL bound in 2.6. [SQLite pragma documentation](https://sqlite.org/pragma.html#pragma_journal_size_limit)
 
-**Proposed definitions:**
+**Executable WAL/disk policy:** at 128 MiB, stop starting new writes and apply explicit backpressure. Enforce the 256 MiB live ceiling only when the harness has a conservative per-batch WAL-extension bound `T` and admits work only when `W+T<=256 MiB`; otherwise split/reject rather than claim a hard cap. After a real reader gap, run a bounded TRUNCATE checkpoint and verify residual WAL <=64 MiB. Keep managed read snapshots <=5 seconds; enforce >=1 GiB free after reserving the next operation's conservative allocation, and do not resume until >=2 GiB plus headroom. No product-wide storage cap is inferred.
 
-- **Live WAL bound:** WAL file size must not exceed 256 MiB at any point during the run. This is 4x the journal_size_limit and provides headroom for checkpoint starvation while still bounding disk usage. If exceeded, the run fails.
-- **Free-disk floor:** free disk space must not fall below 1 GiB during the run. If it does, the run fails.
-- **Reader lifetime policy:** a read transaction must not hold a read lock for more than 5 seconds. If a reader exceeds this, it is aborted and retried. This prevents indefinite checkpoint starvation.
-- **Checkpoint starvation scenario:** a dedicated test where a reader holds an open read transaction for 30 seconds while writers continue. Measure WAL growth rate and verify it stays within the live WAL bound. This is a separate test from the main workload.
+**Checkpoint-starvation test:** hold a reader while writers run; continue until the 128 MiB response activates or 60 seconds elapse. At the threshold, stop admitting writes, verify backpressure, release the reader, checkpoint/TRUNCATE, and verify the residual target. If neither the threshold nor a valid timeout boundary is reached, record NOT DEMONSTRATED. This is a technical test definition, not an additional owner decision.
 
-**Verdict:** NOT READY. The 256 MiB live WAL bound and 5s reader lifetime are engineering proposals that need owner ratification. The checkpoint starvation scenario is a new test that needs owner approval.
+**Verdict:** Owner thresholds are recorded; executable `T` admission, free-space reservations, and checkpoint-starvation instrumentation remain technical prerequisites.
 
 ### 2.7 Semantic oracle
 
@@ -214,25 +219,17 @@ The semantic oracle is an independent checker that operates on the in-memory dom
 - "Asset-manifest match" is not defined (what assets? how hashed?).
 - Restore timing boundaries are not defined (start/end points).
 
-**Proposed definitions:**
+**Lead-owned qualification oracle:** take two online backups at separately recorded stable boundaries and restore each into a clean location without the original database or WAL. Compare every persisted row with the stable-boundary snapshot, then run the semantic oracle from ADR-005. Use a deterministic test-only asset-stub manifest with SHA-256 entries; this does not settle product audio/artwork copy/reference policy or ongoing retention. Measure restore-to-first-result against the owner-approved 120-second target; record full verification time separately.
 
-- **Snapshot oracle:** after restore, the database must pass the same semantic oracle as the live database (2.7). Additionally, a row-by-row comparison of all tables must match the pre-backup state. This is a stronger check than semantic oracle alone.
-- **Asset manifest:** a SHA-256 manifest of all external asset files (audio, artwork) is generated at backup time. After restore, the manifest is regenerated and compared. Any mismatch fails.
-- **Restore timing:** start = restore command issued; end = first query returns a result. This is separate from full verification (which may take longer).
-
-**Verdict:** NOT READY. The definitions above are executable but need owner ratification. The asset manifest format needs a decision.
+**Verdict:** Backup/restore cases are owner-approved; comparison, manifest, and timing instrumentation remain technical implementation work.
 
 ### 2.10 Acknowledgment witness
 
 **Current state:** "Independently persist a witness of acknowledged transaction IDs; verify it is not in-memory or unflushed."
 
-**Proposed definition:**
+**Lead-owned witness default:** append each transaction ID to a separate application-layer witness file; after the SQLite transaction commits, sync the witness before acknowledging success. Reconcile the witness against committed database IDs after each recovery case: every acknowledged ID must be present; unacknowledged IDs may or may not be present. A witness-write/sync failure prevents acknowledgement. Independent review must verify ordering and uncertainty handling.
 
-- **Witness:** an append-only file on the same filesystem as the database. Each acknowledged transaction ID is written as a line (64-bit integer + newline) and flushed (fsync) before the acknowledgement is sent to the producer.
-- **Verification:** after a process kill, the witness file is read and compared against the database's committed transaction IDs. Every acknowledged ID must be present in the database. Unacknowledged IDs may or may not be present (permitted uncertainty).
-- **Independence:** the witness is not the database's own commit log. It is a separate file written by the application layer.
-
-**Verdict:** NOT READY. The definition above is executable but needs owner ratification, particularly the fsync-before-ack ordering and the witness file format.
+**Verdict:** The witness requirement is owner-approved; concrete implementation and independent validation remain.
 
 ### 2.11 Sync/I/O fault points
 
@@ -253,9 +250,9 @@ The semantic oracle is an independent checker that operates on the in-memory dom
 | After COMMIT (after fsync, before ack) | Fail the next write() to witness | Ack not sent, transaction is committed but unacknowledged; permitted uncertainty |
 | After ACK | Kill process | Transaction is committed and acknowledged; must survive |
 
-**Injection method:** candidate methods include a FUSE filesystem or an LD_PRELOAD wrapper that fails the Nth occurrence of a specified syscall. These are candidate techniques requiring feasibility checks before use — neither is verified as "standard" for this stack — and neither requires modifying SQLite.
+**Injection method:** use a test-only SQLite VFS wrapper/shim around the selected underlying VFS, with deterministic failure counters at the required write/sync/recovery sites. Before qualification, prove the wrapper's exact error propagation through the selected SQLite build and Rust binding; invalid or unreachable cells are NOT DEMONSTRATED. This is a lead-owned technical implementation choice, not a user approval gate.
 
-**Verdict:** NOT READY. The fault injection method (FUSE vs LD_PRELOAD) needs owner ratification. The test matrix is executable once the method is chosen.
+**Verdict:** The coverage-first matrix is owner-approved; the VFS shim, error mapping, and executable case manifest remain technical prerequisites.
 
 ### 2.12 What process-kill tests cannot prove
 
@@ -264,7 +261,7 @@ The semantic oracle is an independent checker that operates on the in-memory dom
 **SQLite semantics (official sources):**
 - A process kill terminates the application but does not clear kernel caches or simulate device power loss. Committed transactions with synchronous=FULL survive process kills because the WAL fsync has already been issued to the kernel. [SQLite WAL documentation](https://sqlite.org/wal.html)
 - Power loss clears kernel caches and may leave the WAL file in an incomplete state. Whether the commit survives depends on the storage device's behavior during power loss: only with `synchronous=FULL` does SQLite issue a WAL sync at each commit to make transactions durable across power loss, and `synchronous=NORMAL` may lose committed transactions after power/system failure. This is a WAL-mode behavior; the official *atomic commit* article documents only the rollback-journal mechanism and does not cover WAL-mode power-loss behavior. [SQLite WAL documentation](https://sqlite.org/wal.html); [SQLite synchronous pragma](https://sqlite.org/pragma.html#pragma_synchronous)
-- A finite test campaign (30 process kills) provides **bounded evidence** for the process-kill fault cases actually exercised — namely that acknowledged commits survive the specific kill points tested and that the application does not report false success after a kill. It does NOT prove correct handling of all kill points, all failure modes, power loss, device failure, or behavior on arbitrary hardware. [SQLite synchronous pragma documentation](https://sqlite.org/pragma.html#pragma_synchronous)
+- A finite coverage-first process-kill matrix provides bounded evidence only for the reachable cells actually exercised: acknowledged commits survive the specific tested kill boundaries and the application does not report false success. It does NOT prove correct handling of all kill points, all failure modes, power loss, device failure, or behavior on arbitrary hardware. [SQLite synchronous pragma documentation](https://sqlite.org/pragma.html#pragma_synchronous)
 
 **What process-kill tests CAN prove:**
 - Acknowledged commits survive process termination.
@@ -287,77 +284,63 @@ The semantic oracle is an independent checker that operates on the in-memory dom
 - synchronous=FULL adds an fsync of the WAL file after each commit. This is the most durable setting in WAL mode. [SQLite synchronous pragma documentation](https://sqlite.org/pragma.html#pragma_synchronous)
 - WAL mode provides reader/writer overlap: readers do not block the writer and the writer does not block readers. [SQLite WAL documentation](https://sqlite.org/wal.html)
 
-No official SQLite source provides device-specific fsync latency ranges or OxiDJ-specific performance feasibility assessments. Statements such as "fsync costs 0.1-1ms on NVMe" or "p95 should be <10ms on NVMe" are generic estimates from third-party benchmarks, not OxiDJ evidence and not supported by any cited official source. The following budgets are provisional engineering targets proposed in the draft protocol; they are NOT evidence-backed measurements and must be validated by the prototype run before they can serve as acceptance criteria.
+No official SQLite source provides device-specific fsync latency ranges or OxiDJ-specific performance feasibility assessments. Statements such as "fsync costs 0.1-1ms on NVMe" or "p95 should be <10ms on NVMe" are generic estimates from third-party benchmarks, not OxiDJ evidence. The owner ratified the protocol's numeric values as first-prototype pass/fail targets. They remain unmeasured, not product guarantees, and feasibility is unknown until the post-freeze qualification run.
 
 **Budget assessment:**
 
 | Budget | Value | Status |
 |--------|-------|--------|
-| Read p95 | <=100ms | Provisional target; reads do not fsync under FULL. Feasibility unmeasured. |
-| Read p99 | <=250ms | Provisional target; feasibility unmeasured. |
-| Manual-edit commit p95 | <=100ms | Provisional target; single-row update with FULL fsync. Feasibility unmeasured. |
-| Manual-edit commit p99 | <=250ms | Provisional target; feasibility unmeasured. |
-| Submission-to-BEGIN p95 | <=100ms | Provisional target; queue wait under target load. Feasibility unmeasured. |
-| Submission-to-BEGIN p99 | <=500ms | Provisional target; feasibility unmeasured. |
-| Transaction duration p99 | <=50ms | Provisional target; short batched transaction with FULL fsync. Feasibility unmeasured. |
-| Transaction duration max | <=250ms | Provisional tail bound; not a target. Feasibility unmeasured. |
-| RSS | <=1GiB | Provisional target; feasibility unmeasured. |
-| Post-drain WAL | <=64MiB | Provisional post-checkpoint target. Not a live bound (see 2.6). |
-| Queue | 1024 jobs/64MiB | Provisional capacity bound, not a performance target. |
-| Overload recovery | <=60s | Provisional target; drain after 60s at 2x writes. Feasibility unmeasured. |
-| Migration | <=60s | Provisional target; schema migration on 500k rows. Feasibility unmeasured. |
-| Reopen | <=2s | Provisional target; open WAL db + no-op migration check. Feasibility unmeasured. |
-| Restore | <=120s | Provisional target; restore + first query. Feasibility unmeasured. |
+| Read p95 | <=100ms | Owner-approved first-prototype target; reads do not fsync under FULL. Feasibility unmeasured, not a product guarantee. |
+| Read p99 | <=250ms | Owner-approved first-prototype target; feasibility unmeasured, not a product guarantee. |
+| Manual-edit commit p95 | <=100ms | Owner-approved first-prototype target; single-row update with FULL fsync. Feasibility unmeasured. |
+| Manual-edit commit p99 | <=250ms | Owner-approved first-prototype target; feasibility unmeasured, not a product guarantee. |
+| Submission-to-BEGIN p95 | <=100ms | Owner-approved first-prototype target; queue wait under target load. Feasibility unmeasured. |
+| Submission-to-BEGIN p99 | <=500ms | Owner-approved first-prototype target; feasibility unmeasured, not a product guarantee. |
+| Transaction duration p99 | <=50ms | Owner-approved first-prototype target; short batched transaction with FULL fsync. Feasibility unmeasured. |
+| Transaction duration max | <=250ms | Owner-approved first-prototype maximum bound; not a percentile target. Feasibility unmeasured. |
+| RSS | <=1GiB | Owner-approved first-prototype target; feasibility unmeasured, not a product guarantee. |
+| Post-checkpoint WAL | <=64MiB | Owner-approved residual target. Not a live bound (see 2.6). |
+| Queue | 1024 jobs/64MiB | Owner-approved capacity bound, not a performance target. |
+| Overload recovery | <=60s | Owner-approved first-prototype target; drain after 60s at 2x writes. Feasibility unmeasured. |
+| Migration | <=60s | Owner-approved first-prototype target; schema migration on 500k rows. Feasibility unmeasured. |
+| Reopen | <=2s | Owner-approved first-prototype target; open WAL db + no-op migration check. Feasibility unmeasured. |
+| Restore | <=120s | Owner-approved first-prototype target; restore + first query. Feasibility unmeasured. |
 
-**Conclusion:** The numerical budgets are provisional engineering targets from the draft protocol. No official SQLite source or repository evidence supports device-specific performance feasibility for these targets. They are NOT evidence-backed measurements and must be reviewed before execution. They should not be presented as product guarantees or OxiDJ evidence.
+**Conclusion:** The owner-approved values are first-prototype acceptance targets, not measurements or product guarantees. No official SQLite source or repository evidence supports device-specific feasibility. The target set is ready as a decision; execution remains blocked on protocol/oracle completion and independent review.
 
-**Verdict:** NOT READY (pending owner review of budget feasibility).
+**Verdict:** Budget values owner-approved; feasibility remains unmeasured.
 
 ---
 
-## 4. READY/NOT READY checklist
+## 4. Current gate checklist after owner ratification
 
-| Item | Verdict | Smallest missing evidence/decision |
-|------|---------|-----------------------------------|
-| Fixture distributions | NOT READY | Owner-approved payload sizes and fan-out ratios |
-| Query class proportions | NOT READY | Owner choice of the read-class set and representative or synthetic mix; manual-edit rate remains separate unless explicitly included |
-| Manual edit rate | NOT READY | Owner-specified rate |
-| Arrival schedule | NOT READY | Owner approval of open-loop model |
-| Percentile estimator | NOT READY | Owner approval of exact histogram and bucket width |
-| Minimum samples | NOT READY | Owner-approved class set/rates and statistical adequacy target; ~3,600 samples/class is illustrative only |
-| Cold-cache procedure | NOT READY | Validated controlled-runner method (pre-provisioned untouched fixture or authorized host-wide `drop_caches`) |
-| Offered/accepted/completed accounting | NOT READY | Owner ratification of accounting rules |
-| Workload duration | NOT READY | Owner approval of warm-up exclusion and the 30-minute duration-sufficiency hypothesis (unmeasured; insufficiency is an explicit risk) |
-| Overload reader schedule | NOT READY | Owner-specified reader behavior during overload |
-| Backpressure semantics | NOT READY | Owner ratification of rejection + retry policy |
-| Live WAL bound | NOT READY | Owner approval of 256 MiB bound |
-| Free-disk floor | NOT READY | Owner approval of 1 GiB floor |
-| Reader lifetime policy | NOT READY | Owner approval of 5s limit |
-| Checkpoint starvation scenario | NOT READY | Owner approval of new test |
-| Semantic oracle (items 1-5) | NOT READY | Owner ratification of oracle definition |
-| Semantic oracle (item 6: relationship-aware) | NOT READY | ADR-005 schema decision |
-| Migration cases | NOT READY | ADR-005 schema decision |
-| Restore oracle | NOT READY | Owner ratification of snapshot comparison method |
-| Acknowledgment witness | NOT READY | Owner ratification of witness format and fsync ordering |
-| Sync/I/O fault points | NOT READY | Owner choice of injection method (FUSE vs LD_PRELOAD) |
-| Process-kill limitations | READY | Correctly scoped; no owner input needed |
-| Numerical budgets | NOT READY | Owner review of budget feasibility with FULL |
-| Reference device | NOT READY | viper is a candidate; pending owner selection and pre-run state re-recording |
-| Durability contract | READY | WAL/FULL, commit-success ack, conditional zero-loss |
-| Engine choice | READY | SQLite + WAL + rusqlite + rusqlite_migration |
-| Concurrency model | READY | Single writer, read pool, BEGIN IMMEDIATE |
+| Item | Current status | Next work (lead-owned; no further owner approval needed) |
+|------|----------------|-----------------------------------------------------------|
+| Initial fixture and base rates | Owner-approved: 500k deterministic tracks; 100 scan inserts/s; 100 analysis updates/s; 10 interactive requests/s total | Define synthetic fixture payloads and growth semantics; no typical-usage claim |
+| Read/manual-edit class mix | Synthetic fallback approved if real usage is unknown | Freeze a balanced, deterministic coverage schedule and selectivities |
+| Arrival and percentile method | Owner-approved: scheduled open-loop; raw durations; nearest-rank p95/p99 per class/run | Implement event schedule and retain all terminal outcomes |
+| Sample floors and duration | Owner-approved: 2,000 p95 / 10,000 p99 per class/run; three separate runs; under-floor NOT DEMONSTRATED | Derive common measured duration from the final class rates |
+| Warm-up | Owner-approved: five minutes outside 30 measured minutes | Apply consistently; extend measured window as needed for p99 floors |
+| Cold-cache method | Owner-approved: disposable pre-provisioned VM/runner | Provision and validate runner; no cache clearing on normal workstation |
+| Latency/resource targets | Owner-approved first-prototype thresholds; unmeasured, not product guarantees | Implement measurements and report each run separately |
+| WAL/checkpoint/free-space envelope | Owner-approved: 128 MiB high-water, 256 MiB live ceiling, <=64 MiB after verified checkpoint/recovery, <=5 s snapshots, >=1 GiB free after reservation, resume at >=2 GiB plus headroom | Derive and validate per-batch growth bound `T`; implement pause/backpressure/checkpoint verification |
+| Overload and accounting | Target and terminal-outcome accounting approved | Specify deterministic reader/rejection behavior and recovery timer |
+| Recovery matrix | P0 coverage-first matrix, witness/oracle, two backup restores and three seeds approved; P1 separate | Implement injectors, durable witness, restore oracle, and case manifest |
+| ADR-005 direction | Candidate approved for drafting only; no final schema accepted | Draft schema and pass relationship-aware import-edit-export fixtures |
+| Reference device / SQLite build | `viper` remains a candidate; exact build unselected | Lead selects/revalidates runner and checks bundled SQLite WAL-reset fix before qualification |
+| Total storage budget | No product-wide cap approved | Measure the frozen synthetic fixture/assets/backups; do not infer a product cap |
+| Durability and engine choice | READY: WAL/FULL conditional contract; SQLite + WAL | Dependency admission still waits for every qualification gate |
 
 ---
 
 ## 5. Recommended path to READY
 
-1. **Owner ratification of defaults:** the definitions proposed in sections 2.1-2.11 are executable defaults. The owner can approve them, modify them, or replace them. This is the largest unblock.
-2. **ADR-005 schema decision:** unblocks migration cases, relationship-aware semantic oracle, and fixture generation. This is on a separate track and does not block the non-schema items.
-3. **Fixture generation:** once ADR-005 is resolved, generate a deterministic 500k-track fixture with the approved distributions. This unblocks the workload.
-4. **Sample-count review:** once query-class proportions and the reader rate are frozen, validate that each class yields enough samples for the acceptance percentiles (p95/p99). Under the illustrative five-read-class, reads-only mix in §2.1, the proposed ~3,600 samples/class gives ~36 upper-tail observations for p99; this is not a statistical confidence target, which remains unresolved. The same count does NOT support p99.9 (~3.6 tail observations); p99.9 is not an acceptance metric without a separately justified sample plan. Do not promote provisional targets to accepted criteria without owner review.
-5. **Controlled-runner authorization:** validate a cold-cache setup on a dedicated disposable VM/host, for example by pre-provisioning the fixture and leaving it untouched since boot; any use of `drop_caches` requires host-owner approval for host-wide cache eviction and must not affect unrelated workloads.
-6. **Protocol freeze:** once all checklist items are READY, freeze the protocol. Per the pre-run gate in plan/STATUS.md:62 and ADR-002:11,119-123, do not run benchmarks or feasibility measurements until the protocol is executable and reviewed; numerical budgets remain provisional until pre-run review (m1-sqlite-admission-protocol.md:44). The earlier "quick feasibility check" proposed before freeze conflicts with this gate and was not run.
-7. **Feasibility check and runs (post-freeze only):** only after the protocol is frozen and owner-approved, conduct a feasibility check of the numerical budgets against `synchronous=FULL` on the qualified reference device, then execute the three independently reset runs (cold-open and warm measurements; every run must pass).
+1. **Finalize synthetic coverage inputs:** choose explicit read classes, equal scheduled shares, deterministic query/selectivity cases, transaction/payload shapes, scan-growth behavior, and test-only asset/backup scope. Label the workload synthetic; make no typical-usage claim.
+2. **ADR-005:** draft the approved candidate direction and relationship-aware import-edit-export fixtures; run the required independent decision review before accepting a schema.
+3. **Build the qualification harness:** implement per-class raw-sample accounting, queue/backpressure outcomes, bounded `T` admission, WAL/checkpoint verification, independent acknowledgement witness, VFS fault injection, and backup/restore oracle.
+4. **Cold-cache runner:** provision and verify a disposable pre-seeded VM/dedicated runner; no cache clearing on the normal workstation.
+5. **Freeze and independently review:** all workload cells, budgets, harness, recovery matrix, semantic oracle, supported stack, and SQLite build must be executable and frozen before any measurement.
+6. **Run only after freeze:** execute the three separate qualification runs and report each cell/run; no pooling to rescue a failure or under-sampled class. No persistence dependency unless every agreed gate passes.
 
 ---
 
@@ -378,10 +361,8 @@ All SQLite semantics in this note are sourced from official documentation:
 ## 7. Boundaries respected
 
 - No ADR-002 durability wording changed; no universal zero-loss claim made.
-- No SQLite dependencies added; no schema implemented; no benchmark run; no private music libraries accessed; no paid model routing used.
-- No existing shared docs modified. This note is a revised, self-contained file in the isolated worktree. Changes are limited to correcting source references, durability semantics, statistical framing, and demoting provisional proposals; no new evidence or measurements were generated.
-- All SQLite semantics cited to official sources.
-- All NOT READY items explicitly marked with smallest missing evidence/decision.
-- The viper reference device is recorded as a candidate, not an accepted fact.
-- Workload budgets are recorded as provisional proposals, not accepted criteria.
-- The cold-cache procedure is NOT READY pending controlled-runner authorization.
+- No SQLite dependencies or product code were added, and no benchmark/fault experiment was run; no private music libraries were accessed and no paid model routing was used. This note is now the canonical readiness record and is updated alongside the admission protocol and milestone status.
+- All remaining NOT READY items have a lead-owned execution path in the current gate checklist; none waits for additional owner approval.
+- The viper host is a lead-selected reference candidate; exact environment details must be revalidated at run start.
+- Owner ratified first-prototype budgets and the disposable cold-cache method; feasibility and runner provisioning remain unverified.
+- This file's detailed gap sections are a pre-ratification review snapshot; the owner-update and current checklist above supersede stale proposal-time statuses.
