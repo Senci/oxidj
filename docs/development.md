@@ -38,6 +38,22 @@ The smoke script creates and removes a dependency-free crate under `$TMPDIR` (fa
 
 The repo-owned gate is defined by `AGENTS.md` and implemented as `cargo xtask` (`xtask/src/main.rs`). CI runs `cargo xtask ci-full`; the per-handoff gate is `cargo xtask ci`. The research gate report is background, not the current command source.
 
+The quality flow below distinguishes the mandatory per-handoff Tier 1 gate, the CI/pre-merge Tier 2 gate, and deferred Tier 3 analyses; failures return to fixing and re-running the relevant gate.
+
+```mermaid
+flowchart TD
+    change["Bounded code change"] --> t1["Tier 1: cargo xtask ci<br/>layers, fmt, clippy, check"]
+    t1 --> q1{"All PASS?"}
+    q1 -- no --> fix["Fix issue and re-run gate"]
+    fix --> t1
+    q1 -- yes --> handoff["Handoff with real Tier 1 evidence"]
+    handoff --> t2["Tier 2: CI cargo xtask ci-full<br/>tests + mandatory licence gate"]
+    t2 --> q2{"CI green?"}
+    q2 -- no --> fix
+    q2 -- yes --> merge["Pre-merge gate satisfied"]
+    merge -. "not currently scheduled" .-> t3["Tier 3 analyses<br/>deferred; not a handoff prerequisite"]
+```
+
 ### Tier 1 — every coding handoff (stable, fast, <2 min warm)
 
 Tier 1 uses stable `rustfmt`/`clippy` and the project layers guard. It makes no network advisory-database calls, but Cargo may fetch locked dependencies if the local cache is cold. Run `cargo xtask ci` (the repo-owned wrapper) or the matching raw commands below:

@@ -22,32 +22,18 @@ OxiDJ must separate domain logic, adapters, UI, persistence, audio decoding/anal
 
 Adopt a layered crate architecture with one-way dependency edges:
 
-```
-┌─────────────────────────────────────────────────────────┐
-│                    oxidj-cli (binary)                    │
-│                    Command-first entry point             │
-├─────────────────────────────────────────────────────────┤
-│  oxidj-ui          (egui/Slint, M3)                     │
-├─────────────────────────────────────────────────────────┤
-│  oxidj-adapters — vendor format crates                  │
-│  (oxidj-mixxx, oxidj-rekordbox, oxidj-serato, ...)      │
-├─────────────────────────────────────────────────────────┤
-│     oxidj-library  — import/export, metadata pipeline   │
-│              ↑ depends on oxidj-core                    │
-├─────────────────────────────────────────────────────────┤
-│     oxidj-storage  — SQLite persistence, migrations     │
-│              ↑ depends on oxidj-core                    │
-├─────────────────────────────────────────────────────────┤
-│     oxidj-analysis — BPM, beatgrid, waveform, key       │
-│              ↑ depends on oxidj-core                    │
-├─────────────────────────────────────────────────────────┤
-│     oxidj-audio  — Symphonia decode (M0-M3, offline)    │
-│              ↑ depends on oxidj-core                    │
-├─────────────────────────────────────────────────────────┤
-│     oxidj-core   — neutral domain model                 │
-│     (Track, Cue, BeatGrid, Playlist, Provenance, ...)   │
-│     NO UI, NO persistence, NO audio, NO vendor deps      │
-└─────────────────────────────────────────────────────────┘
+The dependency sketch shows the accepted one-way direction: product layers depend on the neutral core, not the reverse. It is a rule set, not a requirement to scaffold every crate at once.
+
+```mermaid
+flowchart TB
+    cli["oxidj-cli"] --> core["oxidj-core<br/>neutral domain; no UI, persistence, audio, or vendor deps"]
+    ui["oxidj-ui<br/>M3"] --> library["oxidj-library<br/>commands, import/export"]
+    library --> core
+    adapters["oxidj-adapters<br/>vendor formats"] --> library
+    storage["oxidj-storage<br/>SQLite, migrations"] --> core
+    analysis["oxidj-analysis<br/>BPM, beatgrid, waveform, key"] --> core
+    audio["oxidj-audio<br/>offline Symphonia decode, M0–M3"] --> core
+    engine["oxidj-engine<br/>M4+ deferred"] -. "depends only on" .-> core
 ```
 
 The **realtime engine** (`oxidj-engine`: CPAL + dasp/fundsp/rubato) is a separate crate with strictly one dependency edge — `oxidj-core` — and is **not created in M0**. It enters only at M4.
