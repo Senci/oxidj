@@ -18,6 +18,30 @@ report is background, not the current implementation spec.
 
 ---
 
+```mermaid
+flowchart LR
+    t1["Tier 1 — required, every handoff<br/>cargo xtask ci<br/>layers → fmt → clippy → check"]
+    t1 --> q1{"all four steps PASS?"}
+    q1 -- "no" --> fix["fix and re-run the gate"]
+    fix --> t1
+    q1 -- "yes" --> t2["Tier 2 — required, pre-merge<br/>cargo xtask ci-full<br/>ci + tests + cargo deny check licenses"]
+    t2 --> q2{"green?"}
+    q2 -- "no" --> fix
+    q2 -- "yes" --> done(["handoff evidence<br/>pasted into the card"])
+    t2 -. "optional, non-blocking" .-> adv["advisory CI steps<br/>cargo audit · cargo machete --json · typos --format json<br/>continue-on-error"]
+    t2 -. "deferred, not configured" .-> t3["Tier 3 — nightly/slow analyses<br/>not a handoff prerequisite"]
+    classDef req fill:#eaf2fb,stroke:#2c3e50,color:#1a1a1a
+    classDef opt fill:#f6f6f6,stroke:#7f8c8d,color:#1a1a1a
+    class t1,t2 req
+    class adv,t3 opt
+```
+
+Every handoff runs Tier 1 locally; a failed step loops back to fix-and-rerun
+until all four pass, and the pre-merge Tier 2 must then be green for the evidence
+to count. The dashed branches are not gates: the advisory CI steps are
+`continue-on-error`, and Tier 3 analyses are deferred and not configured. This
+repository gate is separate from the M1 SQLite admission gate.
+
 ## Tier 1 — mandatory evidence on **every** handoff (stable, fast; no advisory scans)
 
 Run `cargo xtask ci` and paste its output. It runs, in order:
