@@ -64,3 +64,19 @@ The gate runs the tests that exist today (`cargo xtask test` →
 repo-owned command. As crates and fixtures arrive, the same gate covers the new
 tests without any new per-crate command surface — the workspace shares one
 lockfile and one gate.
+
+The diagram shows how tests fit into the existing gate: focused checks help during development, while the workspace test suite runs in Tier 2; neither substitutes for the mandatory Tier 1 handoff gate. Test failures must be corrected before the corresponding gate is green.
+
+```mermaid
+flowchart TD
+    edit["Change or add tests"] --> focused["Focused checks during development"]
+    focused --> q{"Focused check passes?"}
+    q -- no --> fix["Fix code or test, then re-run"]
+    fix --> focused
+    q -- yes --> t1["Tier 1 handoff: cargo xtask ci"]
+    t1 --> t2["Tier 2 CI: cargo xtask ci-full"]
+    t2 --> tests["cargo test --workspace<br/>--all-features --locked"]
+    tests --> result{"Tests pass?"}
+    result -- no --> fix
+    result -- yes --> evidence["CI test evidence<br/>with full-gate result"]
+```
