@@ -23,6 +23,18 @@ OxiDJ is a single-process, local-first DJ library manager handling 100k–500k t
 
 Adopt **SQLite with WAL mode** as the default local-first persistence engine:
 
+The flow below summarizes the accepted, conditional WAL/FULL acknowledgement contract; it documents the decision, not an implementation or qualification result. The selected persistence dependencies remain gated on the representative 500k-track prototype.
+
+```mermaid
+flowchart LR
+    gate["Dependency admission remains gated<br/>500k-track prototype must pass"]
+    write["Write transaction<br/>WAL active; writer verifies FULL"] --> commit{"Commit returns successfully?"}
+    commit -- yes --> ack["May report saved / acknowledge"]
+    commit -- no --> failed["Not success<br/>outcome may need reconciliation"]
+    ack -. "durability is conditional on" .-> stack["Supported SQLite build / VFS / OS / filesystem / controller / device<br/>honor sync and recovery semantics"]
+    gate -. "separate admission condition" .-> write
+```
+
 - Rust binding: `rusqlite` with the `bundled` feature (consistent SQLite version, no system dependency).
 - Schema migrations: `rusqlite_migration` (uses `user_version`, plain SQL strings).
 - Connection model: single writer (bounded channel queue) + read pool (`deadpool`/`r2d2`), `BEGIN IMMEDIATE`.

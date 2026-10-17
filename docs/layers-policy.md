@@ -16,6 +16,17 @@ crates at the **same layer or lower**. Depending on a higher layer is a forbidde
 | 1     | `oxidj-cli`  | Command-line entry point; calls core handlers only.       |
 | exempt| `xtask`      | Build-time tooling (`cargo xtask`), never a product dep.  |
 
+This small graph illustrates the current M0 rule in both directions: `cli` may
+depend on the lower-layer core, while the reverse edge is forbidden. `xtask` is
+outside the product dependency graph.
+
+```mermaid
+flowchart TB
+    cli["oxidj-cli<br/>layer 1"] --> core["oxidj-core<br/>layer 0"]
+    core -. "forbidden upward edge" .-> cli
+    xtask["xtask<br/>exempt build tooling"]
+```
+
 M0 contains **only** `oxidj-core` and `oxidj-cli`. Storage, audio, analysis,
 adapters and UI are **not** scaffolded — they appear when their functionality
 is needed, each assigned a layer here (ADR-004's review rejected an empty-crate

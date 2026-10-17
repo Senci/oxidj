@@ -16,6 +16,22 @@ report is background, not the current implementation spec.
 > are best-effort CI advisories (`continue-on-error`); they may be absent locally.
 > The current gate uses native `cargo test`, not `cargo-nextest`.
 
+The handoff path below distinguishes evidence required on every coding handoff from the full CI/pre-merge gate and deferred analyses; a failed required step must be fixed and rerun, not reported as complete.
+
+```mermaid
+flowchart TD
+    task["Coding task ready for handoff"] --> tier1["Run cargo xtask ci<br/>Tier 1: layers, fmt, clippy, check"]
+    tier1 --> pass1{"Every step PASS?"}
+    pass1 -- no --> repair["Fix issue and rerun required gate"]
+    repair --> tier1
+    pass1 -- yes --> record["Paste real Tier 1 output<br/>in handoff"]
+    record --> ci["CI runs cargo xtask ci-full<br/>Tier 2: tests + licence gate"]
+    ci --> pass2{"Full CI gate green?"}
+    pass2 -- no --> repair
+    pass2 -- yes --> done["Required handoff evidence complete"]
+    done -. "not a prerequisite" .-> tier3["Tier 3 analyses deferred;<br/>no scheduled workflow"]
+```
+
 ---
 
 ## Tier 1 — mandatory evidence on **every** handoff (stable, fast; no advisory scans)

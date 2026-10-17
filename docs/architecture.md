@@ -95,16 +95,20 @@ Established by ADR-002. SQLite with WAL mode is the default:
 
 Established by ADR-004 (crate isolation — audio/analysis separate from the realtime engine) and ADR-008 (the M0 **data boundary**). ADR-008 was accepted as a **candidate foundation, not a production qualification** — CPAL + Signalsmith Stretch at medium confidence, because *«CPAL is a reasonable Rust-first default, not proof of DJ-grade performance»*. Rubber Band is excluded on two independent grounds (ADR-008 §Licensing resolution; ADR-009): GPL-2.0+/commercial licence **and** only 208 lifetime Rust-binding downloads.
 
-```
-M0-M3 (Library/Analysis)     M4+ (Realtime Engine)
-┌────────────────────────┐   ┌──────────────────────────┐
-│  oxidj-audio          │   │  oxidj-engine             │
-│  (Symphonia decode)   │   │  (CPAL I/O + dasp/fundsp) │
-│  waveform generation   │   │  resampler, mixer, effects│
-│  BPM/beatgrid analysis │   │  RT-safe, zero-alloc     │
-└────────────────────────┘   └──────────────────────────┘
-        ↑                              ↑
-        └── both depend on oxidj-core only
+The diagram distinguishes offline library/analysis work from the separately deferred realtime engine; it does not imply engine implementation is part of M3.
+
+```mermaid
+flowchart LR
+    subgraph offline["M0–M3 · offline library and analysis"]
+        audio["oxidj-audio<br/>Symphonia decode"]
+        analysis["oxidj-analysis<br/>BPM, beatgrid, waveform"]
+    end
+    subgraph realtime["M4+ · deferred realtime engine"]
+        engine["oxidj-engine<br/>CPAL I/O and RT-safe DSP"]
+    end
+    audio --> core["oxidj-core<br/>neutral domain types"]
+    analysis --> core
+    engine -. "depends only on" .-> core
 ```
 
 - **Decode/analysis (M0-M3):** Symphonia (pure Rust, all formats, metadata). No CPAL dependency in the analysis crate.

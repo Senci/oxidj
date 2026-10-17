@@ -36,6 +36,23 @@ Adopt a **neutral internal domain model** with these binding principles:
 
 This decision sets the **constraint map** for the metadata schema (ADR-005, deferred to M1). It does not define the database schema, the Rust types, or the serialization format — those are M1+ implementation decisions.
 
+The diagram below summarizes the accepted, non-destructive metadata lifecycle. It is a policy view, not a specification of a schema or adapter implementation.
+
+```mermaid
+stateDiagram-v2
+    [*] --> SourceMetadata
+    SourceMetadata --> Imported: map supported fields and retain source provenance
+    Imported --> Imported: preserve unknown fields as opaque payloads
+    Imported --> Edited: user edits remain distinct from imported/analyzed values
+    Edited --> StagedExport: prepare destination representation
+    Imported --> StagedExport: prepare destination representation
+    StagedExport --> LossReported: unsupported or lost fields identified
+    LossReported --> StagedExport: report before writing
+    StagedExport --> Approved: user approves staged result
+    Approved --> Written: write export and retain original media and export artifacts
+    Written --> [*]
+```
+
 ## Evidence
 
 - `idea.md` principles: "vendor formats behind adapters", "neutral internal domain model", "no silent metadata loss", "reproducible import/export and round-trip tests."

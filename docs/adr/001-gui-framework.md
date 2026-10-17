@@ -28,6 +28,20 @@ Adopt a **prototype-first, evaluate-second** path:
 
 No framework is committed as the final choice in M0. Two distinct gates apply: (1) the egui prototype must demonstrate a 200k-row virtualized list with an AccessKit smoke test; (2) final commitment additionally requires 500k rows at 60fps plus representative screen-reader, keyboard multi-selection and drag-and-drop evidence, then a later final framework review.
 
+The diagram summarizes the accepted M3 prototype direction and the separate evidence gates; it does not imply that the prototype has run or that a production framework is selected.
+
+```mermaid
+flowchart TB
+    start["M3 library UI need"] --> egui["Prototype egui / eframe first"]
+    egui --> gate1{"200k-row virtualized list\nAccessKit smoke test passes?"}
+    gate1 -- no --> reconsider["Reopen framework selection"]
+    gate1 -- yes --> provisional["Provisional M3 direction\nand final-evidence work"]
+    provisional --> gate2{"500k rows at 60fps +\nrepresentative accessibility\nand interaction evidence?"}
+    gate2 -- no --> reconsider
+    gate2 -- yes --> review["Later final framework review"]
+    reconsider --> fallback["Slint only with explicit\ncommercial purchase approval"]
+```
+
 ## Evidence
 
 - `gui-evaluation.md` lines 27-34 (framework landscape table) and line 49 (egui "100K records without any visible performance delay" benchmark): egui (immediate, AccessKit 0.35+, natural virtualization), Slint (declarative, built-in ListView, AccessKit default), iced (no stable AccessKit, no built-in virtualization, "frames dropped, sluggish at 100k"), GPUI (0 releases in 8.5 months), Xilem (zero production users).

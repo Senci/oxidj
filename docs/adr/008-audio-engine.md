@@ -24,6 +24,20 @@ OxiDJ has **no licence file yet**. That is not incidental: it decides whether GP
 
 CPAL for device I/O, with the time-stretch engine behind an engine-independent trait, and Signalsmith Stretch as the first implementation.
 
+The diagram shows the accepted architectural boundary and the qualification still required before full engine implementation. It is a candidate foundation only: no M0 realtime engine, production qualification, or playback timing is asserted here; the downstream engine work is deferred to M4+.
+
+```mermaid
+flowchart LR
+    library["Library / analysis data"] --> boundary["Stable identities, source-frame positions,\nversioned units; explicit conversion\nto shared engine-frame clock"]
+    app["Application"] --> commands["Bounded, timestamped commands"]
+    commands --> engine["Future engine\n(M4+, not implemented in M0)"]
+    boundary --> engine
+    engine --> io["Replaceable device I/O\nCPAL candidate"]
+    engine --> stretch["Replaceable stretch trait\nindependent tempo / pitch controls"]
+    stretch --> signalsmith["Signalsmith Stretch\nfirst implementation candidate"]
+    engine -. "before full implementation" .-> qualify["Bounded qualification spike:\nlatency / xruns, routing / recovery,\nstretch quality / budget, RT safety"]
+```
+
 ## Evidence
 
 | Crate | Version | Downloads | Updated | Note |
