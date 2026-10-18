@@ -73,9 +73,19 @@ Each card should be small enough to implement, test, and verify in a single
 focused worker session. If an agent cannot picture finishing it and checking it
 in one sitting, split it (research item 15, [ROGER]).
 
-For OxiDJ's bounded model ([KANBAN-DECOMP]), the sweet spot is a card one worker
-finishes in roughly 15–50 tool-call turns: large enough to be meaningful (a real
-crate, a real gate), small enough to verify in one sitting.
+[KANBAN-DECOMP] offers roughly 15–50 tool-call turns as a planning
+heuristic, not an OxiDJ-calibrated pass-rate or runtime threshold. Treat call
+count as post-hoc telemetry—not as acceptance criteria or an automatic split
+trigger. Split on independent deliverables and verification gates, overlapping
+file ownership, risk, and asynchronous waits; calibrate by route and task class
+from observed completion, rework, and quality rather than model reputation.
+
+For long cards, define a safe checkpoint and timeout handoff. If the work will
+not finish, preserve the artifact and record completed acceptance items, exact
+checks/evidence, unresolved items, and the smallest next step. A retry must
+inspect and continue from that state, not replay the whole task. After repeated
+timeouts, the lead inspects the actual worktree and re-scopes the remainder;
+do not raise the timeout merely to mask a scope or handoff problem.
 
 - Do not create 20 tiny tasks; do not cram everything into 1 task. The
   decomposer uses 2–6 tasks for normal work ([KANBAN-DECOMP]).
@@ -89,12 +99,16 @@ Acceptance criteria must be checkable, not vibes. Stringer's test: *could you
 write an automated check that returns pass or fail against this sentence?*
 If not, it isn't acceptance criteria yet ([ROGER], research item 16).
 
-Every card carries two layers of "done":
+Every card must carry task-specific acceptance criteria, plus the relevant
+standing Definition of Done:
 
 - **Per-task acceptance criteria** — what "done" means for this specific piece.
-- **Standing Definition of Done** — the handoff checklist
+- **Coding cards** — apply the handoff checklist
   (`docs/handoff-checklist.md`): tests pass, no linter errors, no secrets
-  committed, docs updated if the public interface moved (research item 16).
+  committed, and docs updated if the public interface moved (research item 16).
+- **Docs, research, and operations cards** — state the artifact-specific
+  validation and handoff evidence in the card; a coding checklist is not a
+  substitute for those criteria.
 
 The Agentic Agile-V *Constrain* phase requires concrete constraints: "these
 files only, touch nothing else"; "no new dependencies without justification";

@@ -13,12 +13,12 @@
             "state": {
               "type": "markdown",
               "state": {
-                "file": "research/gui-evaluation.md",
+                "file": "semantic-mapping.md",
                 "mode": "source",
                 "source": false
               },
               "icon": "lucide-file",
-              "title": "gui-evaluation"
+              "title": "semantic-mapping"
             }
           }
         ]
@@ -99,7 +99,7 @@
             "state": {
               "type": "backlink",
               "state": {
-                "file": "research/gui-evaluation.md",
+                "file": "semantic-mapping.md",
                 "collapseAll": false,
                 "extraContext": false,
                 "sortOrder": "alphabetical",
@@ -118,7 +118,7 @@
             "state": {
               "type": "outgoing-link",
               "state": {
-                "file": "research/gui-evaluation.md",
+                "file": "semantic-mapping.md",
                 "linksCollapsed": false,
                 "unlinkedCollapsed": true
               },
@@ -161,7 +161,7 @@
             "state": {
               "type": "outline",
               "state": {
-                "file": "research/gui-evaluation.md",
+                "file": "semantic-mapping.md",
                 "followCursor": false,
                 "showSearch": false,
                 "searchQuery": ""
@@ -188,24 +188,33 @@
       "bases:Create new base": false
     }
   },
-  "active": "7004cf194b18821c",
+  "active": "23767de1dc33e41f",
   "lastOpenFiles": [
+    "worktree-isolation.md",
+    "agentic-workflow.md",
+    "research/agentic-rust-kanban.md",
+    "glossary.md",
+    "index.md",
+    "diagrams.md",
+    "research/diagram-conventions.md",
+    "research/agent-config-best-practices.md",
+    "rust-analyzer-cli.md",
+    "research/m0-06-claim-audit.md",
+    "handoff-checklist.md",
+    "testing.md",
+    "layers-policy.md",
+    "development.md",
+    "architecture.md",
+    "agent-knowledge-policy.md",
+    "agent-model-policy.md",
+    "research/soundcraft.md",
+    "research/gui-evaluation.md",
     "research/audio-platform-evaluation.md",
     "adr/009-licence-mit.md",
     "adr/008-audio-engine.md",
     "adr/004-crate-boundaries.md",
     "adr/003-metadata-representation.md",
     "adr/000-template.md",
-    "adr/001-gui-framework.md",
-    "adr/002-persistence.md",
-    "research/soundcraft.md",
-    "research/README.md",
-    "research/persistence-evaluation.md",
-    "research/model-worker-benchmark.md",
-    "research/mixxx-semantics.md",
-    "research/m0-01b-t5-patch-review.md",
-    "research/m0-01b-benchmark-evidence.md",
-    "research/interoperability.md",
-    "research/gui-evaluation.md"
+    "adr/001-gui-framework.md"
   ]
 }

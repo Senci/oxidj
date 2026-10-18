@@ -29,6 +29,10 @@ agent's memory — owns accepted decisions and live status.
   CI runs `cargo xtask ci-full`. A task that has not run the gate is not
   complete, however finished the code looks. See
   [handoff checklist](docs/handoff-checklist.md).
+- **Gate evidence goes in the commit body.** Every commit includes the gate
+  summary line (exit code + result) in its message — not just in the Kanban
+  card. A commit without a gate line is not a complete handoff. When an agent
+  produces the change, add `Co-authored-by: @<agent-name>` as a trailer.
 - **Gate evidence is void after the last edit.** If any code changes after the
   gate ran, re-run it.
 - Never replace a failed run with plausible-looking output. If a result cannot
@@ -57,7 +61,9 @@ agent's memory — owns accepted decisions and live status.
 - [Knowledge policy](docs/agent-knowledge-policy.md) — what counts as evidence,
   and how external knowledge is promoted into the repository.
 - [Model policy](docs/agent-model-policy.md) — model routing, the scoped
-  decision-review lane, and the verified fallback chain.
+  decision-review lane, the verified fallback chain, and GPT-6 API efficiency
+  guidelines (model selection, reasoning-effort ladder, caching, compaction,
+  async tools, cost/latency controls).
 - [Agentic workflow](docs/agentic-workflow.md) — the full workflow these rules
   summarise, including the gate tiers and card design.
 - [Layers policy](docs/layers-policy.md) — crate boundaries and the
