@@ -20,10 +20,18 @@ const OK: i32 = 0;
 /// a process. `args[0]` is the program name. Returns a process exit code.
 fn run(args: &[String]) -> i32 {
     let Some(command) = args.get(1).map(String::as_str) else {
-        print_usage();
+        print_usage(false);
         return USAGE;
     };
     match command {
+        "--help" | "-h" => {
+            print_usage(true);
+            OK
+        }
+        "--version" | "-V" => {
+            println!("oxidj-cli {}", env!("CARGO_PKG_VERSION"));
+            OK
+        }
         "track-id" => match args.get(2) {
             Some(raw) => match raw.parse::<u64>() {
                 Ok(n) => match TrackId::new(n) {
@@ -34,6 +42,10 @@ fn run(args: &[String]) -> i32 {
                     Err(oxidj_core::TrackIdError::Zero) => {
                         eprintln!("error: track id must be >= 1 (0 is reserved)");
                         DOMAIN
+                    }
+                    Err(oxidj_core::TrackIdError::Parse) => {
+                        eprintln!("error: argument must be an unsigned integer");
+                        USAGE
                     }
                 },
                 Err(_) => {
@@ -53,10 +65,18 @@ fn run(args: &[String]) -> i32 {
     }
 }
 
-fn print_usage() {
-    eprintln!("usage: oxidj-cli <command>");
-    eprintln!("commands:");
-    eprintln!("  track-id <n>   Construct and echo a domain TrackId (n >= 1)");
+fn print_usage(to_stdout: bool) {
+    let output = if to_stdout {
+        &mut std::io::stdout().lock() as &mut dyn std::io::Write
+    } else {
+        &mut std::io::stderr().lock() as &mut dyn std::io::Write
+    };
+    let _ = writeln!(output, "usage: oxidj-cli <command>");
+    let _ = writeln!(output, "commands:");
+    let _ = writeln!(
+        output,
+        "  track-id <n>   Construct and echo a domain TrackId (n >= 1)"
+    );
 }
 
 fn main() -> std::process::ExitCode {

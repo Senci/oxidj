@@ -51,6 +51,8 @@ impl TrackId {
 pub enum TrackIdError {
     /// The supplied value was the reserved identifier `0`.
     Zero,
+    /// The supplied string was not a valid unsigned 64-bit integer.
+    Parse,
 }
 
 impl fmt::Display for TrackId {
@@ -63,6 +65,7 @@ impl fmt::Display for TrackIdError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Zero => write!(f, "track id must be >= 1; got 0"),
+            Self::Parse => write!(f, "track id must be an unsigned integer"),
         }
     }
 }
@@ -71,7 +74,7 @@ impl FromStr for TrackId {
     type Err = TrackIdError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let parsed: u64 = s.parse().map_err(|_| TrackIdError::Zero)?;
+        let parsed: u64 = s.parse().map_err(|_| TrackIdError::Parse)?;
         Self::new(parsed)
     }
 }
