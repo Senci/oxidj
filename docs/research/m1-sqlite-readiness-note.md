@@ -21,7 +21,7 @@ The owner approved the recommendations recorded in the canonical admission proto
 - **Cold-cache:** use a disposable pre-provisioned VM or dedicated runner; do not clear caches on the normal workstation.
 - **ADR-005:** source-native records + neutral projection + edit overlays are approved only as a candidate direction for drafting and fixture validation, not as final schema acceptance.
 
-Still open: exact read-class taxonomy/proportions/selectivities, manual-edit rate/inclusion, analysis payloads, scan-insert/growth and transaction-shape assumptions, asset copy/reference and backup-retention policy, overload semantics, executable VFS/witness/backup oracles, ADR-005 relationship fixtures, reference-device selection, and selected bundled SQLite build. `viper` remains a candidate only. No benchmark, fault experiment, prototype, or persistence dependency has started or is authorized before the full protocol and semantic oracle are independently reviewed.
+Still open as lead-owned technical inputs: exact read-class taxonomy/proportions/selectivities and manual-edit share (manual edits are included in the approved 10 requests/s total), analysis payloads, scan-insert/growth and transaction-shape assumptions, synthetic test-only asset and backup fixtures/qualification work, executable VFS/witness/backup oracles, ADR-005 relationship fixtures, reference-device revalidation, and selected bundled SQLite build. Product audio/artwork copy/reference and product backup-retention policy remain unsettled and owner-reserved; this note does not resolve that product intent. D1 inclusion topology is closed; the illustrative 80/20 split is not ratified and no additional owner decision is required for the listed technical inputs. No benchmark, fault experiment, prototype, or persistence dependency has started or is authorized before the full protocol and semantic oracle are independently reviewed.
 
 ---
 
@@ -48,7 +48,7 @@ These workload and budget items originated as proposals. Since this assessment, 
 | Proposal | Source | Status |
 |---------|--------|--------|
 | Deterministic 500k-track fixture, deterministic seed (proposed default workload) | m1-sqlite-admission-protocol.md:27 | Base size/seed approved 2026-10-15; payload distribution/fan-out and fixture specifics remain open (NOT an ADR-002 accepted fact) |
-| 30-minute measured mixed load, 2 producers (100 scan inserts/s + 100 analysis updates/s), 4 readers (10 req/s total) | m1-sqlite-admission-protocol.md:30 | Base rates approved; 5-minute warm-up, three separate runs, finite-campaign method and duration-extension rule approved; class proportions/selectivities, payload and manual-edit share remain open |
+| 30-minute measured mixed load, 2 producers (100 scan inserts/s + 100 analysis updates/s), 4 readers (10 req/s total including manual edits) | m1-sqlite-admission-protocol.md:30 | Base rates and manual-edit inclusion topology approved; 5-minute warm-up, three separate runs, finite-campaign method and duration-extension rule approved; class proportions/selectivities, payload and manual-edit share remain lead-owned technical inputs |
 | Read p95<=100ms, p99<=250ms; write submission-to-BEGIN p95<=100ms, p99<=500ms; txn duration p99<=50ms, max 250ms | m1-sqlite-admission-protocol.md:32 | Owner-approved first-prototype targets; unmeasured and not product guarantees |
 | Queue bound 1024 jobs/64MiB; RSS<=1GiB; post-checkpoint WAL<=64MiB; live WAL<=256MiB | m1-sqlite-admission-protocol.md:32-33 | Owner-approved first-prototype targets; hard live ceiling requires a validated per-batch growth bound; total storage remains open |
 | Overload 2x writes for 60s, explicit backpressure, recover within 60s | m1-sqlite-admission-protocol.md:32 | Target approved; reader schedule and exact rejection/retry semantics still need executable specification |
@@ -80,12 +80,12 @@ These workload and budget items originated as proposals. Since this assessment, 
 
 ### 2.1 Query/arrival/sample accounting
 
-**Current state:** The protocol lists interactive operations (track lookup, selective/broad search, sorted first/next 100-row pages, playlist pages, manual edits) and a 10 req/s aggregate reader rate, but does not define which are read classes, whether selective/broad search or first/next pages are separate classes, or whether the 10 req/s reader rate includes manual edits. It also does not define:
+**Proposal-time state (superseded by the owner decision summarized above):** The earlier protocol listed interactive operations (track lookup, selective/broad search, sorted first/next 100-row pages, playlist pages, manual edits) and a 10 req/s aggregate reader rate without defining whether edits were included. The owner subsequently closed the D1 inclusion topology: manual edits are inside the 10/s total. The current unresolved items are the read-class grouping/proportions/selectivities and exact manual-edit share. The proposal-time assessment identified these gaps:
 - The proportion of each query class
 - Whether arrivals are open-load (Poisson/fixed-rate independent of completion) or closed-loop (wait for response before next request)
 - The percentile estimator (e.g., reservoir sampling, t-digest, exact histogram)
-- Minimum sample counts per class per run for statistical validity
-- Cold-cache procedure (OS page cache drop between runs? SQLite cache flush?)
+- Minimum sample counts per class per run
+- Cold-cache procedure
 
 **Proposal-time definitions (current owner-approved choices are summarized at the top; remaining specifics are lead-owned technical defaults):**
 
