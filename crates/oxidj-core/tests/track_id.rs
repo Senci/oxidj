@@ -24,6 +24,13 @@ fn zero_rejected_when_parsed_from_string() {
 }
 
 #[test]
+fn malformed_and_overflow_inputs_are_not_zero_errors() {
+    for input in ["not-a-number", "18446744073709551616"] {
+        assert_ne!(input.parse::<TrackId>().unwrap_err(), TrackIdError::Zero);
+    }
+}
+
+#[test]
 fn display_then_parse_is_identity_roundtrip() {
     let id = TrackId::new(9_999_999).unwrap();
     let rendered = id.to_string();
