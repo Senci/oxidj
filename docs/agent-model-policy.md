@@ -8,6 +8,20 @@
 - Per-card model/provider/profile overrides take precedence over profile defaults. When creating or updating a card, explicitly set and read back its assignee, model, and provider. A later pin does not change a task that is already running.
 - Keep the lead responsible for the final decision and require real compiler/test/gate evidence for coding handoffs. Historical worker-validation and fallback records below document past evidence/configuration; they do not authorize a current default or override the routing rules above.
 
+## Bounded autonomy and owner questions
+
+- **Default to a safe technical choice and progress.** For bounded, reversible details within accepted requirements, the lead chooses the best-supported option, records material assumptions and alternatives, and proceeds. Do not ask the owner to supply internal implementation details, sampling formulas, or other technical parameters the lead can research and recommend.
+- **Respect the owner boundary.** Ask the owner for product intent or preference, changes to an accepted requirement, spending, destructive/external actions, security or safety decisions, or a decision explicitly reserved to the owner. For consequential technical questions, use the scoped Sol lane when required; Sol advises and the lead closes the decision unless the decision is owner-only.
+- **Localize stops.** If one acceptance or qualification gate is unresolved, stop only work that depends on that gate. Continue safe, independent work and label provisional/non-qualifying output honestly. Never bypass a required review, repository gate, benchmark authorization, or M1 qualification gate.
+- **Question contract.** When owner input is genuinely necessary, ask one plain-language question, state the lead's recommended default and its consequence, and offer at most two realistic alternatives. Do not ask the owner to design a technical solution from scratch.
+
+## Decision closure and review count
+
+- Use one packet for one consequential decision. The packet requests one recommendation, short reasons, the strongest counterargument, confidence, and evidence that would change the view.
+- The lead verifies load-bearing evidence and records the decision. Do not create a second Sol “approval” card just to approve the same Sol advice; a second review is justified only by new decisive evidence, a changed decision question, or an explicit independent gate.
+- For one bounded deliverable, keep source mapping, correction, and candidate preparation in one implementation card when they share an owner and acceptance contract. Use one independent final review when required; allow one focused correction and re-review if needed. Split cards only for a real ownership, dependency, deliverable, or acceptance boundary.
+- Do not double-review routine patches. These efficiency rules never waive review required by an accepted ADR, safety/security policy, or M1 gate.
+
 ## Sol delegation lane — scope and effort (user authorization, 2026-10-15)
 
 The user authorized using **tightly scoped Sol delegates at medium reasoning** for **important decisions and important coding work**, with **high used rarely**. This is a deliberate widening of the earlier decision-review-only rule, and it comes with a deliberate ceiling:
@@ -26,7 +40,7 @@ The user authorized using **tightly scoped Sol delegates at medium reasoning** f
 - Ask for exactly: recommendation; 3–5 short reasons; strongest counterargument; confidence; and what would change the decision (if relevant). No essay, implementation, backlog, or redesign.
 - Give the reviewer no tools by default. Grant read-only file access or web access only when the decision genuinely requires that evidence; never grant write/terminal access merely because it is available.
 - The reviewer must not re-delegate, implement, expand scope, modify Kanban, or write Hindsight. Use one consequential decision per child. Configure `delegation.max_iterations = 6`; raise it only when a required verification step needs more.
-- If Sol strongly disagrees, verify the disputed evidence. Escalate an unresolved consequential disagreement to the user rather than silently choosing either view.
+- If Sol strongly disagrees, verify the disputed evidence. If disagreement remains, the lead chooses and documents a provisional default when that is within accepted requirements; escalate only when the decision is owner-reserved or changes product intent/authorization. Do not treat disagreement alone as a reason to make the owner arbitrate technical advice.
 
 ## Cost and quota controls
 
@@ -76,4 +90,26 @@ fallback: 1. poolside/laguna-s-2.1:free            (via nous / Nous Portal)
 - Require a **separate, independent Sol review** for expensive-to-reverse decisions identified above. This is a mandatory gate, not a discretionary check based on whether the implementer thinks it adds value; keep the review separate from implementation and use one small packet and one decision per child. For routine work outside this consequential-decision class, independent sanity checks are optional. The lead verifies evidence and owns the result; do not double-process ordinary patches.
 - Do not route routine bounded work to free models. Use Luna by default and Sol/**medium** for important/complex work or independent sanity checks; go to Sol/high only rarely, after evidence that medium proved insufficient. Compare pass rate, regressions, retries, isolation failures, latency and allowance use before proposing a route change. These are heuristics, not proof that either model will pass a given task.
 
-Primary references checked 2026-10-15: [Luna model positioning](https://platform.openai.com/docs/models/gpt-6-luna), [Sol model positioning](https://platform.openai.com/docs/models/gpt-6.1-sol), [reasoning effort](https://platform.openai.com/docs/guides/reasoning), [model selection and representative evaluations](https://developers.openai.com/api/docs/guides/model-selection), [Cargo test](https://doc.rust-lang.org/cargo/commands/cargo-test.html), [Cargo Clippy](https://doc.rust-lang.org/cargo/commands/cargo-clippy.html). API pricing on those model pages does not by itself establish the user's Codex subscription charges or limits.
+Primary references checked 2026-10-15: [Luna model positioning](https://platform.openai.com/docs/models/gpt-6-luna), [Sol model positioning](https://platform.openai.com/docs/models/gpt-6.1-sol), [reasoning effort](https://platform.openai.com/docs/guides/reasoning), [model selection and representative evaluations](https://developers.openai.com/api/docs/guides/model-selection), [Cargo test](https://doc.rust-lang.org/cargo/commands/cargo-test.html), [Cargo Clippy](https://doc.rust-lang.org/cargo/commands/cargo-clippy.html). API pricing on those model page does not by itself establish the user's Codex subscription charges or limits.
+
+## Efficiency guidelines
+
+Full GPT-6 API efficiency guidance (model selection, reasoning-effort ladder, prompt
+caching, compaction, async tools, mid-turn steering, cost/latency controls) is maintained
+as a shared skill: `openai-api-efficiency`. Load it on every prompt when using OpenAI
+models via `skill_view(name='openai-api-efficiency')`, or read the canonical copy at
+`~/.hermes/skills/openai-api-efficiency/SKILL.md`.
+
+**Quick reference for this repo's routes:**
+- **Default:** GPT-6 Luna at medium reasoning — for bounded/repeated work
+- **Escalation:** GPT-6.1 Sol at medium — for important/complex decisions
+- **Last resort:** Sol at high — only when medium demonstrably failed
+- **Never:** Astra without explicit approval (costs $10/$50 per 1M tokens)
+
+Apply the official OpenAI checklist before changing routes or effort:
+1. Measure task success, latency, and cost per successful task
+2. Compare on representative evals — don't assume higher effort is always better
+3. Use prompt caching for stable prefixes (up to 95% cheaper input tokens)
+4. Compact long conversations to control context size (expect lower cache reuse after)
+5. Parallelize independent tools; serialize only on dependencies
+6. Use Fast/Ultrafast mode when latency matters and the premium justifies it
