@@ -1,815 +1,405 @@
 # ADR-005 Relationship Fixtures
 
-**Status:** Proposed — decision-bearing validation plan for ADR-005.
-**Date:** 2026-10-15
+**Status:** Proposed logical-v1 contract — no executed fixture results.
+**Date:** 2026-10-16
 **Owner:** OxiDJ lead
-**Companion to:** `docs/adr/005-metadata-schema.md`
-
-This document specifies concrete import→edit→export fixture cases that validate
-the source-native records + neutral projection + edit overlays representation. Each
-case is precise enough to implement as an automated test. The fixtures are
-decision-bearing: if they expose vendor relationships that the proposed
-representation cannot safely preserve, ADR-005 must be revised before schema
-acceptance.
-
-**No silent data loss.** Every fixture specifies exact expected outputs. If a
-value cannot be preserved, the expected output is an explicit loss report or
-conservative withholding — never a silent drop.
-
-**No universal vendor claims.** Mixxx behavior is recorded as Mixxx behavior,
-not as a universal standard. Rekordbox XML and OneLibrary behaviors are recorded
-as their own. Where behaviors differ, the difference is documented.
-
----
-
-## Conventions
-
-### Source vendor formats
-
-- **Mixxx**: `beats.proto` / `BeatMap` / `CueInfo` structures (constant-tempo
-  BeatGrid with BPM + anchor; BeatMap with individual beat positions; CueInfo
-  with type, start/end in ms, hotcue index, label, color, flags).
-- **Rekordbox XML**: `POSITION_MARK` entries with `Type`, `Start`, `End`,
-  `Num`, `Name`; `TEMPO` entries with `Inizio`, `BPM`, `Metro`, `Battito`;
-  playlist tree with `TrackID` or `Location` keys.
-- **OneLibrary**: `Cue` table rows with `kind`, `colorTableIndex`, `cueComment`,
-  `isActiveLoop`, `beatLoopNumerator`, `beatLoopDenominator`, and multiple
-  position encodings (`inUsec`, `outUsec`, `in150FramePerSec`, etc.).
-
-### Provenance values
-
-- `ANALYZED` — determined by OxiDJ analysis.
-- `FILE_METADATA` — read from the audio file container.
-- `USER` — explicitly set by the user via an edit overlay.
-- `VENDOR:Mixxx` — imported from a Mixxx source-native record.
-- `VENDOR:RekordboxXML` — imported from a Rekordbox XML source-native record.
-- `VENDOR:OneLibrary` — imported from a OneLibrary source-native record.
-
-### Relationship group identifiers
-
-- `RG-BEATGRID-CUES` — beat grid and any cue/loop positions that are explicitly
-  declared as beat-relative (e.g., beat-locked cues). In Mixxx, CueInfo positions
-  are absolute milliseconds and do not reference the beat grid (mixxx-semantics.md
-  lines 10–12).
-- `RG-PLAYLIST-TRACK` — playlist membership and track identity.
-- `RG-KEY-ANCHOR` — key notation and beat grid anchor.
-- `RG-IDENTITY-LOCATION` — internal track identity and file location.
-
-### Expected result markers
-
-- **PASS** — the fixture demonstrates the specified behavior exactly.
-- **FAIL** — the fixture demonstrates a violation of the specified behavior.
-- **NOT DEMONSTRATED** — the fixture cannot determine the behavior from the
-  available evidence; the gap is explicit and must be resolved before ADR-005
-  acceptance.
-
----
-
-## F-01: Stable track identity vs relocatable file location
-
-**Source:** Mixxx
-**Relationship group:** `RG-IDENTITY-LOCATION`
-
-### Import fixture
-
-Two Mixxx library entries pointing to the same audio file at different paths:
-
-```
-Track A: path = "/music/track1.flac", content_hash = "abc123..."
-Track B: path = "/music/relocated/track1.flac", content_hash = "abc123..."
-```
-
-Both tracks have identical Mixxx metadata: BPM=128.0, anchor=0.5s, one hotcue
-at 10.0s (index 0, label "Intro").
-
-### Operation
-
-1. Import Track A. Record internal identity `ID-1`.
-2. Relocate the file on disk to `/music/relocated/track1.flac`.
-3. Import Track B. The import adapter detects matching content evidence.
-
-### Expected export output
-
-```
-Internal identity: ID-1 (resolved once, stable across relocation)
-Source-native record A: retained with original path "/music/track1.flac"
-Source-native record B: retained with original path "/music/relocated/track1.flac"
-Edit overlay: none
-Exported track: ID-1 with both source paths preserved as provenance
-```
-
-**PASS criteria:** The two imports resolve to one internal identity. Both
-source-native records are retained with their original paths. The exported track
-has one identity and both source paths visible in provenance. No data is lost.
-
-**FAIL criteria:** Two separate internal identities are created, or one
-source-native record overwrites the other, or the exported track loses one of
-the source paths.
-
-**NOT DEMONSTRATED:** Whether the content-hash resolution algorithm is correct
-for near-duplicate files (same hash, different content) — this requires
-acoustic fingerprint validation deferred to M2.
-
-**Oracle:** Independent re-import of the exported data into a fresh OxiDJ
-instance must produce the same single internal identity.
-
----
-
-## F-02: Ordered playlist membership preservation
-
-**Source:** Rekordbox XML
-**Relationship group:** `RG-PLAYLIST-TRACK`
-
-### Import fixture
-
-A Rekordbox XML playlist tree:
-
-```
-Playlist "Sets" (folder)
-  ├── Playlist "House"
-  │     ├── TrackID=100 (Location="file://localhost/music/a.flac")
-  │     ├── TrackID=200 (Location="file://localhost/music/b.flac")
-  │     └── TrackID=300 (Location="file://localhost/music/c.flac")
-  └── Playlist "Techno"
-        ├── TrackID=200 (Location="file://localhost/music/b.flac")
-        └── TrackID=400 (Location="file://localhost/music/d.flac")
-```
-
-### Operation
-
-1. Import the XML. The import adapter stores the playlist tree as a
-   source-native record preserving `sequenceNo` ordering.
-2. Export back to Rekordbox XML format.
-
-### Expected export output
-
-```
-Playlist "Sets" (folder)
-  ├── Playlist "House"
-  │     ├── TrackID=100 (sequenceNo=1)
-  │     ├── TrackID=200 (sequenceNo=2)
-  │     └── TrackID=300 (sequenceNo=3)
-  └── Playlist "Techno"
-        ├── TrackID=200 (sequenceNo=1)
-        └── TrackID=400 (sequenceNo=2)
-```
-
-**PASS criteria:** Playlist ordering is preserved exactly. TrackID=200 appears
-in both playlists at the correct positions. Folder hierarchy is intact.
-
-**FAIL criteria:** Any track is missing, reordered, or duplicated. Folder
-structure is flattened or altered.
-
-**NOT DEMONSTRATED:** Whether Rekordbox itself re-imports this XML identically
-— that requires the Rekordbox application and is outside OxiDJ's control. The
-oracle is the independent re-import into OxiDJ, not Rekordbox acceptance.
-
-**Oracle:** Independent re-import into a fresh OxiDJ instance produces the same
-playlist tree with identical ordering.
-
----
-
-## F-03: Cue/loop and beat-grid relationship preservation
-
-**Source:** Mixxx
-**Relationship group:** `RG-BEATGRID-CUES`
-
-### Import fixture
-
-A Mixxx track with:
-
-```
-BeatGrid: BPM=128.0, anchor=2.0s (constant tempo)
-CueInfo:
-  - HotCue index 0: start=10.0s, label="Intro", color="red"
-  - HotCue index 1: start=20.0s, label="Drop", color="blue"
-  - Loop: start=15.0s, end=25.0s, label="Loop 1"
-  - MainCue: start=5.0s
-```
-
-### Operation
-
-1. Import the track. The import adapter stores the beat grid and all CueInfo
-   entries as source-native records.
-2. Export back to Mixxx format.
-
-### Expected export output
-
-```
-BeatGrid: BPM=128.0, anchor=2.0s (constant tempo)
-CueInfo:
-  - HotCue index 0: start=10.0s, label="Intro", color="red"
-  - HotCue index 1: start=20.0s, label="Drop", color="blue"
-  - Loop: start=15.0s, end=25.0s, label="Loop 1"
-  - MainCue: start=5.0s
-```
-
-**PASS criteria:** All cue positions, labels, colors, indices, and the beat grid
-are preserved exactly. The loop remains a range (start + end), not a point.
-
-**FAIL criteria:** Any cue position, label, color, or index is altered. The
-loop is converted to a point. The beat grid BPM or anchor is changed.
-
-**NOT DEMONSTRATED:** Whether Mixxx itself re-imports this identically —
-requires the Mixxx application. The oracle is independent re-import into OxiDJ.
-
-**Oracle:** Independent re-import into a fresh OxiDJ instance produces identical
-cue and beat-grid data.
-
----
-
-## F-04: Field provenance preservation across edit
-
-**Source:** Mixxx
-**Relationship group:** `RG-BEATGRID-CUES`
-
-### Import fixture
-
-A Mixxx track with:
-
-```
-BeatGrid: BPM=128.0, anchor=2.0s, provenance=ANALYZED
-HotCue index 0: start=10.0s, label="Intro", provenance=VENDOR:Mixxx
-```
-
-### Operation
-
-1. Import the track.
-2. User edits: change hotcue label from "Intro" to "Opening" and BPM from
-   128.0 to 130.0.
-3. Export.
-
-### Expected export output
-
-```
-BeatGrid: BPM=130.0, anchor=2.0s, provenance=USER (edited from ANALYZED 128.0)
-HotCue index 0: start=10.0s, label="Opening", provenance=USER (edited from VENDOR:Mixxx "Intro")
-```
-
-The source-native records retain the original values:
-
-```
-Source-native BeatGrid: BPM=128.0, anchor=2.0s, provenance=ANALYZED
-Source-native HotCue 0: start=10.0s, label="Intro", provenance=VENDOR:Mixxx
-```
-
-Edit overlays:
-
-```
-Overlay 1: source_path="/BeatGrid/BPM", old="128.0", new="130.0", provenance=USER
-Overlay 2: source_path="/CueInfo/0/label", old="Intro", new="Opening", provenance=USER
-```
-
-**PASS criteria:** The exported values reflect the user edits. The
-source-native records retain the original values. The edit overlays record the
-exact source path, old value, new value, and USER provenance. Provenance is
-never silently overwritten.
-
-**FAIL criteria:** The source-native record is mutated in place (original value
-lost). The overlay does not record the old value. Provenance is changed without
-an overlay.
-
-**NOT DEMONSTRATED:** Whether the BPM edit should cascade to cue positions —
-in Mixxx, changing BPM shifts the beat grid but does not automatically move
-cues (cues are in ms, not beats). The fixture assumes no cascade; if cascade
-is desired, it must be an explicit user action recorded as additional overlays.
-
-**Oracle:** Independent re-import into a fresh OxiDJ instance produces the same
-exported values and the same source-native + overlay decomposition.
-
----
-
-## F-05: Unknown vendor payload preservation (OneLibrary)
-
-**Source:** OneLibrary
-**Relationship group:** `RG-BEATGRID-CUES`
-
-### Import fixture
-
-A OneLibrary track with a cue row:
-
-```
-Cue row: kind=7, colorTableIndex=3, cueComment="custom", isActiveLoop=true,
-         inUsec=10000000, outUsec=20000000, in150FramePerSec=1500000,
-         out150FramePerSec=3000000, inMpegFrameNumber=..., inDecodingStartFramePosition=...,
-         unknown_field_X="unrecognized value"
-```
-
-`kind=7` is not in the documented mapping (0=Cue, 3=Load, 4=Loop).
-`unknown_field_X` has no documented semantics.
-
-### Operation
-
-1. Import the OneLibrary cue row as a source-native record. Store all fields
-   verbatim, including `kind=7` and `unknown_field_X`.
-2. The neutral projection maps known fields to the neutral cue model and marks
-   unknown fields as opaque payloads.
-3. Export back to OneLibrary format.
-
-### Expected export output
-
-```
-Cue row: kind=7, colorTableIndex=3, cueComment="custom", isActiveLoop=true,
-         inUsec=10000000, outUsec=20000000, in150FramePerSec=1500000,
-         out150FramePerSec=3000000, inMpegFrameNumber=..., inDecodingStartFramePosition=...,
-         unknown_field_X="unrecognized value"
-```
-
-The neutral projection:
-
-```
-Neutral cue: type=UNKNOWN(7), comment="custom", is_active_loop=true,
-            start_ms=10000.0, end_ms=20000.0,
-            opaque_payload={kind: 7, colorTableIndex: 3, unknown_field_X: "unrecognized value"}
-```
-
-**PASS criteria:** The exported OneLibrary cue row is byte-identical to the
-imported row. The neutral projection preserves known fields and marks unknown
-fields as opaque payloads. No data is silently dropped.
-
-**FAIL criteria:** `kind=7` is mapped to a known type (e.g., "Cue") without
-recording the mapping as an interpretation. `unknown_field_X` is discarded.
-Any position encoding is altered.
-
-**NOT DEMONSTRATED:** Whether `kind=7` has a real meaning in OneLibrary —
-this requires empirical validation with official Rekordbox software (see
-`docs/research/interoperability.md` fixture plan D). Opaque preservation is
-the safe fallback.
-
-**Oracle:** Independent re-import into a fresh OxiDJ instance produces the same
-byte-identical OneLibrary cue row.
-
----
-
-## F-06: Beat grid edit does not invalidate absolute-time cues
-
-**Source:** Mixxx
-**Relationship group:** `RG-BEATGRID-CUES`
-
-### Import fixture
-
-A Mixxx track with a variable-tempo BeatMap and a hotcue at an absolute millisecond
-position:
-
-```
-BeatMap: variable tempo
-  - Beat 1: position=0.0s, BPM=120.0, source=ANALYZED
-  - Beat 2: position=2.5s, BPM=128.0, source=ANALYZED
-  - Beat 3: position=5.0s, BPM=130.0, source=ANALYZED
-HotCue index 0: start=3.0s, label="Transition", color="green"
-```
-
-The hotcue is at 3.0s — an absolute CueInfo position in milliseconds. Per the Mixxx
-source evidence, CueInfo interchange positions are milliseconds, and BPM and
-anchor/phase are independent of cue positions: phase shifts move the grid, BPM
-changes spacing, but cue positions in ms are not derived from beat-grid structure
-(mixxx-semantics.md lines 10–12; semantic-mapping.md §5).
-
-### Operation
-
-1. Import the track. The BeatMap is stored as a source-native record with all
-   beat positions and BPM values.
-2. User edits: delete Beat 2 (the tempo transition at 2.5s).
-3. The pre-write relationship validator checks whether the BeatMap edit affects
-   any cue or loop position that depends on it. Per the Mixxx source evidence,
-   CueInfo positions are absolute milliseconds and beat-grid information is
-   separate, so the hotcue at 3.0s is not derived from the BeatMap structure
-   (mixxx-semantics.md lines 10–12; semantic-mapping.md §5).
-
-### Expected export output
-
-The validator does NOT flag the hotcue as invalidated, because no inter-field
-dependency exists between the absolute-time Mixxx cue and the BeatMap:
-```
-Exported HotCue 0: start=3.0s, label="Transition", color="green"  (unchanged)
-Exported BeatMap: [Beat 1: 0.0s/120, Beat 3: 5.0s/130]  (Beat 2 removed per overlay)
-
-Source-native BeatMap: [Beat 1: 0.0s/120, Beat 2: 2.5s/128, Beat 3: 5.0s/130]  (retained, unmutated)
-Source-native HotCue 0: start=3.0s, label="Transition", color="green"  (retained, unmutated)
-
-Edit overlay:
-  Overlay 1: source_path="/BeatMap/2", action="delete", old="Beat(2.5s, 128BPM)", provenance=USER
-```
-
-No loss report is generated for the hotcue, because its absolute millisecond
-position is independent of the BeatMap structure per Mixxx source evidence.
-
-**PASS criteria:** The hotcue at 3.0s is retained at 3.0s in the export. The
-BeatMap reflects the deletion. The source-native records are not mutated. The
-edit overlay records the deletion. No spurious loss report flags the hotcue as
-invalidated by the beat grid edit.
-
-**FAIL criteria:** The system invalidates, relocates, or withholds the hotcue
-at 3.0s because of the BeatMap deletion, treating an absolute-millisecond Mixxx
-cue as beat-relative without an explicit relationship. The source-native record
-is mutated to remove Beat 2. The overlay does not record the deletion.
-
-**NOT DEMONSTRATED:** Whether Mixxx supports any beat-locked cue semantics — i.e.,
-a cue whose position is defined relative to beat grid positions rather than
-absolute milliseconds. No source evidence was found: CueInfo positions are
-milliseconds and beat-grid information is separate (mixxx-semantics.md lines
-10–12; semantic-mapping.md §5; semantic-mapping.md §8 Closed: point cues vs
-loops). The "beat-locked cue" use case, if desired, must be an explicit
-OxiDJ/user-declared relationship under proposal, not an inferred Mixxx behavior.
-The coupled-field behavior of beat grid edits propagating to absolute-time cues
-is NOT DEMONSTRATED as vendor behavior.
-
-**Oracle:** Independent re-import into a fresh OxiDJ instance produces the same
-retained hotcue position, the same source-native + overlay decomposition, and no
-spurious loss report for the cue.
-
-### F-06 (proposal): Beat-locked cue (explicit user-declared relationship)
-
-If OxiDJ or the user explicitly declares a beat-locked relationship — e.g., "this
-cue should track the beat grid so that its beat position is preserved across
-tempo edits" — then the pre-write validator would treat the hotcue as dependent
-on the BeatMap. Deleting Beat 2 would then produce a loss report:
-```
-LOSS REPORT (under proposal):
-  Relationship group: RG-BEATGRID-CUES
-  Declared relationship: beat-locked cue (explicit OxiDJ/user-declared)
-  Invalidated by: edit deleting Beat 2
-  Dependent fields affected:
-    - HotCue 0: beat position referenced Beat 2 (2.5s, 128BPM), now absent
-  Conservative action: WITHHOLD beat-locked HotCue 0 from export
-  Alternative: export with explicit loss report flagging the affected field
-```
-
-This is **NOT DEMONSTRATED** as Mixxx behavior — no source evidence shows that
-Mixxx expresses cue positions as beat-relative. It is a proposed OxiDJ extension
-that would require its own fixture and explicit user declaration before ADR-005
-acceptance.
-
-**PASS criteria (proposal scenario):** The validator detects the beat-locked
-relationship and generates the loss report or withholds the dependent cue.
-
-**FAIL criteria (proposal scenario):** The validator ignores the beat-locked
-relationship, or the source-native record is mutated to remove the cue, or the
-edit overlay does not record the deletion.
-
-**NOT DEMONSTRATED (proposal scenario):** Whether Mixxx supports any beat-locked
-cue semantics — no source evidence was found; CueInfo positions are absolute
-milliseconds, independent of beat-grid structure (mixxx-semantics.md lines 10–12).
-The beat-locked relationship is an explicit OxiDJ/user-declared proposal, not
-inferred vendor behavior.
-
-**Oracle (proposal scenario):** Independent re-import into a fresh OxiDJ instance
-produces the same loss report and the same source-native + overlay decomposition.
-
----
-
-## F-07: Pre-write loss report / conservative withholding
-
-**Source:** Rekordbox XML
-**Relationship group:** `RG-BEATGRID-CUES`
-
-### Import fixture
-
-A Rekordbox XML track with multiple tempo entries and a position mark:
-
-```
-TEMPO entries:
-  - Inizio=0.0s, BPM=120.0, Metro=4, Battito=1
-  - Inizio=10.0s, BPM=128.0, Metro=4, Battito=1
-POSITION_MARK:
-  - Type=Cue, Start=5.0s, End=, Num=0, Name="Intro"
-```
-
-### Operation
-
-1. Import the XML. Store TEMPO entries and POSITION_MARK as source-native
-   records.
-2. User edits: change the first TEMPO BPM from 120.0 to 125.0.
-3. The edit changes the tempo at position 0.0s, which affects the time
-   mapping for the position mark at 5.0s (the beat at 5.0s changes).
-
-### Expected export output
-
-The pre-write validator detects the tempo edit affects the position mark's
-time mapping:
-
-```
-LOSS REPORT:
-  Relationship group: RG-BEATGRID-CUES
-  Invalidated by: edit changing TEMPO[0].BPM from 120.0 to 125.0
-  Dependent fields affected:
-    - POSITION_MARK at 5.0s: time position assumed 120.0 BPM from 0.0s
-  Conservative action: WITHHOLD TEMPO and POSITION_MARK from export
-  Alternative: export with explicit loss report
-```
-
-**PASS criteria:** The pre-write validator detects the dependency. The export
-either withholds or reports the inconsistency.
-
-**FAIL criteria:** The TEMPO is exported with the new BPM and the
-POSITION_MARK is exported at 5.0s with no warning, even though the time
-mapping is now incorrect.
-
-**NOT DEMONSTRATED:** Whether Rekordbox itself recalculates position marks
-when tempo changes — this is undocumented. The conservative approach is to
-withhold, not to assume.
-
-**Oracle:** Independent re-import into a fresh OxiDJ instance produces the same
-loss report.
-
----
-
-## F-08: Unsupported relationship payload round-trip
-
-**Source:** OneLibrary
-**Relationship group:** `RG-BEATGRID-CUES`
-
-### Import fixture
-
-A OneLibrary track with a cue that has multiple position encodings, some of
-which are not independently interpretable:
-
-```
-Cue row: kind=0, inUsec=10000000, outUsec=20000000,
-         in150FramePerSec=1500000, out150FramePerSec=3000000,
-         inMpegFrameNumber=750000, outMpegFrameNumber=1500000,
-         inDecodingStartFramePosition=0, outDecodingStartFramePosition=0,
-         inNumberOfSampleInBlock=480000, outNumberOfSampleInBlock=960000,
-         inTimeCode=0, outTimeCode=0,
-         unknown_encoding_X=0xDEADBEEF
-```
-
-### Operation
-
-1. Import the cue row as a source-native record. Store all position encodings
-   verbatim.
-2. The neutral projection maps `inUsec`/`outUsec` to neutral start/end in ms.
-   Other encodings are preserved as opaque payloads.
-3. Export back to OneLibrary format.
-
-### Expected export output
-
-```
-Cue row: kind=0, inUsec=10000000, outUsec=20000000,
-         in150FramePerSec=1500000, out150FramePerSec=3000000,
-         inMpegFrameNumber=750000, outMpegFrameNumber=1500000,
-         inDecodingStartFramePosition=0, outDecodingStartFramePosition=0,
-         inNumberOfSampleInBlock=480000, outNumberOfSampleInBlock=960000,
-         inTimeCode=0, outTimeCode=0,
-         unknown_encoding_X=0xDEADBEEF
-```
-
-The neutral projection:
-
-```
-Neutral cue: type=Cue, start_ms=10000.0, end_ms=20000.0,
-            opaque_payload={in150FramePerSec: 1500000, out150FramePerSec: 3000000,
-                            inMpegFrameNumber: 750000, outMpegFrameNumber: 1500000,
-                            inDecodingStartFramePosition: 0, outDecodingStartFramePosition: 0,
-                            inNumberOfSampleInBlock: 480000, outNumberOfSampleInBlock: 960000,
-                            inTimeCode: 0, outTimeCode: 0,
-                            unknown_encoding_X: 0xDEADBEEF}
-```
-
-**PASS criteria:** The exported cue row is byte-identical to the imported row.
-The neutral projection preserves known fields and marks unknown encodings as
-opaque payloads. No encoding is silently dropped or reinterpreted.
-
-**FAIL criteria:** Any position encoding is altered, dropped, or silently
-converted to a different encoding. `unknown_encoding_X` is discarded.
-
-**NOT DEMONSTRATED:** Whether the position encodings are all in sync or
-whether some are derived from others — this requires empirical validation
-with official Rekordbox software (see `docs/research/interoperability.md`
-fixture plan D). Opaque preservation of all encodings is the safe fallback.
-
-**Oracle:** Independent re-import into a fresh OxiDJ instance produces the same
-byte-identical cue row.
-
----
-
-## F-09: Independent re-import oracle
-
-**Source:** All vendors
-**Relationship group:** All
-
-### Fixture
-
-For every fixture F-01 through F-08, after export:
-
-### Operation
-
-1. Export the edited library to the target vendor format.
-2. Import the exported data into a **fresh** OxiDJ instance (independent
-   re-import).
-3. Compare the re-imported data against the expected export output.
-
-### Expected result
-
-```
-Re-imported data == Expected export output (exact match)
-```
-
-**PASS criteria:** The re-imported data matches the expected export output
-exactly. The neutral projection computed from the re-imported source-native
-records matches the neutral projection from the original import.
-
-**FAIL criteria:** Any field differs between the re-imported data and the
-expected export output. The neutral projection from re-import differs from the
-original projection.
-
-**NOT DEMONSTRATED:** Whether the vendor's own application can import the
-exported data — that requires the vendor application and is outside OxiDJ's
-control. The oracle is independent re-import into OxiDJ.
-
-**Oracle:** This fixture is itself the oracle for F-01 through F-08. It must
-pass for all fixtures before ADR-005 can be accepted.
-
----
-
-## F-10: Variable-tempo beat grid preservation
-
-**Source:** Rekordbox XML
-**Relationship group:** `RG-BEATGRID-CUES`
-
-### Import fixture
-
-A Rekordbox XML track with multiple tempo entries (variable tempo):
-
-```
-TEMPO entries:
-  - Inizio=0.0s, BPM=120.0, Metro=4, Battito=1
-  - Inizio=8.0s, BPM=128.0, Metro=4, Battito=1
-  - Inizio=16.0s, BPM=132.0, Metro=4, Battito=1
-```
-
-### Operation
-
-1. Import the XML. Store all TEMPO entries as a source-native record.
-2. The neutral projection represents this as a variable-tempo beat grid.
-3. Export back to Rekordbox XML format.
-
-### Expected export output
-
-```
-TEMPO entries:
-  - Inizio=0.0s, BPM=120.0, Metro=4, Battito=1
-  - Inizio=8.0s, BPM=128.0, Metro=4, Battito=1
-  - Inizio=16.0s, BPM=132.0, Metro=4, Battito=1
-```
-
-The neutral projection:
-
-```
-Variable-tempo beat grid:
-  - Position 0.0s: BPM=120.0
-  - Position 8.0s: BPM=128.0
-  - Position 16.0s: BPM=132.0
-```
-
-**PASS criteria:** All TEMPO entries are preserved exactly. The neutral
-projection represents the variable tempo correctly (not flattened to average
-BPM). The export reproduces the original TEMPO entries.
-
-**FAIL criteria:** The TEMPO entries are flattened to a single average BPM
-(e.g., 126.67). Any TEMPO entry is lost or altered. The neutral projection
-shows a constant-tempo grid.
-
-**NOT DEMONSTRATED:** Whether Rekordbox itself re-imports this identically —
-requires the Rekordbox application. The oracle is independent re-import into
-OxiDJ.
-
-**Oracle:** Independent re-import into a fresh OxiDJ instance produces the same
-TEMPO entries and the same variable-tempo neutral projection.
-
----
-
-## F-11: Point cue vs loop range distinction
-
-**Source:** Mixxx
-**Relationship group:** `RG-BEATGRID-CUES`
-
-### Import fixture
-
-A Mixxx track with a point cue and a loop:
-
-```
-CueInfo:
-  - HotCue index 0: start=10.0s, label="Intro", color="red"  (point cue)
-  - Loop: start=15.0s, end=25.0s, label="Loop 1"  (range)
-```
-
-### Operation
-
-1. Import the track. Store CueInfo entries as source-native records.
-2. The neutral projection maps the point cue to a neutral point cue (start
-   only) and the loop to a neutral loop range (start + end).
-3. Export back to Mixxx format.
-
-### Expected export output
-
-```
-CueInfo:
-  - HotCue index 0: start=10.0s, label="Intro", color="red"
-  - Loop: start=15.0s, end=25.0s, label="Loop 1"
-```
-
-The neutral projection:
-
-```
-Neutral cues:
-  - PointCue: start=10.0s, label="Intro", color="red"
-  - LoopRange: start=15.0s, end=25.0s, label="Loop 1"
-```
-
-**PASS criteria:** The point cue is exported as a point (no end). The loop
-is exported as a range (start + end). The neutral projection preserves the
-distinction.
-
-**FAIL criteria:** The point cue is exported with an end (e.g., start=10.0,
-end=10.0). The loop is exported as a point. The neutral projection conflates
-point cues and loop ranges.
-
-**NOT DEMONSTRATED:** Whether Mixxx itself re-imports this identically —
-requires the Mixxx application. The oracle is independent re-import into OxiDJ.
-
-**Oracle:** Independent re-import into a fresh OxiDJ instance produces the same
-point-cue vs. loop-range distinction.
-
----
-
-## F-12: Hotcue capacity overflow reporting
-
-**Source:** Mixxx
-**Relationship group:** `RG-BEATGRID-CUES`
-
-### Import fixture
-
-A Mixxx track with 40 hotcues (exceeding the documented 38-hotcue limit):
-
-```
-CueInfo:
-  - HotCue indices 0-37: valid hotcues with positions and labels
-  - HotCue indices 38-39: additional hotcues (overflow)
-```
-
-### Operation
-
-1. Import the track. The import adapter detects that hotcue indices 38-39
-   exceed the Mixxx 38-hotcue capacity.
-2. The import adapter stores all 40 hotcues as source-native records.
-3. The neutral projection marks hotcues 38-39 as exceeding Mixxx capacity.
-4. Export back to Mixxx format.
-
-### Expected export output
-
-```
-LOSS REPORT:
-  Relationship group: RG-BEATGRID-CUES
-  Issue: hotcue capacity overflow
-  Details:
-    - Hotcues 0-37: within Mixxx capacity, exported normally
-    - Hotcues 38-39: exceed Mixxx 38-hotcue limit
-  Conservative action: WITHHOLD hotcues 38-39 from Mixxx export
-  Alternative: export all 40 with explicit loss report flagging overflow
-
-Source-native record: all 40 hotcues retained
-Neutral projection: 40 hotcues, indices 38-39 marked as "exceeds Mixxx capacity"
-```
-
-**PASS criteria:** The import adapter detects the overflow. The export either
-withholds the overflow hotcues or includes an explicit loss report. All 40
-hotcues are retained in the source-native record.
-
-**FAIL criteria:** Hotcues 38-39 are silently dropped. The export succeeds
-with no warning. The source-native record is truncated to 38 hotcues.
-
-**NOT DEMONSTRATED:** Whether Mixxx itself would reject the export or
-silently drop the overflow — this requires the Mixxx application. The
-conservative approach is to withhold with a loss report.
-
-**Oracle:** Independent re-import into a fresh OxiDJ instance produces the same
-overflow report and the same 40-hotcue source-native record.
-
----
-
-## Fixture summary
-
-| Fixture | Vendor | Relationship group | Key behavior | Result |
-|---------|--------|-------------------|--------------|--------|
-| F-01 | Mixxx | RG-IDENTITY-LOCATION | Identity stable across relocation | PASS/FAIL/NOT DEMONSTRATED |
-| F-02 | Rekordbox XML | RG-PLAYLIST-TRACK | Ordered playlist membership | PASS/FAIL/NOT DEMONSTRATED |
-| F-03 | Mixxx | RG-BEATGRID-CUES | Cue/loop + beat-grid preservation | PASS/FAIL/NOT DEMONSTRATED |
-| F-04 | Mixxx | RG-BEATGRID-CUES | Field provenance across edit | PASS/FAIL/NOT DEMONSTRATED |
-| F-05 | OneLibrary | RG-BEATGRID-CUES | Unknown vendor payload preservation | PASS/FAIL/NOT DEMONSTRATED |
-| F-06 | Mixxx | RG-BEATGRID-CUES | Beat grid edit vs absolute-time cue independence | PASS/FAIL/NOT DEMONSTRATED |
-| F-07 | Rekordbox XML | RG-BEATGRID-CUES | Pre-write loss report / withholding | PASS/FAIL/NOT DEMONSTRATED |
-| F-08 | OneLibrary | RG-BEATGRID-CUES | Unsupported relationship payload round-trip | PASS/FAIL/NOT DEMONSTRATED |
-| F-09 | All | All | Independent re-import oracle | PASS/FAIL/NOT DEMONSTRATED |
-| F-10 | Rekordbox XML | RG-BEATGRID-CUES | Variable-tempo beat grid preservation | PASS/FAIL/NOT DEMONSTRATED |
-| F-11 | Mixxx | RG-BEATGRID-CUES | Point cue vs loop range distinction | PASS/FAIL/NOT DEMONSTRATED |
-| F-12 | Mixxx | RG-BEATGRID-CUES | Hotcue capacity overflow reporting | PASS/FAIL/NOT DEMONSTRATED |
-
-All fixtures must PASS before ADR-005 can transition from Proposed. Any
-NOT DEMONSTRATED result must be resolved before acceptance.
-
----
-
-*This document is a companion to `docs/adr/005-metadata-schema.md`. It is a
-decision-bearing validation plan, not a frozen schema. No code is required —
-these fixtures are specified for future implementation as automated tests.*
+**Companion:** [ADR-005](005-metadata-schema.md)
+
+This replaces the earlier contradictory expected-state plan in response to Sol
+advisory `t_4d01d430`, comment 129. It specifies bounded logical tests and required
+adapter artifacts; it does not claim those artifacts or adapters already exist.
+M1 remains **NOT READY**, runner **NOT PASSED**, ADR-005 **Proposed**. No benchmark,
+fault campaign or persistence-dependency admission is authorized. Product media
+copy/reference/retention and vendor-application/hardware acceptance are out of scope.
+
+## 1. Evidence and boundaries
+
+- Mixxx evidence is pinned to 2.5.6, commit
+  `3ebac449e7e5fe2a0186596657696e87ce8b0e56`:
+  [beats.proto](https://github.com/mixxxdj/mixxx/blob/3ebac449e7e5fe2a0186596657696e87ce8b0e56/src/proto/beats.proto)
+  defines BeatMap as beat positions with enabled/source, **not BPM per beat**;
+  [cueinfo.h](https://github.com/mixxxdj/mixxx/blob/3ebac449e7e5fe2a0186596657696e87ce8b0e56/src/track/cueinfo.h)
+  defines optional endpoints in milliseconds, index zero, label, optional RGB and
+  flags. DTO flag retention is not Mixxx database retention.
+- [Rekordbox XML format list](https://cdn.rekordbox.com/files/20200410160904/xml_format_list.pdf)
+  defines XML playlist sharing, TEMPO and second-based POSITION_MARK fields.
+  XML sibling order is not the OneLibrary `sequenceNo` column. XML does not
+  establish tempo-to-absolute-cue invalidation or beat interpolation.
+- [Interoperability research](../research/interoperability.md) and
+  [semantic mapping](../semantic-mapping.md) bound OneLibrary knowledge. A
+  third-party table-field description is not a OneLibrary wire format.
+
+Three different surfaces are tested; none implies the others:
+
+1. **Archive:** immutable source artifacts, record/element IDs, revisions,
+   source assertions, overlays, analysis candidates and effective state. Restore
+   or inspection of this state can prove internal history retention.
+2. **Export plan/report:** effective values, omissions and blocking decisions
+   under ADR-005 `safe-v1`, checked before writing. Reports are separate artifacts.
+3. **Vendor-visible output:** only representable post-edit/post-loss values.
+   Fresh vendor-only import has new import provenance and local IDs. It cannot
+   reconstruct source history, reports or withheld fields. No preservation sidecar
+   is defined. Archival restore is not vendor re-import.
+
+### Relationship registry
+
+- `RG-IDENTITY-LOCATION`: explicit reconciliation and retained source assertions.
+- `RG-PLAYLIST-TRACK`: endpoint integrity, hierarchy and membership order.
+- `RG-BEATGRID-CUES`: only explicitly declared beat locks; absolute Mixxx cues
+  and XML marks are independent of tempo edits in the bounded fixtures.
+- `RG-OPAQUE-POSITION`: OxiDJ conservative policy for unqualified alternate
+  position encodings, not an empirically demonstrated synchronization rule.
+- `RG-ASSET-STUB`: test-only live reference and boundary-manifest equality.
+- Key↔anchor coupling is **NOT DEMONSTRATED**; no `RG-KEY-ANCHOR` validator is enabled.
+
+## 2. Exact logical artifacts and equality
+
+For each case/subcase the future fixture directory must contain:
+
+| Artifact | Exact role |
+|---|---|
+| `case.json` | `contract_version` = `logical-v1`, case ID, source kind/version, ordered record/element IDs and source assertions, target format and `safe-v1` |
+| `source.bin` | Exact raw source bytes; for logical-only cases canonical JSON bytes defined below, explicitly not vendor bytes |
+| `operations.json` | Ordered mutations with operation ID, target address, expected revision, typed old/new values and expected result |
+| `expected-archive.json` | Hand-reviewed initial/final native records, history, revisions, provenance and effective values, including rejected-operation invariance |
+| `expected-visible.json` | Explicit target-visible post-edit/post-policy values, order and omissions; null when export is blocked |
+| `expected-report.json` | Exact ordered `safe-v1` entries; empty list when no loss |
+| `provenance.json` | Artifact paths/lengths/SHA-256, source version/citation, logical vs real-format classification, checker identity/version |
+
+These are artifact requirements, **not files produced by this documentation card**.
+No ellipses, placeholder hashes or host-dependent paths may enter executable goldens.
+Missing files/real-format bindings are NOT DEMONSTRATED, never implicitly generated
+by the production importer. Future writers must freeze complete JSON records under
+the rules below, review their exact bytes and record digests before implementation
+results count. The recipes here define all fixture-specific semantic values; actual
+adapter envelopes still require the bindings in §5.
+
+Logical JSON uses UTF-8, no BOM, lexicographically sorted object keys, compact
+separators and one LF. Arrays preserve order. BPM is an exact decimal string;
+times, frames, indices and raw synthetic integer fields are exact JSON integers,
+never converted through host floats. Units are explicit in field names/context.
+The displayed objects/recipes are source payloads, not complete archive envelopes.
+IDs use case-local
+ASCII names: track `t1`, native record `r1` at source revision `s1`, cue elements
+`c0`, `c1`, etc.; grid root `g1`, beats `b0`, `b1`, etc. Different named native
+structures get different record IDs (`r-grid`, `r-cues`); they share track `t1`.
+Every operation names the actual record/address, not `/CueInfo/0`. Unless stated
+otherwise source namespace is the case ID, imported origin is its VENDOR label
+(or `SYNTHETIC` for invented records), effective revision is 0, overlay and
+analysis lists are empty. Unmentioned optional values are **absent**, not zero/null.
+Each sequential accepted operation expects the immediately previous revision and
+increments it once; rejected operations do not increment it. Subcases reset state.
+
+- Times in logical goldens are integer microseconds; XML seconds × 1,000,000 and
+  CueInfo milliseconds × 1,000 must be exact for these chosen values. BeatMap uses
+  integer audio frames with explicit 48,000 frames/s. Preserve raw source values
+  as well as exact converted values. No sample rounding, epsilon, interpolation,
+  inferred bar number or inclusive/exclusive loop-end claim.
+- BPM uses exact decimal strings (`128`, not a rounded average); XML decimal
+  lexical variants may compare by exact rational value, but raw archive bytes
+  still compare byte-for-byte. No tolerance is granted by these fixtures.
+- Text compares Unicode scalar sequences without normalization or case folding;
+  optional color in logical CueInfo is RGB bytes red=(255,0,0), blue=(0,0,255),
+  green=(0,255,0). No claim that these are vendor palette IDs.
+- Native artifact equality means byte length and SHA-256 plus byte comparison.
+  Semantic XML equality compares required names/attributes/values, ordered
+  child lists and absence; attribute order/whitespace are not semantic equality.
+  Unknown XML/native payloads must remain archived even if no writer qualifies.
+- Archive IDs/revisions are exact. Fresh-import IDs use an explicit bijection
+  fixed by expected locations and case-local external keys, not the importer’s
+  own reconciliation. A missing/extra/duplicate row or edge fails equality.
+
+### Deterministic report equality
+
+Every entry has the exact keys specified by ADR-005. For these cases `field` is
+`identity`, `position`, `anchor` or `hotcue_index`; target format is the case's
+logical target (`mixxx-library-logical` for F-01, `mixxx-cueinfo-logical` for other
+Mixxx-derived cases, `rekordbox-xml`, or `onelibrary-synthetic`). A separate blocked
+real OneLibrary attempt uses target `onelibrary`, never the synthetic label. WITHHOLD is `action=WITHHOLD`; blocking is
+`action=BLOCK_EXPORT`. IDs refer to pre-export archive IDs, never fresh-import IDs.
+Details are exactly: overflow `{index:i,maximum_index:37}`; position edit
+`{old_usec:10000000,new_usec:11000000}`; missing anchor `{anchor_element_id:"b1"}`;
+identity conflict `{reason:reason}`; unsupported native export
+`{reason:"unqualified-wire-format"}`. Reasons for F-01 are specified there.
+Entries sort as ADR-005 specifies; no extra diagnostic text participates in equality.
+
+## 3. F-01–F-12 expected-state cases
+
+### F-01: Identity, relocation, conflicts and provenance
+
+Logical Mixxx-derived input A (`r1/s1`) has path `/music/track1.flac`, external ID
+`100`, grid 128 BPM/anchor 500000 usec, cue c0 at 10000000 usec, index 0,
+label `Intro`. B (`r2/s1`) has the same values and new path
+`/music/relocated/track1.flac`. Both content witnesses reference the exact UTF-8
+bytes `oxidj-f01-content-v1\n` (synthetic evidence, **not audio**).
+
+Operations: import A as t1; import B as unresolved candidate; explicit user-confirmed
+reconcile B to t1 with matching byte evidence and expected revision 0. Then select
+B as the current location/source assertion at revision 1. Final revision 2, one
+track, both immutable records, reconciliation and selection history, no USER
+metadata edits. Export-visible state has **one current location**, B, and the
+unchanged grid/cue; report `[]`. Archive retains A and B. Fresh vendor-only import
+contains one track corresponding to t1; it need not have the same ID or old path.
+
+Reset conflict subcases: (a) same namespace/ID 100 but different content bytes
+`oxidj-f01-different-v1\n` → reason `source-id-content-disagreement`;
+(b) different namespaces sharing ID 100, without confirmed reconciliation →
+`unconfirmed-identity`; (c) same path but different content → `path-content-disagreement`.
+No silent merge, original unchanged, export blocked with `IDENTITY_CONFLICT`,
+record `r2`, null element/cause, field `identity`, exact reason above. A fourth
+subcase confirms relocation but B says BPM 129: retain both assertions, project
+BPM conflict until explicit source selection; its export is blocked with the same
+r2/root `IDENTITY_CONFLICT` shape and reason `metadata-source-disagreement`.
+Selecting B resolves effective BPM to129 while A remains128 in history. Do not
+infer that equal content makes metadata equal. Content-hash collision safety, acoustic near-duplicate
+matching and platform URI normalization remain NOT DEMONSTRATED.
+
+### F-02: XML order and cross-record endpoints
+
+XML-format artifact binding must encode four COLLECTION tracks with TrackIDs
+100/200/300/400 and Locations `file://localhost/music/a.flac` through `d.flac`.
+Folder `Sets` contains playlists `House` then `Techno`; House's XML TRACK children
+reference keys `[100,200,300]`, Techno `[200,400]` in precisely that order.
+Use XML playlist key-type TrackID as documented, not a fabricated `sequenceNo`
+attribute. Full envelope/numeric enum binding remains A1 in §5.
+
+No edits: expected ordered trees exactly as above, five distinct membership IDs,
+track 200 shared, four tracks; report `[]`. Logical mutation subcases reorder
+House to `[300,100,200]` without changing membership IDs; reject a dangling track
+reference, deleting track 200 without its memberships, and a folder cycle with
+no state change. Explicit removals of both memberships plus deletion are one
+atomic logical mutation. Vendor application acceptance remains NOT DEMONSTRATED.
+
+### F-03: Constant grid, cues and range unchanged
+
+Mixxx-derived **logical CueInfo DTO**, not a claimed Mixxx library transport.
+Grid: BPM 128, first beat 96000 frames at 48000 frames/s (2000000 usec), source
+`ANALYZER`. Cues: c0 HotCue/index0/start10000000/label `Intro`/red;
+c1 HotCue/index1/start20000000/label `Drop`/blue;
+c2 Loop/start15000000/end25000000/label `Loop 1`;
+c3 MainCue/start5000000. Hotcue/maincue ends and unlisted indices/colors are absent;
+flags are 0. No edit. Archive and visible values unchanged, report `[]`.
+The logical export target retains the native ANALYZER grid-source token, not an
+OxiDJ analysis origin or a claim about any eventual library transport.
+Fail on index-zero loss, end fabrication, range collapse or changed grid.
+Real Mixxx transport/DB fidelity remains A2, not implied by DTO equality.
+
+### F-04: Edits, composition, conflicts and analysis precedence
+
+Start with F-03 grid and only c0. Imported origin is `VENDOR:Mixxx` with retained
+native beat-source token `ANALYZER`, not a claim of OxiDJ analysis. Operation e1
+sets c0.label `Intro`→`Opening` at revision 0; e2 sets grid BPM 128→130 at revision 1.
+Final revision 2; source bytes unchanged; effective c0 start10000000/label `Opening`,
+grid BPM130/anchor2000000; effective changed fields USER; report `[]`.
+
+Continuation: e3 label `Opening`→`Opening 2` at revision 2 succeeds (revision 3).
+Stale e4 (`Intro`→`Wrong`, expected 0) returns Conflict, no change. Replay e3
+identically makes no change; reuse e3 with different payload errors. In a separate reset subcase, reorder the F-03
+cue collection to c1,c0,c2,c3 at revision0 then edit c0.label at revision1:
+c0 changes, not c1, final revision2. A new source revision does not inherit
+these overlays automatically.
+
+Analysis a1, current source/content, analyzer `m1-synthetic`/`1`, sequence 1,
+BPM129 at revision 3, appends candidate and advances to revision 4; USER130 remains
+effective. Explicit clear-user at revision 4 reveals 129 (revision 5). Stale-source
+analysis is rejected without change. Archive contains originals, all accepted
+operations and candidate; visible values contain only effective values, no history.
+Fresh vendor-only re-import must **not** be required to reconstruct that archive.
+
+### F-05: Unknown kind and opaque bytes — synthetic only
+
+This is `onelibrary-synthetic`, **not real OneLibrary bytes/row serialization**.
+Exact canonical logical source object:
+
+    {"colorTableIndex":3,"cueComment":"custom","inUsec":10000000,"isActiveLoop":true,"kind":7,"opaque_hex":"00deadbeefff","outUsec":20000000}
+
+No edit. Archive preserves exact bytes; logical projection is `UNKNOWN(7)` with
+raw comment/flags and unit-tagged in/out observations, **not a Loop**, even when
+outUsec/isActiveLoop are present. These observations do not select an authoritative
+vendor position. Synthetic preservation channel echoes exactly source.bin;
+report `[]`. Real OneLibrary export without qualified binding is blocked with
+`UNSUPPORTED_NATIVE_EXPORT`, r1/root, field `position`, null cause and reason
+`unqualified-wire-format`. Unknown kind meaning and empirical real-format
+passthrough stay NOT DEMONSTRATED (A3), even if the synthetic test later passes.
+
+### F-06: BeatMap deletion and explicit declared dependency
+
+Logical mapping of pinned Mixxx legacy BeatMap: b0 frame0, b1 frame120000,
+b2 frame240000, each enabled=true/source=ANALYZER; sample rate48000. No per-beat
+BPM is invented. Cue c0 absolute start3000000 usec/index0/label `Transition`/green,
+end absent. e1 deletes **b1 by stable ID**, expected revision0, old full beat value.
+Archive retains original three beats and deletion; visible beat frames `[0,240000]`,
+cue unchanged at3000000; report `[]`. No inferred interpolation or spurious cue
+invalidation. Actual Mixxx encoding/envelope remains A2.
+
+F-06b resets and explicitly declares an **OxiDJ-only** relationship c0→b1,
+offset500000 usec in its initial OxiDJ-only snapshot at revision0. This declaration
+is not imported vendor behavior; e1 remains the first mutation.
+After deleting b1, archive retains c0 and unresolved relationship. `safe-v1`
+withholds c0; expected-visible contains no cue; one report `MISSING_ANCHOR`,
+r-cues/c0, field `anchor`, cause e1, details `{anchor_element_id:"b1"}`.
+Vendor-only re-import has no c0 or relationship, not a resurrected cue/report.
+The archive checker verifies both. No alternate export-with-warning branch.
+
+### F-07: XML tempo edit preserves absolute mark
+
+XML-bound logical values: TEMPO t0 `(Inizio=0,BPM=120,Metro="4/4",Battito=1)`
+and t1 `(10,128,"4/4",1)`; mark c0 Cue/Start5 seconds/Num0/Name `Intro`, End absent.
+The full XML artifact must use documented numeric Type and exact required envelope
+(A1); `Cue` is a logical tag here, not an asserted wire attribute value.
+e1 changes t0.BPM120→125, expected revision0. Expected-visible TEMPO values are
+125 and128 with all other fields unchanged; c0 stays at5000000 usec. Report `[]`.
+
+This reverses the earlier unsupported claim that an altered beat coordinate makes
+an absolute Start invalid. Fail if this bounded case moves/withholds c0 or invents
+a dependency warning. No claim about Rekordbox UI recalculation. Loss behavior is
+exercised by F-06b, F-08b and F-12, not fabricated tempo coupling.
+
+### F-08: Alternate encodings and unsupported position edit
+
+Synthetic object as F-05, replacing kind with0 and opaque_hex with `deadbeef`,
+isActiveLoop with false, and adding exactly these integer fields:
+in150FramePerSec=1500000, out150FramePerSec=3000000,
+inMpegFrameNumber=750000, outMpegFrameNumber=1500000,
+inDecodingStartFramePosition=0, outDecodingStartFramePosition=0,
+inNumberOfSampleInBlock=480000, outNumberOfSampleInBlock=960000,
+inTimeCode=0, outTimeCode=0. Values are deliberately uninterpreted opaque
+observations, **not validated conversions**. Kind0 is retained raw; no range
+semantics inferred from outUsec. No edit: byte-identical synthetic echo, report `[]`.
+The inUsec/outUsec projection is a labeled observation, not vendor authority.
+
+F-08b: e1 sets the observed inUsec10000000→11000000 at revision0. Revision1
+retains the new observation as USER intent, marks the position unsafe for export,
+and preserves all originals; encodings are not selectively rewritten. Synthetic
+export plan withholds whole r1 cue, visible cue set empty; report exactly
+`UNSUPPORTED_POSITION_EDIT`, r1/root, field `position`, cause e1 and details
+`{old_usec:10000000,new_usec:11000000}`. Real OneLibrary export remains blocked as
+F-05 until A3, not proven safe by this synthetic plan. Byte retention alone does
+not establish semantic compatibility or synchronization.
+
+### F-09: Independent, post-edit and loss-aware oracle
+
+Applies to **all F-01–F-12 subcases**, including F-09's own checker controls:
+
+1. Before running production import/export, independently author/review the
+   expected artifacts above from the input recipes and approved operations.
+   They must never be generated by the production parser, projection, exporter
+   or its ID reconciliation/helper code. Record checker source/version/digest.
+2. Compare imported and post-operation archive snapshots against those goldens:
+   immutable bytes, exact effective values, IDs/revisions, history, conflicts,
+   order and relationships. This is a storage/archival inspection, not re-import.
+3. Compare the pre-write report and export plan separately to expected artifacts.
+   A blocked plan must write no target. Otherwise check actual output directly
+   with a separate decoder using independent extraction rules: e.g. general XML
+   tree reading plus explicit attributes/ordered children for A1, not OxiDJ's
+   importer. For synthetic JSON compare canonical bytes plus direct JSON fields.
+   Real Mixxx/OneLibrary checker bindings must be qualified under A2/A3.
+4. Fresh OxiDJ vendor-only re-import is a useful **additional** integration check,
+   not checker independence. Compare it to expected-visible, not original import
+   or expected-archive. Normalize only local IDs with the declared bijection and
+   explicitly transportable fields; absence of history is expected.
+5. Checker self-tests must reject independently tampered disposable outputs:
+   missing index0, ms/seconds unit swap, reordered House memberships, original
+   `Intro` after F-04, omitted F-10 tempo point, restored withheld F-12 c38, a
+   changed opaque byte, and an absent required report entry. A production parser
+   shared with its checker cannot satisfy this requirement even in a fresh process.
+
+No checker or self-test has run on this card. If independent expected states or
+bindings are missing, result is NOT DEMONSTRATED. Do not bootstrap a golden by
+accepting matching output from two paths that share the same bug.
+
+### F-10: Variable tempo without invented interpolation
+
+XML-bound ordered TEMPO tuples `(Inizio seconds,BPM,Metro,Battito)`:
+`(0,120,"4/4",1)`, `(8,128,"4/4",1)`, `(16,132,"4/4",1)`.
+No operation. Visible and archived tuples identical; neutral projection retains
+three ordered points, units and raw meter/beat fields; report `[]`. No average BPM,
+bar numbering, phase or interpolation is inferred. Numeric/type/envelope binding
+A1 and application acceptance remain NOT DEMONSTRATED.
+
+### F-11: Absent end differs from range and zero
+
+Logical Mixxx DTO c0 HotCue/index0/start10000000/label `Intro`/red with absent end;
+c1 Loop/start15000000/end25000000/label `Loop 1`, index/color absent. Flags0.
+No operation: preserve exact optionality and range, report `[]`. Reset variants
+add c2 point start0 (valid zero) and c3 with absent start/end (unresolved position,
+not zero). Archive preserves all distinctions; unresolved c3 is not represented
+as a valid positioned cue. Export behavior for absent-start real Mixxx DTO remains
+A2 rather than a fabricated valid position. Loop endpoint inclusivity unclaimed.
+
+### F-12: Deterministic hotcue overflow and transport loss
+
+Logical DTO contains exactly 40 HotCue elements c0..c39, ordered by integer i.
+For i=0..39: index=i, start_usec=(i+1)*1000000, label=`H` plus two-digit decimal i
+(`H00`..`H39`), end/color absent, flags0. These are explicit logical stress inputs,
+not a claim that a real Mixxx library accepts indices38/39. No edits.
+
+Archive retains all40; projection marks indices38/39 out of the fixture target's
+0..37 capacity. `safe-v1` exports exactly c0..c37 without renumbering. Report has
+two entries `HOTCUE_CAPACITY`, r-cues/c38 and r-cues/c39, field `hotcue_index`,
+null cause, WITHHOLD, details `{index:38,maximum_index:37}` and
+`{index:39,maximum_index:37}`. No export-all alternative.
+Fresh vendor-only re-import expects **38**, not40, cues and no recovered overflow
+history/report. Independent archive/report checks prove retention and disclosure.
+Real Mixxx target transport and application handling remain NOT DEMONSTRATED.
+
+## 4. B1/B2 reference oracle (test-only, not a vendor fixture)
+
+Use ADR-005's exact `RG-ASSET-STUB` bindings and protocol §1 payload/manifest bytes.
+B1 expected live references: ref-1→stub-a, ref-2→stub-b. After the one committed
+reference transition B2: ref-1→stub-b, ref-2→stub-c. Track endpoints stay fixed.
+The archive oracle checks the transition history; bundle-set equality checks only
+live references. No historical a reference forces a into B2's manifest. Other
+tracks retain no sentinel references. Concrete ID/physical binding remains C6.
+
+Independently frozen snapshots for each boundary must include all persisted logical
+records, live references and operation history, plus protocol's independent witness
+and digests. Restored B1 must match B1, not latest B2/live state, and vice versa.
+No runtime regeneration, live-assets fallback or other-bundle dependency is allowed.
+Missing file, changed payload byte and manifest tampering must fail on disposable
+copies under the separate authorized recovery gate. This card performs none of
+those controls or restores and defines no product media/retention policy.
+
+## 5. Unresolved artifact and qualification gates
+
+- **A1 XML binding:** freeze complete source XML documents, required envelope,
+  documented numeric Type/key-type encodings and optional-field absence for
+  F-02/F-07/F-10, with hashes and independent XML checker rules. These recipes
+  are not an invented complete XML wire document or executed adapter fixture.
+- **A2 Mixxx binding:** select the exact adapter transport/envelope and pin how
+  BeatMap/BeatGrid proto, sample-rate context and CueInfo DTO optionality/colors
+  are carried. A CueInfo C++ DTO is not a library-file format. Bind raw bytes,
+  real target equality and the absent-position policy; no GPL implementation
+  copying or new dependency is authorized. Logical tests do not prove DB flags
+  persist or an application accepts overflow.
+- **A3 OneLibrary binding:** obtain qualified real source artifacts/version and
+  lawful exact-record/container extraction/preservation/checker path. Synthetic
+  objects in F-05/F-08 have no OneLibrary container claim. Unknown kind and position
+  synchronization stay NOT DEMONSTRATED; do not manufacture empirical rows.
+- **C1–C6:** C1 remains OPEN under the lead-ratified ceiling interpretation: unchanged per-cell `B` values are assigned payload-budget ceilings, while `A` is independently justified realized eligible logical byte-token count with `0 <= A <= B` once counting rules exist. Preserve all nine initial and scan-offer cell counts and the fixed seed/order; existing totals are sums of assigned `B`, not realized `A`, measurements, or storage. No lower bound or occupancy threshold is approved. C1 cannot close until eligible-field/type/encoding/ownership/exclusion rules, an independently justified inventory/allocation, measurable meaningful-coverage acceptance, and C2/C3 compatibility are specified and independently reviewed. The ceiling alone cannot qualify tiny/empty payloads. C2 endpoint/ownership inclusion, sharing/order, required-case distribution/cohorts, timed manual/analysis schedules/payloads, and concrete sentinel ID/reference binding remain open as enumerated in ADR-005. No full qualification harness can be implemented honestly without resolving them.
+- Freeze reviewed exact artifact bytes/expected states and implement the independent
+  checker/self-tests before results count. No result table below is an execution.
+
+| Case | Required specification behavior | Observed result |
+|---|---|---|
+| F-01 | Explicit reconciliation/conflicts, archive vs current location | NOT DEMONSTRATED |
+| F-02 | XML child order, shared endpoints | NOT DEMONSTRATED |
+| F-03 | Constant grid/cue/range preservation | NOT DEMONSTRATED |
+| F-04 | Revisioned edits, stale conflicts, analysis precedence | NOT DEMONSTRATED |
+| F-05 | Synthetic unknown-kind bytes; real vendor gap | NOT DEMONSTRATED |
+| F-06 / F-06b | Absolute independence / declared anchor loss | NOT DEMONSTRATED |
+| F-07 | XML tempo edit without false absolute-cue dependency | NOT DEMONSTRATED |
+| F-08 / F-08b | Synthetic encoding retention / unsafe edit withholding | NOT DEMONSTRATED |
+| F-09 | Independent post-edit/loss-aware checker and controls | NOT DEMONSTRATED |
+| F-10 | Ordered variable tempo/meter preservation | NOT DEMONSTRATED |
+| F-11 | Point/range/optional-end distinctions | NOT DEMONSTRATED |
+| F-12 | 40 archived, 38 visible, exact two-entry loss report | NOT DEMONSTRATED |
+| B1/B2 | Atomic test-only reference transition and boundary snapshots | NOT DEMONSTRATED |
+
+PASS means observed equality on every required surface and checker control, with
+real-format subclaims bounded by their qualified artifacts. FAIL is a demonstrated
+mismatch; absent/unqualified evidence is NOT DEMONSTRATED. All decision-bearing
+fixtures must actually PASS before ADR-005 leaves Proposed under its existing rule.
+Synthetic-only PASS never satisfies an unresolved real-format claim. Any narrowing
+of the transition scope needs explicit reviewed agreement, not silent removal of
+A1–A3. Neither this draft nor its later specification review is fixture execution.

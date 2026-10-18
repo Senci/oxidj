@@ -9,19 +9,19 @@
 
 ## Verdict: NOT READY
 
-The readiness assessment remains **NOT READY** after owner ratification: remaining work is technical—freeze the synthetic workload, complete the semantic oracle, and implement/test enforcement. Owner decisions are recorded; no additional approval is needed for these reversible technical choices. The initial assessment below records proposal-time findings; the current checklist and updates supersede the old pending-approval labels.
+Owner-ratified numeric values are unchanged first-prototype pass/fail criteria only; they remain unmeasured and are not product SLOs. Their executable application remains gated by pre-run review and every existing admission prerequisite; unresolved prerequisites mean NO-GO. This clarification neither revises targets nor authorizes execution. The current live gate remains NOT READY; the checklist and updates below supersede the old pending-approval labels.
 
 ## Owner ratification update (2026-10-15)
 
 The owner approved the recommendations recorded in the canonical admission protocol:
 
-- **Finite-campaign sampling:** scheduled open-loop offers; five-minute fixed warm-up outside 30 measured minutes; three separate runs; exact nearest-rank p95/p99 per class/run; descriptive floors of 2,000 p95 and 10,000 p99 observations per class/run; under-floor cells are NOT DEMONSTRATED, not PASS; no pooling or population-confidence claim. Extend the common measured window after the class mix is set if needed to reach the p99 floor for every in-scope class. These floors are not confidence guarantees.
+- **Finite-campaign sampling:** scheduled open-loop offers; five-minute fixed warm-up outside 30 measured minutes (historical approval); the current lead-owned duration is 7,000 measured seconds/run, derived from seven `10/7 req/s` classes and 10,000 p99 observations/class — a lead-owned derivation, not an owner decision; three separate runs; exact nearest-rank p95/p99 per class/run; descriptive floors of 2,000 p95 and 10,000 p99 observations per class/run; under-floor cells are NOT DEMONSTRATED, not PASS; no pooling or population-confidence claim. Extend the common measured window after the class mix is set if needed to reach the p99 floor for every in-scope class. These floors are not confidence guarantees.
 - **Recovery:** coverage-first P0 matrix replaces 30 kills as acceptance definition; independent commit/ack witness, exact operation/history oracle, two stable-boundary online backup restores, three deterministic seeds per applicable site/shape. P1 OS/physical interruption is separate from generic dependency admission and requires separate authorization/evidence for a named deployment/support claim.
 - **WAL/disk and qualification budgets:** first-prototype pass/fail targets are approved, unmeasured, and not product guarantees. The current live-WAL/checkpoint/free-space envelope and enforcement rules are in `m1-sqlite-admission-protocol.md`; `T` must be bounded before claiming the hard ceiling. No total-storage cap until fixture, assets, backup scope, and retention are fixed.
 - **Cold-cache:** use a disposable pre-provisioned VM or dedicated runner; do not clear caches on the normal workstation.
 - **ADR-005:** source-native records + neutral projection + edit overlays are approved only as a candidate direction for drafting and fixture validation, not as final schema acceptance.
 
-Still open as lead-owned technical inputs: exact read-class taxonomy/proportions/selectivities and manual-edit share (manual edits are included in the approved 10 requests/s total), analysis payloads, scan-insert/growth and transaction-shape assumptions, synthetic test-only asset and backup fixtures/qualification work, executable VFS/witness/backup oracles, ADR-005 relationship fixtures, reference-device revalidation, and selected bundled SQLite build. Product audio/artwork copy/reference and product backup-retention policy remain unsettled and owner-reserved; this note does not resolve that product intent. D1 inclusion topology is closed; the illustrative 80/20 split is not ratified and no additional owner decision is required for the listed technical inputs. No benchmark, fault experiment, prototype, or persistence dependency has started or is authorized before the full protocol and semantic oracle are independently reviewed.
+Still open: analysis-update payload/field semantics, transaction/batch shape, backup implementation/publication/isolation/fault harness (the frozen qualification-only B1/B2 asset/restore contract is protocol-defined, not implemented or measured), executable VFS/witness/backup oracles, ADR-005 relationship fixtures (including semantic realization of the frozen coverage-v1 profile), reference-device selection, and selected bundled SQLite build. Product audio/artwork copy/reference and product backup-retention policy remain unsettled and owner-reserved; this note does not resolve that product intent. Frozen qualification inputs: coverage-v1 logical profile (payload budgets and fan-out slots as abstract generator-side quantities), scan-insert growth, seven-class equal-share interactive schedule at 10/7 req/s per class, 300s warm-up, 7,000 measured seconds per run, three independent runs, no pooling. `viper` remains a candidate only. No benchmark, fault experiment, prototype, or persistence dependency has started or is authorized before the full protocol and semantic oracle are independently reviewed.
 
 ---
 
@@ -43,12 +43,12 @@ These are traceable to accepted ADR decisions, not to the draft protocol.
 
 ### Proposals with owner update (2026-10-15)
 
-These workload and budget items originated as proposals. Since this assessment, the owner ratified the finite-campaign sample rules, first-prototype acceptance targets, recovery P0/P1 policy, WAL/disk envelope, and disposable cold-cache method in the update above. Those inputs are now owner-approved but remain unmeasured and are not product guarantees. Still open are payload/fan-out and scan-growth assumptions, read-class proportions/selectivities, manual-edit share, assets/backups/retention, executable overload and recovery harness details, the per-batch WAL-growth bound, and ADR-005-dependent semantics. The 20% per-class illustration remains unratified and is not a representative mix.
+These workload and budget items originated as proposals. Since this assessment, the owner ratified the finite-campaign sample rules, first-prototype acceptance targets, recovery P0/P1 policy, WAL/disk envelope, and disposable cold-cache method in the update above. Those inputs are now owner-approved but remain unmeasured and are not product guarantees. The coverage-v1 logical profile (assigned payload-budget ceilings `B`, all nine initial and scan-offer cell counts, fixed seed/order, and fan-out slots), scan-growth semantics, read-class proportions/selectivities, manual-edit share, and measured duration are frozen qualification inputs. For each record, `A` is independently justified realized eligible logical byte-token count and must satisfy `0 <= A <= B` once counting rules exist; existing totals remain sums of assigned `B`, not realized `A`, measurements, or storage. No lower bound or occupancy threshold is approved. C1 remains OPEN until eligible-field/type/encoding/ownership/exclusion rules, an independently justified inventory/allocation, measurable meaningful-coverage acceptance, and C2/C3 compatibility are specified and independently reviewed. The ceiling alone cannot qualify tiny/empty payloads. Still open are analysis-update payload/field semantics, backup implementation/publication/isolation/fault harness (the frozen qualification-only B1/B2 asset/restore contract is protocol-defined, not implemented or measured), executable overload and recovery harness details, the per-batch WAL-growth bound, and ADR-005-dependent semantics. The 20% per-class illustration remains unratified and is not a representative mix.
 
 | Proposal | Source | Status |
 |---------|--------|--------|
-| Deterministic 500k-track fixture, deterministic seed (proposed default workload) | m1-sqlite-admission-protocol.md:27 | Base size/seed approved 2026-10-15; payload distribution/fan-out and fixture specifics remain open (NOT an ADR-002 accepted fact) |
-| 30-minute measured mixed load, 2 producers (100 scan inserts/s + 100 analysis updates/s), 4 readers (10 req/s total including manual edits) | m1-sqlite-admission-protocol.md:30 | Base rates and manual-edit inclusion topology approved; 5-minute warm-up, three separate runs, finite-campaign method and duration-extension rule approved; class proportions/selectivities, payload and manual-edit share remain lead-owned technical inputs |
+| Deterministic 500k-track fixture, deterministic seed (proposed default workload) | m1-sqlite-admission-protocol.md:27 | Base size/seed approved 2026-10-15; assigned payload-budget ceilings `B`, cell counts and fan-out slots frozen as coverage-v1 logical profile (not DB/asset sizes); realized eligible byte-token count `A` and meaningful-coverage criterion remain open via ADR-005 |
+| Measured mixed load, 2 producers (100 scan inserts/s + 100 analysis updates/s), 4 readers (10 req/s total including manual edits) | m1-sqlite-admission-protocol.md:30 | Base rates and manual-edit inclusion topology approved; 5-minute warm-up, three separate runs, finite-campaign method approved; seven equal classes at 10/7 req/s each, 7,000 measured seconds/run frozen; analysis-update payload/field semantics remain open |
 | Read p95<=100ms, p99<=250ms; write submission-to-BEGIN p95<=100ms, p99<=500ms; txn duration p99<=50ms, max 250ms | m1-sqlite-admission-protocol.md:32 | Owner-approved first-prototype targets; unmeasured and not product guarantees |
 | Queue bound 1024 jobs/64MiB; RSS<=1GiB; post-checkpoint WAL<=64MiB; live WAL<=256MiB | m1-sqlite-admission-protocol.md:32-33 | Owner-approved first-prototype targets; hard live ceiling requires a validated per-batch growth bound; total storage remains open |
 | Overload 2x writes for 60s, explicit backpressure, recover within 60s | m1-sqlite-admission-protocol.md:32 | Target approved; reader schedule and exact rejection/retry semantics still need executable specification |
@@ -61,18 +61,13 @@ These workload and budget items originated as proposals. Since this assessment, 
 
 | Assumption | Gap |
 |------------|-----|
-| Payload size distributions (p50/p95/max) | No fixture data; protocol says "never assume 100MB" |
-| Fan-out ratios (playlists/track, cues/track, grids/track) | Vendor maxima known, but actual distributions unknown |
-| Analysis payload contents and sizes | Not specified anywhere |
-| Query mix percentages | Listed but not quantified |
-| Manual edit rate | Not specified |
-| Arrival schedule (open-loop vs closed-loop) | Not defined |
-| Cold-cache procedure | Not defined |
-| Overload reader schedule | Not defined |
+| Analysis payload contents and sizes | Not specified anywhere; analysis-update field semantics remain open |
 | Reader lifetime policy | Not defined |
 | Free-disk floor | Not defined |
 | Schema shape | ADR-005 unresolved |
 | Import/export round-trip test details | ADR-005 carries field-relationship risk |
+
+Frozen (no longer assumptions): assigned payload-budget ceilings `B`, cell counts and fan-out slots (coverage-v1 logical profile); realized eligible byte-token counts `A` and meaningful-coverage acceptance criteria remain OPEN, not frozen payload-size distributions. Also frozen: query mix percentages (seven equal classes at 10/7 req/s), manual edit rate (included in 10/s aggregate), arrival schedule (scheduled open-loop), cold-cache procedure (disposable pre-provisioned VM).
 
 ---
 
@@ -80,30 +75,25 @@ These workload and budget items originated as proposals. Since this assessment, 
 
 ### 2.1 Query/arrival/sample accounting
 
-**Proposal-time state (superseded by the owner decision summarized above):** The earlier protocol listed interactive operations (track lookup, selective/broad search, sorted first/next 100-row pages, playlist pages, manual edits) and a 10 req/s aggregate reader rate without defining whether edits were included. The owner subsequently closed the D1 inclusion topology: manual edits are inside the 10/s total. The current unresolved items are the read-class grouping/proportions/selectivities and exact manual-edit share. The proposal-time assessment identified these gaps:
-- The proportion of each query class
-- Whether arrivals are open-load (Poisson/fixed-rate independent of completion) or closed-loop (wait for response before next request)
-- The percentile estimator (e.g., reservoir sampling, t-digest, exact histogram)
-- Minimum sample counts per class per run
-- Cold-cache procedure
+**Current state:** The protocol defines seven equal scheduled classes (track lookup; selective search; broad search; sorted first 100-row page; sorted next 100-row page; playlist page; manual edit) at exactly 10/7 requests/s each, totaling 10 req/s. Manual edits are included in—not additional to—the aggregate 10/s. Arrivals are scheduled open-loop. The percentile estimator is exact nearest-rank p95/p99 per class/run. Minimum sample counts are frozen at 2,000 p95 and 10,000 p99 per class/run. Cold-cache procedure is a disposable pre-provisioned VM or dedicated runner. These are frozen qualification inputs, not proposals.
 
-**Proposal-time definitions (current owner-approved choices are summarized at the top; remaining specifics are lead-owned technical defaults):**
+**Frozen definitions (supersede proposal-time text):**
 
 - **Arrival model:** owner-approved scheduled open-loop. Generate offers independently of completion from a predeclared deterministic schedule; report actual inter-arrival jitter and all terminal outcomes.
 - **Percentile estimator:** retain raw monotonic durations; calculate exact nearest-rank p95 and p99 per class and run. Do not use approximate histogram buckets for pass/fail. p99.9 is not an acceptance percentile.
-- **Minimum samples:** owner-approved descriptive rank-resolution floors are 2,000 observations for p95 and 10,000 for p99 per class/run. These are not statistical confidence guarantees. Under-floor cells are NOT DEMONSTRATED and cannot pass; keep runs separate, with no pooling or post-hoc regrouping. After the synthetic class rates are frozen, extend the common measured window to satisfy the p99 floor for each in-scope positive-rate class.
+- **Minimum samples:** owner-approved frozen descriptive rank-resolution floors are 2,000 observations for p95 and 10,000 for p99 per class/run. These are not statistical confidence guarantees. Under-floor cells are NOT DEMONSTRATED and cannot pass; keep runs separate, with no pooling or post-hoc regrouping.
 - **Cold-cache procedure:** owner-approved disposable pre-provisioned VM or dedicated runner. Validate that environment before qualification. Do not use host-wide `drop_caches` on the normal workstation.
-- **Query-class mix:** if representative usage data is unavailable, use a deterministic synthetic coverage profile only; clearly state that it does not estimate typical OxiDJ usage. The lead owns the exact class proportions, selectivities, and manual-edit share as reversible test inputs.
+- **Query-class mix:** frozen seven equal scheduled classes at 10/7 req/s each. These are qualification-only, not typical-usage estimates. The lead owns the exact class proportions, selectivities, and manual-edit share as reversible test inputs.
 
-**Verdict:** These owner-level method choices are resolved. The protocol remains NOT READY until the lead freezes a concrete synthetic schedule, exact per-class rates, payload/growth inputs, and the executable accounting harness; no further owner approval is needed.
+**Verdict:** These owner-level method choices are resolved. The synthetic schedule, exact per-class rates, assigned payload-budget ceilings `B`, cell counts, fan-out slots and growth inputs are frozen (coverage-v1); realized eligible byte-token counts `A` and a measurable meaningful-coverage acceptance criterion remain OPEN. The protocol remains NOT READY until the executable accounting harness is implemented and independently reviewed; no further owner approval is needed.
 
 ### 2.2 Latency estimators and minimum samples
 
 **At assessment time:** p95/p99 were mentioned without an estimator or minimum sample count; the owner-approved method and floors are recorded above.
 
-**Current approach:** raw duration samples, exact nearest-rank p95/p99 per class and run; owner-approved descriptive floors are 2,000 samples for p95 and 10,000 for p99. These floors are not confidence guarantees. Run separately; no pooling. Extend the common measurement interval from the synthetic class rates so all in-scope classes can meet the p99 floor.
+**Current approach:** raw duration samples, exact nearest-rank p95/p99 per class and run; owner-approved frozen descriptive floors are 2,000 samples for p95 and 10,000 for p99. These floors are not confidence guarantees. Run separately; no pooling. The common measured interval is frozen at 7,000 seconds, derived from the frozen class rates (10/7 req/s per class) so all in-scope classes meet the p99 floor.
 
-**Verdict:** Sampling method and descriptive floors are owner-approved; exact class rates and sufficient duration remain to be frozen from the synthetic coverage profile.
+**Verdict:** Sampling method, descriptive floors, exact class rates, and duration (7,000 measured seconds) are frozen.
 
 ### 2.3 Offered/accepted/completed write accounting
 
@@ -128,13 +118,13 @@ These workload and budget items originated as proposals. Since this assessment, 
 
 ### 2.4 Workload duration
 
-**Current state:** Owner-approved base is five minutes of warm-up outside 30 measured minutes, with three independent runs; the measured window must extend to satisfy every in-scope p99 class floor.
+**Current state:** Owner-approved base is five minutes (300s) warm-up outside the measured window, with three independent runs. The frozen seven-class equal-share schedule at 10/7 req/s per class requires 10,000 observations per class, yielding 7,000 measured seconds (116m40s) per run. No pooling.
 
-**Assessment:** 30 measured minutes is the approved baseline, not a promise that all classes meet the p99 sample floor. The common measured window will be extended from the final synthetic class rates. This is a finite-campaign qualification, not a population-confidence study. Long-duration effects outside the frozen test envelope are not claimed.
+**Assessment:** 7,000 measured seconds is the frozen duration derived from the class rates and p99 floor, not a promise about representative behavior. This is a finite-campaign qualification, not a population-confidence study. Long-duration effects outside the frozen test envelope are not claimed.
 
-**Current method:** five-minute warm-up, then a common measured duration of at least 30 minutes and long enough for each in-scope p99 class to reach 10,000 samples; three independently reset runs. The warm-up is excluded from percentile calculations but its offered work and fixture growth are recorded.
+**Current method:** five-minute warm-up, then 7,000 measured seconds per run; three independently reset runs. The warm-up is excluded from percentile calculations but its offered work and fixture growth are recorded.
 
-**Verdict:** Five-minute warm-up outside 30 measured minutes is owner-approved; extend the duration after the in-scope mix is fixed to meet per-class p99 floors.
+**Verdict:** Five-minute warm-up outside 7,000 measured seconds is frozen; the duration is derived from the frozen class rates and p99 floor.
 
 ### 2.5 Overload/backpressure
 
@@ -212,16 +202,13 @@ The semantic oracle is an independent checker that operates on the in-memory dom
 
 ### 2.9 Restore oracle
 
-**Current state:** "Restore two separately retained online backups after later edits/deletion, into clean directories without original DB/WAL; exact snapshot oracle/provenance/payload and asset-manifest match."
+**Protocol-defined qualification fixture (not implemented):** the accepted protocol §1 and §7 freeze exactly three synthetic integrity sentinels: `stub-a`, `stub-b`, and `stub-c`, each with the exact UTF-8 payload `oxidj-m1-asset-stub-v1:<asset_id>\n`. Stable boundary B1 contains `stub-a`/`stub-b`; after the committed reference transition, B2 contains `stub-b`/`stub-c`. Each self-contained boundary bundle includes its own SQLite online backup, canonical `asset-manifest.json`, and physical copies of exactly its listed assets. The canonical manifest fields, entry fields/order, serialization, and payload hashes are specified in protocol §1; independent evidence records boundary/commit marker and backup, manifest, and logical-snapshot digests.
 
-**Gaps:**
-- "Exact snapshot oracle" is not defined (what is compared? bytes? semantic content? both?).
-- "Asset-manifest match" is not defined (what assets? how hashed?).
-- Restore timing boundaries are not defined (start/end points).
+After B2 capture, the protocol requires later committed DB edits/deletions and live-stub alterations/removal while retained bundles remain unchanged. Restore each bundle separately in a fresh process/destination with original DB/WAL/SHM, live assets, and the other bundle unavailable; prohibit regeneration/download/fallback. Verify independent digests, exact asset-set equality, payload lengths/hashes, expected references, integrity/FK checks, and every persisted row/value against the boundary snapshot and ADR-005 oracle when defined. Compare logical DB content rather than backup-file byte identity. Disposable negative controls must fail for a missing asset, changed asset byte, and manifest tampering. These controls do not replace P0 backup-publication fault cells or applicable three-seed coverage.
 
-**Lead-owned qualification oracle:** take two online backups at separately recorded stable boundaries and restore each into a clean location without the original database or WAL. Compare every persisted row with the stable-boundary snapshot, then run the semantic oracle from ADR-005. Use a deterministic test-only asset-stub manifest with SHA-256 entries; this does not settle product audio/artwork copy/reference policy or ongoing retention. Measure restore-to-first-result against the owner-approved 120-second target; record full verification time separately.
+Restore timing starts at request before validation/copy/open and ends when the predeclared first interactive query returns the correct boundary-specific result; each restore must meet the existing 120s target. Record full verification timing separately; bundles are locally available, so download time is excluded. This qualification-only fixture does not decide product media/audio/artwork copy/reference or retention policy.
 
-**Verdict:** Backup/restore cases are owner-approved; comparison, manifest, and timing instrumentation remain technical implementation work.
+**Verdict:** The synthetic fixture and two-boundary restore checks are protocol-defined, not implemented or measured. Open implementation work includes ADR-005 row IDs/relationship representation and executable semantic oracle, backup lifecycle/publication/isolation and restore harness, P0 fault cells, measured asset/DB bytes and timings, storage budget, and runner preflight/qualification (runner remains NOT PASSED). No experiment or implementation is implied; M1 remains NOT READY and the no-experiment gate remains in force.
 
 ### 2.10 Acknowledgment witness
 
@@ -316,17 +303,17 @@ No official SQLite source provides device-specific fsync latency ranges or OxiDJ
 
 | Item | Current status | Next work (lead-owned; no further owner approval needed) |
 |------|----------------|-----------------------------------------------------------|
-| Initial fixture and base rates | Owner-approved: 500k deterministic tracks; 100 scan inserts/s; 100 analysis updates/s; 10 interactive requests/s total | Define synthetic fixture payloads and growth semantics; no typical-usage claim |
-| Read/manual-edit class mix | Synthetic fallback approved if real usage is unknown | Freeze a balanced, deterministic coverage schedule and selectivities |
-| Arrival and percentile method | Owner-approved: scheduled open-loop; raw durations; nearest-rank p95/p99 per class/run | Implement event schedule and retain all terminal outcomes |
-| Sample floors and duration | Owner-approved: 2,000 p95 / 10,000 p99 per class/run; three separate runs; under-floor NOT DEMONSTRATED | Derive common measured duration from the final class rates |
-| Warm-up | Owner-approved: five minutes outside 30 measured minutes | Apply consistently; extend measured window as needed for p99 floors |
-| Cold-cache method | Owner-approved: disposable pre-provisioned VM/runner | Provision and validate runner; no cache clearing on normal workstation |
+| Initial fixture and base rates | Frozen: 500k deterministic tracks; 100 scan inserts/s; 100 analysis updates/s; 10 interactive requests/s total; coverage-v1 assigned payload-budget ceilings `B`, cell counts and fan-out slots | Realized eligible byte-token count `A` and meaningful-coverage criterion remain open via ADR-005; no typical-usage claim |
+| Read/manual-edit class mix | Frozen: seven equal scheduled classes at 10/7 req/s each; manual edits included in aggregate 10/s | Implement event schedule and retain all terminal outcomes |
+| Arrival and percentile method | Frozen: scheduled open-loop; raw durations; nearest-rank p95/p99 per class/run | Implement event schedule and retain all terminal outcomes |
+| Sample floors and duration | Frozen: 2,000 p95 / 10,000 p99 per class/run; 7,000 measured seconds; three separate runs; under-floor NOT DEMONSTRATED; no pooling | Apply consistently |
+| Warm-up | Frozen: 300s (five minutes) outside 7,000 measured seconds | Apply consistently |
+| Cold-cache method | Frozen: disposable pre-provisioned VM/runner | Provision and validate runner; no cache clearing on normal workstation |
 | Latency/resource targets | Owner-approved first-prototype thresholds; unmeasured, not product guarantees | Implement measurements and report each run separately |
 | WAL/checkpoint/free-space envelope | Owner-approved: 128 MiB high-water, 256 MiB live ceiling, <=64 MiB after verified checkpoint/recovery, <=5 s snapshots, >=1 GiB free after reservation, resume at >=2 GiB plus headroom | Derive and validate per-batch growth bound `T`; implement pause/backpressure/checkpoint verification |
 | Overload and accounting | Target and terminal-outcome accounting approved | Specify deterministic reader/rejection behavior and recovery timer |
 | Recovery matrix | P0 coverage-first matrix, witness/oracle, two backup restores and three seeds approved; P1 separate | Implement injectors, durable witness, restore oracle, and case manifest |
-| ADR-005 direction | Candidate approved for drafting only; no final schema accepted | Draft schema and pass relationship-aware import-edit-export fixtures |
+| ADR-005 direction | Candidate approved for drafting only; no final schema accepted | Draft schema and pass relationship-aware import-edit-export fixtures; resolve C1 allocation and meaningful-coverage criterion and C2 endpoints/sharing; realize coverage-v1 cells legitimately |
 | Reference device / SQLite build | `viper` remains a candidate; exact build unselected | Lead selects/revalidates runner and checks bundled SQLite WAL-reset fix before qualification |
 | Total storage budget | No product-wide cap approved | Measure the frozen synthetic fixture/assets/backups; do not infer a product cap |
 | Durability and engine choice | READY: WAL/FULL conditional contract; SQLite + WAL | Dependency admission still waits for every qualification gate |
@@ -335,8 +322,8 @@ No official SQLite source provides device-specific fsync latency ranges or OxiDJ
 
 ## 5. Recommended path to READY
 
-1. **Finalize synthetic coverage inputs:** choose explicit read classes, equal scheduled shares, deterministic query/selectivity cases, transaction/payload shapes, scan-growth behavior, and test-only asset/backup scope. Label the workload synthetic; make no typical-usage claim.
-2. **ADR-005:** draft the approved candidate direction and relationship-aware import-edit-export fixtures; run the required independent decision review before accepting a schema.
+1. **Finalize remaining synthetic inputs:** transaction/batch shapes and backup implementation/publication/isolation remain open (the frozen qualification-only B1/B2 asset/restore contract is protocol-defined, not implemented or measured). The coverage-v1 logical profile, scan-growth behavior, read-class schedule, and duration are frozen. Label the workload synthetic; make no typical-usage claim.
+2. **ADR-005:** draft the approved candidate direction and relationship-aware import-edit-export fixtures; realize coverage-v1 cells legitimately; run the required independent decision review before accepting a schema.
 3. **Build the qualification harness:** implement per-class raw-sample accounting, queue/backpressure outcomes, bounded `T` admission, WAL/checkpoint verification, independent acknowledgement witness, VFS fault injection, and backup/restore oracle.
 4. **Cold-cache runner:** provision and verify a disposable pre-seeded VM/dedicated runner; no cache clearing on the normal workstation.
 5. **Freeze and independently review:** all workload cells, budgets, harness, recovery matrix, semantic oracle, supported stack, and SQLite build must be executable and frozen before any measurement.
