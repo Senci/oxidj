@@ -21,7 +21,7 @@ The owner approved the recommendations recorded in the canonical admission proto
 - **Cold-cache:** use a disposable pre-provisioned VM or dedicated runner; do not clear caches on the normal workstation.
 - **ADR-005:** source-native records + neutral projection + edit overlays are approved only as a candidate direction for drafting and fixture validation, not as final schema acceptance.
 
-Still open: analysis-update payload/field semantics, transaction/batch shape, backup implementation/publication/isolation/fault harness (the frozen qualification-only B1/B2 asset/restore contract is protocol-defined, not implemented or measured), executable VFS/witness/backup oracles, ADR-005 relationship fixtures (including semantic realization of the frozen coverage-v1 profile), reference-device selection, and selected bundled SQLite build. A logical-job/atomic-batch/post-COMMIT acknowledgement envelope is recorded in the admission protocol as a proposal-only candidate, not accepted or frozen; retry identity, durable witness/reconciliation, batch limits/fairness, WAL-growth `T`, and ADR-005-dependent semantics remain open. ADR-002:143 still describes proposed budgets as provisional pending pre-run review; this wording caveat does not change accepted values. Product audio/artwork copy/reference and product backup-retention policy remain unsettled and owner-reserved; this note does not resolve that product intent. Frozen qualification inputs: coverage-v1 logical profile (payload budgets and fan-out slots as abstract generator-side quantities), scan-insert growth, seven-class equal-share interactive schedule at 10/7 req/s per class, 300s warm-up, 7,000 measured seconds per run, three independent runs, no pooling. `viper` remains a candidate only. No benchmark, fault experiment, prototype, or persistence dependency has started or is authorized before the full protocol and semantic oracle are independently reviewed.
+Still open: analysis-update payload/field semantics, transaction/batch shape, backup implementation/publication/isolation/fault harness (the frozen qualification-only B1/B2 asset/restore contract is protocol-defined, not implemented or measured), executable VFS/witness/backup oracles, ADR-005 relationship fixtures (including semantic realization of the frozen coverage-v1 profile), and selected bundled SQLite build. The protocol conditionally nominates the public standard GitHub-hosted `ubuntu-24.04` runner as a candidate; it remains NOT PASSED pending all per-job preflight and drift checks, and is rejected if required behavior or capacity is unknown or inadequate. A logical-job/atomic-batch/post-COMMIT acknowledgement envelope is recorded in the admission protocol as a proposal-only candidate, not accepted or frozen; retry identity, durable witness/reconciliation, batch limits/fairness, WAL-growth `T`, and ADR-005-dependent semantics remain open. ADR-002:143 still describes proposed budgets as provisional pending pre-run review; this wording caveat does not change accepted values. Product audio/artwork copy/reference and product backup-retention policy remain unsettled and owner-reserved; this note does not resolve that product intent. Frozen qualification inputs: coverage-v1 logical profile (payload budgets and fan-out slots as abstract generator-side quantities), scan-insert growth, seven-class equal-share interactive schedule at 10/7 req/s per class, 300s warm-up, 7,000 measured seconds per run, three independent runs, no pooling. No benchmark, fault experiment, prototype, or persistence dependency has started or is authorized before the full protocol and semantic oracle are independently reviewed.
 
 ---
 
@@ -51,11 +51,11 @@ These workload and budget items originated as proposals. Since this assessment, 
 | Measured mixed load, 2 producers (100 scan inserts/s + 100 analysis updates/s), 4 readers (10 req/s total including manual edits) | m1-sqlite-admission-protocol.md:30 | Base rates and manual-edit inclusion topology approved; 5-minute warm-up, three separate runs, finite-campaign method approved; seven equal classes at 10/7 req/s each, 7,000 measured seconds/run frozen; analysis-update payload/field semantics remain open |
 | Read p95<=100ms, p99<=250ms; write submission-to-BEGIN p95<=100ms, p99<=500ms; txn duration p99<=50ms, max 250ms | m1-sqlite-admission-protocol.md:32 | Owner-approved first-prototype targets; unmeasured and not product guarantees |
 | Queue bound 1024 jobs/64MiB; RSS<=1GiB; post-checkpoint WAL<=64MiB; live WAL<=256MiB | m1-sqlite-admission-protocol.md:32-33 | Owner-approved first-prototype targets; hard live ceiling requires a validated per-batch growth bound; total storage remains open |
-| Overload 2x writes for 60s, explicit backpressure, recover within 60s | m1-sqlite-admission-protocol.md:32 | Target approved; reader schedule and exact rejection/retry semantics still need executable specification |
+| Overload 2x writes for 60s, explicit backpressure, recover within 60s | m1-sqlite-admission-protocol.md:59 | Textual reader/Busy/no-burst-retry/recovery policy is specified in the protocol; implementation, instrumentation, and independent validation remain open. Detailed retry identity/reconciliation mapping remains OPEN (protocol:57; readiness:113) |
 | Migration<=60s, reopen<=2s, restore<=120s | m1-sqlite-admission-protocol.md:36 | Owner-approved first-prototype targets; unmeasured; schema-dependent implementation remains open |
 | 30 process kills across transactions/checkpoints/migration | m1-sqlite-admission-protocol.md:37 | Superseded: owner approved coverage-first P0 matrix; 30 kills alone are not the acceptance definition |
 | Two online backups, stable-boundary restore without original DB/WAL | m1-sqlite-admission-protocol.md:37 | Two qualification restores approved; product asset/backup retention scope remains open |
-| Reference device `viper` (Ryzen 5 5600X, 31GiB, Btrfs zstd:3 over LUKS on NVMe) | m1-sqlite-admission-protocol.md:28 | Lead-selected candidate; revalidate full environment at run start |
+| Conditional runner candidate: public standard GitHub-hosted `ubuntu-24.04` (not `ubuntu-slim`) | m1-sqlite-admission-protocol.md:45-49 | NOT PASSED; requires per-job preflight and drift review; reject if capacity or required behavior is unknown/inadequate |
 
 ### Assumptions (not established by repository evidence)
 
@@ -106,15 +106,15 @@ Frozen (no longer assumptions): assigned payload-budget ceilings `B`, cell count
 
 - **Offered:** a producer attempts to submit a write job to the queue. Record timestamp and payload bytes.
 - **Accepted:** the job is admitted into the bounded queue. Record timestamp, queue depth, and payload bytes.
-- **Completed:** the job's transaction commits successfully and the acknowledgement is sent. Record timestamp.
+- **Completed:** the logical operation's transaction is confirmed committed and the acknowledgement is sent. Record timestamp and operation identity.
 - **Rejected:** the queue is full (1024 jobs or 64MiB). Record timestamp, payload bytes, and rejection reason.
-- **Failed:** the job was accepted but the transaction failed at commit. Record timestamp and error. A failed job is NOT a lost accepted work if the failure is reported to the producer and the producer may retry; it IS a lost accepted work if the failure is silent.
+- **Failed:** a confirmed terminal failure of an accepted attempt/operation. Record timestamp, identity, and error in a failure count separate from completed work. An unknown commit result is unresolved, not a confirmed terminal failure; it remains nonterminal until reconciliation.
 
-**Accounting rule:** every offer has one recorded terminal outcome: completed after commit and acknowledgement; rejected before queue acceptance; or failed after acceptance. No silent drops. At normal target load, any rejection or failure prevents PASS because completed throughput must match offered. During the 2x overload interval, explicit queue-full rejections are permitted but reported; no retry is issued during that interval so scheduled arrivals stay fixed. A later retry is a new offer. Backlog is accepted but not-yet-terminal work, sampled each second. These are lead-owned test-harness rules; no further owner approval is needed.
+**Accounting rule:** preserve offer, accepted-operation, attempt, commit, acknowledgement, rejection, failure, and unresolved-outcome identities; instrumentation is not claimed to exist. Accepted nonterminal work remains in backlog until a confirmed terminal outcome, including work with an unresolved commit result. Confirmed terminal failures remain visible in their own failure count and are not counted as completed. A commit/sync outcome that is unknown remains unresolved and nonterminal until reconciliation; do not blindly replay it. Retry identity and detailed retry-to-operation mapping remain OPEN, so retries are not silently treated as new logical operations. At normal target load, any target-load rejection or failure prevents PASS because completed throughput must match offered. During the 2x overload interval, explicit queue-full `Busy` rejections are permitted and reported; no retry is issued during that interval so scheduled arrivals stay fixed. Backlog is accepted work without a confirmed terminal outcome, sampled every second. Preserve the protocol's target-load failure and overload rules.
 
-**Backlog metric:** accepted minus completed, sampled every second. Report as a time series, not just a final value.
+**Backlog metric:** count accepted work without a confirmed terminal outcome, including unresolved commit outcomes, sampled every second. Report confirmed terminal failures separately; do not remove them from the failure count or treat them as completed. Report the backlog as a time series, not just a final value.
 
-**Verdict:** The accounting rules are defined; executable instrumentation and independent review remain before protocol freeze.
+**Verdict:** Textual outcome and backlog policy is specified in the admission protocol. Retry identity/mapping details remain OPEN; executable instrumentation and independent validation remain before protocol freeze.
 
 ### 2.4 Workload duration
 
@@ -130,14 +130,9 @@ Frozen (no longer assumptions): assigned payload-budget ceilings `B`, cell count
 
 **Current state:** The owner approved this overload target. The protocol now specifies normal-rate readers, reported queue-full rejection without retry during the fixed 60-second burst, then recovery until accepted backlog is drained and returns to its pre-burst baseline within 60 seconds.
 
-**Gaps:**
-- What is the reader schedule during overload? Do readers continue at 10 req/s or are they throttled?
-- What does "explicit backpressure" mean operationally? Reject new writes? Slow producers? Both?
-- How is "recover/drain within 60s" measured? From the end of the overload period?
+**Resolved textual policy:** the protocol specifies normal-rate readers during overload, reported queue-full `Busy` rejection without retry during the fixed burst, then recovery timing from overload end until accepted backlog is drained to its pre-burst baseline. Implementation, instrumentation, and independent validation remain open.
 
-**Lead-owned executable defaults:** readers continue at 10 interactive requests/s. When the queue is full, each offered write gets an immediate, counted `Busy` rejection; no retry is issued during the fixed 60-second overload interval, preserving the scheduled arrival stream. At overload end, resume base rates and measure until all previously accepted work is complete and backlog returns to its pre-burst baseline; require <=60 seconds. Target-load rejection or failure is a run failure.
-
-**Verdict:** No further owner input is needed; the implementation and independent review remain open.
+**Verdict:** The textual overload/rejection/recovery policy is specified. Implementation, instrumentation, and independent review remain open.
 
 ### 2.6 Live WAL/free-disk bounds/checkpoint starvation
 
@@ -164,20 +159,20 @@ Frozen (no longer assumptions): assigned payload-budget ceilings `B`, cell count
 - mixxx-semantics.md defines beat grid types, cue types, provenance distinctions
 - interoperability.md defines the fixture plan for import/export round-trips
 
-**Proposed oracle definition:**
+**Proposed oracle definition (not yet executable):**
 
 The semantic oracle is an independent checker that operates on the in-memory domain model, not on the database. It verifies:
 
-1. **Identity:** track IDs are stable across re-imports; path changes do not create new tracks.
+1. **Identity:** internal IDs are library-local. Stable identity across fresh re-imports or automatic path-change matching is NOT DEMONSTRATED; use explicit correspondence/reconciliation evidence and do not assume IDs match.
 2. **Provenance:** every field records its source (ANALYZER | FILE_METADATA | USER | vendor import). User edits do not silently overwrite analyzed or imported values.
 3. **Representation:** constant-tempo and variable-tempo beat grids are distinct. Point cues are distinct from loop ranges. No flattening occurs.
-4. **Vendor passthrough:** unknown/unrepresentable fields are preserved as opaque payloads, not discarded.
+4. **Vendor passthrough:** preserve unknown/unrepresentable fields internally as opaque payloads; vendor output is only established through a qualified exact preservation path, otherwise report or block export under the proposed policy.
 5. **Capacity overflow:** hotcue count >38 is reported, not silently truncated.
-6. **Round-trip:** import -> export -> import produces identical semantic content (not just parseable bytes).
+6. **Round-trip:** no blanket identical semantic round-trip is established. Compare internal archive state, export plan/report, and vendor-visible output/history as distinct surfaces; fresh vendor-only import cannot reconstruct archive history or withheld values, and exact adapter behavior remains unproven.
 
-**Relationship-aware validation (ADR-003 field-relationship risk):** the oracle must check that edits to linked fields (e.g., changing a beat grid invalidates dependent cue positions) are handled explicitly, not silently. This requires ADR-005 to define the relationship rules.
+**Relationship-aware validation (ADR-003 field-relationship risk):** the oracle must check explicitly declared relationships without inventing vendor coupling. Mixxx absolute millisecond cues and XML second-based marks are independent of tempo edits in the bounded fixtures; only an explicitly declared OxiDJ beat-locked cue depends on its named beat/grid anchor. ADR-005 remains Proposed; its candidate relationship rules require review and fixture validation.
 
-**Verdict:** NOT READY. The oracle definition above is executable for items 1-5, but item 6 (relationship-aware validation) is blocked by ADR-005. The smallest missing evidence is an ADR-005 schema decision that defines field relationships.
+**Verdict:** NOT READY. Examples 1–5 are not executable evidence: exact adapter bindings, independent goldens/checker and checker self-tests, and observed fixture PASS evidence are absent. Absolute Mixxx/XML cue positions are distinct from explicitly OxiDJ-declared beat-locked cues; no vendor beat-lock behavior is inferred. ADR-005 remains Proposed and its relationship-aware contract is not accepted. Required bindings, independent oracle artifacts, and observed fixture PASS evidence remain NOT DEMONSTRATED.
 
 ### 2.8 Migration cases
 
@@ -311,10 +306,10 @@ No official SQLite source provides device-specific fsync latency ranges or OxiDJ
 | Cold-cache method | Frozen: disposable pre-provisioned VM/runner | Provision and validate runner; no cache clearing on normal workstation |
 | Latency/resource targets | Owner-approved first-prototype thresholds; unmeasured, not product guarantees | Implement measurements and report each run separately |
 | WAL/checkpoint/free-space envelope | Owner-approved: 128 MiB high-water, 256 MiB live ceiling, <=64 MiB after verified checkpoint/recovery, <=5 s snapshots, >=1 GiB free after reservation, resume at >=2 GiB plus headroom | Derive and validate per-batch growth bound `T`; implement pause/backpressure/checkpoint verification |
-| Overload and accounting | Target and terminal-outcome accounting approved | Specify deterministic reader/rejection behavior and recovery timer |
+| Overload and accounting | Textual policy specified in protocol | Implement and independently validate outcome accounting, reader/rejection behavior, and recovery timer |
 | Recovery matrix | P0 coverage-first matrix, witness/oracle, two backup restores and three seeds approved; P1 separate | Implement injectors, durable witness, restore oracle, and case manifest |
 | ADR-005 direction | Candidate approved for drafting only; no final schema accepted | Draft schema and pass relationship-aware import-edit-export fixtures; resolve C1 allocation and meaningful-coverage criterion and C2 endpoints/sharing; realize coverage-v1 cells legitimately |
-| Reference device / SQLite build | `viper` remains a candidate; exact build unselected | Lead selects/revalidates runner and checks bundled SQLite WAL-reset fix before qualification |
+| Runner / SQLite build | Conditional public standard GitHub-hosted `ubuntu-24.04` candidate; runner NOT PASSED; exact SQLite build unselected | Complete per-job preflight/drift review; reject candidate if required capacity or behavior is unknown/inadequate; check bundled SQLite WAL-reset fix before qualification |
 | Total storage budget | No product-wide cap approved | Measure the frozen synthetic fixture/assets/backups; do not infer a product cap |
 | Durability and engine choice | READY: WAL/FULL conditional contract; SQLite + WAL | Dependency admission still waits for every qualification gate |
 
@@ -350,6 +345,6 @@ All SQLite semantics in this note are sourced from official documentation:
 - No ADR-002 durability wording changed; no universal zero-loss claim made.
 - No SQLite dependencies or product code were added, and no benchmark/fault experiment was run; no private music libraries were accessed and no paid model routing was used. This note is now the canonical readiness record and is updated alongside the admission protocol and milestone status.
 - All remaining NOT READY items have a lead-owned execution path in the current gate checklist; none waits for additional owner approval.
-- The viper host is a lead-selected reference candidate; exact environment details must be revalidated at run start.
+- Historical assessment text named physical host `viper`; the current protocol instead conditionally nominates the public standard GitHub-hosted `ubuntu-24.04` candidate, which remains NOT PASSED pending preflight and drift review.
 - Owner ratified first-prototype budgets and the disposable cold-cache method; feasibility and runner provisioning remain unverified.
 - This file's detailed gap sections are a pre-ratification review snapshot; the owner-update and current checklist above supersede stale proposal-time statuses.
