@@ -31,6 +31,27 @@ fn malformed_and_overflow_inputs_are_not_zero_errors() {
 }
 
 #[test]
+fn parses_the_maximum_unsigned_identity() {
+    let id = TrackId::from_str(&u64::MAX.to_string()).unwrap();
+
+    assert_eq!(id.as_u64(), u64::MAX);
+}
+
+#[test]
+fn empty_and_negative_inputs_are_parse_errors() {
+    for input in ["", "-1"] {
+        assert_eq!(input.parse::<TrackId>().unwrap_err(), TrackIdError::Parse);
+    }
+}
+
+#[test]
+fn parse_error_display_describes_unsigned_integer_input() {
+    let message = TrackIdError::Parse.to_string();
+
+    assert!(message.contains("unsigned integer"));
+}
+
+#[test]
 fn display_then_parse_is_identity_roundtrip() {
     let id = TrackId::new(9_999_999).unwrap();
     let rendered = id.to_string();
