@@ -1,6 +1,6 @@
 # Rust development baseline
 
-M0-02, verified 2026-10-15. This guide establishes tooling and workflow only; M0-08 owns the Cargo workspace, executable/CLI, xtask and CI. There is intentionally no product Cargo manifest in this task.
+M0-02, verified 2026-10-15. This guide establishes tooling and workflow. The repository now has a Cargo workspace, CLI, `xtask`, and CI; the M0-02 task itself did not include a product Cargo manifest.
 
 ## Setup
 
@@ -28,7 +28,7 @@ rustup run stable rust-analyzer --version
 bash scripts/rust-toolchain-smoke.sh
 ```
 
-Stable is a moving channel, not reproducible by itself. The tested host toolchain is Rust/Cargo 1.99.0, x86_64-unknown-linux-gnu. To reproduce that compiler explicitly: `rustup toolchain install 1.99.0 --profile minimal --component rustfmt --component clippy --component rust-analyzer --component rust-src`, then run `RUSTUP_TOOLCHAIN=1.99.0 bash scripts/rust-toolchain-smoke.sh`. M0-08 committed a `rust-toolchain.toml` (`channel = "1.99.0"`, `profile = "minimal"`, components `rustfmt`/`clippy`/`rust-analyzer`/`rust-src`); refresh the pin intentionally with committed green-gate evidence. ~~This is a compiler pin, not a selected MSRV.~~ **MSRV declared (M0-10 §7.4):** the MSRV is `1.99.0`, declared as `rust-version` in the workspace `Cargo.toml` and `msrv` in `clippy.toml` — see [Quality gate: MSRV](#msrv).
+Stable is a moving channel, not reproducible by itself. The tested host toolchain is Rust/Cargo 1.99.0, x86_64-unknown-linux-gnu. To reproduce that compiler explicitly: `rustup toolchain install 1.99.0 --profile minimal --component rustfmt --component clippy --component rust-analyzer --component rust-src`, then run `RUSTUP_TOOLCHAIN=1.99.0 bash scripts/rust-toolchain-smoke.sh`. M0-08 committed a `rust-toolchain.toml` (`channel = "1.99.0"`, `profile = "minimal"`, components `rustfmt`/`clippy`/`rust-analyzer`/`rust-src`); refresh the pin intentionally with committed green-gate evidence. **MSRV declared (M0-10 §7.4):** the MSRV is `1.99.0`, declared as `rust-version` in the workspace `Cargo.toml` and `msrv` in `clippy.toml` — see [Quality gate: MSRV](#msrv).
 
 A native linker/C build toolchain is also needed; `cc --version` succeeded on this host. Platform-specific linker/SDK setup must be verified when adding Windows/macOS CI; this Linux smoke test is not cross-platform validation. No sudo, shell-profile changes, additional targets, nightly or global Cargo helpers were needed here.
 

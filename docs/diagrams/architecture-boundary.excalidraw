@@ -1,0 +1,26 @@
+{
+  "type": "excalidraw",
+  "version": 2,
+  "source": "hermes-agent",
+  "elements": [
+    {"type":"text","id":"title","x":100,"y":28,"width":600,"height":32,"text":"Offline processing; real-time engine deferred","fontSize":24,"fontFamily":1,"strokeColor":"#1e1e1e","originalText":"Offline processing; real-time engine deferred","autoResize":true},
+    {"type":"rectangle","id":"offline-zone","x":25,"y":115,"width":275,"height":340,"backgroundColor":"#dbe4ff","fillStyle":"solid","strokeColor":"#4a9eed","strokeWidth":1,"opacity":35},
+    {"type":"text","id":"offline-title","x":45,"y":128,"width":220,"height":28,"text":"M0–M3 · offline","fontSize":18,"fontFamily":1,"strokeColor":"#2563eb","originalText":"M0–M3 · offline","autoResize":true},
+    {"type":"rectangle","id":"audio","x":50,"y":190,"width":225,"height":78,"roundness":{"type":3},"backgroundColor":"#a5d8ff","fillStyle":"solid","strokeColor":"#4a9eed","boundElements":[{"id":"audio-label","type":"text"}]},
+    {"type":"text","id":"audio-label","x":65,"y":205,"width":195,"height":50,"text":"oxidj-audio\nSymphonia decode","fontSize":18,"fontFamily":1,"strokeColor":"#1e1e1e","textAlign":"center","verticalAlign":"middle","containerId":"audio","originalText":"oxidj-audio\nSymphonia decode","autoResize":true},
+    {"type":"rectangle","id":"analysis","x":50,"y":320,"width":225,"height":78,"roundness":{"type":3},"backgroundColor":"#c3fae8","fillStyle":"solid","strokeColor":"#06b6d4","boundElements":[{"id":"analysis-label","type":"text"}]},
+    {"type":"text","id":"analysis-label","x":65,"y":335,"width":195,"height":50,"text":"oxidj-analysis\nBPM · beatgrid · waveform","fontSize":16,"fontFamily":1,"strokeColor":"#1e1e1e","textAlign":"center","verticalAlign":"middle","containerId":"analysis","originalText":"oxidj-analysis\nBPM · beatgrid · waveform","autoResize":true},
+    {"type":"rectangle","id":"core","x":355,"y":250,"width":180,"height":95,"roundness":{"type":3},"backgroundColor":"#d0bfff","fillStyle":"solid","strokeColor":"#8b5cf6","boundElements":[{"id":"core-label","type":"text"}]},
+    {"type":"text","id":"core-label","x":370,"y":270,"width":150,"height":55,"text":"oxidj-core\nneutral domain types","fontSize":17,"fontFamily":1,"strokeColor":"#1e1e1e","textAlign":"center","verticalAlign":"middle","containerId":"core","originalText":"oxidj-core\nneutral domain types","autoResize":true},
+    {"type":"arrow","id":"audio-core","x":275,"y":229,"width":80,"height":68,"points":[[0,0],[80,68]],"endArrowhead":"arrow","startBinding":{"elementId":"audio","fixedPoint":[1,0.5]},"endBinding":{"elementId":"core","fixedPoint":[0,0.25]}},
+    {"type":"arrow","id":"analysis-core","x":275,"y":357,"width":80,"height":-60,"points":[[0,0],[80,-60]],"endArrowhead":"arrow","startBinding":{"elementId":"analysis","fixedPoint":[1,0.5]},"endBinding":{"elementId":"core","fixedPoint":[0,0.75]}},
+    {"type":"rectangle","id":"realtime-zone","x":595,"y":180,"width":180,"height":230,"roundness":{"type":3},"backgroundColor":"#ffd8a8","fillStyle":"solid","strokeColor":"#f59e0b","strokeWidth":1,"opacity":45},
+    {"type":"text","id":"realtime-title","x":612,"y":193,"width":150,"height":28,"text":"M4+ · deferred","fontSize":17,"fontFamily":1,"strokeColor":"#9a5b00","originalText":"M4+ · deferred","autoResize":true},
+    {"type":"rectangle","id":"engine","x":610,"y":260,"width":150,"height":88,"roundness":{"type":3},"backgroundColor":"#ffd8a8","fillStyle":"solid","strokeColor":"#f59e0b","boundElements":[{"id":"engine-label","type":"text"}]},
+    {"type":"text","id":"engine-label","x":622,"y":275,"width":126,"height":58,"text":"oxidj-engine\nCPAL I/O · RT-safe DSP","fontSize":16,"fontFamily":1,"strokeColor":"#1e1e1e","textAlign":"center","verticalAlign":"middle","containerId":"engine","originalText":"oxidj-engine\nCPAL I/O · RT-safe DSP","autoResize":true},
+    {"type":"arrow","id":"engine-core","x":535,"y":304,"width":75,"height":0,"points":[[75,0],[0,0]],"endArrowhead":"arrow","strokeStyle":"dashed","startBinding":{"elementId":"engine","fixedPoint":[0,0.5]},"endBinding":{"elementId":"core","fixedPoint":[1,0.5]}},
+    {"type":"text","id":"engine-note","x":535,"y":278,"width":74,"height":22,"text":"depends on","fontSize":14,"fontFamily":1,"strokeColor":"#757575","originalText":"depends on","autoResize":true},
+    {"type":"text","id":"caption","x":120,"y":500,"width":560,"height":30,"text":"M4+ engine is a deferred boundary, not an implemented feature.","fontSize":16,"fontFamily":1,"strokeColor":"#444444","originalText":"M4+ engine is a deferred boundary, not an implemented feature.","autoResize":true}
+  ],
+  "appState": {"viewBackgroundColor":"#ffffff"}
+}

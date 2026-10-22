@@ -1,15 +1,15 @@
 # Documentation index
 
-This map lists every document in the repository, grouped by purpose. Use it when
-you need to find your way around OxiDJ.
+This curated map points to key project documents, grouped by purpose. Use it to
+navigate OxiDJ; it is not a complete file inventory.
 
 **Evidence vs. decisions.** The `docs/research/` directory, `docs/semantic-mapping.md`,
 and `docs/architecture.md` are **research evidence** — findings, comparisons, and
 open questions, not commitments. The `docs/adr/` documents are **architecture decisions**.
-`docs/adr/index.md` records all six architecture ADRs and the licence ADR as
+`docs/adr/index.md` records the architecture ADRs and the licence ADR as
 `Accepted` after their independent Sol reviews, but stresses that *“Accepted ≠
 unconditional”* — each carries tracked preconditions that gate implementation.
-`docs/architecture.md` labels the M0 baseline `ACCEPTED` following the independent ADR reviews and reconciliation; `plan/STATUS.md` records the M0 gate as verified complete and tracks M1 preconditions. Check the ADRs and live plan for the current status before treating any direction as ready to implement.
+`docs/architecture.md` labels the M0 baseline `ACCEPTED`; `plan/STATUS.md` records M0 complete and tracks M1 preconditions. Accepted direction does not imply implementation readiness.
 
 A `[evidence]` tag marks research/analysis documents; a `[decision]` tag marks
 ADRs. Policy and planning documents are neither.
@@ -32,7 +32,6 @@ Read these first.
   environment or write code.
 - [docs/glossary.md](glossary.md) — DJ and domain vocabulary (beatgrid, cues,
   loops, provenance, vendor formats). Read whenever a term is unintelligible.
-- [docs/index.md](index.md) — this map. Read to navigate the repository.
 
 ## Architecture decisions `[decision]`
 
@@ -148,10 +147,5 @@ Engineering rules and conventions, committed in-repo for reproducibility.
 ## Planning
 
 - [plan/MVP.md](../plan/MVP.md) — milestone roadmap M0 through M7.
-- [plan/STATUS.md](../plan/STATUS.md) — current milestone (M0), blockers, recent
+- [plan/STATUS.md](../plan/STATUS.md) — current milestone, blockers, recent
   decisions, and next tasks. Read for the live project state.
-
----
-
-*Generated for the documentation entry-points task. Links are relative to this
-file; every target above resolves within the repository tree.*

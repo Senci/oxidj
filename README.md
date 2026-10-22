@@ -1,19 +1,17 @@
 # OxiDJ
 
-OxiDJ is a modern, open-source DJ library manager and, eventually, performance application written primarily in Rust. Its long-term goal is a credible Rekordbox alternative without locking users into one vendor ecosystem (idea.md). It is **not** a working DJ tool today: no library management, analysis, playback, or GUI exists yet. The project is in M0 — research and architecture.
+OxiDJ is a modern, open-source DJ library manager and, eventually, performance application written primarily in Rust. Its long-term goal is a credible Rekordbox alternative without locking users into one vendor ecosystem (idea.md). It is not a usable DJ tool yet: no library management, import, analysis, playback, or GUI workflow exists.
 
 ## Status
 
-M0. No DJ library-management or performance features exist. The repository contains a minimal Rust workspace and the architecture evidence base that produced the accepted ADRs, but no product beyond a single domain type (plan/STATUS.md, docs/architecture.md).
+M0 is verified complete; M1 library-core work is permitted to start, but remains NOT READY while its admission prerequisites are open (plan/STATUS.md). The implemented product surface is limited to the `TrackId` domain type and one CLI operation; there is no library import or storage workflow.
 
 **What exists today** (Cargo.toml, crates/oxidj-core/src/lib.rs, crates/oxidj-cli/src/main.rs, xtask/src/main.rs):
 
-- `oxidj-core` — a domain `TrackId` type that enforces the invariant that `0` is reserved and can never exist at rest. Unit, integration, and doctests pass under the gate (docs/testing.md).
-- `oxidj-cli` — a thin command-line entry point exposing one operation (`track-id <n>`).
+- `oxidj-core` — a domain `TrackId` type that reserves `0`. Unit, integration, and doctests pass under the gate (docs/testing.md).
+- `oxidj-cli` — one command-line operation (`track-id <n>`).
 - `xtask` — a repo-owned quality gate: `cargo xtask ci` (Tier 1 per-handoff gate) and `cargo xtask ci-full` (Tier 1 + tests + licence gate, used by CI).
 - Six accepted ADRs (GUI, persistence, metadata, crate boundaries, audio, licence) and the architecture baseline (docs/adr/index.md, docs/architecture.md).
-
-M1 (library core) is gated on a verified M0 checklist (plan/STATUS.md).
 
 **Deferred** — do not expect these yet (idea.md MVP §Deferred; docs/architecture.md §11; plan/MVP.md):
 
@@ -27,7 +25,7 @@ The first major product proof — the MVP (idea.md) — is library-first: import
 
 ## Documentation
 
-- [docs/index.md](docs/index.md) — every document in the repository, grouped by purpose.
+- [docs/index.md](docs/index.md) — curated guide to key project documents, grouped by purpose.
 - [docs/glossary.md](docs/glossary.md) — DJ and domain vocabulary (beatgrid, cues, loops, provenance, vendor formats).
 - [site/README.md](site/README.md) — the "FILE #0042" teaser site: what it is, and how to build and test it locally.
 - [plan/STATUS.md](plan/STATUS.md) — current milestone, blockers, and next tasks.
@@ -35,7 +33,7 @@ The first major product proof — the MVP (idea.md) — is library-first: import
 
 ## Toolchain and quality gate
 
-Toolchain: **Rust stable 1.99.0**, pinned by `rust-toolchain.toml` (compiler pin, not an MSRV declaration — see docs/development.md §Setup).
+Toolchain: **Rust 1.99.0**, declared as the MSRV and pinned by `rust-toolchain.toml` (see docs/development.md §MSRV).
 
 ```sh
 cargo xtask ci        # Tier 1: layers + fmt + clippy + check (every handoff must pass)

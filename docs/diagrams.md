@@ -25,6 +25,10 @@ uncommitted changes.
 | [Handoff evidence path](handoff-checklist.md#handoff-checklist--required-evidence-format-for-coding-tasks) | Shows required handoff evidence, full CI/pre-merge checks, and deferred analysis. | `flowchart TD` |
 | [Testing strategy in the gate](testing.md#how-the-strategy-is-enforced) | Places focused checks and workspace tests in the existing gate tiers. | `flowchart TD` |
 
+The [Excalidraw companion](diagrams/architecture-boundary.excalidraw) is an
+illustrative mirror of the architecture Mermaid above, not an independent
+specification. Mermaid remains canonical.
+
 The examples and templates below are illustrative conventions, not additional
 project diagrams.
 
