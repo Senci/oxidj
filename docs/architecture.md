@@ -1,11 +1,11 @@
 # OxiDJ Architecture Baseline
 
-**Status:** ACCEPTED — M0 architecture baseline, after the M0-07 Sol reviews completed and the architecture ADRs (ADR-001–004, ADR-008, ADR-009) transitioned to `Accepted` (see `docs/adr/index.md`). ~~Previously marked `PROVISIONAL (M0-07) — pending independent review`.~~
+**Status:** ACCEPTED — M0 architecture baseline, after the M0-07 Sol reviews completed and the architecture ADRs (ADR-001–004, ADR-008, ADR-009) transitioned to `Accepted` (see `docs/adr/index.md`).
 **Lead:** OxiDJ (oxidj-2)
 **Date:** 2026-10-15
-**MSRV:** Rust 1.99.0 — declared as `rust-version` in `Cargo.toml` and `msrv` in `clippy.toml`; reproduced by the `rust-toolchain.toml` pin. ~~Previously "pinned, not MSRV"~~ (M0-10 §7.4: declaring the MSRV is what makes Clippy's `msrv` lint and `[lints]` edition groups meaningful). See `docs/development.md`.
+**MSRV:** Rust 1.99.0 — declared as `rust-version` in `Cargo.toml` and `msrv` in `clippy.toml`; reproduced by the `rust-toolchain.toml` pin. See `docs/development.md`.
 
-~~This document records the **provisional** M0 architectural direction. Per the M0-07 integration gate and the Nous-only free-model routing policy, all directions were evidence-backed recommendations pending independent review; no decision was Accepted architecture until its review gate was restored and completed.~~ **This document records the M0 architecture baseline** now that the M0-07 independent Sol reviews are complete and the architecture ADRs are `Accepted`. The baseline still distinguishes *accepted architectural direction* (the ADRs) from *implementation preconditions* (e.g. ADR-002's 500k-track prototype gate before the persistence dependency enters the workspace) and *deferred choices* (listed in [Open Decisions](#open-decisions), unresolved until M1+). Decisions are captured in [ADRs](adr/).
+This document records the M0 architecture baseline now that the M0-07 independent Sol reviews are complete and the architecture ADRs are `Accepted`. The baseline distinguishes *accepted architectural direction* (the ADRs) from *implementation preconditions* (e.g. ADR-002's 500k-track prototype gate before the persistence dependency enters the workspace) and *deferred choices* (listed in [Open Decisions](#10-open-decisions), unresolved until M1+). Decisions are captured in [ADRs](adr/).
 
 ---
 
@@ -83,8 +83,8 @@ Established by ADR-002. SQLite with WAL mode is the default:
 - **Rust binding:** `rusqlite` with `bundled` feature.
 - **Migrations:** `rusqlite_migration` via `PRAGMA user_version`.
 - **Connection model:** single writer + read pool, `BEGIN IMMEDIATE`.
-- **Backups:** ~~Litestream (WAL streaming to S3/GCS) + `.backup` API for CI.~~ **Corrected by the ADR-002 review:** Litestream is *optional* asynchronous replication (RPO ~1s), **not** the backup strategy — the `SQLite .backup` API covers ad-hoc/CI. Verified restores and separate protection of external assets (audio files, artwork) are still required.
-- **Abstraction:** ~~SQL behind a trait to enable future PostgreSQL/libSQL migration.~~ **Corrected by the ADR-002 review:** **domain-facing repository interfaces** rather than a generic SQL-portability trait; add broader portability only when a second backend creates a concrete requirement.
+- **Backups:** Litestream is *optional* asynchronous replication (RPO ~1s), **not** the backup strategy — the `SQLite .backup` API covers ad-hoc/CI. Verified restores and separate protection of external assets (audio files, artwork) are still required.
+- **Abstraction:** Use **domain-facing repository interfaces** rather than a generic SQL-portability trait; add broader portability only when a second backend creates a concrete requirement.
 - **Dependency admission:** the selected dependencies (`rusqlite`, `rusqlite_migration`) must **not** enter the workspace until the 500k-track prototype gate passes — acceptance of the decision is separate from dependency admission.
 
 **Dataset scale:** 500k tracks ≈ 50–100 MB — well within SQLite's comfort zone. Migration threshold: >1TB + 2+ other signals (write contention, multi-process writes, >10K TPS).
@@ -134,8 +134,8 @@ Signalsmith Stretch (MIT) is the first implementation behind the replaceable tra
 
 Established by ADR-001. **Prototype-first, evaluate-second**:
 
-1. Prototype in `egui` / `eframe` — immediate mode gives natural virtualization for 100k–500k track lists. ~~AccessKit mandatory since 0.35.~~ **Corrected (M0-06 claim audit, recorded in ADR-001 §13):** `accesskit` is a *default, disableable* feature of `eframe`, not a hard dependency — accessibility is available and must be explicitly enabled and verified, not assumed. MIT (ADR-009) fired ADR-001's conditional constraint, so **egui/eframe is the prototype framework**.
-2. ~~Evaluate `Slint`~~ *(commercially licensed fallback only)*: declarative, built-in `ListView` virtualization, AccessKit default. Slint's GPL-3.0/commercial terms are now decisive under MIT — it is **excluded at the free tier** and retained only as a fallback conditional on explicit purchase approval.
+1. Prototype in `egui` / `eframe` — immediate mode gives natural virtualization for 100k–500k track lists. `accesskit` is a *default, disableable* feature of `eframe`, not a hard dependency; accessibility is available and must be explicitly enabled and verified, not assumed (M0-06 claim audit, ADR-001 §13). MIT (ADR-009) makes **egui/eframe the prototype framework**.
+2. Slint is excluded at the free tier under its GPL-3.0/commercial terms and MIT (ADR-009). Retain it only as a fallback conditional on explicit purchase approval; it offers declarative UI, built-in `ListView` virtualization, and AccessKit by default.
 3. Defer: `Qt` (deferred on `cxx-qt` API-stability grounds, **not** licensing disqualification — Qt/LGPL is theoretically compatible with MIT), `Tauri 2` (unless web-tech team), `iced` (no stable a11y — disqualified if a11y is a hard requirement), `Xilem` (zero production users).
 
 **Gates before final commitment:** 200k-row virtualized list at 60fps; AccessKit tree smoke test with NVDA/VoiceOver/Orca. Final framework choice deferred to M3.
@@ -165,7 +165,7 @@ From `gui-evaluation.md` §Cross-Cutting Decisions:
 | [ADR-008](adr/008-audio-engine.md) | Audio engine foundation — CPAL I/O, replaceable stretch | **Accepted** | Lead (review low) |
 | [ADR-009](adr/009-licence-mit.md) | Project licence — MIT | **Accepted** | Project owner |
 
-> ~~Previously listed as `Provisional`, pending independent review.~~ Superseded: the M0-07 Sol reviews are complete; the architecture ADR set (001–004, 008, 009) is `Accepted` and each carries tracked preconditions (see `docs/adr/index.md`).
+> The M0-07 Sol reviews are complete; the architecture ADR set (001–004, 008, 009) is `Accepted` and each carries tracked preconditions (see `docs/adr/index.md`).
 
 **Reserved for M1+:** ADR-005 (metadata schema), ADR-006 (analysis pipeline), ADR-007 (vendor adapter scope). ADR-005/006/007 are intentionally reserved — the numbering gap between ADR-004 and ADR-008 is deliberate: 005/006/007 cover the M1+ schema, analysis-pipeline and adapter decisions M0 defers, while 008/009 were settled during the M0 review round.
 
@@ -197,7 +197,7 @@ Per the acceptance criteria and `idea.md` MVP definition:
 - **No realtime-audio implementation** — boundary definition only (ADR-004 crate isolation + ADR-008 data boundary; architecture §6).
 - **No GUI wiring** — prototype direction only (ADR-001; egui first).
 - **No vendor database writing** — Rekordbox XML is a documented import path; OneLibrary/ANLZ writing requires empirical validation (interoperability.md §Fixture D/E).
-- ~~No committed product Cargo manifest~~ **Superseded:** M0-08 committed the workspace manifest and the `cargo xtask` gate (`Cargo.toml` + `crates/oxidj-core` + `crates/oxidj-cli` + `xtask`); see `docs/development.md` §Quality gate.
+- M0-08 committed the workspace manifest and the `cargo xtask` gate (`Cargo.toml` + `crates/oxidj-core` + `crates/oxidj-cli` + `xtask`); see `docs/development.md` §Quality gate.
 
 ---
 
