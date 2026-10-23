@@ -22,6 +22,10 @@ OxiDJ's MVP is: "Import a real DJ library, manage it safely, export it again, an
 
 ## Decision
 
+### Dated local-catalog scope clarification (2026-10-23)
+
+For revised local M1–M3 acceptance v1 only, a separately versioned reference-only catalog may store stable local identity, source path/content evidence, per-fact technical provenance/units, and technical probe facts without adopting ADR-005. Filename is presented as filename; absent embedded metadata is not fabricated. This scoped representation does not ingest vendor tags/artwork, accept the proposed vendor schema, or waive ADR-003's identity, provenance, preservation, and non-destructive constraints. Historical synthetic Mixxx semantic round-trip and vendor-schema fixtures remain assigned to the interoperability/schema workstream, preserved and unpassed. See `plan/MVP.md` for the superseding local criteria and explicit ledger.
+
 Adopt a **neutral internal domain model** with these binding principles:
 
 1. **Internal identity is independent of vendor IDs and file paths.** Resolve against normalized path plus content evidence (file hash or acoustic fingerprint). Retain all source IDs/URIs as provenance. (semantic-mapping.md §1)

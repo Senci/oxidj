@@ -1,10 +1,38 @@
 # MVP Milestones
 
-- M0 Bootstrap/research/tooling
-- M1 Library core
-- M2 Filesystem import
-- M3 Usable library UI
-- M4 OneLibrary/Rekordbox interoperability
-- M5 DJ metadata
-- M6 Analysis
-- M7 MVP interoperability proof
+- M0 Bootstrap/research/tooling — verified complete 2026-10-15.
+- M1 Library core — revised local-library acceptance v1 below; vendor-schema/interoperability criteria remain separate and unpassed.
+- M2 Filesystem import — revised reference-only local importer acceptance v1 below.
+- M3 Usable library UI — revised integrated local-library UI acceptance v1 below; all ADR-001 gates remain prerequisites and unpassed.
+- M4 OneLibrary/Rekordbox interoperability — separate workstream; not a dependency of the revised local M1–M3 contract.
+- M5 DJ metadata; M6 Analysis; M7 MVP interoperability proof — unchanged wider-product milestones.
+
+## Revised local M1–M3 acceptance contract v1 (2026-10-23)
+
+This dated, scoped amendment supersedes the historical M1–M3 acceptance criteria only for delivery of the bounded local-library product slice. It does not change `idea.md`'s wider vision or mark any historical test, scale target, qualification, or GUI gate as passed. The chosen path remains SQLite/WAL/FULL, Symphonia, and egui/eframe, with existing ADR-001 qualification before production GUI admission. M1–M3 are incomplete until implementation, evidence, independent acceptance, and the terminal release contract below are complete.
+
+The local catalog is versioned, reference-only, single-process, local-filesystem and capped at 10,000 tracks. This is a scope boundary, not measured capacity or evidence of performance, crash durability, or scale. It imports no personal media into the repository or attachments. Only owner-authorized samples may be used in private local smoke tests; originals must remain unchanged.
+
+### Criterion / disposition / required evidence ledger
+
+| Criterion and source | Revised disposition | Required acceptance evidence (not yet produced) |
+|---|---|---|
+| M1 neutral core, durable identity, repository operations, persistence and restart | Retained and made explicit for local catalog v1. Stable, nonzero, never-reused local IDs; versioned schema; repository operations; technical-fact provenance and units; transactional operation identity, commit-success acknowledgement, explicit error and retry/reconciliation behavior; migrations; backup/restore; fresh-process restart. M1 remains incomplete until product implementation and independent acceptance. | Real application tests for create/read/update/query; transaction rollback and uncertain-commit handling; idempotent retry; refusal of newer schema; migration success/failure; isolated verified backup restore; fresh-process reopen with exact expected IDs/facts. Preserve ADR-002 WAL/FULL settings and conditional durability language. |
+| M1 historical synthetic Mixxx semantic round-trip and vendor-schema fixtures (STATUS, ADR-003/005) | Reassigned to the interoperability/schema workstream, not deleted and not PASS. Preserve original criteria, artifacts, and evidence. ADR-005 remains Proposed; A1–A3 and C1–C6 remain OPEN/NOT QUALIFYING. Local v1 does not accept or implement ADR-005. | Later independently reviewed vendor fixtures and semantic oracle under the interoperability/schema workstream. No local catalog result substitutes for these. |
+| M1 historical 100k–500k workload and representative 500k SQLite protocol/runner/P0/P1/B1/B2/WAL/recovery qualification (ADR-002 and admission protocol) | Preserved as distinct, unpassed readiness and qualification gates. The 10k limit neither satisfies nor supersedes their evidence. No benchmark, fault campaign, admission, readiness transition, or qualification PASS is claimed. Keep the representative gate before raising the product boundary or making representative-scale claims. | Complete and independently reviewed protocol, schema/oracle, runner, WAL bound, harness and all specified workload/recovery evidence; each required run/cell must pass separately. P1 OS/power-loss remains distinct from process-crash testing. |
+| M2 directory import and file support | Revised local acceptance: recursively scan regular files without following symlinks; probe and decode file bytes, report per-file outcomes, and explicitly test WAV/MP3/FLAC encodings (no blanket promise for every encoding/container). Use filename plus technical facts only. Same path+digest is idempotent; changed bytes at one path conflict without silent replacement; distinct paths remain distinct. Mark missing only after a complete scan. No silent mutation. | Private, authorized sample smoke and lawful synthetic fixtures for each declared encoding, malformed/unsupported input, unreadable paths, symlinks, duplicates, changed bytes, unstable inputs, cancellation and incomplete scans. Record expected vs actual per-file result, IDs, digest and facts; compare originals' before/after hashes. Do not copy personal audio into Git or attachments. |
+| Embedded DJ tags/artwork, editing, managed media and playback | Explicitly excluded from revised local M2/M3 acceptance. Filename is labelled as filename; absent metadata is not fabricated. Originals stay untouched. | UI/import notices disclose exclusions. Vendor metadata/tag ingestion belongs to reviewed interoperability/schema work. |
+| M3 usable integrated UI | Revised local acceptance: usable persistent library UI over shared application command/query handlers (no SQL in UI/CLI), displaying imported filename/path/technical facts/availability with search, stable sort, selection, details and empty/error/missing states. Fresh GUI process opens persisted catalog without rescanning. | Actual application import, exit/restart, GUI reopen, interaction and error-state smoke; exact expected-vs-actual IDs/counts/facts; independently checked source immutability. All ADR-001 performance, accessibility and supported-platform gates remain binding and unpassed; no gate is passed by this amendment. |
+| Local SQLite admission versus blanket 500k stop | Only a named `local-catalog-alpha-v1` early dependency exception is authorized for the bounded local slice. Effective only after exact-diff independent Sol review and lead integration. Preserve WAL/FULL and commit-success acknowledgement. This is not a 500k gate PASS or general readiness transition. | Review exact final amendment diff; lead integration; then implement only bounded alpha. Process-crash/reopen/backup checks do not prove OS/power-loss or 500k qualification. |
+| Terminal objective and release | Revised M1–M3 delivery requires all preceding local criteria, real application import/restart/UI smoke, independent acceptance, `cargo xtask ci` after final edits, `cargo xtask ci-full`, required exact-head GitHub CI, merge under the owner's existing authorization (no extra owner approval step), and remote `master` SHA/ancestry readback proving reviewed changes are present. | Record command outputs, review disposition, exact PR/head and CI status, merge state, and remote target SHA plus ancestry. Report only revised local M1–M3 delivery; never claim historical M1, M4, 500k readiness, or qualification PASS. |
+
+### Implementation and gate sequencing
+
+1. Integrate this exact amendment only after independent Sol review and lead integration. The local dependency exception is not effective before both.
+2. Implement M1 bounded catalog and verified restart/backup/migration operations; M1 remains incomplete pending evidence and independent acceptance.
+3. Implement M2 importer on shared library handlers; declare/test exact encoding matrix and preserve source bytes.
+4. Complete unchanged ADR-001 framework/accessibility/platform gates before production M3 GUI admission; failed gates reopen framework selection rather than imply a pass.
+5. Integrate M3 over shared handlers and run real application smoke.
+6. Complete independent acceptance and terminal CI/merge/remote-readback contract above.
+
+Qualification protocol, runner, threshold, P0/P1, B1/B2, WAL/recovery and ADR-005/A1–A3/C1–C6 remain independently governed by their source records. Do not relabel proposal, unmeasured, NOT READY, NOT PASSED, or NOT QUALIFYING evidence as passed. No code, dependency, qualification, benchmark, or fault-campaign result is implied by this documentation amendment.
