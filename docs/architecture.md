@@ -5,7 +5,7 @@
 **Date:** 2026-10-15
 **MSRV:** Rust 1.99.0 — declared as `rust-version` in `Cargo.toml` and `msrv` in `clippy.toml`; reproduced by the `rust-toolchain.toml` pin. See `docs/development.md`.
 
-This document records the M0 architecture baseline now that the M0-07 independent Sol reviews are complete and the architecture ADRs are `Accepted`. The baseline distinguishes *accepted architectural direction* (the ADRs) from *implementation preconditions* (e.g. ADR-002's 500k-track prototype gate before the persistence dependency enters the workspace) and *deferred choices* (listed in [Open Decisions](#10-open-decisions), unresolved until M1+). Decisions are captured in [ADRs](adr/).
+This document records the M0 architecture baseline now that the M0-07 independent Sol reviews are complete and the architecture ADRs are `Accepted`. The baseline distinguishes *accepted architectural direction* (the ADRs) from *implementation preconditions* and *deferred choices* (listed in [Open Decisions](#10-open-decisions), unresolved until M1+). Under the dated ADR-002 amendment, only dependencies needed by the named `local-catalog-alpha-v1` reference-only, single-process, local-filesystem slice capped at 10,000 tracks may proceed; PR #13 integrated that exception at `671ae2b3df933ada97297bbba19ea1394657c14e`. The separate representative 500k-track qualification gate remains NOT READY and unpassed. Decisions are captured in [ADRs](adr/).
 
 ---
 
@@ -85,7 +85,7 @@ Established by ADR-002. SQLite with WAL mode is the default:
 - **Connection model:** single writer + read pool, `BEGIN IMMEDIATE`.
 - **Backups:** Litestream is *optional* asynchronous replication (RPO ~1s), **not** the backup strategy — the `SQLite .backup` API covers ad-hoc/CI. Verified restores and separate protection of external assets (audio files, artwork) are still required.
 - **Abstraction:** Use **domain-facing repository interfaces** rather than a generic SQL-portability trait; add broader portability only when a second backend creates a concrete requirement.
-- **Dependency admission:** the selected dependencies (`rusqlite`, `rusqlite_migration`) must **not** enter the workspace until the 500k-track prototype gate passes — acceptance of the decision is separate from dependency admission.
+- **Dependency admission:** the named `local-catalog-alpha-v1` exception permits only dependencies needed for its bounded 10,000-track local slice, after exact-diff independent Sol review and lead integration; this prerequisite is satisfied by PR #13 at `671ae2b3df933ada97297bbba19ea1394657c14e`. This does not pass the separate representative 500k-track qualification gate or admit dependencies for that route. Acceptance of the decision remains separate from qualification readiness.
 
 **Dataset scale:** 500k tracks ≈ 50–100 MB — well within SQLite's comfort zone. Migration threshold: >1TB + 2+ other signals (write contention, multi-process writes, >10K TPS).
 
