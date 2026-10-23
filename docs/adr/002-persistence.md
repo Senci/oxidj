@@ -8,12 +8,12 @@ sources: [docs/research/persistence-evaluation.md, docs/research/soundcraft.md, 
 sol_review: completed
 review_status: completed 2026-10-15 (gpt-6.1-sol, reasoning medium) — Option 1 amended; final ruling ACCEPTED 2026-10-15; durability amendment reviewed by gpt-6.1-sol on 2026-10-15 and accepted by owner
 review_confidence: medium
-admission_gate: A representative 500k-track prototype must pass before the selected persistence dependencies enter the workspace. Acceptance of the decision is not admission of the dependency. The conditional protocol in docs/research/m1-sqlite-admission-protocol.md is NOT READY for execution until its technical workload, device, measurement, oracle, and recovery inputs are frozen.
+admission_gate: The representative 500k-track prototype must pass before representative-scale qualification or raising the local product boundary. Narrow exception: named local-catalog-alpha-v1 may admit only the bounded local-library slice after exact-diff independent Sol review and lead integration of the 2026-10-23 amendment. Acceptance of the decision is not admission of either route. The conditional 500k protocol remains NOT READY until its technical workload, device, measurement, oracle, and recovery inputs are frozen.
 ---
 
 # ADR-002: Persistence Layer
 
-> **Accepted (2026-10-15; durability amendment reviewed and owner-approved 2026-10-15).** SQLite + WAL with bundled `rusqlite` and `rusqlite_migration` is the selected engine. All writers use `synchronous=FULL`; a write is acknowledged only after successful commit. The zero-acknowledged-write-loss target is conditional on the explicitly supported storage/VFS/OS/filesystem stack honoring synchronization and recovery semantics. Acceptance is **not** dependency admission: persistence dependencies stay out of the workspace until the representative 500k-track prototype gate passes.
+> **Accepted (2026-10-15; durability amendment reviewed and owner-approved 2026-10-15).** SQLite + WAL with bundled `rusqlite` and `rusqlite_migration` is the selected engine. All writers use `synchronous=FULL`; a write is acknowledged only after successful commit. The zero-acknowledged-write-loss target is conditional on the explicitly supported storage/VFS/OS/filesystem stack honoring synchronization and recovery semantics. Acceptance is **not** dependency admission. Dated amendment (2026-10-23): a narrowly scoped `local-catalog-alpha-v1` exception permits the bounded revised local M1–M3 slice only after exact-diff independent Sol review and lead integration. It does not admit representative-scale qualification, pass the 500k gate, or relax WAL/FULL or acknowledgement requirements.
 
 ## Context
 
@@ -23,16 +23,16 @@ OxiDJ is a single-process, local-first DJ library manager handling 100k–500k t
 
 Adopt **SQLite with WAL mode** as the default local-first persistence engine:
 
-The flow below summarizes the accepted, conditional WAL/FULL acknowledgement contract; it documents the decision, not an implementation or qualification result. The selected persistence dependencies remain gated on the representative 500k-track prototype.
+The flow below summarizes the accepted, conditional WAL/FULL acknowledgement contract; it documents the decision, not an implementation or qualification result. Dependencies for the separate representative-scale qualification route remain gated on the 500k-track prototype. The sole exception is `local-catalog-alpha-v1`, limited to its bounded local-library slice and effective only after exact-diff independent Sol review and lead integration of this amendment; it does not authorize benchmark, fault campaign, qualification, vendor-schema admission, or readiness PASS.
 
 ```mermaid
 flowchart LR
-    gate["Dependency admission remains gated<br/>500k-track prototype must pass"]
+    gate["500k / representative admission gated<br/>named local alpha exception only after reviewed integration"]
     write["Write transaction<br/>WAL active; writer verifies FULL"] --> commit{"Commit returns successfully?"}
     commit -- yes --> ack["May report saved / acknowledge"]
     commit -- no --> failed["Not success<br/>outcome may need reconciliation"]
     ack -. "durability is conditional on" .-> stack["Supported SQLite build / VFS / OS / filesystem / controller / device<br/>honor sync and recovery semantics"]
-    gate -. "separate admission condition" .-> write
+    gate -. "alpha exception is conditional; representative gate remains separate" .-> write
 ```
 
 - Rust binding: `rusqlite` with the `bundled` feature (consistent SQLite version, no system dependency).
@@ -44,7 +44,11 @@ flowchart LR
 - Backups: `Litestream` is **optional** asynchronous replication, not the backup strategy and not a guaranteed RPO; the `SQLite .backup` API covers ad-hoc/CI. Verified restores and separate protection of external assets (audio files, artwork) are still required.
 - Future-proofing: use **domain-facing repository interfaces** rather than a generic SQL-portability trait; add broader portability only when a second backend creates a concrete requirement.
 
-This decision does NOT commit to final schema design — that is deferred to M1 (ADR-005, metadata schema). It commits to the storage engine and binding for the M0–M3 horizon. **Acceptance is separate from dependency admission:** the selected dependencies (`rusqlite`, `rusqlite_migration`) must not enter the workspace until the 500k-track prototype gate passes.
+This decision does NOT commit to final schema design — that is deferred to M1 (ADR-005, metadata schema). It commits to the storage engine and binding for the M0–M3 horizon. Acceptance is separate from dependency admission. The dated 2026-10-23 amendment defines the sole early exception, `local-catalog-alpha-v1`, for dependencies required by the reference-only catalog capped at 10,000 tracks. It becomes effective only after exact-diff independent Sol review and lead integration, and carries its own implementation and acceptance evidence. It does not satisfy or bypass the representative 500k gate; all 500k thresholds, protocol, runner, P0/P1, B1/B2 and recovery requirements remain distinct and unpassed. Do not characterize process-crash/reopen/backup evidence as OS/power-loss or 500k qualification. ADR-005 remains Proposed and is not accepted by the local alpha.
+
+### Historical admission wording (retained, scoped by 2026-10-23 amendment)
+
+The 2026-10-15 review, recommendation, and final-ruling records below describe the original representative-prototype-only admission rule in force at that time. They are preserved as historical evidence, but their blanket wording is narrowed prospectively only by the named local alpha exception above. No other dependency route is implied.
 
 ## Evidence
 

@@ -9,6 +9,10 @@
 
 ## Verdict: NOT READY
 
+### Dated scope reconciliation (2026-10-23)
+
+This NOT READY verdict applies to the representative 500k-track SQLite qualification and its runner/protocol/oracle/recovery gates; it remains unchanged. The revised local M1–M3 acceptance contract in `plan/MVP.md` defines a separate reference-only catalog capped at 10,000 tracks. Only the named `local-catalog-alpha-v1` dependency exception may proceed for that bounded product slice, effective after exact-diff independent Sol review and lead integration. This note's blanket historical “no persistence dependency” wording is superseded only for that exception; all 500k readiness/qualification gates, owner-ratified targets, WAL/recovery criteria and ADR-005/A1–A3/C1–C6 remain unpassed. The 10k boundary is not measured capacity. Process-crash/reopen/backup evidence does not qualify OS/power-loss or 500k behavior. No benchmark, fault campaign or qualification PASS is asserted or authorized here.
+
 Owner-ratified numeric values are unchanged first-prototype pass/fail criteria only; they remain unmeasured and are not product SLOs. Their executable application remains gated by pre-run review and every existing admission prerequisite; unresolved prerequisites mean NO-GO. This clarification neither revises targets nor authorizes execution. The current live gate remains NOT READY; the checklist and updates below supersede the old pending-approval labels.
 
 ## Owner ratification update (2026-10-15)
@@ -322,7 +326,7 @@ No official SQLite source provides device-specific fsync latency ranges or OxiDJ
 3. **Build the qualification harness:** implement per-class raw-sample accounting, queue/backpressure outcomes, bounded `T` admission, WAL/checkpoint verification, independent acknowledgement witness, VFS fault injection, and backup/restore oracle.
 4. **Cold-cache runner:** provision and verify a disposable pre-seeded VM/dedicated runner; no cache clearing on the normal workstation.
 5. **Freeze and independently review:** all workload cells, budgets, harness, recovery matrix, semantic oracle, supported stack, and SQLite build must be executable and frozen before any measurement.
-6. **Run only after freeze:** execute the three separate qualification runs and report each cell/run; no pooling to rescue a failure or under-sampled class. No persistence dependency unless every agreed gate passes.
+6. **Run only after freeze:** execute the three separate qualification runs and report each cell/run; no pooling to rescue a failure or under-sampled class. Persistence dependencies for this representative qualification remain gated until every agreed criterion passes; the separately scoped local-catalog-alpha-v1 exception is governed by the dated scope reconciliation above and is not qualification evidence.
 
 ---
 

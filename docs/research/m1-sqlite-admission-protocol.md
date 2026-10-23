@@ -2,15 +2,19 @@
 
 DECISION
 
+SCOPE RECONCILIATION (2026-10-23)
+
+This protocol remains the distinct, unpassed readiness and qualification contract for the representative 500k-track SQLite prototype. The dated local M1–M3 contract in `plan/MVP.md` supersedes blanket admission-stop wording only for the named `local-catalog-alpha-v1` bounded, reference-only local product slice capped at 10,000 tracks. That exception is effective only after exact-diff independent Sol review and lead integration; it does not pass, replace, or authorize execution of this protocol. All workload thresholds, runner, P0/P1, B1/B2, WAL/recovery and ADR-005/A1–A3/C1–C6 criteria remain unchanged, unpassed and governed here. Process-crash/reopen/backup evidence is not OS/power-loss or 500k qualification. No benchmark, fault campaign, readiness transition or qualification PASS is asserted by this note.
+
 What predeclared functional and quantitative criteria should qualify ADR-002's representative 500k-track prototype? The owner has now ratified the protocol recommendations recorded below as first-prototype acceptance targets, not measured performance or binding product guarantees. The owner has ratified the recorded numeric values as unchanged first-prototype pass/fail criteria only; they remain unmeasured and are not product SLOs. Their executable application remains gated by pre-run review and every existing admission prerequisite. An unresolved prerequisite means NO-GO; this wording neither revises targets nor authorizes execution. The workload remains NOT READY until its class mix, payloads, growth, assets, backup scope, and semantic oracle are executable and reviewed.
 
 WHY NOW
 
-ADR-002 is Accepted, but its admission_gate blocks persistence dependencies until this prototype passes. Defining targets afterwards invites moving the goalposts.
+ADR-002 is Accepted. Historically its admission_gate blocked all persistence dependencies until this representative prototype passed. The dated 2026-10-23 scope reconciliation above narrows that blanket rule only for the named, reviewed `local-catalog-alpha-v1` product slice; representative-scale dependencies remain gated on this protocol. Defining qualification targets afterwards invites moving the goalposts.
 
 CONSTRAINTS
 
-Single process, supported local filesystem, WAL, bundled rusqlite, rusqlite_migration, coordinated bounded single writer, short BEGIN IMMEDIATE batches, read pool, and ADR-002 PRAGMAs including synchronous=FULL. Owner-approved numeric budgets are first-prototype pass/fail targets, still unmeasured and not product guarantees. No benchmark or dependency admission until the full protocol and semantic oracle are executable and independently reviewed. ADR-005 must resolve linked-field semantics; preserving opaque bytes alone does not prove safe edit/export.
+Single process, supported local filesystem, WAL, bundled rusqlite, rusqlite_migration, coordinated bounded single writer, short BEGIN IMMEDIATE batches, read pool, and ADR-002 PRAGMAs including synchronous=FULL. Owner-approved numeric budgets are first-prototype pass/fail targets, still unmeasured and not product guarantees. No representative-scale benchmark or dependency admission until the full protocol and semantic oracle are executable and independently reviewed; the only exception is the separately governed local-catalog-alpha-v1 scope reconciliation above. ADR-005 must resolve linked-field semantics; preserving opaque bytes alone does not prove safe edit/export.
 
 OPTIONS (initial-review packet; final ruling below supersedes the unselected option)
 
