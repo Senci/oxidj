@@ -4,17 +4,17 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
-description = "OxiDJ command-line entry point; calls oxidj-core command handlers only."
+description = "OxiDJ command-line entry point; calls shared library handlers."
 publish = false
 
 [[bin]]
 name = "oxidj-cli"
 path = "src/main.rs"
 
-# CLI depends on core only. It never touches persistence, audio, or vendor
-# adapters directly (ADR-004): all commands flow through core handlers.
+# Persistence stays behind the library boundary.
 [dependencies]
 oxidj-core = { workspace = true }
+oxidj-library = { workspace = true }
 
 [lints]
 workspace = true

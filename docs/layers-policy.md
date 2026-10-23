@@ -13,35 +13,37 @@ crates at the **same layer or lower**. Depending on a higher layer is a forbidde
 | Layer | Crate        | Role                                                     |
 |-------|--------------|----------------------------------------------------------|
 | 0     | `oxidj-core` | Neutral domain model and rules. Zero infrastructure deps. |
-| 1     | `oxidj-cli`  | Command-line entry point; calls core handlers only.       |
+| 1     | `oxidj-library` | Local catalog handlers; owns SQLite and migrations. |
+| 1     | `oxidj-cli`  | Command-line entry point; calls library handlers.    |
 | exempt| `xtask`      | Build-time tooling (`cargo xtask`), never a product dep.  |
 
-This small graph illustrates the current M0 rule in both directions: `cli` may
-depend on the lower-layer core, while the reverse edge is forbidden. `xtask` is
-outside the product dependency graph.
+The M1 graph keeps persistence behind the library: CLI calls library handlers,
+and both layer-1 crates may depend on core. The core cannot depend upward.
+`oxidj-library` alone may depend on `rusqlite` and `rusqlite_migration`; all
+other persistence dependencies remain forbidden. `xtask` is outside the product
+dependency graph.
 
 ```mermaid
 flowchart TB
-    cli["oxidj-cli<br/>layer 1"] --> core["oxidj-core<br/>layer 0"]
-    core -. "forbidden upward edge" .-> cli
+    cli["oxidj-cli<br/>layer 1"] --> library["oxidj-library<br/>layer 1"]
+    library --> core["oxidj-core<br/>layer 0"]
+    library --> sqlite["rusqlite + rusqlite_migration"]
+    core -. "forbidden upward edge" .-> library
     xtask["xtask<br/>exempt build tooling"]
 ```
 
-M0 contains **only** `oxidj-core` and `oxidj-cli`. Storage, audio, analysis,
-adapters and UI are **not** scaffolded — they appear when their functionality
-is needed, each assigned a layer here (ADR-004's review rejected an empty-crate
-scaffold: it enforces no boundary while adding public surface and coordination
-cost).
+The bounded M1 local-catalog slice populates `oxidj-library`; it is not an empty
+scaffold. Audio, analysis, vendor adapters and UI remain outside this slice.
 
 ## What the gate enforces
 
 1. **Internal edges point down or across, never up.** A path dependency to a
    workspace member whose layer is *higher* fails. (`cli` → `core` is allowed;
    `core` → `cli` is forbidden.)
-2. **No infrastructure crates in core or CLI.** A dependency whose name is on a
-   denylist (audio / ui / persistence / vendor) fails, regardless of whether it
-   is a normal, dev, or build dependency — so a forbidden `dev-dependency` is
-   also caught.
+2. **Infrastructure stays behind its owner.** Core and CLI deny audio, UI,
+   persistence and vendor crates. Library allows only `rusqlite` and
+   `rusqlite_migration` from persistence and denies audio, UI, other persistence
+   and vendor crates. These checks include normal, dev and build dependencies.
 3. **Every new product crate must be classified.** A workspace member with no
    layer assignment fails until it is added to the layer table in
    `xtask/src/main.rs`. This is what keeps the gate meaningful as the crate set

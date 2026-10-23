@@ -28,7 +28,7 @@ use std::process::Command;
 fn layer_of(name: &str) -> Option<u8> {
     match name {
         "oxidj-core" => Some(0),
-        "oxidj-cli" => Some(1),
+        "oxidj-library" | "oxidj-cli" => Some(1),
         _ => None,
     }
 }
@@ -37,8 +37,8 @@ fn layer_of(name: &str) -> Option<u8> {
 const EXEMPT_CRATES: &[&str] = &["xtask"];
 
 // --- Infrastructure denylists (ADR-004 boundary rules) ---------------------
-// core: zero UI / audio / persistence / vendor deps by design.
-// cli: never touches persistence / audio / UI directly — it calls core handlers.
+// core and CLI: zero UI / audio / persistence / vendor deps by design.
+// library: owns accepted local persistence; no audio, UI, or vendor adapters.
 // A crate on any of these lists in a layered crate's dependencies is a hard
 // policy failure, regardless of dependency KIND (normal/dev/build), so the gate
 // also catches forbidden dev-dependencies.
@@ -70,7 +70,17 @@ const UI_CRATES: &[&str] = &[
     "wry",
 ];
 const PERSISTENCE_CRATES: &[&str] = &[
-    "rusqlite", "sqlx", "libsql", "diesel", "duckdb", "sled", "redb", "sqlite", "rocksdb", "lmdb",
+    "rusqlite",
+    "rusqlite_migration",
+    "sqlx",
+    "libsql",
+    "diesel",
+    "duckdb",
+    "sled",
+    "redb",
+    "sqlite",
+    "rocksdb",
+    "lmdb",
     "heed",
 ];
 const VENDOR_CRATES: &[&str] = &[
@@ -215,7 +225,9 @@ fn check_layers(meta: &serde_json::Value) -> Result<(), Vec<String>> {
             }
 
             // External dependency (registry / git / path-to-non-member).
-            if let Some(category) = denied_category(dep_name) {
+            let accepted_library_persistence = name == "oxidj-library"
+                && matches!(dep_name.as_str(), "rusqlite" | "rusqlite_migration");
+            if !accepted_library_persistence && let Some(category) = denied_category(dep_name) {
                 violations.push(format!(
                     "{name} (layer {my_layer}) declares forbidden {category} dependency \
                      '{dep_name}' — ADR-004: {name} must not reference {category} infrastructure",
@@ -427,8 +439,9 @@ mod tests {
     use serde_json::json;
 
     #[test]
-    fn layers_assign_core_bottom_cli_above_xtask_exempt() {
+    fn layers_assign_core_bottom_product_crates_above_xtask_exempt() {
         assert_eq!(layer_of("oxidj-core"), Some(0));
+        assert_eq!(layer_of("oxidj-library"), Some(1));
         assert_eq!(layer_of("oxidj-cli"), Some(1));
         assert_eq!(layer_of("xtask"), None);
     }
@@ -468,6 +481,80 @@ mod tests {
             ]
         });
         assert!(check_layers(&meta).is_ok());
+    }
+
+    #[test]
+    fn library_allows_only_accepted_persistence_crates() {
+        let meta = json!({
+            "workspace_members": [
+                "path+file:///root#oxidj-core@0.1.0",
+                "path+file:///root#oxidj-library@0.1.0",
+                "path+file:///root#oxidj-cli@0.1.0"
+            ],
+            "packages": [
+                member("oxidj-core", vec![]),
+                member("oxidj-library", vec![
+                    ("oxidj-core", None),
+                    ("rusqlite", Some("registry+https://index.crates.io/")),
+                    ("rusqlite_migration", Some("registry+https://index.crates.io/")),
+                ]),
+                member("oxidj-cli", vec![("oxidj-library", None)]),
+            ]
+        });
+        assert!(check_layers(&meta).is_ok());
+
+        let forbidden = json!({
+            "workspace_members": ["path+file:///root#oxidj-library@0.1.0"],
+            "packages": [member("oxidj-library", vec![(
+                "sqlx", Some("registry+https://index.crates.io/")
+            )])]
+        });
+        let errors = check_layers(&forbidden).unwrap_err();
+        assert!(
+            errors
+                .iter()
+                .any(|error| error.contains("forbidden persistence dependency 'sqlx'"))
+        );
+    }
+
+    #[test]
+    fn cli_cannot_depend_on_persistence_crates() {
+        let meta = json!({
+            "workspace_members": ["path+file:///root#oxidj-cli@0.1.0"],
+            "packages": [member("oxidj-cli", vec![(
+                "rusqlite", Some("registry+https://index.crates.io/")
+            )])]
+        });
+        let errors = check_layers(&meta).unwrap_err();
+        assert!(
+            errors
+                .iter()
+                .any(|error| error.contains("forbidden persistence dependency 'rusqlite'"))
+        );
+    }
+
+    #[test]
+    fn core_and_library_reject_nonaccepted_infrastructure() {
+        for (crate_name, dependency, category) in [
+            ("oxidj-core", "rusqlite", "persistence"),
+            ("oxidj-library", "symphonia", "audio"),
+            ("oxidj-library", "eframe", "ui"),
+            ("oxidj-library", "rekordbox", "vendor"),
+        ] {
+            let meta = json!({
+                "workspace_members": [format!("path+file:///root#{crate_name}@0.1.0")],
+                "packages": [member(crate_name, vec![(
+                    dependency,
+                    Some("registry+https://index.crates.io/")
+                )])]
+            });
+            let errors = check_layers(&meta).unwrap_err();
+            assert!(
+                errors.iter().any(|error| error
+                    .contains(&format!("forbidden {category} dependency '{dependency}'"))),
+                "expected {crate_name} -> {dependency} to be denied, got {errors:?}"
+            );
+        }
     }
 
     #[test]

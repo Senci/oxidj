@@ -1,4 +1,5 @@
 use oxidj_core as _;
+use oxidj_library as _;
 use std::process::{Command, Output};
 
 fn run(args: &[&str]) -> Output {
@@ -14,7 +15,7 @@ fn track_id_process_contract() {
     assert_eq!(no_command.status.code(), Some(2));
     assert_eq!(
         no_command.stderr,
-        b"usage: oxidj-cli <command>\ncommands:\n  track-id <n>   Construct and echo a domain TrackId (n >= 1)\n"
+        b"usage: oxidj-cli <command>\ncommands:\n  track-id <n>   Construct and echo a domain TrackId (n >= 1)\n  catalog init --db <path>   Initialize local catalog\n  catalog list --db <path>   List local catalog tracks\n"
     );
 
     let success = run(&["track-id", "1"]);

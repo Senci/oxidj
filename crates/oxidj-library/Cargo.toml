@@ -1,0 +1,16 @@
+[package]
+name = "oxidj-library"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "OxiDJ local catalog and library handlers."
+publish = false
+
+[dependencies]
+oxidj-core = { workspace = true }
+rusqlite = { version = "0.40.0", default-features = false, features = ["bundled"] }
+rusqlite_migration = "2.6.0"
+
+[lints]
+workspace = true

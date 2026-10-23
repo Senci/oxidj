@@ -1,4 +1,5 @@
 use oxidj_core as _;
+use oxidj_library as _;
 use std::process::{Command, Output};
 
 fn run(args: &[&str]) -> Output {
