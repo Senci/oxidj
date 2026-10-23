@@ -1,13 +1,13 @@
 # OxiDJ — Rust-first open-source DJ library and performance application.
 #
-# Root *virtual* workspace manifest (M0-08). M0 contains exactly two product
-# crates, per ADR-004's independent review:
+# Root virtual workspace manifest. Product crates:
 #
-#   crates/oxidj-core  neutral domain model and rules  (layer 0, bottom)
-#   crates/oxidj-cli   command-line entry point         (layer 1, calls core)
+#   crates/oxidj-core     neutral domain model and rules (layer 0)
+#   crates/oxidj-library  local catalog handlers         (layer 1)
+#   crates/oxidj-cli      command-line entry point       (layer 1)
 #
-# No storage / audio / analysis / adapters / UI crates are scaffolded here —
-# they are created only when their functionality is actually needed (ADR-004).
+# Audio / analysis / vendor adapters / UI stay out until their behavior is
+# implemented and accepted (ADR-004).
 # The boundary that enforces this — and stays meaningful as crates are added — is
 # the `cargo xtask layers` gate, which is demonstrated to FAIL on a planted
 # forbidden edge (see docs/layers-policy.md).
@@ -20,12 +20,13 @@
 resolver = "2"
 members = [
     "crates/oxidj-core",
+    "crates/oxidj-library",
     "crates/oxidj-cli",
     "xtask",
 ]
 # A bare `cargo build` / `cargo test` at the root covers the product crates only.
 # `xtask` (a build-time tool) is invoked explicitly via `cargo xtask`.
-default-members = ["crates/oxidj-core", "crates/oxidj-cli"]
+default-members = ["crates/oxidj-core", "crates/oxidj-library", "crates/oxidj-cli"]
 
 [workspace.package]
 edition = "2024"
@@ -38,6 +39,7 @@ description = "OxiDJ: a modern, open-source DJ library and performance applicati
 # version/edition from [workspace.package] via `{ workspace = true }`.
 [workspace.dependencies]
 oxidj-core = { path = "crates/oxidj-core", version = "0.1.0" }
+oxidj-library = { path = "crates/oxidj-library", version = "0.1.0" }
 
 # --- In-repo lint policy (reproducible on a fresh clone; M0-10 §0.2 / §0.4) ---
 # `cargo::` lints (emitted by Cargo itself) are nightly-only on the 1.99 stable

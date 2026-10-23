@@ -1,13 +1,13 @@
 //! OxiDJ CLI entry point.
 //!
-//! M0 (ADR-004): the CLI is the command-first caller into `oxidj-core`. It
-//! invokes the same core domain handlers the GUI would, and never touches
-//! persistence, audio, or vendor adapters directly.
+//! The CLI calls shared core and library handlers; persistence stays behind
+//! `oxidj-library`, and audio, UI, and vendor adapters stay out of this crate.
 //!
 //! This binary is deliberately thin. Each user-facing verb maps to a domain
-//! operation in `oxidj-core`; orchestration lives in core/library, not here.
+//! operation in `oxidj-core` or `oxidj-library`; orchestration lives there.
 
 use oxidj_core::TrackId;
+use oxidj_library::Catalog;
 
 /// Exit code for usage / argument-shape errors.
 const USAGE: i32 = 2;
@@ -58,8 +58,63 @@ fn run(args: &[String]) -> i32 {
                 USAGE
             }
         },
+        "catalog" => run_catalog(&args[2..]),
         unknown => {
             eprintln!("error: unknown command: {unknown}");
+            USAGE
+        }
+    }
+}
+
+fn run_catalog(args: &[String]) -> i32 {
+    let Some(action) = args.first().map(String::as_str) else {
+        eprintln!("error: catalog requires init or list");
+        return USAGE;
+    };
+    let Some(db_index) = args.iter().position(|arg| arg == "--db") else {
+        eprintln!("error: catalog {action} requires --db PATH");
+        return USAGE;
+    };
+    let Some(path) = args.get(db_index + 1) else {
+        eprintln!("error: --db requires a path");
+        return USAGE;
+    };
+    if args.len() != db_index + 2 {
+        eprintln!("error: unexpected catalog argument");
+        return USAGE;
+    }
+
+    match action {
+        "init" => match Catalog::open(path) {
+            Ok(_) => OK,
+            Err(error) => {
+                eprintln!("error: {error}");
+                DOMAIN
+            }
+        },
+        "list" => match Catalog::open(path).and_then(|catalog| catalog.list_tracks()) {
+            Ok(tracks) => {
+                println!("TrackId\tPath\tSHA-256\tBytes");
+                for track in tracks {
+                    let digest = track
+                        .sha256
+                        .iter()
+                        .map(|byte| format!("{byte:02x}"))
+                        .collect::<String>();
+                    println!(
+                        "{}\t{}\t{}\t{}",
+                        track.id, track.path, digest, track.byte_length
+                    );
+                }
+                OK
+            }
+            Err(error) => {
+                eprintln!("error: {error}");
+                DOMAIN
+            }
+        },
+        _ => {
+            eprintln!("error: unknown catalog action: {action}");
             USAGE
         }
     }
@@ -76,6 +131,14 @@ fn print_usage(to_stdout: bool) {
     let _ = writeln!(
         output,
         "  track-id <n>   Construct and echo a domain TrackId (n >= 1)"
+    );
+    let _ = writeln!(
+        output,
+        "  catalog init --db <path>   Initialize local catalog"
+    );
+    let _ = writeln!(
+        output,
+        "  catalog list --db <path>   List local catalog tracks"
     );
 }
 

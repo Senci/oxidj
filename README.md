@@ -1,21 +1,22 @@
 # OxiDJ
 
-OxiDJ is a modern, open-source DJ library manager and, eventually, performance application written primarily in Rust. Its long-term goal is a credible Rekordbox alternative without locking users into one vendor ecosystem (idea.md). It is not a usable DJ tool yet: no library management, import, analysis, playback, or GUI workflow exists.
+OxiDJ is a modern, open-source DJ library manager and, eventually, performance application written primarily in Rust. Its long-term goal is a credible Rekordbox alternative without locking users into one vendor ecosystem (idea.md). The bounded local reference catalog exists as an implementation candidate; import, analysis, playback, and GUI workflows remain absent.
 
 ## Status
 
-M0 is verified complete. The named `local-catalog-alpha-v1` dependency exception is integrated by PR #13 (`671ae2b3df933ada97297bbba19ea1394657c14e`) for the reference-only, single-process, local-filesystem catalog capped at 10,000 tracks. This permits the first bounded M1 implementation; product implementation and independent acceptance remain incomplete (plan/STATUS.md). The implemented product surface is still limited to the `TrackId` domain type and one CLI operation; there is no library import or storage workflow. The separate representative 500k qualification remains NOT READY and unpassed.
+M0 is verified complete. The named `local-catalog-alpha-v1` dependency exception is integrated by PR #13 (`671ae2b3df933ada97297bbba19ea1394657c14e`) for the reference-only, single-process, local-filesystem catalog capped at 10,000 tracks. A local implementation candidate now initializes and lists a versioned catalog, stores reference-only records through `oxidj-library`, and demonstrates fresh-process listing. Independent acceptance and full M1 remain incomplete (plan/STATUS.md). The separate representative 500k qualification remains NOT READY and unpassed.
 
-**What exists today** (Cargo.toml, crates/oxidj-core/src/lib.rs, crates/oxidj-cli/src/main.rs, xtask/src/main.rs):
+**What exists today** (Cargo.toml, crates/oxidj-core/src/lib.rs, crates/oxidj-library/src/lib.rs, crates/oxidj-cli/src/main.rs, xtask/src/main.rs):
 
 - `oxidj-core` — a domain `TrackId` type that reserves `0`. Unit, integration, and doctests pass under the gate (docs/testing.md).
-- `oxidj-cli` — one command-line operation (`track-id <n>`).
+- `oxidj-library` — local SQLite catalog, versioned schema, reference-record handlers, operation-ID replay protection, and a 10,000-track cap.
+- `oxidj-cli` — `track-id <n>`, `catalog init --db <path>`, and deterministic `catalog list --db <path>`.
 - `xtask` — a repo-owned quality gate: `cargo xtask ci` (Tier 1 per-handoff gate) and `cargo xtask ci-full` (Tier 1 + tests + licence gate, used by CI).
 - Six accepted ADRs (GUI, persistence, metadata, crate boundaries, audio, licence) and the architecture baseline (docs/adr/index.md, docs/architecture.md).
 
 **Deferred** — do not expect these yet (idea.md MVP §Deferred; docs/architecture.md §11; plan/MVP.md):
 
-- M1: bounded local catalog implementation is the next action; vendor DJ metadata schema remains proposed and unaccepted (ADR-005). The named local alpha exception permits only its capped slice; persistence dependencies for representative-scale qualification remain gated on the separate 500k-track route (ADR-002).
+- M1: bounded implementation candidate is under independent review; backup/restore, migration-failure, transaction-failure and complete M1 evidence remain open. Vendor DJ metadata schema remains proposed and unaccepted (ADR-005). Persistence dependencies for representative-scale qualification remain gated on the separate 500k-track route (ADR-002).
 - M2: filesystem import (plan/MVP.md).
 - M3: usable library UI — prototype direction only (egui/eframe, ADR-001), not committed to production.
 - M4: OneLibrary/Rekordbox interoperability — requires empirical validation of undocumented formats (interoperability.md §Fixture D).
