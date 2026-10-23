@@ -4,7 +4,7 @@ OxiDJ is a modern, open-source DJ library manager and, eventually, performance a
 
 ## Status
 
-M0 is verified complete; M1 library-core work is permitted to start, but remains NOT READY while its admission prerequisites are open (plan/STATUS.md). The implemented product surface is limited to the `TrackId` domain type and one CLI operation; there is no library import or storage workflow.
+M0 is verified complete. The named `local-catalog-alpha-v1` dependency exception is integrated by PR #13 (`671ae2b3df933ada97297bbba19ea1394657c14e`) for the reference-only, single-process, local-filesystem catalog capped at 10,000 tracks. This permits the first bounded M1 implementation; product implementation and independent acceptance remain incomplete (plan/STATUS.md). The implemented product surface is still limited to the `TrackId` domain type and one CLI operation; there is no library import or storage workflow. The separate representative 500k qualification remains NOT READY and unpassed.
 
 **What exists today** (Cargo.toml, crates/oxidj-core/src/lib.rs, crates/oxidj-cli/src/main.rs, xtask/src/main.rs):
 
@@ -15,7 +15,7 @@ M0 is verified complete; M1 library-core work is permitted to start, but remains
 
 **Deferred** — do not expect these yet (idea.md MVP §Deferred; docs/architecture.md §11; plan/MVP.md):
 
-- M1: DJ metadata schema (ADR-005 pending); persistence layer (`rusqlite` stays out of the workspace until a 500k-track prototype passes — ADR-002).
+- M1: bounded local catalog implementation is the next action; vendor DJ metadata schema remains proposed and unaccepted (ADR-005). The named local alpha exception permits only its capped slice; persistence dependencies for representative-scale qualification remain gated on the separate 500k-track route (ADR-002).
 - M2: filesystem import (plan/MVP.md).
 - M3: usable library UI — prototype direction only (egui/eframe, ADR-001), not committed to production.
 - M4: OneLibrary/Rekordbox interoperability — requires empirical validation of undocumented formats (interoperability.md §Fixture D).

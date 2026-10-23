@@ -1,9 +1,13 @@
 # M0-06: GUI, Persistence & Audio/Platform — Research Index
 
 **Task:** `t_6fd918a6` — M0-06 GUI, persistence and future platform evaluation
-**Status:** Research complete — scoped Sol reviews completed; ADR-002 accepted; 500k-track admission gate still NOT READY
+**Status:** Research complete — scoped Sol reviews completed; ADR-002 accepted; separate representative 500k-track qualification remains NOT READY
 **Owner:** oxidj-2
 **Date:** 2026-10-15
+
+### Dated scope note (2026-10-23)
+
+This index records the original 500k-track admission recommendation as historical qualification context, not the current blanket dependency rule. The named `local-catalog-alpha-v1` exception permits only the reference-only, single-process, local-filesystem product slice capped at 10,000 tracks, after exact-diff independent Sol review and lead integration; PR #13 integrated that exception at `671ae2b3df933ada97297bbba19ea1394657c14e`. Product implementation and independent acceptance remain incomplete. The representative 500k protocol and qualification remain separately NOT READY and unpassed; no benchmark, fault campaign, or qualification PASS is asserted. See [plan/MVP.md](../../plan/MVP.md), [ADR-002](../adr/002-persistence.md), and [the readiness note](m1-sqlite-readiness-note.md).
 
 ---
 
@@ -53,9 +57,9 @@ This milestone evaluates three architectural boundaries before OxiDJ commits to 
 
 **Avoid:** iced (no stable a11y, no virtualization), GPUI (stalled releases), Xilem (zero production users)
 
-### Persistence: SQLite, admission gated
+### Persistence: SQLite; historical representative-scale admission recommendation
 - **Engine:** SQLite/WAL via bundled `rusqlite` + `rusqlite_migration`; `synchronous=FULL` on every writer with commit-success acknowledgement, conditional on the supported storage stack honoring sync.
-- **Gate:** no persistence dependency enters the workspace until the executable 500k-track prototype passes.
+- **Historical gate:** at the time of this 2026-10-15 research, no persistence dependency entered before the executable 500k-track prototype passed. The 2026-10-23 named local alpha exception is scoped separately above; dependencies for representative-scale qualification remain gated on the still-unpassed 500k route.
 - **Backups:** `.backup` API for snapshots; Litestream is optional replication, not backup strategy or guaranteed RPO. Verify restore and separately protect external assets.
 - **Future sync:** revisit Turso/libSQL only when multi-device sync is required.
 
@@ -87,7 +91,7 @@ This milestone evaluates three architectural boundaries before OxiDJ commits to 
 1. **Close schema-independent protocol gaps** — settle the workload/arrival/sample-accounting model, live WAL/disk envelope, recovery fault matrix, and review the provisional budgets. Do not run a benchmark while any qualification input remains open.
 2. **Resolve ADR-005** — define the metadata schema, relationship-aware edits, and decision-bearing import-edit-export fixtures, carrying ADR-003 field-relationship risk.
 3. **Complete and freeze the full protocol** — finish schema-dependent fixture, semantic-oracle, and migration criteria after ADR-005; review all inputs before any run.
-4. **Run** the 500k-track prototype on the recorded Linux reference stack only after protocol readiness is verified; admit no persistence dependency unless every agreed criterion passes.
+4. **Run** the separate 500k-track qualification prototype on the recorded Linux reference stack only after protocol readiness is verified. Its dependencies remain gated on every agreed criterion passing; this does not govern the named bounded local-alpha exception.
 5. **Maintain** cross-platform compatibility as a separate verification requirement.
 
 ---

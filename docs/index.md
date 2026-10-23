@@ -47,8 +47,10 @@ Consequences → Open Questions → Sol Review Packet (docs/adr/000-template.md)
   Qt deferred. Final framework commitment gated on a 200k-row virtualized list +
   accessibility evidence.
 - [docs/adr/002-persistence.md](adr/002-persistence.md) — SQLite + WAL with
-  `synchronous=FULL` and conditional zero-loss-on-ack contract; persistence
-  dependencies still require a passing 500k-track prototype before admission.
+  `synchronous=FULL` and conditional zero-loss-on-ack contract; the named
+  `local-catalog-alpha-v1` exception permits only its bounded 10,000-track slice
+  after review and integration (PR #13, merge `671ae2b3df933ada97297bbba19ea1394657c14e`).
+  The separate representative 500k-track qualification remains NOT READY and unpassed.
 - [docs/adr/003-metadata-representation.md](adr/003-metadata-representation.md) —
   neutral internal domain model with per-field provenance; preserve constant vs
   variable tempo, point cues vs loop ranges.
