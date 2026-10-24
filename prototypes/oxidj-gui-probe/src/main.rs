@@ -4,6 +4,161 @@ use std::{
 };
 
 use eframe::egui::{self, ScrollArea};
+use raw_window_handle::{HasDisplayHandle, HasWindowHandle, RawDisplayHandle, RawWindowHandle};
+use wayland_client::{
+    Connection, Dispatch, EventQueue, Proxy, QueueHandle,
+    backend::{Backend, ObjectId},
+    protocol::{wl_registry, wl_surface},
+};
+use wayland_protocols::wp::presentation_time::client::{wp_presentation, wp_presentation_feedback};
+
+#[derive(Default)]
+struct FeedbackEvents {
+    presented: Vec<(u64, u32, u32)>,
+    discarded: u64,
+    feedbacks: Vec<wp_presentation_feedback::WpPresentationFeedback>,
+    manager: Option<wp_presentation::WpPresentation>,
+}
+
+impl Dispatch<wl_registry::WlRegistry, ()> for FeedbackEvents {
+    fn event(
+        state: &mut Self,
+        registry: &wl_registry::WlRegistry,
+        event: wl_registry::Event,
+        _: &(),
+        _: &Connection,
+        qh: &QueueHandle<Self>,
+    ) {
+        if let wl_registry::Event::Global {
+            name,
+            interface,
+            version,
+        } = event
+        {
+            if interface == "wp_presentation" && state.manager.is_none() {
+                let manager = registry.bind::<wp_presentation::WpPresentation, _, _>(
+                    name,
+                    version.min(1),
+                    qh,
+                    (),
+                );
+                state.manager = Some(manager);
+            }
+        }
+    }
+}
+
+impl Dispatch<wp_presentation::WpPresentation, ()> for FeedbackEvents {
+    fn event(
+        _: &mut Self,
+        _: &wp_presentation::WpPresentation,
+        _: wp_presentation::Event,
+        _: &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
+    }
+}
+
+impl Dispatch<wp_presentation_feedback::WpPresentationFeedback, ()> for FeedbackEvents {
+    fn event(
+        state: &mut Self,
+        _: &wp_presentation_feedback::WpPresentationFeedback,
+        event: wp_presentation_feedback::Event,
+        _: &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
+        match event {
+            wp_presentation_feedback::Event::Presented {
+                tv_sec_hi,
+                tv_sec_lo,
+                tv_nsec,
+                refresh,
+                ..
+            } => {
+                state.presented.push((
+                    ((tv_sec_hi as u64) << 32) | tv_sec_lo as u64,
+                    tv_nsec,
+                    refresh,
+                ));
+            }
+            wp_presentation_feedback::Event::Discarded => {
+                state.discarded += 1;
+            }
+            wp_presentation_feedback::Event::SyncOutput { .. } => {}
+            _ => {}
+        }
+    }
+}
+
+struct PresentationObserver {
+    _backend: Backend,
+    connection: Connection,
+    queue: EventQueue<FeedbackEvents>,
+    state: FeedbackEvents,
+    surface: wl_surface::WlSurface,
+    _registry: wl_registry::WlRegistry,
+}
+
+impl PresentationObserver {
+    fn from_frame(frame: &eframe::Frame) -> Result<Self, String> {
+        let display = frame.display_handle().map_err(|e| e.to_string())?;
+        let window = frame.window_handle().map_err(|e| e.to_string())?;
+        let (RawDisplayHandle::Wayland(display), RawWindowHandle::Wayland(window)) =
+            (display.as_raw(), window.as_raw())
+        else {
+            return Err("native handles are not Wayland".into());
+        };
+        // SAFETY: eframe/winit owns this display and keeps it alive for the App lifetime.
+        // The backend is a guest and does not close the borrowed display on drop.
+        let backend = unsafe { Backend::from_foreign_display(display.display.as_ptr().cast()) };
+        let connection = Connection::from_backend(backend.clone());
+        let queue = connection.new_event_queue::<FeedbackEvents>();
+        let qh = queue.handle();
+        let registry = connection.display().get_registry(&qh, ());
+        let id = unsafe {
+            ObjectId::from_ptr(
+                wl_surface::WlSurface::interface(),
+                window.surface.as_ptr().cast(),
+            )
+        }
+        .map_err(|e| format!("borrow eframe wl_surface: {e}"))?;
+        let surface = wl_surface::WlSurface::from_id(&connection, id)
+            .map_err(|e| format!("wrap eframe wl_surface: {e}"))?;
+        let state = FeedbackEvents::default();
+        // Guest-mode setup is asynchronous: never read or poll the display shared with eframe.
+        connection
+            .flush()
+            .map_err(|e| format!("flush registry request: {e}"))?;
+        Ok(Self {
+            _backend: backend,
+            connection,
+            queue,
+            state,
+            surface,
+            _registry: registry,
+        })
+    }
+
+    fn drain(&mut self) -> Result<(), String> {
+        self.queue
+            .dispatch_pending(&mut self.state)
+            .map(|_| ())
+            .map_err(|e| format!("dispatch presentation feedback: {e}"))
+    }
+
+    fn observe(&mut self) -> Result<(), String> {
+        self.drain()?;
+        if let Some(manager) = &self.state.manager {
+            let feedback = manager.feedback(&self.surface, &self.queue.handle(), ());
+            self.state.feedbacks.push(feedback);
+        }
+        self.connection
+            .flush()
+            .map_err(|e| format!("flush presentation request: {e}"))
+    }
+}
 
 #[derive(Default)]
 struct TableState {
@@ -147,10 +302,37 @@ struct Probe {
     keyboard_events: u32,
     table: TableState,
     scroll_offset: f32,
+    presentation: Option<PresentationObserver>,
+    presentation_error: Option<String>,
 }
 
 impl eframe::App for Probe {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+    fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+        if self.presentation.is_none() && self.presentation_error.is_none() {
+            match PresentationObserver::from_frame(frame) {
+                Ok(observer) => self.presentation = Some(observer),
+                Err(error) => self.presentation_error = Some(error),
+            }
+        }
+        if let Some(observer) = &mut self.presentation {
+            let result = if self.started.elapsed() < Duration::from_secs(12) {
+                observer.observe()
+            } else {
+                observer.drain()
+            };
+            if let Err(error) = result {
+                self.presentation_error = Some(error);
+                self.presentation = None;
+            }
+        }
+        if std::env::var_os("OXIDJ_PRESENT_SCROLL").is_some()
+            && self.started.elapsed() < Duration::from_secs(12)
+            && self.count > 0
+        {
+            self.table.focused = ((self.started.elapsed().as_millis() / 100) as usize) % self.count;
+            self.table.has_focus = true;
+            self.table.scroll_to_focused = true;
+        }
         self.frames += 1;
         let (window_focused, keys) = ctx.input(|i| {
             (
@@ -191,8 +373,35 @@ impl eframe::App for Probe {
         });
         if !self.reported && self.started.elapsed() >= Duration::from_secs(15) {
             self.reported = true;
+            let (
+                feedback_presented,
+                feedback_unique_timestamps,
+                feedback_discarded,
+                feedback_refresh_ns,
+            ) = self
+                .presentation
+                .as_ref()
+                .map_or((0, 0, 0, None), |observer| {
+                    let timestamps = observer
+                        .state
+                        .presented
+                        .iter()
+                        .map(|(seconds, nanos, _)| seconds * 1_000_000_000 + u64::from(*nanos))
+                        .collect::<BTreeSet<_>>();
+                    let refresh = observer
+                        .state
+                        .presented
+                        .last()
+                        .map(|(_, _, refresh)| *refresh);
+                    (
+                        observer.state.presented.len(),
+                        timestamps.len(),
+                        observer.state.discarded,
+                        refresh,
+                    )
+                });
             eprintln!(
-                "probe_finished rows={} update_callbacks={} elapsed_ms={} callback_fps={:.1} keyboard_events={} focused_row={} widget_focused_row={:?} scroll_offset={:.1} selected_rows={:?} last_drop={:?}",
+                "probe_finished rows={} update_callbacks={} elapsed_ms={} callback_fps={:.1} keyboard_events={} focused_row={} widget_focused_row={:?} scroll_offset={:.1} selected_rows={:?} last_drop={:?} presentation_window_ms=12000 presentation_feedback_presented={} presentation_feedback_unique_timestamps={} presentation_fps={:.2} presentation_feedback_discarded={} last_refresh_ns={:?} presentation_error={:?}",
                 self.count,
                 self.frames,
                 self.started.elapsed().as_millis(),
@@ -202,7 +411,13 @@ impl eframe::App for Probe {
                 self.table.widget_focused,
                 self.scroll_offset,
                 self.table.selected.iter().take(8).collect::<Vec<_>>(),
-                self.table.last_drop
+                self.table.last_drop,
+                feedback_presented,
+                feedback_unique_timestamps,
+                feedback_unique_timestamps as f64 / 12.0,
+                feedback_discarded,
+                feedback_refresh_ns,
+                self.presentation_error
             );
         }
         if self.started.elapsed() < Duration::from_secs(15) {
@@ -469,6 +684,8 @@ fn main() -> eframe::Result {
                 keyboard_events: 0,
                 table: TableState::default(),
                 scroll_offset: 0.0,
+                presentation: None,
+                presentation_error: None,
             }))
         }),
     )

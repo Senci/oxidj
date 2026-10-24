@@ -2132,6 +2132,9 @@ name = "oxidj-gui-probe"
 version = "0.1.0"
 dependencies = [
  "eframe",
+ "raw-window-handle",
+ "wayland-client",
+ "wayland-protocols",
 ]
 
 [[package]]

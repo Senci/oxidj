@@ -8,3 +8,6 @@ publish = false
 
 [dependencies]
 eframe = { version = "=0.32.3", features = ["accesskit"] }
+raw-window-handle = "=0.6.2"
+wayland-client = { version = "=0.31.15", features = ["system"] }
+wayland-protocols = { version = "=0.32.13", features = ["client", "staging"] }
