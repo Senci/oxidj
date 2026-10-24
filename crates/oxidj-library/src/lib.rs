@@ -328,14 +328,24 @@ impl Catalog {
                 });
                 continue;
             }
-            if !validate_wav_container(&path) {
+            let Some(padding_offsets) = wav_container_padding_offsets(&path) else {
                 report.outcomes.push(FileOutcome {
                     path: path_text,
                     status: ImportStatus::Malformed,
                 });
                 continue;
-            }
-            let mut reader = match hound::WavReader::open(&path) {
+            };
+            let source = match PaddingStrippingReader::open(&path, padding_offsets) {
+                Ok(source) => source,
+                Err(_) => {
+                    report.outcomes.push(FileOutcome {
+                        path: path_text,
+                        status: ImportStatus::Unreadable,
+                    });
+                    continue;
+                }
+            };
+            let mut reader = match hound::WavReader::new(source) {
                 Ok(reader) => reader,
                 Err(_) => {
                     report.outcomes.push(FileOutcome {
@@ -873,58 +883,124 @@ pub struct ImportReport {
     pub outcomes: Vec<FileOutcome>,
 }
 
-fn validate_wav_container(path: &Path) -> bool {
-    let Ok(bytes) = std::fs::read(path) else {
-        return false;
-    };
-    if bytes.len() < 12 || &bytes[0..4] != b"RIFF" || &bytes[8..12] != b"WAVE" {
-        return false;
+const MAX_WAV_CHUNKS: usize = 4096;
+
+fn wav_container_padding_offsets(path: &Path) -> Option<Vec<u64>> {
+    use std::io::{Read, Seek, SeekFrom};
+    let mut file = std::fs::File::open(path).ok()?;
+    let file_len = file.metadata().ok()?.len();
+    if file_len < 12 {
+        return None;
     }
-    let declared = u32::from_le_bytes(bytes[4..8].try_into().unwrap()) as usize;
-    let Some(end) = declared.checked_add(8) else {
-        return false;
-    };
-    if end != bytes.len() || end < 12 {
-        return false;
+    let mut header = [0u8; 12];
+    if file.read_exact(&mut header).is_err() || &header[..4] != b"RIFF" || &header[8..] != b"WAVE" {
+        return None;
     }
-    let mut offset = 12usize;
+    let end = u64::from(u32::from_le_bytes(header[4..8].try_into().unwrap())) + 8;
+    if end != file_len || end < 12 {
+        return None;
+    }
+    let mut offset = 12u64;
     let mut fmt = false;
     let mut data = false;
+    let mut chunks = 0;
+    let mut padding_offsets = Vec::new();
     while offset < end {
         if end - offset < 8 {
-            return false;
+            return None;
         }
-        let size = u32::from_le_bytes(bytes[offset + 4..offset + 8].try_into().unwrap()) as usize;
-        let start = offset + 8;
-        let Some(chunk_end) = start.checked_add(size) else {
-            return false;
-        };
-        if chunk_end > end {
-            return false;
+        if file.seek(SeekFrom::Start(offset)).is_err() {
+            return None;
         }
-        match &bytes[offset..offset + 4] {
+        let mut chunk = [0u8; 8];
+        if file.read_exact(&mut chunk).is_err() {
+            return None;
+        }
+        chunks += 1;
+        if chunks > MAX_WAV_CHUNKS {
+            return None;
+        }
+        let size = u64::from(u32::from_le_bytes(chunk[4..].try_into().unwrap()));
+        let chunk_end = offset.checked_add(8).and_then(|v| v.checked_add(size))?;
+        let pad_len = size & 1;
+        let padded_end = chunk_end.checked_add(pad_len)?;
+        if padded_end > end {
+            return None;
+        }
+        match &chunk[..4] {
             b"fmt " => {
-                if size < 16 {
-                    return false;
+                if size < 16 || file.seek(SeekFrom::Start(offset + 8)).is_err() {
+                    return None;
                 }
-                let tag = u16::from_le_bytes(bytes[start..start + 2].try_into().unwrap());
-                let bits = u16::from_le_bytes(bytes[start + 14..start + 16].try_into().unwrap());
+                let mut basic = [0u8; 16];
+                if file.read_exact(&mut basic).is_err() {
+                    return None;
+                }
+                let tag = u16::from_le_bytes(basic[..2].try_into().unwrap());
+                let bits = u16::from_le_bytes(basic[14..16].try_into().unwrap());
                 if !((tag == 1 && matches!(bits, 8 | 16 | 24 | 32))
                     || (tag == 3 && matches!(bits, 32 | 64)))
                 {
-                    return false;
+                    return None;
                 }
                 fmt = true;
             }
             b"data" => data = true,
             _ => {}
         }
-        offset = chunk_end + (size & 1);
-        if offset > end {
-            return false;
+        if pad_len == 1 {
+            padding_offsets.push(chunk_end);
         }
+        offset = padded_end;
     }
-    offset == end && fmt && data
+    (offset == end && fmt && data).then_some(padding_offsets)
+}
+
+struct PaddingStrippingReader {
+    file: std::fs::File,
+    padding_offsets: Vec<u64>,
+    next_padding: usize,
+}
+
+impl PaddingStrippingReader {
+    fn open(path: &Path, padding_offsets: Vec<u64>) -> std::io::Result<Self> {
+        Ok(Self {
+            file: std::fs::File::open(path)?,
+            padding_offsets,
+            next_padding: 0,
+        })
+    }
+}
+
+impl std::io::Read for PaddingStrippingReader {
+    fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+        use std::io::{Seek, SeekFrom};
+        if buffer.is_empty() {
+            return Ok(0);
+        }
+        let mut written = 0;
+        while written < buffer.len() {
+            let position = self.file.stream_position()?;
+            while self.padding_offsets.get(self.next_padding) == Some(&position) {
+                self.file.seek(SeekFrom::Current(1))?;
+                self.next_padding += 1;
+            }
+            let next = self.padding_offsets.get(self.next_padding).copied();
+            let capacity = next
+                .map(|padding| (padding - position) as usize)
+                .unwrap_or(buffer.len() - written)
+                .min(buffer.len() - written);
+            if capacity == 0 {
+                continue;
+            }
+            let count = self.file.read(&mut buffer[written..written + capacity])?;
+            if count == 0 {
+                break;
+            }
+            written += count;
+        }
+        Ok(written)
+    }
 }
 
 fn file_sha256(path: &Path) -> std::io::Result<([u8; 32], u64)> {
@@ -1512,17 +1588,58 @@ mod tests {
         let wav = root.join("fixture.wav");
         write_test_wav(&wav, &[1, 2, 3, 4]);
         let valid = std::fs::read(&wav).unwrap();
-        assert!(validate_wav_container(&wav));
+        assert!(wav_container_padding_offsets(&wav).is_some());
         let mut undersized = valid.clone();
         undersized[4..8].copy_from_slice(&4u32.to_le_bytes());
         std::fs::write(&wav, undersized).unwrap();
-        assert!(!validate_wav_container(&wav));
+        assert!(wav_container_padding_offsets(&wav).is_none());
         let mut trailing = valid.clone();
         trailing.extend_from_slice(&[0; 4]);
         std::fs::write(&wav, trailing).unwrap();
-        assert!(!validate_wav_container(&wav));
+        assert!(wav_container_padding_offsets(&wav).is_none());
         std::fs::write(&wav, valid).unwrap();
-        assert!(validate_wav_container(&wav));
+        assert!(wav_container_padding_offsets(&wav).is_some());
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn directory_wav_import_accepts_odd_sized_ancillary_chunk_and_preserves_source() {
+        let root = database_path().with_extension("padded-wav");
+        std::fs::create_dir_all(&root).unwrap();
+        let wav = root.join("padded.wav");
+        write_test_wav(&wav, &[1, 2, 3, 4]);
+        let mut bytes = std::fs::read(&wav).unwrap();
+        let data_chunk = 12 + 8 + 16;
+        let mut junk = b"JUNK".to_vec();
+        junk.extend_from_slice(&1u32.to_le_bytes());
+        junk.extend_from_slice(&[0xA5, 0]);
+        bytes.splice(data_chunk..data_chunk, junk);
+        let riff_size = (bytes.len() - 8) as u32;
+        bytes[4..8].copy_from_slice(&riff_size.to_le_bytes());
+        std::fs::write(&wav, &bytes).unwrap();
+        let original = std::fs::read(&wav).unwrap();
+        let padding = wav_container_padding_offsets(&wav).unwrap();
+        assert_eq!(padding, vec![45]);
+        assert!(
+            hound::WavReader::new(PaddingStrippingReader::open(&wav, padding).unwrap()).is_ok()
+        );
+
+        let db = database_path();
+        let mut catalog = Catalog::open(&db).unwrap();
+        let report = catalog.import_wav_directory(&root).unwrap();
+        assert_eq!(report.outcomes[0].status, ImportStatus::Imported);
+        assert_eq!(std::fs::read(&wav).unwrap(), original);
+        let facts: (i64, i64, i64) = catalog
+            .connection
+            .query_row(
+                "SELECT sample_rate,channels,bit_depth FROM audio_facts",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(facts, (48_000, 2, 16));
+        drop(catalog);
+        remove_database(&db);
         let _ = std::fs::remove_dir_all(root);
     }
 
