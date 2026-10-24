@@ -198,7 +198,7 @@ fn catalog_backup_and_fresh_path_restore_preserve_records_and_refuse_unsafe_path
         database.file_name().unwrap().to_string_lossy()
     ));
     let mut newer_bytes = std::fs::read(&backup).unwrap();
-    newer_bytes[60..64].copy_from_slice(&2_i32.to_be_bytes());
+    newer_bytes[60..64].copy_from_slice(&3_i32.to_be_bytes());
     std::fs::write(&newer_schema, &newer_bytes).unwrap();
     let newer_before = std::fs::read(&newer_schema).unwrap();
     let newer_result = run(&[

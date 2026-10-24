@@ -2,14 +2,16 @@
 
 use rusqlite::{Connection, OptionalExtension};
 use rusqlite_migration::{M, Migrations};
+use sha2::Digest;
 use std::error::Error;
 use std::fmt;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-const SCHEMA_VERSION: i64 = 1;
-const MIGRATION_LIST: &[M<'static>] = &[M::up(
-    "CREATE TABLE tracks (\
+const SCHEMA_VERSION: i64 = 2;
+const MIGRATION_LIST: &[M<'static>] = &[
+    M::up(
+        "CREATE TABLE tracks (\
             id INTEGER PRIMARY KEY CHECK (id > 0),\
             path TEXT NOT NULL,\
             sha256 BLOB NOT NULL CHECK (length(sha256) = 32),\
@@ -22,7 +24,19 @@ const MIGRATION_LIST: &[M<'static>] = &[M::up(
             sha256 BLOB NOT NULL CHECK (length(sha256) = 32),\
             byte_length INTEGER NOT NULL CHECK (byte_length >= 0)\
         );",
-)];
+    ),
+    M::up(
+        "CREATE TABLE audio_facts (\
+            track_id INTEGER PRIMARY KEY REFERENCES tracks(id),\
+            duration_seconds REAL NOT NULL CHECK (duration_seconds >= 0),\
+            sample_rate INTEGER NOT NULL CHECK (sample_rate > 0),\
+            channels INTEGER NOT NULL CHECK (channels > 0),\
+            bit_depth INTEGER NOT NULL CHECK (bit_depth > 0),\
+            missing INTEGER NOT NULL DEFAULT 0 CHECK (missing IN (0, 1))\
+        );\
+        CREATE INDEX tracks_path_idx ON tracks(path);",
+    ),
+];
 const MIGRATIONS: Migrations<'static> = Migrations::from_slice(MIGRATION_LIST);
 
 /// A storage or schema error from a catalog operation.
@@ -210,6 +224,187 @@ impl Catalog {
         }
         MIGRATIONS.to_latest(&mut connection)?;
         Ok(Self { connection })
+    }
+
+    /// Import WAV references from a directory without modifying source files.
+    /// A failed traversal is incomplete and therefore never marks old rows missing.
+    pub fn import_wav_directory(
+        &mut self,
+        root: impl AsRef<Path>,
+    ) -> Result<ImportReport, CatalogError> {
+        let input_root = root.as_ref();
+        let mut report = ImportReport {
+            complete: true,
+            outcomes: Vec::new(),
+        };
+        if !matches!(std::fs::symlink_metadata(input_root), Ok(metadata) if !metadata.file_type().is_symlink())
+        {
+            report.complete = false;
+            return Ok(report);
+        }
+        let root = std::fs::canonicalize(input_root).unwrap_or_else(|_| input_root.to_path_buf());
+        let mut paths = Vec::new();
+        let mut complete = true;
+        collect_regular_files(&root, &mut paths, &mut complete);
+        paths.sort();
+        let mut report = ImportReport {
+            complete,
+            outcomes: Vec::new(),
+        };
+        let mut seen = std::collections::HashSet::new();
+        for path in paths {
+            let path_text = path.to_string_lossy().into_owned();
+            seen.insert(path_text.clone());
+            if !path
+                .extension()
+                .is_some_and(|ext| ext.eq_ignore_ascii_case("wav"))
+            {
+                report.outcomes.push(FileOutcome {
+                    path: path_text,
+                    status: ImportStatus::Unsupported,
+                });
+                continue;
+            }
+            let (digest, byte_length) = match file_sha256(&path) {
+                Ok(result) => result,
+                Err(_) => {
+                    report.complete = false;
+                    report.outcomes.push(FileOutcome {
+                        path: path_text,
+                        status: ImportStatus::Unreadable,
+                    });
+                    continue;
+                }
+            };
+            let prior = self
+                .connection
+                .query_row(
+                    "SELECT id, sha256, byte_length FROM tracks WHERE path = ?1 ORDER BY id LIMIT 1",
+                    [&path_text],
+                    |row| {
+                        Ok((
+                            row.get::<_, i64>(0)?,
+                            row.get::<_, Vec<u8>>(1)?,
+                            row.get::<_, i64>(2)?,
+                        ))
+                    },
+                )
+                .optional()?;
+            if !matches!(file_sha256(&path), Ok((current_digest, current_length)) if current_digest == digest && current_length == byte_length)
+            {
+                report.complete = false;
+                report.outcomes.push(FileOutcome {
+                    path: path_text,
+                    status: ImportStatus::Unreadable,
+                });
+                continue;
+            }
+            if let Some((id, prior_digest, prior_length)) = prior {
+                if prior_digest.as_slice() != digest || prior_length != byte_length as i64 {
+                    report.outcomes.push(FileOutcome {
+                        path: path_text,
+                        status: ImportStatus::Conflict,
+                    });
+                    continue;
+                }
+                self.connection
+                    .execute("UPDATE audio_facts SET missing=0 WHERE track_id=?1", [id])?;
+                report.outcomes.push(FileOutcome {
+                    path: path_text,
+                    status: ImportStatus::Unchanged,
+                });
+                continue;
+            }
+            let mut reader = match hound::WavReader::open(&path) {
+                Ok(reader) => reader,
+                Err(_) => {
+                    report.outcomes.push(FileOutcome {
+                        path: path_text,
+                        status: ImportStatus::Malformed,
+                    });
+                    continue;
+                }
+            };
+            let spec = reader.spec();
+            let expected_sample_count = u64::from(reader.len());
+            let decoded = if spec.sample_format == hound::SampleFormat::Float {
+                reader
+                    .samples::<f32>()
+                    .try_fold(0_u64, |count, sample| sample.map(|_| count + 1))
+            } else {
+                reader
+                    .samples::<i32>()
+                    .try_fold(0_u64, |count, sample| sample.map(|_| count + 1))
+            };
+            let Ok(sample_count) = decoded else {
+                report.outcomes.push(FileOutcome {
+                    path: path_text,
+                    status: ImportStatus::Malformed,
+                });
+                continue;
+            };
+            if sample_count != expected_sample_count
+                || spec.channels == 0
+                || spec.sample_rate == 0
+                || sample_count % u64::from(spec.channels) != 0
+            {
+                report.outcomes.push(FileOutcome {
+                    path: path_text,
+                    status: ImportStatus::Malformed,
+                });
+                continue;
+            }
+            if !matches!(file_sha256(&path), Ok((current_digest, current_length)) if current_digest == digest && current_length == byte_length)
+            {
+                report.complete = false;
+                report.outcomes.push(FileOutcome {
+                    path: path_text,
+                    status: ImportStatus::Unreadable,
+                });
+                continue;
+            }
+            let duration =
+                (sample_count / u64::from(spec.channels)) as f64 / f64::from(spec.sample_rate);
+            let path_hash: [u8; 32] = sha2::Sha256::digest(path_text.as_bytes()).into();
+            let op = format!(
+                "wav-import:{}:{}",
+                hex_digest(&path_hash),
+                hex_digest(&digest)
+            );
+            let track = self.insert_track(&op, &path_text, digest, byte_length)?;
+            self.connection.execute(
+                "INSERT INTO audio_facts(track_id,duration_seconds,sample_rate,channels,bit_depth,missing) VALUES(?1,?2,?3,?4,?5,0)",
+                rusqlite::params![i64::try_from(track.id.as_u64()).map_err(|_| CatalogError::InvalidRecord("track ID exceeds SQLite range"))?, duration, spec.sample_rate, spec.channels, spec.bits_per_sample],
+            )?;
+            report.outcomes.push(FileOutcome {
+                path: path_text,
+                status: ImportStatus::Imported,
+            });
+        }
+        if report.complete {
+            let missing_ids = {
+                let mut stmt = self
+                    .connection
+                    .prepare("SELECT track_id FROM audio_facts WHERE missing=0")?;
+                let rows = stmt.query_map([], |row| row.get::<_, i64>(0))?;
+                rows.collect::<Result<Vec<_>, _>>()?
+            };
+            for id in missing_ids {
+                let path: String = self.connection.query_row(
+                    "SELECT path FROM tracks WHERE id=?1",
+                    [id],
+                    |r| r.get(0),
+                )?;
+                if !Path::new(&path).starts_with(&root) {
+                    continue;
+                }
+                if !seen.contains(&path) {
+                    self.connection
+                        .execute("UPDATE audio_facts SET missing=1 WHERE track_id=?1", [id])?;
+                }
+            }
+        }
+        Ok(report)
     }
 
     /// List reference-only tracks in stable ID order.
@@ -568,6 +763,85 @@ fn remove_database_files(path: &Path) -> std::io::Result<()> {
     file_result.and(sidecar_result)
 }
 
+/// Per-file WAV import result.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ImportStatus {
+    Imported,
+    Unchanged,
+    Conflict,
+    Unsupported,
+    Unreadable,
+    Malformed,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FileOutcome {
+    pub path: String,
+    pub status: ImportStatus,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ImportReport {
+    pub complete: bool,
+    pub outcomes: Vec<FileOutcome>,
+}
+
+fn file_sha256(path: &Path) -> std::io::Result<([u8; 32], u64)> {
+    let mut file = std::fs::File::open(path)?;
+    let mut hasher = sha2::Sha256::new();
+    let mut buffer = [0_u8; 64 * 1024];
+    let mut length = 0_u64;
+    loop {
+        let read = std::io::Read::read(&mut file, &mut buffer)?;
+        if read == 0 {
+            break;
+        }
+        hasher.update(&buffer[..read]);
+        length = length
+            .checked_add(read as u64)
+            .ok_or_else(|| std::io::Error::other("file length overflow"))?;
+    }
+    Ok((hasher.finalize().into(), length))
+}
+
+fn hex_digest(digest: &[u8; 32]) -> String {
+    digest.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+fn collect_regular_files(root: &Path, paths: &mut Vec<PathBuf>, complete: &mut bool) {
+    let entries = match std::fs::read_dir(root) {
+        Ok(entries) => entries,
+        Err(_) => {
+            *complete = false;
+            return;
+        }
+    };
+    for entry in entries {
+        let entry = match entry {
+            Ok(entry) => entry,
+            Err(_) => {
+                *complete = false;
+                continue;
+            }
+        };
+        let file_type = match entry.file_type() {
+            Ok(kind) => kind,
+            Err(_) => {
+                *complete = false;
+                continue;
+            }
+        };
+        if file_type.is_symlink() {
+            continue;
+        }
+        if file_type.is_dir() {
+            collect_regular_files(&entry.path(), paths, complete);
+        } else if file_type.is_file() {
+            paths.push(entry.path());
+        }
+    }
+}
+
 /// Minimum accepted local catalog record. Digest is the raw 32-byte SHA-256.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TrackReference {
@@ -839,7 +1113,7 @@ mod tests {
                     SELECT 1 UNION ALL SELECT id + 1 FROM ids WHERE id < 10000\
                 )\
                 INSERT INTO tracks (id, path, sha256, byte_length)\
-                SELECT id, '/synthetic/fixture.wav', zeroblob(32), 0 FROM ids;",
+                SELECT id, printf('/synthetic/fixture-%d.wav', id), zeroblob(32), 0 FROM ids;",
             )
             .unwrap();
 
@@ -1074,6 +1348,179 @@ mod tests {
         );
         assert!(unrelated_preserved, "cleanup removed an unrelated file");
         assert!(temporary_clean, "owned temporary artifacts remain");
+    }
+
+    fn write_test_wav(path: &Path, samples: &[i16]) {
+        let spec = hound::WavSpec {
+            channels: 2,
+            sample_rate: 48_000,
+            bits_per_sample: 16,
+            sample_format: hound::SampleFormat::Int,
+        };
+        let mut writer = hound::WavWriter::create(path, spec).unwrap();
+        for sample in samples {
+            writer.write_sample(*sample).unwrap();
+        }
+        writer.finalize().unwrap();
+    }
+
+    #[test]
+    fn directory_wav_import_is_idempotent_reports_conflicts_and_preserves_sources() {
+        let root = database_path().with_extension("media");
+        std::fs::create_dir_all(root.join("nested")).unwrap();
+        let wav = root.join("nested/test.wav");
+        let unsupported = root.join("notes.txt");
+        let malformed = root.join("bad.wav");
+        let truncated = root.join("truncated.wav");
+        write_test_wav(&wav, &[1, 2, 3, 4]);
+        let duplicate_path = root.join("other.wav");
+        std::fs::copy(&wav, &duplicate_path).unwrap();
+        write_test_wav(&truncated, &[11, 12, 13, 14]);
+        let mut truncated_bytes = std::fs::read(&truncated).unwrap();
+        truncated_bytes.truncate(truncated_bytes.len() - 2);
+        std::fs::write(&truncated, truncated_bytes).unwrap();
+        std::fs::write(&unsupported, b"text").unwrap();
+        std::fs::write(&malformed, b"not a wave").unwrap();
+        let original = std::fs::read(&wav).unwrap();
+        let db = database_path();
+        let mut catalog = Catalog::open(&db).unwrap();
+        let first = catalog.import_wav_directory(&root).unwrap();
+        assert!(first.complete);
+        assert!(
+            first
+                .outcomes
+                .iter()
+                .any(|o| o.path.ends_with("test.wav") && o.status == ImportStatus::Imported)
+        );
+        assert!(
+            first
+                .outcomes
+                .iter()
+                .any(|o| o.path.ends_with("other.wav") && o.status == ImportStatus::Imported)
+        );
+        assert!(
+            first
+                .outcomes
+                .iter()
+                .any(|o| o.path.ends_with("notes.txt") && o.status == ImportStatus::Unsupported)
+        );
+        assert!(
+            first
+                .outcomes
+                .iter()
+                .any(|o| o.path.ends_with("bad.wav") && o.status == ImportStatus::Malformed)
+        );
+        assert!(
+            first
+                .outcomes
+                .iter()
+                .any(|o| o.path.ends_with("truncated.wav") && o.status == ImportStatus::Malformed)
+        );
+        let facts: (f64, i64, i64, i64) = catalog
+            .connection
+            .query_row(
+                "SELECT duration_seconds,sample_rate,channels,bit_depth FROM audio_facts",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+            )
+            .unwrap();
+        assert_eq!(facts, (2.0 / 48_000.0, 48_000, 2, 16));
+        assert_eq!(
+            std::fs::read(&wav).unwrap(),
+            original,
+            "import must not modify source bytes"
+        );
+        let second = catalog.import_wav_directory(&root).unwrap();
+        assert!(
+            second
+                .outcomes
+                .iter()
+                .any(|o| o.path.ends_with("test.wav") && o.status == ImportStatus::Unchanged)
+        );
+        assert_eq!(catalog.list_tracks().unwrap().len(), 2);
+        write_test_wav(&wav, &[7, 8]);
+        let changed = catalog.import_wav_directory(&root).unwrap();
+        assert!(
+            changed
+                .outcomes
+                .iter()
+                .any(|o| o.path.ends_with("test.wav") && o.status == ImportStatus::Conflict)
+        );
+        assert_eq!(std::fs::read(&wav).unwrap(), {
+            let changed_bytes = std::fs::read(&wav).unwrap();
+            assert_ne!(changed_bytes, original);
+            changed_bytes
+        });
+        assert_eq!(std::fs::read(&unsupported).unwrap(), b"text");
+        drop(catalog);
+        remove_database(&db);
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn directory_import_does_not_follow_symlinks() {
+        use std::os::unix::fs::symlink;
+        let root = database_path().with_extension("symlinks");
+        let outside = database_path().with_extension("outside.wav");
+        std::fs::create_dir_all(&root).unwrap();
+        write_test_wav(&outside, &[1, 2]);
+        symlink(&outside, root.join("link.wav")).unwrap();
+        let db = database_path();
+        let mut catalog = Catalog::open(&db).unwrap();
+        let report = catalog.import_wav_directory(&root).unwrap();
+        assert!(report.complete);
+        assert!(report.outcomes.is_empty());
+        assert!(catalog.list_tracks().unwrap().is_empty());
+        drop(catalog);
+        remove_database(&db);
+        let _ = std::fs::remove_file(outside);
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn missing_is_only_marked_after_complete_scan() {
+        let root = database_path().with_extension("missing-scan");
+        std::fs::create_dir_all(&root).unwrap();
+        let wav = root.join("present.wav");
+        write_test_wav(&wav, &[1, 2]);
+        let db = database_path();
+        let mut catalog = Catalog::open(&db).unwrap();
+        catalog.import_wav_directory(&root).unwrap();
+        std::fs::remove_file(&wav).unwrap();
+        let complete = catalog.import_wav_directory(&root).unwrap();
+        assert!(complete.complete);
+        let missing: i64 = catalog
+            .connection
+            .query_row("SELECT missing FROM audio_facts", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(missing, 1);
+
+        let other = database_path().with_extension("incomplete-scan");
+        std::fs::create_dir_all(&other).unwrap();
+        let other_wav = other.join("present.wav");
+        write_test_wav(&other_wav, &[3, 4]);
+        catalog.import_wav_directory(&other).unwrap();
+        let incomplete = catalog
+            .import_wav_directory(other.join("does-not-exist"))
+            .unwrap();
+        assert!(!incomplete.complete);
+        let state: Vec<i64> = {
+            let mut statement = catalog
+                .connection
+                .prepare("SELECT missing FROM audio_facts ORDER BY track_id")
+                .unwrap();
+            statement
+                .query_map([], |r| r.get(0))
+                .unwrap()
+                .collect::<Result<_, _>>()
+                .unwrap()
+        };
+        assert_eq!(state, vec![1, 0]);
+        drop(catalog);
+        remove_database(&db);
+        let _ = std::fs::remove_dir_all(root);
+        let _ = std::fs::remove_dir_all(other);
     }
 
     #[test]

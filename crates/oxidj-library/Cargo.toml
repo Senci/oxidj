@@ -9,8 +9,10 @@ publish = false
 
 [dependencies]
 oxidj-core = { workspace = true }
+hound = { version = "=3.5.1", default-features = false }
 rusqlite = { version = "0.40.0", default-features = false, features = ["bundled", "backup"] }
 rusqlite_migration = "2.6.0"
+sha2 = "0.10.9"
 
 [lints]
 workspace = true
