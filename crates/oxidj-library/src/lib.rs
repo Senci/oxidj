@@ -328,13 +328,20 @@ impl Catalog {
                 });
                 continue;
             }
-            let Some(padding_offsets) = wav_container_padding_offsets(&path) else {
+            let Some((padding_offsets, supported)) = wav_container_padding_offsets(&path) else {
                 report.outcomes.push(FileOutcome {
                     path: path_text,
                     status: ImportStatus::Malformed,
                 });
                 continue;
             };
+            if !supported {
+                report.outcomes.push(FileOutcome {
+                    path: path_text,
+                    status: ImportStatus::Unsupported,
+                });
+                continue;
+            }
             let source = match PaddingStrippingReader::open(&path, padding_offsets) {
                 Ok(source) => source,
                 Err(_) => {
@@ -885,7 +892,9 @@ pub struct ImportReport {
 
 const MAX_WAV_CHUNKS: usize = 4096;
 
-fn wav_container_padding_offsets(path: &Path) -> Option<Vec<u64>> {
+// Supported M2 WAV matrix: integer PCM 8/16/24/32 and IEEE float32.
+// Other structurally valid RIFF/WAVE format-tag/bit-depth combinations are Unsupported.
+fn wav_container_padding_offsets(path: &Path) -> Option<(Vec<u64>, bool)> {
     use std::io::{Read, Seek, SeekFrom};
     let mut file = std::fs::File::open(path).ok()?;
     let file_len = file.metadata().ok()?.len();
@@ -903,6 +912,7 @@ fn wav_container_padding_offsets(path: &Path) -> Option<Vec<u64>> {
     let mut offset = 12u64;
     let mut fmt = false;
     let mut data = false;
+    let mut encoding_supported = false;
     let mut chunks = 0;
     let mut padding_offsets = Vec::new();
     while offset < end {
@@ -938,9 +948,9 @@ fn wav_container_padding_offsets(path: &Path) -> Option<Vec<u64>> {
                 }
                 let tag = u16::from_le_bytes(basic[..2].try_into().unwrap());
                 let bits = u16::from_le_bytes(basic[14..16].try_into().unwrap());
-                if !((tag == 1 && matches!(bits, 8 | 16 | 24 | 32))
-                    || (tag == 3 && matches!(bits, 32 | 64)))
-                {
+                encoding_supported =
+                    (tag == 1 && matches!(bits, 8 | 16 | 24 | 32)) || (tag == 3 && bits == 32);
+                if !matches!(tag, 1 | 3) || !matches!(bits, 8 | 16 | 24 | 32 | 64) {
                     return None;
                 }
                 fmt = true;
@@ -953,7 +963,7 @@ fn wav_container_padding_offsets(path: &Path) -> Option<Vec<u64>> {
         }
         offset = padded_end;
     }
-    (offset == end && fmt && data).then_some(padding_offsets)
+    (offset == end && fmt && data).then_some((padding_offsets, encoding_supported))
 }
 
 struct PaddingStrippingReader {
@@ -1603,6 +1613,31 @@ mod tests {
     }
 
     #[test]
+    fn valid_float64_wav_is_reported_unsupported_by_import() {
+        let root = database_path().with_extension("float64-wav");
+        std::fs::create_dir_all(&root).unwrap();
+        let wav = root.join("float64.wav");
+        write_test_wav(&wav, &[1, 2]);
+        let mut bytes = std::fs::read(&wav).unwrap();
+        let fmt = 12 + 8;
+        bytes[fmt..fmt + 2].copy_from_slice(&3u16.to_le_bytes());
+        bytes[fmt + 12..fmt + 14].copy_from_slice(&8u16.to_le_bytes());
+        bytes[fmt + 14..fmt + 16].copy_from_slice(&64u16.to_le_bytes());
+        let riff_size = (bytes.len() - 8) as u32;
+        bytes[4..8].copy_from_slice(&riff_size.to_le_bytes());
+        std::fs::write(&wav, &bytes).unwrap();
+        assert!(!wav_container_padding_offsets(&wav).unwrap().1);
+
+        let db = database_path();
+        let mut catalog = Catalog::open(&db).unwrap();
+        let report = catalog.import_wav_directory(&root).unwrap();
+        assert_eq!(report.outcomes[0].status, ImportStatus::Unsupported);
+        drop(catalog);
+        remove_database(&db);
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
     fn directory_wav_import_accepts_odd_sized_ancillary_chunk_and_preserves_source() {
         let root = database_path().with_extension("padded-wav");
         std::fs::create_dir_all(&root).unwrap();
@@ -1618,7 +1653,8 @@ mod tests {
         bytes[4..8].copy_from_slice(&riff_size.to_le_bytes());
         std::fs::write(&wav, &bytes).unwrap();
         let original = std::fs::read(&wav).unwrap();
-        let padding = wav_container_padding_offsets(&wav).unwrap();
+        let (padding, supported) = wav_container_padding_offsets(&wav).unwrap();
+        assert!(supported);
         assert_eq!(padding, vec![45]);
         assert!(
             hound::WavReader::new(PaddingStrippingReader::open(&wav, padding).unwrap()).is_ok()
