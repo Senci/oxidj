@@ -978,6 +978,12 @@ fn decode_flac_facts(path: &Path) -> Result<AudioFacts, ImportStatus> {
     if samples == 0 || samples % u64::from(info.channels) != 0 {
         return Err(ImportStatus::Malformed);
     }
+    if info
+        .samples
+        .is_some_and(|declared| declared != 0 && declared != samples / u64::from(info.channels))
+    {
+        return Err(ImportStatus::Malformed);
+    }
     Ok(AudioFacts {
         duration: (samples / u64::from(info.channels)) as f64 / f64::from(info.sample_rate),
         sample_rate: info.sample_rate,
@@ -1102,7 +1108,7 @@ fn decode_mp3_facts(path: &Path) -> Result<AudioFacts, ImportStatus> {
         return Err(ImportStatus::Malformed);
     }
     Ok(AudioFacts {
-        duration: (samples / u64::from(channels)) as f64 / f64::from(rate),
+        duration: samples as f64 / f64::from(rate),
         sample_rate: rate,
         channels,
         bit_depth: 16,
