@@ -21,6 +21,14 @@ fn database_path() -> std::path::PathBuf {
     ))
 }
 
+fn set_rollback_journal_header_for_fixture(path: &std::path::Path) {
+    let mut bytes = std::fs::read(path).unwrap();
+    assert_eq!(&bytes[18..20], &[2, 2]);
+    // SQLite format header uses 1 for rollback journaling and 2 for WAL.
+    bytes[18..20].copy_from_slice(&[1, 1]);
+    std::fs::write(path, bytes).unwrap();
+}
+
 #[test]
 fn catalog_record_survives_a_fresh_cli_process() {
     let database = database_path();
@@ -70,4 +78,229 @@ fn catalog_record_survives_a_fresh_cli_process() {
     assert!(reopened.stderr.is_empty());
 
     std::fs::remove_file(database).expect("remove temporary catalog");
+}
+
+#[test]
+fn catalog_backup_and_fresh_path_restore_preserve_records_and_refuse_unsafe_paths() {
+    let database = database_path();
+    let backup = database.with_file_name(format!(
+        "backup-{}",
+        database.file_name().unwrap().to_string_lossy()
+    ));
+    let restored = database.with_file_name(format!(
+        "restored-{}",
+        database.file_name().unwrap().to_string_lossy()
+    ));
+    let db_arg = database.to_str().unwrap();
+    let backup_arg = backup.to_str().unwrap();
+    let restored_arg = restored.to_str().unwrap();
+
+    assert_eq!(
+        run(&["catalog", "init", "--db", db_arg]).status.code(),
+        Some(0)
+    );
+    let mut catalog = Catalog::open(&database).unwrap();
+    let expected = catalog
+        .insert_track("backup-op", "/synthetic/backup.wav", [0x5a; 32], 1234)
+        .unwrap();
+    assert_eq!(
+        catalog
+            .insert_track("backup-op", "/synthetic/backup.wav", [0x5a; 32], 1234)
+            .unwrap(),
+        expected
+    );
+    drop(catalog);
+
+    let backup_output = run(&["catalog", "backup", "--db", db_arg, "--to", backup_arg]);
+    assert_eq!(
+        backup_output.status.code(),
+        Some(0),
+        "backup stderr: {:?}",
+        backup_output.stderr
+    );
+    assert!(backup.is_file());
+    let restore_output = run(&[
+        "catalog",
+        "restore",
+        "--from",
+        backup_arg,
+        "--db",
+        restored_arg,
+    ]);
+    assert_eq!(
+        restore_output.status.code(),
+        Some(0),
+        "restore stderr: {:?}",
+        restore_output.stderr
+    );
+
+    let list = run(&["catalog", "list", "--db", restored_arg]);
+    assert_eq!(
+        list.status.code(),
+        Some(0),
+        "list stderr: {:?}",
+        list.stderr
+    );
+    assert_eq!(list.stdout, b"TrackId\tPath\tSHA-256\tBytes\n1\t/synthetic/backup.wav\t5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\t1234\n");
+    let mut restored_catalog = Catalog::open(&restored).unwrap();
+    assert_eq!(
+        restored_catalog
+            .insert_track("backup-op", "/synthetic/backup.wav", [0x5a; 32], 1234)
+            .unwrap(),
+        expected
+    );
+    drop(restored_catalog);
+
+    let backup_before = std::fs::read(&backup).unwrap();
+    let existing_backup = run(&["catalog", "backup", "--db", db_arg, "--to", backup_arg]);
+    assert_ne!(existing_backup.status.code(), Some(0));
+    assert_eq!(std::fs::read(&backup).unwrap(), backup_before);
+    let restored_before = std::fs::read(&restored).unwrap();
+    let existing_restore = run(&[
+        "catalog",
+        "restore",
+        "--from",
+        backup_arg,
+        "--db",
+        restored_arg,
+    ]);
+    assert_ne!(existing_restore.status.code(), Some(0));
+    assert_eq!(std::fs::read(&restored).unwrap(), restored_before);
+
+    let corrupt = database.with_file_name(format!(
+        "corrupt-{}",
+        database.file_name().unwrap().to_string_lossy()
+    ));
+    let corrupt_destination = database.with_file_name(format!(
+        "bad-restore-{}",
+        database.file_name().unwrap().to_string_lossy()
+    ));
+    std::fs::write(&corrupt, b"not a sqlite database").unwrap();
+    let corrupt_before = std::fs::read(&corrupt).unwrap();
+    let corrupt_result = run(&[
+        "catalog",
+        "restore",
+        "--from",
+        corrupt.to_str().unwrap(),
+        "--db",
+        corrupt_destination.to_str().unwrap(),
+    ]);
+    assert_ne!(corrupt_result.status.code(), Some(0));
+    assert!(!corrupt_destination.exists());
+    assert_eq!(std::fs::read(&corrupt).unwrap(), corrupt_before);
+
+    let newer_schema = database.with_file_name(format!(
+        "newer-schema-{}",
+        database.file_name().unwrap().to_string_lossy()
+    ));
+    let newer_destination = database.with_file_name(format!(
+        "newer-restore-{}",
+        database.file_name().unwrap().to_string_lossy()
+    ));
+    let mut newer_bytes = std::fs::read(&backup).unwrap();
+    newer_bytes[60..64].copy_from_slice(&2_i32.to_be_bytes());
+    std::fs::write(&newer_schema, &newer_bytes).unwrap();
+    let newer_before = std::fs::read(&newer_schema).unwrap();
+    let newer_result = run(&[
+        "catalog",
+        "restore",
+        "--from",
+        newer_schema.to_str().unwrap(),
+        "--db",
+        newer_destination.to_str().unwrap(),
+    ]);
+    assert_ne!(newer_result.status.code(), Some(0));
+    assert!(!newer_destination.exists());
+    assert_eq!(std::fs::read(&newer_schema).unwrap(), newer_before);
+
+    for path in [database, backup, restored, corrupt, newer_schema] {
+        let _ = std::fs::remove_file(path);
+    }
+}
+
+#[test]
+fn backup_of_missing_source_creates_neither_source_nor_destination() {
+    let source = database_path();
+    let destination = source.with_file_name(format!(
+        "missing-backup-{}",
+        source.file_name().unwrap().to_string_lossy()
+    ));
+    let result = run(&[
+        "catalog",
+        "backup",
+        "--db",
+        source.to_str().unwrap(),
+        "--to",
+        destination.to_str().unwrap(),
+    ]);
+    assert_ne!(result.status.code(), Some(0));
+    assert!(!source.exists(), "missing source was created");
+    assert!(
+        !destination.exists(),
+        "backup of missing source was published"
+    );
+}
+
+#[test]
+fn backup_rejects_source_destination_filesystem_alias_without_mutation() {
+    let source = database_path();
+    let seed = database_path();
+    let alias = source.with_file_name(format!(
+        "alias-{}",
+        source.file_name().unwrap().to_string_lossy()
+    ));
+    Catalog::open(&seed).unwrap().backup_to(&source).unwrap();
+    set_rollback_journal_header_for_fixture(&source);
+    let _ = std::fs::remove_file(seed);
+    let bytes_before = std::fs::read(&source).unwrap();
+    #[cfg(unix)]
+    std::fs::hard_link(&source, &alias).unwrap();
+    #[cfg(windows)]
+    std::os::windows::fs::hard_link(&source, &alias).unwrap();
+    let alias_before = std::fs::read(&alias).unwrap();
+
+    let result = run(&[
+        "catalog",
+        "backup",
+        "--db",
+        source.to_str().unwrap(),
+        "--to",
+        alias.to_str().unwrap(),
+    ]);
+    assert_ne!(result.status.code(), Some(0));
+    assert!(
+        std::fs::read(&source).unwrap() == bytes_before,
+        "backup changed source bytes"
+    );
+    assert!(
+        std::fs::read(&alias).unwrap() == alias_before,
+        "backup changed alias bytes"
+    );
+
+    let _ = std::fs::remove_file(alias);
+    let _ = std::fs::remove_file(source);
+}
+
+#[test]
+fn backup_rejects_identical_source_and_destination_without_mutation() {
+    let source = database_path();
+    let seed = database_path();
+    Catalog::open(&seed).unwrap().backup_to(&source).unwrap();
+    set_rollback_journal_header_for_fixture(&source);
+    let _ = std::fs::remove_file(seed);
+    let before = std::fs::read(&source).unwrap();
+    let result = run(&[
+        "catalog",
+        "backup",
+        "--db",
+        source.to_str().unwrap(),
+        "--to",
+        source.to_str().unwrap(),
+    ]);
+    assert_ne!(result.status.code(), Some(0));
+    assert!(
+        std::fs::read(&source).unwrap() == before,
+        "backup changed source bytes"
+    );
+    let _ = std::fs::remove_file(source);
 }
