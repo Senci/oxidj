@@ -253,6 +253,18 @@ mod tests {
     }
 
     #[test]
+    fn command_space_toggles_focused_row() {
+        let mut table = TableState::default();
+        table.click(2, false, false);
+
+        table.key(Key::Space, false, true, 8);
+        assert!(table.selected.is_empty());
+
+        table.key(Key::Space, false, true, 8);
+        assert_eq!(table.selected.iter().copied().collect::<Vec<_>>(), [2]);
+    }
+
+    #[test]
     fn shift_navigation_selects_a_range_and_home_end_stay_bounded() {
         let mut table = TableState::default();
         table.click(3, false, false);
@@ -272,6 +284,14 @@ mod tests {
         assert_eq!(table.focused, 7);
         assert!(table.scroll_to_focused);
         assert_eq!(table.selected.iter().copied().collect::<Vec<_>>(), [7]);
+
+        table.key(Key::ArrowUp, false, false, 8);
+        assert_eq!(table.focused, 6);
+        assert_eq!(table.selected.iter().copied().collect::<Vec<_>>(), [6]);
+
+        table.key(Key::Home, false, false, 8);
+        assert_eq!(table.focused, 0);
+        assert_eq!(table.selected.iter().copied().collect::<Vec<_>>(), [0]);
     }
 
     #[test]
