@@ -68,9 +68,43 @@ fn run(args: &[String]) -> i32 {
 
 fn run_catalog(args: &[String]) -> i32 {
     let Some(action) = args.first().map(String::as_str) else {
-        eprintln!("error: catalog requires init or list");
+        eprintln!("error: catalog requires init, list, backup, or restore");
         return USAGE;
     };
+    if action == "backup" || action == "restore" {
+        let (source_flag, destination_flag) = if action == "backup" {
+            ("--db", "--to")
+        } else {
+            ("--from", "--db")
+        };
+        let Some(source_index) = args.iter().position(|arg| arg == source_flag) else {
+            eprintln!("error: catalog {action} requires {source_flag} PATH");
+            return USAGE;
+        };
+        let Some(destination_index) = args.iter().position(|arg| arg == destination_flag) else {
+            eprintln!("error: catalog {action} requires {destination_flag} PATH");
+            return USAGE;
+        };
+        if args.len() != 5 || source_index + 1 >= args.len() || destination_index + 1 >= args.len()
+        {
+            eprintln!("error: invalid catalog {action} arguments");
+            return USAGE;
+        }
+        let source = &args[source_index + 1];
+        let destination = &args[destination_index + 1];
+        let result = if action == "backup" {
+            Catalog::backup_from(source, destination)
+        } else {
+            Catalog::restore_from(source, destination)
+        };
+        return match result {
+            Ok(()) => OK,
+            Err(error) => {
+                eprintln!("error: {error}");
+                DOMAIN
+            }
+        };
+    }
     let Some(db_index) = args.iter().position(|arg| arg == "--db") else {
         eprintln!("error: catalog {action} requires --db PATH");
         return USAGE;
@@ -139,6 +173,14 @@ fn print_usage(to_stdout: bool) {
     let _ = writeln!(
         output,
         "  catalog list --db <path>   List local catalog tracks"
+    );
+    let _ = writeln!(
+        output,
+        "  catalog backup --db <source> --to <new-backup>   Create verified backup"
+    );
+    let _ = writeln!(
+        output,
+        "  catalog restore --from <backup> --db <new-destination>   Restore backup"
     );
 }
 

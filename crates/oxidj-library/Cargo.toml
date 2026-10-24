@@ -9,7 +9,7 @@ publish = false
 
 [dependencies]
 oxidj-core = { workspace = true }
-rusqlite = { version = "0.40.0", default-features = false, features = ["bundled"] }
+rusqlite = { version = "0.40.0", default-features = false, features = ["bundled", "backup"] }
 rusqlite_migration = "2.6.0"
 
 [lints]

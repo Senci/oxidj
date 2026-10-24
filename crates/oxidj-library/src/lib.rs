@@ -5,6 +5,7 @@ use rusqlite_migration::{M, Migrations};
 use std::error::Error;
 use std::fmt;
 use std::path::Path;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 const SCHEMA_VERSION: i64 = 1;
 const MIGRATION_LIST: &[M<'static>] = &[M::up(
@@ -33,6 +34,8 @@ pub enum CatalogError {
     OperationConflict(String),
     TrackLimit,
     InvalidRecord(&'static str),
+    DestinationExists,
+    Cleanup(std::io::Error),
 }
 
 impl fmt::Display for CatalogError {
@@ -54,6 +57,8 @@ impl fmt::Display for CatalogError {
             }
             Self::TrackLimit => write!(f, "catalog track limit of 10000 reached"),
             Self::InvalidRecord(reason) => write!(f, "invalid track reference: {reason}"),
+            Self::DestinationExists => write!(f, "catalog destination already exists"),
+            Self::Cleanup(error) => write!(f, "catalog temporary-file cleanup failed: {error}"),
         }
     }
 }
@@ -78,6 +83,111 @@ pub struct Catalog {
 }
 
 impl Catalog {
+    /// Create a backup from an existing source without creating or migrating it.
+    pub fn backup_from(
+        source: impl AsRef<Path>,
+        destination: impl AsRef<Path>,
+    ) -> Result<(), CatalogError> {
+        let source = source.as_ref();
+        let destination = destination.as_ref();
+        if source == destination {
+            return Err(CatalogError::InvalidRecord(
+                "source and destination must differ",
+            ));
+        }
+        if destination.exists() {
+            return Err(CatalogError::DestinationExists);
+        }
+        validate_database(source)?;
+        let connection =
+            Connection::open_with_flags(source, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+        let temporary = temporary_path(destination);
+        let result = (|| {
+            let mut target = Connection::open(&temporary)?;
+            {
+                let backup = rusqlite::backup::Backup::new(&connection, &mut target)?;
+                backup.run_to_completion(16, std::time::Duration::from_millis(10), None)?;
+            }
+            drop(target);
+            validate_database(&temporary)?;
+            publish_new_file(&temporary, destination)
+                .map_err(|_| CatalogError::Sqlite(rusqlite::Error::InvalidQuery))?;
+            Ok(())
+        })();
+        if let Err(error) = result {
+            return Err(cleanup_failed_operation(&temporary, error));
+        }
+        result
+    }
+
+    /// Create a verified SQLite online backup at a new path.
+    pub fn backup_to(&self, destination: impl AsRef<Path>) -> Result<(), CatalogError> {
+        let destination = destination.as_ref();
+        if destination.exists() {
+            return Err(CatalogError::DestinationExists);
+        }
+        let temporary = temporary_path(destination);
+        let result = (|| {
+            let mut target = Connection::open(&temporary)?;
+            {
+                let backup = rusqlite::backup::Backup::new(&self.connection, &mut target)?;
+                backup.run_to_completion(16, std::time::Duration::from_millis(10), None)?;
+            }
+            drop(target);
+            validate_database(&temporary)?;
+            publish_new_file(&temporary, destination)
+                .map_err(|_| CatalogError::Sqlite(rusqlite::Error::InvalidQuery))?;
+            Ok(())
+        })();
+        if let Err(error) = result {
+            return Err(cleanup_failed_operation(&temporary, error));
+        }
+        result
+    }
+
+    /// Restore a verified backup into a new catalog path.
+    pub fn restore_from(
+        source: impl AsRef<Path>,
+        destination: impl AsRef<Path>,
+    ) -> Result<(), CatalogError> {
+        let source = source.as_ref();
+        let destination = destination.as_ref();
+        if source == destination {
+            return Err(CatalogError::InvalidRecord(
+                "source and destination must differ",
+            ));
+        }
+        if destination.exists() {
+            return Err(CatalogError::DestinationExists);
+        }
+        validate_database(source)?;
+        let temporary = temporary_path(destination);
+        let result = (|| {
+            let source_connection =
+                Connection::open_with_flags(source, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+            let mut target = Connection::open(&temporary)?;
+            {
+                let backup = rusqlite::backup::Backup::new(&source_connection, &mut target)?;
+                backup.run_to_completion(16, std::time::Duration::from_millis(10), None)?;
+            }
+            drop(target);
+            drop(source_connection);
+            validate_database(&temporary)?;
+            {
+                let catalog = Catalog::open(&temporary)?;
+                catalog.list_tracks()?;
+            }
+            remove_database_sidecars(&temporary).map_err(CatalogError::Cleanup)?;
+            publish_new_file(&temporary, destination)
+                .map_err(|_| CatalogError::Sqlite(rusqlite::Error::InvalidQuery))?;
+            Ok(())
+        })();
+        if let Err(error) = result {
+            return Err(cleanup_failed_operation(&temporary, error));
+        }
+        result
+    }
+
     /// Open or create a catalog, applying known migrations without resetting data.
     pub fn open(path: impl AsRef<Path>) -> Result<Self, CatalogError> {
         let mut connection = Connection::open(path)?;
@@ -267,6 +377,197 @@ impl Catalog {
     }
 }
 
+fn validate_database(path: &Path) -> Result<(), CatalogError> {
+    let connection = Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+    let version: i64 = connection.pragma_query_value(None, "user_version", |row| row.get(0))?;
+    if version > SCHEMA_VERSION {
+        return Err(CatalogError::UnsupportedSchema(version));
+    }
+    let integrity: String = connection.query_row("PRAGMA integrity_check", [], |row| row.get(0))?;
+    if integrity != "ok" {
+        return Err(CatalogError::Sqlite(rusqlite::Error::InvalidQuery));
+    }
+    if version != SCHEMA_VERSION {
+        return Err(CatalogError::InvalidRecord(
+            "backup schema is not supported",
+        ));
+    }
+    validate_table_columns(
+        &connection,
+        "tracks",
+        &[
+            ("id", "INTEGER"),
+            ("path", "TEXT"),
+            ("sha256", "BLOB"),
+            ("byte_length", "INTEGER"),
+        ],
+    )?;
+    validate_table_columns(
+        &connection,
+        "operations",
+        &[
+            ("operation_id", "TEXT"),
+            ("track_id", "INTEGER"),
+            ("path", "TEXT"),
+            ("sha256", "BLOB"),
+            ("byte_length", "INTEGER"),
+        ],
+    )?;
+    connection.prepare(
+        "SELECT operation_id, track_id, path, sha256, byte_length FROM operations LIMIT 0",
+    )?;
+    validate_catalog_write_contract(&connection)?;
+    Ok(())
+}
+
+fn validate_catalog_write_contract(source: &Connection) -> Result<(), CatalogError> {
+    let mut probe = Connection::open_in_memory()?;
+    {
+        let backup = rusqlite::backup::Backup::new(source, &mut probe)?;
+        backup.run_to_completion(16, std::time::Duration::from_millis(10), None)?;
+    }
+
+    let transaction = probe.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+    let track_id: i64 =
+        transaction.query_row("SELECT COALESCE(MAX(id), 0) + 1 FROM tracks", [], |row| {
+            row.get(0)
+        })?;
+    let mut suffix = 0_u64;
+    let operation_id = loop {
+        let candidate = format!("oxidj-schema-probe-{suffix}");
+        let exists: bool = transaction.query_row(
+            "SELECT EXISTS(SELECT 1 FROM operations WHERE operation_id = ?1)",
+            [candidate.as_str()],
+            |row| row.get(0),
+        )?;
+        if !exists {
+            break candidate;
+        }
+        suffix = suffix.checked_add(1).ok_or(CatalogError::InvalidRecord(
+            "schema probe ID space exhausted",
+        ))?;
+    };
+    transaction.execute(
+        "INSERT INTO tracks (id, path, sha256, byte_length) VALUES (?1, ?2, ?3, ?4)",
+        rusqlite::params![
+            track_id,
+            "/oxidj-schema-probe.wav",
+            [0_u8; 32].as_slice(),
+            0
+        ],
+    )?;
+    transaction.execute(
+        "INSERT INTO operations (operation_id, track_id, path, sha256, byte_length) \
+         VALUES (?1, ?2, ?3, ?4, ?5)",
+        rusqlite::params![
+            operation_id,
+            track_id,
+            "/oxidj-schema-probe.wav",
+            [0_u8; 32].as_slice(),
+            0
+        ],
+    )?;
+    transaction.rollback()?;
+    Ok(())
+}
+
+fn validate_table_columns(
+    connection: &Connection,
+    table: &str,
+    expected: &[(&str, &str)],
+) -> Result<(), CatalogError> {
+    let mut statement = connection.prepare("SELECT name, type FROM pragma_table_info(?1)")?;
+    let actual = statement
+        .query_map([table], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+    if actual.len() != expected.len()
+        || expected.iter().any(|(name, kind)| {
+            !actual.iter().any(|(actual_name, actual_kind)| {
+                actual_name == name && actual_kind.eq_ignore_ascii_case(kind)
+            })
+        })
+    {
+        return Err(CatalogError::InvalidRecord(
+            "backup catalog schema is incomplete",
+        ));
+    }
+    Ok(())
+}
+
+fn temporary_path(destination: &Path) -> std::path::PathBuf {
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    destination.with_file_name(format!(".oxidj-{}-{nonce}.tmp", std::process::id()))
+}
+
+fn publish_new_file(temporary: &Path, destination: &Path) -> std::io::Result<()> {
+    #[cfg(test)]
+    wait_at_publication_test_barrier(temporary);
+    // Same-directory hard-link creation is atomic and never replaces a path
+    // created concurrently after the initial existence check.
+    std::fs::hard_link(temporary, destination)?;
+    std::fs::remove_file(temporary)
+}
+
+#[cfg(test)]
+static PUBLICATION_TEST_BARRIERS: std::sync::Mutex<
+    Option<(
+        std::sync::Arc<std::sync::Barrier>,
+        std::sync::Arc<std::sync::Barrier>,
+    )>,
+> = std::sync::Mutex::new(None);
+
+#[cfg(test)]
+static PUBLICATION_TEST_TEMP: std::sync::Mutex<Option<std::path::PathBuf>> =
+    std::sync::Mutex::new(None);
+
+#[cfg(test)]
+fn wait_at_publication_test_barrier(temporary: &Path) {
+    *PUBLICATION_TEST_TEMP.lock().unwrap() = Some(temporary.to_path_buf());
+    let barriers = PUBLICATION_TEST_BARRIERS.lock().unwrap().clone();
+    if let Some((arrived, release)) = barriers {
+        arrived.wait();
+        release.wait();
+    }
+}
+
+fn remove_database_sidecars(path: &Path) -> std::io::Result<()> {
+    let mut first_error = None;
+    for suffix in ["-wal", "-shm", "-journal"] {
+        let mut sidecar_name = path.as_os_str().to_os_string();
+        sidecar_name.push(suffix);
+        let sidecar = std::path::PathBuf::from(sidecar_name);
+        if let Err(error) = std::fs::remove_file(sidecar)
+            && error.kind() != std::io::ErrorKind::NotFound
+            && first_error.is_none()
+        {
+            first_error = Some(error);
+        }
+    }
+    first_error.map_or(Ok(()), Err)
+}
+
+fn cleanup_failed_operation(path: &Path, original: CatalogError) -> CatalogError {
+    match remove_database_files(path) {
+        Ok(()) => original,
+        Err(cleanup) => CatalogError::Cleanup(cleanup),
+    }
+}
+
+fn remove_database_files(path: &Path) -> std::io::Result<()> {
+    let file_result = match std::fs::remove_file(path) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error),
+    };
+    let sidecar_result = remove_database_sidecars(path);
+    file_result.and(sidecar_result)
+}
+
 /// Minimum accepted local catalog record. Digest is the raw 32-byte SHA-256.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TrackReference {
@@ -397,5 +698,219 @@ mod tests {
         assert_eq!(version, 42);
         drop(connection);
         remove_database(&path);
+    }
+
+    #[test]
+    fn restore_rejects_malformed_operations_schema_without_publishing() {
+        let source = database_path();
+        let destination = database_path();
+        let connection = Connection::open(&source).unwrap();
+        connection
+            .execute_batch(
+                "CREATE TABLE tracks (id INTEGER PRIMARY KEY, path TEXT NOT NULL, sha256 BLOB NOT NULL, byte_length INTEGER NOT NULL);\
+                 CREATE TABLE operations (unrelated TEXT);\
+                 PRAGMA user_version = 1;",
+            )
+            .unwrap();
+        drop(connection);
+        let source_before = std::fs::read(&source).unwrap();
+
+        assert!(Catalog::restore_from(&source, &destination).is_err());
+        assert_eq!(std::fs::read(&source).unwrap(), source_before);
+        assert!(!destination.exists());
+        remove_database(&source);
+        remove_database(&destination);
+    }
+
+    fn assert_restore_rejects_unusable_operations_schema(schema_sql: &str) {
+        let source = database_path();
+        let destination = database_path();
+        let connection = Connection::open(&source).unwrap();
+        connection.execute_batch(schema_sql).unwrap();
+        drop(connection);
+        let source_before = std::fs::read(&source).unwrap();
+
+        assert!(Catalog::restore_from(&source, &destination).is_err());
+        assert_eq!(std::fs::read(&source).unwrap(), source_before);
+        assert!(!destination.exists());
+        remove_database(&source);
+        remove_database(&destination);
+    }
+
+    #[test]
+    fn restore_rejects_operations_view_without_publishing() {
+        assert_restore_rejects_unusable_operations_schema(
+            "CREATE TABLE tracks (id INTEGER PRIMARY KEY CHECK(id>0),path TEXT NOT NULL,sha256 BLOB NOT NULL CHECK(length(sha256)=32),byte_length INTEGER NOT NULL CHECK(byte_length>=0));\
+             CREATE TABLE backing_operations (operation_id TEXT PRIMARY KEY,track_id INTEGER NOT NULL UNIQUE REFERENCES tracks(id),path TEXT NOT NULL,sha256 BLOB NOT NULL CHECK(length(sha256)=32),byte_length INTEGER NOT NULL CHECK(byte_length>=0));\
+             CREATE VIEW operations AS SELECT * FROM backing_operations;\
+             PRAGMA user_version=1;",
+        );
+    }
+
+    #[test]
+    fn restore_rejects_incompatible_operations_constraint_without_publishing() {
+        assert_restore_rejects_unusable_operations_schema(
+            "CREATE TABLE tracks (id INTEGER PRIMARY KEY CHECK(id>0),path TEXT NOT NULL,sha256 BLOB NOT NULL CHECK(length(sha256)=32),byte_length INTEGER NOT NULL CHECK(byte_length>=0));\
+             CREATE TABLE operations (operation_id TEXT PRIMARY KEY,track_id INTEGER NOT NULL UNIQUE REFERENCES tracks(id) CHECK(track_id<0),path TEXT NOT NULL,sha256 BLOB NOT NULL CHECK(length(sha256)=32),byte_length INTEGER NOT NULL CHECK(byte_length>=0));\
+             PRAGMA user_version=1;",
+        );
+    }
+
+    #[test]
+    fn restore_accepts_valid_catalog_with_schema_probe_operation_id() {
+        let source = database_path();
+        let destination = database_path();
+        let mut catalog = Catalog::open(&source).unwrap();
+        catalog
+            .insert_track(
+                "oxidj-schema-probe-2",
+                "/synthetic/probe-collision.wav",
+                [3; 32],
+                7,
+            )
+            .unwrap();
+        let expected = catalog.list_tracks().unwrap();
+        drop(catalog);
+
+        assert!(Catalog::restore_from(&source, &destination).is_ok());
+        let restored = Catalog::open(&destination).unwrap();
+        assert_eq!(restored.list_tracks().unwrap(), expected);
+        drop(restored);
+        remove_database(&source);
+        remove_database(&destination);
+    }
+
+    #[test]
+    fn cleanup_removes_only_sqlite_appended_sidecars() {
+        let temporary = database_path().with_extension("tmp");
+        let unrelated = temporary.with_file_name("unrelated-preserve-me");
+        for suffix in ["", "-wal", "-shm", "-journal"] {
+            let path = if suffix.is_empty() {
+                temporary.clone()
+            } else {
+                std::path::PathBuf::from(format!("{}{suffix}", temporary.display()))
+            };
+            std::fs::write(path, b"owned-temp").unwrap();
+        }
+        std::fs::write(&unrelated, b"not-owned").unwrap();
+
+        remove_database_files(&temporary).unwrap();
+
+        for suffix in ["", "-wal", "-shm", "-journal"] {
+            let path = if suffix.is_empty() {
+                temporary.clone()
+            } else {
+                std::path::PathBuf::from(format!("{}{suffix}", temporary.display()))
+            };
+            assert!(
+                !path.exists(),
+                "owned temp artifact remains: {}",
+                path.display()
+            );
+        }
+        assert_eq!(std::fs::read(&unrelated).unwrap(), b"not-owned");
+        let _ = std::fs::remove_file(unrelated);
+    }
+
+    #[test]
+    fn cleanup_failure_is_returned() {
+        let path = database_path();
+        std::fs::create_dir(&path).unwrap();
+        assert!(matches!(
+            cleanup_failed_operation(&path, CatalogError::DestinationExists),
+            CatalogError::Cleanup(_)
+        ));
+        std::fs::remove_dir(path).unwrap();
+    }
+
+    static RACE_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    fn race_publication(backup: bool) {
+        let _guard = RACE_TEST_LOCK.lock().unwrap();
+        let source = database_path();
+        let backup_path = database_path();
+        let destination = database_path();
+        let unrelated = destination.with_extension("unrelated");
+        let mut catalog = Catalog::open(&source).unwrap();
+        catalog
+            .insert_track("race-op", "/synthetic/race.wav", [7; 32], 7)
+            .unwrap();
+        drop(catalog);
+        if !backup {
+            Catalog::open(&source)
+                .unwrap()
+                .backup_to(&backup_path)
+                .unwrap();
+        }
+        let arrived = std::sync::Arc::new(std::sync::Barrier::new(2));
+        let release = std::sync::Arc::new(std::sync::Barrier::new(2));
+        *PUBLICATION_TEST_BARRIERS.lock().unwrap() = Some((arrived.clone(), release.clone()));
+        let competitor_destination = destination.clone();
+        let competitor_unrelated = unrelated.clone();
+        let competitor = std::thread::spawn(move || {
+            arrived.wait();
+            let temporary = PUBLICATION_TEST_TEMP.lock().unwrap().clone().unwrap();
+            for suffix in ["-wal", "-shm", "-journal"] {
+                let mut sidecar = temporary.as_os_str().to_os_string();
+                sidecar.push(suffix);
+                std::fs::write(sidecar, b"sqlite-appended-temp").unwrap();
+            }
+            std::fs::write(&competitor_destination, b"competing-sentinel").unwrap();
+            std::fs::write(&competitor_unrelated, b"unrelated-sentinel").unwrap();
+            release.wait();
+        });
+        *PUBLICATION_TEST_TEMP.lock().unwrap() = None;
+        let result = if backup {
+            Catalog::open(&source).unwrap().backup_to(&destination)
+        } else {
+            Catalog::restore_from(&backup_path, &destination)
+        };
+        competitor.join().unwrap();
+        *PUBLICATION_TEST_BARRIERS.lock().unwrap() = None;
+        let temporary = PUBLICATION_TEST_TEMP.lock().unwrap().take().unwrap();
+        let mut temporary_clean = !temporary.exists();
+        for suffix in ["-wal", "-shm", "-journal"] {
+            let mut sidecar = temporary.as_os_str().to_os_string();
+            sidecar.push(suffix);
+            temporary_clean &= !std::path::PathBuf::from(sidecar).exists();
+        }
+        let returned_explicit_error = matches!(
+            &result,
+            Err(CatalogError::Sqlite(rusqlite::Error::InvalidQuery))
+        );
+        let destination_preserved = returned_explicit_error
+            && std::fs::read(&destination).is_ok_and(|bytes| bytes == b"competing-sentinel");
+        let unrelated_preserved =
+            std::fs::read(&unrelated).is_ok_and(|bytes| bytes == b"unrelated-sentinel");
+        remove_database(&source);
+        remove_database(&backup_path);
+        remove_database(&destination);
+        let _ = std::fs::remove_file(&unrelated);
+        for suffix in ["-wal", "-shm", "-journal"] {
+            let mut sidecar = temporary.as_os_str().to_os_string();
+            sidecar.push(suffix);
+            let _ = std::fs::remove_file(sidecar);
+        }
+        drop(_guard);
+        assert!(
+            destination_preserved,
+            "publication replaced the concurrent destination"
+        );
+        assert!(
+            returned_explicit_error,
+            "operation returned no explicit error"
+        );
+        assert!(unrelated_preserved, "cleanup removed an unrelated file");
+        assert!(temporary_clean, "owned temporary artifacts remain");
+    }
+
+    #[test]
+    fn backup_publication_race_preserves_competing_destination() {
+        race_publication(true);
+    }
+
+    #[test]
+    fn restore_publication_race_preserves_competing_destination() {
+        race_publication(false);
     }
 }
