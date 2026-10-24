@@ -71,6 +71,41 @@ fn run_catalog(args: &[String]) -> i32 {
         eprintln!("error: catalog requires init, list, backup, or restore");
         return USAGE;
     };
+    if action == "import" {
+        let Some(dir_index) = args.iter().position(|arg| arg == "--dir") else {
+            eprintln!("error: catalog import requires --dir PATH");
+            return USAGE;
+        };
+        let Some(db_index) = args.iter().position(|arg| arg == "--db") else {
+            eprintln!("error: catalog import requires --db PATH");
+            return USAGE;
+        };
+        if args.len() != 5 || dir_index + 1 >= args.len() || db_index + 1 >= args.len() {
+            eprintln!("error: invalid catalog import arguments");
+            return USAGE;
+        }
+        let directory = &args[dir_index + 1];
+        let db = &args[db_index + 1];
+        return match Catalog::open(db)
+            .and_then(|mut catalog| catalog.import_wav_directory(directory))
+        {
+            Ok(report) => {
+                for outcome in report.outcomes {
+                    println!("{:?}\t{}", outcome.status, outcome.path);
+                }
+                if report.complete {
+                    OK
+                } else {
+                    eprintln!("warning: scan incomplete; missing status unchanged");
+                    DOMAIN
+                }
+            }
+            Err(error) => {
+                eprintln!("error: {error}");
+                DOMAIN
+            }
+        };
+    }
     if action == "backup" || action == "restore" {
         let (source_flag, destination_flag) = if action == "backup" {
             ("--db", "--to")
@@ -173,6 +208,10 @@ fn print_usage(to_stdout: bool) {
     let _ = writeln!(
         output,
         "  catalog list --db <path>   List local catalog tracks"
+    );
+    let _ = writeln!(
+        output,
+        "  catalog import --dir <directory> --db <path>   Import WAV references recursively"
     );
     let _ = writeln!(
         output,
