@@ -600,6 +600,113 @@ mod tests {
     }
 
     #[test]
+    fn catalog_open_failed_migration_rolls_back_and_retries() {
+        let path = database_path();
+        let connection = Connection::open(&path).unwrap();
+        connection
+            .execute_batch(
+                "CREATE TABLE operations (marker TEXT NOT NULL);\
+                 INSERT INTO operations (marker) VALUES ('sentinel');",
+            )
+            .unwrap();
+        let version: i64 = connection
+            .pragma_query_value(None, "user_version", |row| row.get(0))
+            .unwrap();
+        let schema = connection
+            .prepare(
+                "SELECT type, name, tbl_name, sql FROM sqlite_schema \
+                 ORDER BY type, name, tbl_name, sql",
+            )
+            .unwrap()
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, Option<String>>(3)?,
+                ))
+            })
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        let sentinel: String = connection
+            .query_row("SELECT marker FROM operations", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(version, 0);
+        assert_eq!(sentinel, "sentinel");
+        drop(connection);
+
+        assert!(matches!(
+            Catalog::open(&path),
+            Err(CatalogError::Migration(_))
+        ));
+
+        let connection = Connection::open(&path).unwrap();
+        let actual_version: i64 = connection
+            .pragma_query_value(None, "user_version", |row| row.get(0))
+            .unwrap();
+        let actual_schema = connection
+            .prepare(
+                "SELECT type, name, tbl_name, sql FROM sqlite_schema \
+                 ORDER BY type, name, tbl_name, sql",
+            )
+            .unwrap()
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, Option<String>>(3)?,
+                ))
+            })
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        let actual_sentinel: String = connection
+            .query_row("SELECT marker FROM operations", [], |row| row.get(0))
+            .unwrap();
+        let tracks_exists: bool = connection
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = 'tracks')",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(actual_version, version);
+        assert_eq!(actual_schema, schema);
+        assert_eq!(actual_sentinel, sentinel);
+        assert!(!tracks_exists);
+        drop(connection);
+
+        let connection = Connection::open(&path).unwrap();
+        connection
+            .execute_batch("ALTER TABLE operations RENAME TO fixture_operations;")
+            .unwrap();
+        drop(connection);
+
+        let catalog = Catalog::open(&path).unwrap();
+        let version: i64 = catalog
+            .connection
+            .pragma_query_value(None, "user_version", |row| row.get(0))
+            .unwrap();
+        let track_count: i64 = catalog
+            .connection
+            .query_row("SELECT COUNT(*) FROM tracks", [], |row| row.get(0))
+            .unwrap();
+        let sentinel: String = catalog
+            .connection
+            .query_row("SELECT marker FROM fixture_operations", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(version, SCHEMA_VERSION);
+        assert_eq!(track_count, 0);
+        assert_eq!(sentinel, "sentinel");
+        drop(catalog);
+        remove_database(&path);
+    }
+
+    #[test]
     fn operation_replay_returns_same_track_and_changed_payload_conflicts() {
         let path = database_path();
         let mut catalog = Catalog::open(&path).unwrap();
@@ -625,6 +732,40 @@ mod tests {
             Err(CatalogError::OperationConflict(id)) if id == "op-1"
         ));
         assert_eq!(catalog.list_tracks().unwrap(), vec![first]);
+        drop(catalog);
+        remove_database(&path);
+    }
+
+    #[test]
+    fn failed_insert_rolls_back_and_retry_with_same_operation_id_succeeds() {
+        let path = database_path();
+        let mut catalog = Catalog::open(&path).unwrap();
+        catalog
+            .connection
+            .execute_batch(
+                "CREATE TRIGGER reject_operation BEFORE INSERT ON operations BEGIN SELECT RAISE(ABORT, 'injected operation failure'); END;",
+            )
+            .unwrap();
+
+        let error = catalog
+            .insert_track("retry-op", "/synthetic/retry.wav", [7; 32], 17)
+            .unwrap_err();
+        assert!(matches!(error, CatalogError::Sqlite(_)));
+        assert!(error.to_string().contains("catalog database error"));
+        assert_eq!(catalog.list_tracks().unwrap(), []);
+
+        catalog
+            .connection
+            .execute_batch("DROP TRIGGER reject_operation;")
+            .unwrap();
+        let inserted = catalog
+            .insert_track("retry-op", "/synthetic/retry.wav", [7; 32], 17)
+            .unwrap();
+        let replay = catalog
+            .insert_track("retry-op", "/synthetic/retry.wav", [7; 32], 17)
+            .unwrap();
+        assert_eq!(replay, inserted);
+        assert_eq!(catalog.list_tracks().unwrap(), vec![inserted]);
         drop(catalog);
         remove_database(&path);
     }
