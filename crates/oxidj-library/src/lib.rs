@@ -950,8 +950,22 @@ fn wav_container_padding_offsets(path: &Path) -> Option<(Vec<u64>, bool)> {
                 let bits = u16::from_le_bytes(basic[14..16].try_into().unwrap());
                 encoding_supported =
                     (tag == 1 && matches!(bits, 8 | 16 | 24 | 32)) || (tag == 3 && bits == 32);
-                if !matches!(tag, 1 | 3) || !matches!(bits, 8 | 16 | 24 | 32 | 64) {
+                if !matches!(tag, 1 | 3 | 0xfffe) || !matches!(bits, 8 | 16 | 24 | 32 | 64) {
                     return None;
+                }
+                if tag == 0xfffe {
+                    // WAVE_FORMAT_EXTENSIBLE has a 22-byte extension and a subtype GUID.
+                    // Validate its framing, but leave decoding outside the supported matrix.
+                    if size < 40 {
+                        return None;
+                    }
+                    let mut extension = [0u8; 24];
+                    if file.read_exact(&mut extension).is_err()
+                        || u16::from_le_bytes(extension[..2].try_into().unwrap()) < 22
+                    {
+                        return None;
+                    }
+                    encoding_supported = false;
                 }
                 fmt = true;
             }
@@ -1632,6 +1646,42 @@ mod tests {
         let mut catalog = Catalog::open(&db).unwrap();
         let report = catalog.import_wav_directory(&root).unwrap();
         assert_eq!(report.outcomes[0].status, ImportStatus::Unsupported);
+        drop(catalog);
+        remove_database(&db);
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn valid_extensible_pcm24_wav_is_reported_unsupported_by_import() {
+        let root = database_path().with_extension("extensible-wav");
+        std::fs::create_dir_all(&root).unwrap();
+        let wav = root.join("extensible.wav");
+        write_test_wav(&wav, &[1, 2]);
+        let mut bytes = std::fs::read(&wav).unwrap();
+        let fmt = 12 + 8;
+        bytes[fmt..fmt + 2].copy_from_slice(&0xfffeu16.to_le_bytes());
+        bytes[fmt - 4..fmt].copy_from_slice(&40u32.to_le_bytes());
+        bytes[fmt + 8..fmt + 12].copy_from_slice(&144_000u32.to_le_bytes());
+        bytes[fmt + 12..fmt + 14].copy_from_slice(&3u16.to_le_bytes());
+        bytes[fmt + 14..fmt + 16].copy_from_slice(&24u16.to_le_bytes());
+        let mut extension = Vec::new();
+        extension.extend_from_slice(&22u16.to_le_bytes());
+        extension.extend_from_slice(&24u16.to_le_bytes());
+        extension.extend_from_slice(&4u32.to_le_bytes());
+        extension.extend_from_slice(&[1, 0, 0, 0, 0, 0, 16, 0, 128, 0, 0, 170, 0, 56, 155, 113]);
+        bytes.splice(fmt + 16..fmt + 16, extension);
+        let riff_size = (bytes.len() - 8) as u32;
+        bytes[4..8].copy_from_slice(&riff_size.to_le_bytes());
+        std::fs::write(&wav, &bytes).unwrap();
+        let original = std::fs::read(&wav).unwrap();
+        let (_, supported) = wav_container_padding_offsets(&wav).unwrap();
+        assert!(!supported);
+
+        let db = database_path();
+        let mut catalog = Catalog::open(&db).unwrap();
+        let report = catalog.import_wav_directory(&root).unwrap();
+        assert_eq!(report.outcomes[0].status, ImportStatus::Unsupported);
+        assert_eq!(std::fs::read(&wav).unwrap(), original);
         drop(catalog);
         remove_database(&db);
         let _ = std::fs::remove_dir_all(root);
