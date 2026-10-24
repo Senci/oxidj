@@ -145,6 +145,7 @@ struct DepInfo {
     kind: Option<String>,
     req: String,
     default_features: bool,
+    features: Vec<String>,
 }
 
 fn parse_deps(array: &serde_json::Value) -> Vec<DepInfo> {
@@ -158,6 +159,15 @@ fn parse_deps(array: &serde_json::Value) -> Vec<DepInfo> {
             kind: d["kind"].as_str().map(String::from),
             req: d["req"].as_str().unwrap_or_default().to_string(),
             default_features: d["uses_default_features"].as_bool().unwrap_or(true),
+            features: d["features"]
+                .as_array()
+                .map(|features| {
+                    features
+                        .iter()
+                        .filter_map(|feature| feature.as_str().map(String::from))
+                        .collect()
+                })
+                .unwrap_or_default(),
         })
         .collect()
 }
@@ -246,7 +256,8 @@ fn check_layers(meta: &serde_json::Value) -> Result<(), Vec<String>> {
             let accepted_library_audio = name == "oxidj-library"
                 && expected_audio_req == Some(dep.req.as_str())
                 && dep.kind.is_none()
-                && !dep.default_features;
+                && !dep.default_features
+                && dep.features.is_empty();
             if !accepted_library_persistence
                 && !accepted_library_audio
                 && let Some(category) = denied_category(dep_name)
@@ -493,7 +504,8 @@ mod tests {
                         "source": src,
                         "kind": null,
                         "req": req,
-                        "uses_default_features": uses_default_features
+                        "uses_default_features": uses_default_features,
+                        "features": []
                     })
                 })
                 .collect::<Vec<_>>()
@@ -598,6 +610,7 @@ mod tests {
             ("req", json!("^3.5")),
             ("uses_default_features", json!(true)),
             ("kind", json!("dev")),
+            ("features", json!(["std"])),
         ] {
             let mut meta = json!({
                 "workspace_members": ["path+file:///root#oxidj-library@0.1.0"],
