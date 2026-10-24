@@ -11,6 +11,8 @@ struct TableState {
     selected: BTreeSet<usize>,
     anchor: Option<usize>,
     has_focus: bool,
+    scroll_to_focused: bool,
+    widget_focused: Option<usize>,
     last_drop: Option<(usize, usize)>,
 }
 
@@ -72,6 +74,7 @@ impl TableState {
             } else if !command {
                 self.select_only(self.focused);
             }
+            self.scroll_to_focused = true;
         }
     }
 }
@@ -80,8 +83,14 @@ fn track_row(ui: &mut egui::Ui, index: usize, table: &mut TableState) -> egui::R
     let label = format!("Track {index:06} — Synthetic Artist — Synthetic Album");
     let (drop_response, dropped) = ui.dnd_drop_zone::<usize, _>(egui::Frame::default(), |ui| {
         ui.dnd_drag_source(egui::Id::new(("track-drag", index)), index, |ui| {
-            ui.selectable_label(table.selected.contains(&index), &label)
-                .on_hover_text("Synthetic row; drag onto another row to record a drop")
+            let row = ui.selectable_label(table.selected.contains(&index), &label);
+            if table.has_focus && table.focused == index {
+                row.request_focus();
+            }
+            if row.has_focus() {
+                table.widget_focused = Some(index);
+            }
+            row.on_hover_text("Synthetic row; drag onto another row to record a drop")
         })
     });
     if drop_response.inner.inner.clicked() {
@@ -100,6 +109,24 @@ fn track_row(ui: &mut egui::Ui, index: usize, table: &mut TableState) -> egui::R
     drop_response.response.rect
 }
 
+fn show_tracks(ui: &mut egui::Ui, count: usize, table: &mut TableState) -> f32 {
+    const ROW_HEIGHT: f32 = 24.0;
+    let row_height_with_spacing = ROW_HEIGHT + ui.spacing().item_spacing.y;
+    let scroll_area = ScrollArea::vertical().auto_shrink([false, false]);
+    let scroll_area = if table.scroll_to_focused {
+        scroll_area.vertical_scroll_offset(table.focused as f32 * row_height_with_spacing)
+    } else {
+        scroll_area
+    };
+    let output = scroll_area.show_rows(ui, ROW_HEIGHT, count, |ui, rows| {
+        for index in rows {
+            track_row(ui, index, table);
+        }
+    });
+    table.scroll_to_focused = false;
+    output.state.offset.y
+}
+
 struct Probe {
     count: usize,
     started: Instant,
@@ -107,6 +134,7 @@ struct Probe {
     reported: bool,
     keyboard_events: u32,
     table: TableState,
+    scroll_offset: f32,
 }
 
 impl eframe::App for Probe {
@@ -130,6 +158,7 @@ impl eframe::App for Probe {
             )
         });
         self.table.has_focus = window_focused;
+        self.table.widget_focused = None;
         if self.table.has_focus {
             for (key, shift, command) in keys {
                 if matches!(
@@ -148,13 +177,15 @@ impl eframe::App for Probe {
         if !self.reported && self.started.elapsed() >= Duration::from_secs(15) {
             self.reported = true;
             eprintln!(
-                "probe_finished rows={} update_callbacks={} elapsed_ms={} callback_fps={:.1} keyboard_events={} focused_row={} selected_rows={:?} last_drop={:?}",
+                "probe_finished rows={} update_callbacks={} elapsed_ms={} callback_fps={:.1} keyboard_events={} focused_row={} widget_focused_row={:?} scroll_offset={:.1} selected_rows={:?} last_drop={:?}",
                 self.count,
                 self.frames,
                 self.started.elapsed().as_millis(),
                 self.frames as f64 / self.started.elapsed().as_secs_f64().max(0.001),
                 self.keyboard_events,
                 self.table.focused,
+                self.table.widget_focused,
+                self.scroll_offset,
                 self.table.selected.iter().take(8).collect::<Vec<_>>(),
                 self.table.last_drop
             );
@@ -164,11 +195,7 @@ impl eframe::App for Probe {
             ui.heading(format!("Synthetic virtualized track list: {} rows", self.count));
             ui.label(format!("Focused row: {} | selected: {} | last drop: {:?}", self.table.focused, self.table.selected.len(), self.table.last_drop));
             ui.label("Click selects; Up/Down, Home/End navigate; Space selects; Ctrl/Command+Space toggles; Shift+Up/Down extends selection; drag a row onto another to record a drop.");
-            ScrollArea::vertical().auto_shrink([false, false]).show_rows(ui, 24.0, self.count, |ui, rows| {
-                for index in rows {
-                    track_row(ui, index, &mut self.table);
-                }
-            });
+            self.scroll_offset = show_tracks(ui, self.count, &mut self.table);
         });
         if self.started.elapsed() < Duration::from_secs(15) {
             ctx.request_repaint();
@@ -178,7 +205,7 @@ impl eframe::App for Probe {
 
 #[cfg(test)]
 mod tests {
-    use super::{TableState, track_row};
+    use super::{TableState, show_tracks, track_row};
     use eframe::egui::{self, Event, Key, PointerButton, Pos2, RawInput, Rect, Vec2};
 
     fn render_rows(
@@ -226,6 +253,7 @@ mod tests {
         table.key(Key::ArrowDown, true, false, 8);
 
         assert_eq!(table.focused, 5);
+        assert!(table.scroll_to_focused);
         assert_eq!(
             table.selected.iter().copied().collect::<Vec<_>>(),
             [3, 4, 5]
@@ -234,6 +262,7 @@ mod tests {
         table.key(Key::End, false, false, 8);
         table.key(Key::ArrowDown, false, false, 8);
         assert_eq!(table.focused, 7);
+        assert!(table.scroll_to_focused);
         assert_eq!(table.selected.iter().copied().collect::<Vec<_>>(), [7]);
     }
 
@@ -314,6 +343,31 @@ mod tests {
         assert_eq!(role, egui::accesskit::Role::Button);
         assert!(label.contains("Synthetic Artist"));
     }
+
+    #[test]
+    fn offscreen_keyboard_focus_scrolls_and_focuses_the_target_row() {
+        let ctx = egui::Context::default();
+        let mut table = TableState {
+            focused: 199,
+            has_focus: true,
+            scroll_to_focused: true,
+            ..Default::default()
+        };
+        let input = RawInput {
+            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(400.0, 200.0))),
+            ..Default::default()
+        };
+        let mut scroll_offset = 0.0;
+        let _ = ctx.run(input, |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                scroll_offset = show_tracks(ui, 200, &mut table);
+            });
+        });
+
+        assert!(scroll_offset > 0.0);
+        assert_eq!(table.widget_focused, Some(199));
+        assert!(!table.scroll_to_focused);
+    }
 }
 
 fn main() -> eframe::Result {
@@ -336,6 +390,7 @@ fn main() -> eframe::Result {
                 reported: false,
                 keyboard_events: 0,
                 table: TableState::default(),
+                scroll_offset: 0.0,
             }))
         }),
     )
