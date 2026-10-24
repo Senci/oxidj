@@ -237,8 +237,21 @@ impl Catalog {
             complete: true,
             outcomes: Vec::new(),
         };
-        if !matches!(std::fs::symlink_metadata(input_root), Ok(metadata) if !metadata.file_type().is_symlink())
-        {
+        let mut component_path = if input_root.is_absolute() {
+            PathBuf::new()
+        } else {
+            std::env::current_dir().unwrap_or_default()
+        };
+        let has_symlink_component = input_root.components().any(|component| {
+            component_path.push(component.as_os_str());
+            std::fs::symlink_metadata(&component_path)
+                .is_ok_and(|metadata| metadata.file_type().is_symlink())
+        });
+        if has_symlink_component {
+            report.complete = false;
+            return Ok(report);
+        }
+        if !matches!(std::fs::metadata(input_root), Ok(metadata) if metadata.is_dir()) {
             report.complete = false;
             return Ok(report);
         }
@@ -315,6 +328,13 @@ impl Catalog {
                 });
                 continue;
             }
+            if !validate_wav_container(&path) {
+                report.outcomes.push(FileOutcome {
+                    path: path_text,
+                    status: ImportStatus::Malformed,
+                });
+                continue;
+            }
             let mut reader = match hound::WavReader::open(&path) {
                 Ok(reader) => reader,
                 Err(_) => {
@@ -371,10 +391,13 @@ impl Catalog {
                 hex_digest(&path_hash),
                 hex_digest(&digest)
             );
-            let track = self.insert_track(&op, &path_text, digest, byte_length)?;
-            self.connection.execute(
-                "INSERT INTO audio_facts(track_id,duration_seconds,sample_rate,channels,bit_depth,missing) VALUES(?1,?2,?3,?4,?5,0)",
-                rusqlite::params![i64::try_from(track.id.as_u64()).map_err(|_| CatalogError::InvalidRecord("track ID exceeds SQLite range"))?, duration, spec.sample_rate, spec.channels, spec.bits_per_sample],
+            self.insert_import_track_with_facts(
+                &op,
+                &path_text,
+                digest,
+                byte_length,
+                duration,
+                spec,
             )?;
             report.outcomes.push(FileOutcome {
                 path: path_text,
@@ -405,6 +428,70 @@ impl Catalog {
             }
         }
         Ok(report)
+    }
+
+    fn insert_import_track_with_facts(
+        &mut self,
+        operation_id: &str,
+        path: &str,
+        digest: [u8; 32],
+        byte_length: u64,
+        duration: f64,
+        spec: hound::WavSpec,
+    ) -> Result<(), CatalogError> {
+        let tx = self
+            .connection
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        if let Some((id, prior_digest, prior_length)) = tx
+            .query_row(
+                "SELECT id,sha256,byte_length FROM tracks WHERE path=?1 ORDER BY id LIMIT 1",
+                [path],
+                |r| {
+                    Ok((
+                        r.get::<_, i64>(0)?,
+                        r.get::<_, Vec<u8>>(1)?,
+                        r.get::<_, i64>(2)?,
+                    ))
+                },
+            )
+            .optional()?
+        {
+            if prior_digest.as_slice() != digest
+                || prior_length
+                    != i64::try_from(byte_length).map_err(|_| {
+                        CatalogError::InvalidRecord("byte length exceeds SQLite range")
+                    })?
+            {
+                return Err(CatalogError::OperationConflict(operation_id.to_string()));
+            }
+            let facts: bool = tx.query_row(
+                "SELECT EXISTS(SELECT 1 FROM audio_facts WHERE track_id=?1)",
+                [id],
+                |r| r.get(0),
+            )?;
+            if !facts {
+                return Err(CatalogError::InvalidRecord(
+                    "existing imported track has no audio facts",
+                ));
+            }
+            tx.commit()?;
+            return Ok(());
+        }
+        let count: i64 = tx.query_row("SELECT COUNT(*) FROM tracks", [], |r| r.get(0))?;
+        if count >= 10_000 {
+            return Err(CatalogError::TrackLimit);
+        }
+        let id: i64 = tx.query_row("SELECT COALESCE(MAX(id),0)+1 FROM tracks", [], |r| r.get(0))?;
+        let length = i64::try_from(byte_length)
+            .map_err(|_| CatalogError::InvalidRecord("byte length exceeds SQLite range"))?;
+        tx.execute(
+            "INSERT INTO tracks(id,path,sha256,byte_length) VALUES(?1,?2,?3,?4)",
+            rusqlite::params![id, path, digest.as_slice(), length],
+        )?;
+        tx.execute("INSERT INTO operations(operation_id,track_id,path,sha256,byte_length) VALUES(?1,?2,?3,?4,?5)", rusqlite::params![operation_id,id,path,digest.as_slice(),length])?;
+        tx.execute("INSERT INTO audio_facts(track_id,duration_seconds,sample_rate,channels,bit_depth,missing) VALUES(?1,?2,?3,?4,?5,0)", rusqlite::params![id,duration,spec.sample_rate,spec.channels,spec.bits_per_sample])?;
+        tx.commit()?;
+        Ok(())
     }
 
     /// List reference-only tracks in stable ID order.
@@ -784,6 +871,60 @@ pub struct FileOutcome {
 pub struct ImportReport {
     pub complete: bool,
     pub outcomes: Vec<FileOutcome>,
+}
+
+fn validate_wav_container(path: &Path) -> bool {
+    let Ok(bytes) = std::fs::read(path) else {
+        return false;
+    };
+    if bytes.len() < 12 || &bytes[0..4] != b"RIFF" || &bytes[8..12] != b"WAVE" {
+        return false;
+    }
+    let declared = u32::from_le_bytes(bytes[4..8].try_into().unwrap()) as usize;
+    let Some(end) = declared.checked_add(8) else {
+        return false;
+    };
+    if end != bytes.len() || end < 12 {
+        return false;
+    }
+    let mut offset = 12usize;
+    let mut fmt = false;
+    let mut data = false;
+    while offset < end {
+        if end - offset < 8 {
+            return false;
+        }
+        let size = u32::from_le_bytes(bytes[offset + 4..offset + 8].try_into().unwrap()) as usize;
+        let start = offset + 8;
+        let Some(chunk_end) = start.checked_add(size) else {
+            return false;
+        };
+        if chunk_end > end {
+            return false;
+        }
+        match &bytes[offset..offset + 4] {
+            b"fmt " => {
+                if size < 16 {
+                    return false;
+                }
+                let tag = u16::from_le_bytes(bytes[start..start + 2].try_into().unwrap());
+                let bits = u16::from_le_bytes(bytes[start + 14..start + 16].try_into().unwrap());
+                if !((tag == 1 && matches!(bits, 8 | 16 | 24 | 32))
+                    || (tag == 3 && matches!(bits, 32 | 64)))
+                {
+                    return false;
+                }
+                fmt = true;
+            }
+            b"data" => data = true,
+            _ => {}
+        }
+        offset = chunk_end + (size & 1);
+        if offset > end {
+            return false;
+        }
+    }
+    offset == end && fmt && data
 }
 
 fn file_sha256(path: &Path) -> std::io::Result<([u8; 32], u64)> {
@@ -1362,6 +1503,80 @@ mod tests {
             writer.write_sample(*sample).unwrap();
         }
         writer.finalize().unwrap();
+    }
+
+    #[test]
+    fn wav_container_validator_rejects_bad_riff_extent_and_accepts_exact_extent() {
+        let root = database_path().with_extension("riff-test");
+        std::fs::create_dir_all(&root).unwrap();
+        let wav = root.join("fixture.wav");
+        write_test_wav(&wav, &[1, 2, 3, 4]);
+        let valid = std::fs::read(&wav).unwrap();
+        assert!(validate_wav_container(&wav));
+        let mut undersized = valid.clone();
+        undersized[4..8].copy_from_slice(&4u32.to_le_bytes());
+        std::fs::write(&wav, undersized).unwrap();
+        assert!(!validate_wav_container(&wav));
+        let mut trailing = valid.clone();
+        trailing.extend_from_slice(&[0; 4]);
+        std::fs::write(&wav, trailing).unwrap();
+        assert!(!validate_wav_container(&wav));
+        std::fs::write(&wav, valid).unwrap();
+        assert!(validate_wav_container(&wav));
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn directory_import_rejects_symlink_in_root_ancestor() {
+        use std::os::unix::fs::symlink;
+        let base = database_path().with_extension("root-link");
+        let real = base.join("real");
+        std::fs::create_dir_all(real.join("sub")).unwrap();
+        write_test_wav(&real.join("sub/test.wav"), &[1, 2]);
+        symlink(&real, base.join("alias")).unwrap();
+        let db = database_path();
+        let mut catalog = Catalog::open(&db).unwrap();
+        let report = catalog
+            .import_wav_directory(base.join("alias/sub"))
+            .unwrap();
+        assert!(!report.complete);
+        assert!(catalog.list_tracks().unwrap().is_empty());
+        drop(catalog);
+        remove_database(&db);
+        let _ = std::fs::remove_dir_all(base);
+    }
+
+    #[test]
+    fn failed_audio_facts_insert_rolls_back_import_and_reopen_retry_succeeds() {
+        let root = database_path().with_extension("atomic-import");
+        std::fs::create_dir_all(&root).unwrap();
+        write_test_wav(&root.join("test.wav"), &[1, 2]);
+        let db = database_path();
+        let mut catalog = Catalog::open(&db).unwrap();
+        catalog.connection.execute_batch("CREATE TRIGGER fail_audio_facts BEFORE INSERT ON audio_facts BEGIN SELECT RAISE(ABORT, 'injected'); END;").unwrap();
+        assert!(catalog.import_wav_directory(&root).is_err());
+        let count: i64 = catalog
+            .connection
+            .query_row("SELECT COUNT(*) FROM tracks", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(count, 0);
+        drop(catalog);
+        let mut catalog = Catalog::open(&db).unwrap();
+        catalog
+            .connection
+            .execute_batch("DROP TRIGGER fail_audio_facts;")
+            .unwrap();
+        let report = catalog.import_wav_directory(&root).unwrap();
+        assert_eq!(report.outcomes[0].status, ImportStatus::Imported);
+        let facts: i64 = catalog
+            .connection
+            .query_row("SELECT COUNT(*) FROM audio_facts", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(facts, 1);
+        drop(catalog);
+        remove_database(&db);
+        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
