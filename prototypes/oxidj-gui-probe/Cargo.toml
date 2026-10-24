@@ -1,0 +1,10 @@
+[package]
+name = "oxidj-gui-probe"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[dependencies]
+eframe = { version = "=0.32.3", features = ["accesskit"] }
