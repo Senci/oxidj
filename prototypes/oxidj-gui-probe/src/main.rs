@@ -118,7 +118,7 @@ fn show_tracks(ui: &mut egui::Ui, count: usize, table: &mut TableState) -> f32 {
     } else {
         scroll_area
     };
-    let output = scroll_area.show_rows(ui, row_height_with_spacing, count, |ui, rows| {
+    let output = scroll_area.show_rows(ui, ROW_HEIGHT, count, |ui, rows| {
         for index in rows {
             track_row(ui, index, table);
         }
