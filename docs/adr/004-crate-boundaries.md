@@ -16,7 +16,7 @@ review_confidence: high
 
 ## Context
 
-OxiDJ must separate domain logic, adapters, UI, persistence, audio decoding/analysis, and the future realtime engine so that each can be built, tested, and versioned independently. SoundCraft's `cargo xtask layers` gate validates UI dependencies do not leak into the library and that adapters are isolated. The audio evaluation mandates that the realtime engine (CPAL + RT-safe DSP) be a separate crate from offline decode/analysis (Symphonia). GUI and persistence must not define the domain model.
+OxiDJ must separate domain logic, adapters, UI, persistence, offline decoding/analysis, and the future realtime engine so that each can be built, tested, and versioned independently. SoundCraft's `cargo xtask layers` gate validates UI dependencies do not leak into the library and that adapters are isolated. Offline WAV/FLAC/MP3 decoding is admitted only in `oxidj-library` for the bounded M2 importer; the realtime engine (CPAL + RT-safe DSP) remains separate. GUI and persistence must not define the domain model.
 
 ## Decision
 
@@ -32,15 +32,25 @@ flowchart TB
     adapters["oxidj-adapters<br/>vendor formats"] --> library
     storage["oxidj-storage<br/>SQLite, migrations"] --> core
     analysis["oxidj-analysis<br/>BPM, beatgrid, waveform, key"] --> core
-    audio["oxidj-audio<br/>offline Symphonia decode, M0–M3"] --> core
+    audio["WAV/FLAC/MP3 decode in oxidj-library<br/>M2 import only"] --> library
     engine["oxidj-engine<br/>M4+ deferred"] -. "depends only on" .-> core
 ```
 
 The **realtime engine** (`oxidj-engine`: CPAL + dasp/fundsp/rubato) is a separate crate with strictly one dependency edge — `oxidj-core` — and is **not created in M0**. It enters only at M4.
 
+The **M2 decoder exception** is deliberately narrow: `oxidj-library` may use the following as normal dependencies, with no feature additions beyond the stated defaults:
+
+| Crate | Version | Features |
+|---|---:|---|
+| `hound` | `=3.5.1` | `default-features = false` |
+| `claxon` | `=0.4.3` | `default-features = false` |
+| `nanomp3` | `=0.2.0` | `default-features = false` |
+
+These decoders are denied in `oxidj-core` and `oxidj-cli`; every other audio dependency remains denied in all product crates, including `oxidj-library`. `nanomp3-core` is not an additional direct-dependency exception. This admission authorizes policy only: decoder dependencies are not added by this ADR amendment. Realtime audio remains isolated in the deferred `oxidj-engine` crate.
+
 **Command-first application layer:** All operations (import, edit, export, analysis) flow through typed internal commands in `oxidj-core` or `oxidj-library`, usable by GUI, CLI, tests, and future automation without duplication. (soundcraft.md ADOPT: "One application-operation path for UI and headless callers.")
 
-**M0 scope:** Only `oxidj-core` and `oxidj-cli` are scaffolded. Adapters, storage, analysis, audio, and UI are deferred to M1–M3.
+**M0 scope:** Only `oxidj-core` and `oxidj-cli` are scaffolded. Adapters, storage, analysis, audio-specific crates, and UI are deferred to M1–M3; the M2 import decoders are hosted directly by `oxidj-library` under the narrow exception above.
 
 ## Evidence
 

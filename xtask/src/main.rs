@@ -38,7 +38,8 @@ const EXEMPT_CRATES: &[&str] = &["xtask"];
 
 // --- Infrastructure denylists (ADR-004 boundary rules) ---------------------
 // core and CLI: zero UI / audio / persistence / vendor deps by design.
-// library: owns accepted local persistence; no audio, UI, or vendor adapters.
+// library: owns accepted local persistence and only the M2 WAV/FLAC/MP3
+// decoders; other audio, UI, and vendor adapters remain forbidden.
 // A crate on any of these lists in a layered crate's dependencies is a hard
 // policy failure, regardless of dependency KIND (normal/dev/build), so the gate
 // also catches forbidden dev-dependencies.
@@ -51,6 +52,9 @@ const AUDIO_CRATES: &[&str] = &[
     "fundsp",
     "minimp3",
     "hound",
+    "claxon",
+    "nanomp3",
+    "nanomp3-core",
     "lewton",
     "audiobuffer",
     "wavr",
@@ -138,6 +142,10 @@ fn cargo_metadata() -> Result<serde_json::Value, String> {
 struct DepInfo {
     name: String,
     source: Option<String>,
+    kind: Option<String>,
+    req: String,
+    default_features: bool,
+    features: Vec<String>,
 }
 
 fn parse_deps(array: &serde_json::Value) -> Vec<DepInfo> {
@@ -148,6 +156,18 @@ fn parse_deps(array: &serde_json::Value) -> Vec<DepInfo> {
         .map(|d| DepInfo {
             name: d["name"].as_str().unwrap_or_default().to_string(),
             source: d["source"].as_str().map(String::from),
+            kind: d["kind"].as_str().map(String::from),
+            req: d["req"].as_str().unwrap_or_default().to_string(),
+            default_features: d["uses_default_features"].as_bool().unwrap_or(true),
+            features: d["features"]
+                .as_array()
+                .map(|features| {
+                    features
+                        .iter()
+                        .filter_map(|feature| feature.as_str().map(String::from))
+                        .collect()
+                })
+                .unwrap_or_default(),
         })
         .collect()
 }
@@ -227,7 +247,21 @@ fn check_layers(meta: &serde_json::Value) -> Result<(), Vec<String>> {
             // External dependency (registry / git / path-to-non-member).
             let accepted_library_persistence = name == "oxidj-library"
                 && matches!(dep_name.as_str(), "rusqlite" | "rusqlite_migration");
-            if !accepted_library_persistence && let Some(category) = denied_category(dep_name) {
+            let expected_audio_req = match dep_name.as_str() {
+                "hound" => Some("=3.5.1"),
+                "claxon" => Some("=0.4.3"),
+                "nanomp3" => Some("=0.2.0"),
+                _ => None,
+            };
+            let accepted_library_audio = name == "oxidj-library"
+                && expected_audio_req == Some(dep.req.as_str())
+                && dep.kind.is_none()
+                && !dep.default_features
+                && dep.features.is_empty();
+            if !accepted_library_persistence
+                && !accepted_library_audio
+                && let Some(category) = denied_category(dep_name)
+            {
                 violations.push(format!(
                     "{name} (layer {my_layer}) declares forbidden {category} dependency \
                      '{dep_name}' — ADR-004: {name} must not reference {category} infrastructure",
@@ -458,7 +492,22 @@ mod tests {
     fn member(name: &str, deps: Vec<(&str, Option<&str>)>) -> serde_json::Value {
         let deps_val = json!(
             deps.iter()
-                .map(|(n, src)| json!({ "name": n, "source": src }))
+                .map(|(n, src)| {
+                    let (req, uses_default_features) = match *n {
+                        "hound" => ("=3.5.1", false),
+                        "claxon" => ("=0.4.3", false),
+                        "nanomp3" => ("=0.2.0", false),
+                        _ => ("*", true),
+                    };
+                    json!({
+                        "name": n,
+                        "source": src,
+                        "kind": null,
+                        "req": req,
+                        "uses_default_features": uses_default_features,
+                        "features": []
+                    })
+                })
                 .collect::<Vec<_>>()
         );
         json!({
@@ -497,6 +546,9 @@ mod tests {
                     ("oxidj-core", None),
                     ("rusqlite", Some("registry+https://index.crates.io/")),
                     ("rusqlite_migration", Some("registry+https://index.crates.io/")),
+                    ("hound", Some("registry+https://index.crates.io/")),
+                    ("claxon", Some("registry+https://index.crates.io/")),
+                    ("nanomp3", Some("registry+https://index.crates.io/")),
                 ]),
                 member("oxidj-cli", vec![("oxidj-library", None)]),
             ]
@@ -505,16 +557,93 @@ mod tests {
 
         let forbidden = json!({
             "workspace_members": ["path+file:///root#oxidj-library@0.1.0"],
-            "packages": [member("oxidj-library", vec![(
-                "sqlx", Some("registry+https://index.crates.io/")
-            )])]
+            "packages": [member("oxidj-library", vec![
+                ("sqlx", Some("registry+https://index.crates.io/")),
+                ("rodio", Some("registry+https://index.crates.io/")),
+            ])]
         });
         let errors = check_layers(&forbidden).unwrap_err();
         assert!(
             errors
                 .iter()
-                .any(|error| error.contains("forbidden persistence dependency 'sqlx'"))
+                .any(|error| { error.contains("forbidden persistence dependency 'sqlx'") })
         );
+        assert!(
+            errors
+                .iter()
+                .any(|error| { error.contains("forbidden audio dependency 'rodio'") })
+        );
+    }
+
+    #[test]
+    fn m2_decoders_are_library_only() {
+        for decoder in ["hound", "claxon", "nanomp3"] {
+            let library = json!({
+                "workspace_members": ["path+file:///root#oxidj-library@0.1.0"],
+                "packages": [member("oxidj-library", vec![(
+                    decoder,
+                    Some("registry+https://index.crates.io/")
+                )])]
+            });
+            assert!(
+                check_layers(&library).is_ok(),
+                "oxidj-library should allow {decoder}"
+            );
+
+            let core = json!({
+                "workspace_members": ["path+file:///root#oxidj-core@0.1.0"],
+                "packages": [member("oxidj-core", vec![(
+                    decoder,
+                    Some("registry+https://index.crates.io/")
+                )])]
+            });
+            let errors = check_layers(&core).unwrap_err();
+            assert!(errors.iter().any(|error| {
+                error.contains(&format!("forbidden audio dependency '{decoder}'"))
+            }));
+        }
+    }
+
+    #[test]
+    fn decoder_exception_requires_exact_normal_dependency_configuration() {
+        for (field, invalid_value) in [
+            ("req", json!("^3.5")),
+            ("uses_default_features", json!(true)),
+            ("kind", json!("dev")),
+            ("features", json!(["std"])),
+        ] {
+            let mut meta = json!({
+                "workspace_members": ["path+file:///root#oxidj-library@0.1.0"],
+                "packages": [member("oxidj-library", vec![(
+                    "hound",
+                    Some("registry+https://index.crates.io/")
+                )])]
+            });
+            meta["packages"][0]["dependencies"][0][field] = invalid_value;
+            let errors = check_layers(&meta).unwrap_err();
+            assert!(
+                errors
+                    .iter()
+                    .any(|error| { error.contains("forbidden audio dependency 'hound'") })
+            );
+        }
+    }
+
+    #[test]
+    fn library_rejects_unapproved_audio_crates() {
+        for dependency in ["symphonia", "nanomp3-core", "minimp3", "rodio"] {
+            let meta = json!({
+                "workspace_members": ["path+file:///root#oxidj-library@0.1.0"],
+                "packages": [member("oxidj-library", vec![(
+                    dependency,
+                    Some("registry+https://index.crates.io/")
+                )])]
+            });
+            let errors = check_layers(&meta).unwrap_err();
+            assert!(errors.iter().any(|error| {
+                error.contains(&format!("forbidden audio dependency '{dependency}'"))
+            }));
+        }
     }
 
     #[test]
