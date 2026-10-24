@@ -737,6 +737,37 @@ mod tests {
     }
 
     #[test]
+    fn committed_operation_reconciles_after_lost_acknowledgement_and_reopen() {
+        let path = database_path();
+        let original = {
+            let mut catalog = Catalog::open(&path).unwrap();
+            // The write commits; deliberately discard the acknowledgement to model an
+            // uncertain commit observed by a caller after a connection loss.
+            let acknowledgement = catalog
+                .insert_track("uncertain-op", "/synthetic/uncertain.wav", [9; 32], 23)
+                .unwrap();
+            let committed_track = catalog.list_tracks().unwrap().remove(0);
+            drop(acknowledgement);
+            drop(catalog);
+            committed_track
+        };
+
+        let mut reopened = Catalog::open(&path).unwrap();
+        let reconciled = reopened
+            .insert_track("uncertain-op", "/synthetic/uncertain.wav", [9; 32], 23)
+            .unwrap();
+        assert_eq!(reconciled, original);
+        assert_eq!(reopened.list_tracks().unwrap(), vec![original.clone()]);
+        assert!(matches!(
+            reopened.insert_track("uncertain-op", "/synthetic/other.wav", [9; 32], 23),
+            Err(CatalogError::OperationConflict(id)) if id == "uncertain-op"
+        ));
+        assert_eq!(reopened.list_tracks().unwrap(), vec![original]);
+        drop(reopened);
+        remove_database(&path);
+    }
+
+    #[test]
     fn failed_insert_rolls_back_and_retry_with_same_operation_id_succeeds() {
         let path = database_path();
         let mut catalog = Catalog::open(&path).unwrap();
