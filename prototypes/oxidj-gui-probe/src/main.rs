@@ -401,6 +401,32 @@ mod tests {
 
         assert_eq!(table.widget_focused, Some(199));
     }
+
+    #[test]
+    fn last_row_focus_scales_to_200k_and_500k_rows() {
+        for count in [200_000, 500_000] {
+            let ctx = egui::Context::default();
+            let mut table = TableState {
+                focused: count - 1,
+                has_focus: true,
+                scroll_to_focused: true,
+                ..Default::default()
+            };
+            let input = RawInput {
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(400.0, 200.0))),
+                ..Default::default()
+            };
+            let mut scroll_offset = 0.0;
+            let _ = ctx.run(input, |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    scroll_offset = render_tracks(ui, count, &mut table);
+                });
+            });
+
+            assert!(scroll_offset > 0.0, "count={count}");
+            assert_eq!(table.widget_focused, Some(count - 1), "count={count}");
+        }
+    }
 }
 
 fn main() -> eframe::Result {
