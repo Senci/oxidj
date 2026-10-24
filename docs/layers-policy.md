@@ -17,11 +17,16 @@ crates at the **same layer or lower**. Depending on a higher layer is a forbidde
 | 1     | `oxidj-cli`  | Command-line entry point; calls library handlers.    |
 | exempt| `xtask`      | Build-time tooling (`cargo xtask`), never a product dep.  |
 
-The M1 graph keeps persistence behind the library: CLI calls library handlers,
+The M1 layer model keeps persistence behind the library: CLI calls library handlers,
 and both layer-1 crates may depend on core. The core cannot depend upward.
 `oxidj-library` alone may depend on `rusqlite` and `rusqlite_migration`; all
-other persistence dependencies remain forbidden. `xtask` is outside the product
-dependency graph.
+other persistence dependencies remain forbidden. For the bounded M2 importer,
+`oxidj-library` may also have normal dependencies on Hound `=3.5.1`, Claxon
+`=0.4.3`, and nanomp3 `=0.2.0`, each with `default-features = false` and no
+explicit features. These decoders remain forbidden in core and CLI; every other
+audio crate remains forbidden in every product crate. `nanomp3-core` is not a
+separate direct-dependency exception. The dependencies are not added by this
+policy change. `xtask` is outside the product dependency graph.
 
 ```mermaid
 flowchart TB
@@ -42,8 +47,9 @@ scaffold. Audio, analysis, vendor adapters and UI remain outside this slice.
    `core` → `cli` is forbidden.)
 2. **Infrastructure stays behind its owner.** Core and CLI deny audio, UI,
    persistence and vendor crates. Library allows only `rusqlite` and
-   `rusqlite_migration` from persistence and denies audio, UI, other persistence
-   and vendor crates. These checks include normal, dev and build dependencies.
+   `rusqlite_migration` from persistence and the three named M2 decoders from
+   audio; it denies all other audio, UI, other persistence and vendor crates.
+   These checks include normal, dev and build dependencies.
 3. **Every new product crate must be classified.** A workspace member with no
    layer assignment fails until it is added to the layer table in
    `xtask/src/main.rs`. This is what keeps the gate meaningful as the crate set
