@@ -87,7 +87,7 @@ fn run_catalog(args: &[String]) -> i32 {
         let directory = &args[dir_index + 1];
         let db = &args[db_index + 1];
         return match Catalog::open(db)
-            .and_then(|mut catalog| catalog.import_wav_directory(directory))
+            .and_then(|mut catalog| catalog.import_audio_directory(directory))
         {
             Ok(report) => {
                 for outcome in report.outcomes {

@@ -226,9 +226,17 @@ impl Catalog {
         Ok(Self { connection })
     }
 
-    /// Import WAV references from a directory without modifying source files.
-    /// A failed traversal is incomplete and therefore never marks old rows missing.
+    /// Backwards-compatible WAV import entry point.
     pub fn import_wav_directory(
+        &mut self,
+        root: impl AsRef<Path>,
+    ) -> Result<ImportReport, CatalogError> {
+        self.import_audio_directory(root)
+    }
+
+    /// Import supported WAV/FLAC/MP3 references from a directory without modifying source files.
+    /// A failed traversal is incomplete and therefore never marks old rows missing.
+    pub fn import_audio_directory(
         &mut self,
         root: impl AsRef<Path>,
     ) -> Result<ImportReport, CatalogError> {
@@ -268,10 +276,11 @@ impl Catalog {
         for path in paths {
             let path_text = path.to_string_lossy().into_owned();
             seen.insert(path_text.clone());
-            if !path
-                .extension()
-                .is_some_and(|ext| ext.eq_ignore_ascii_case("wav"))
-            {
+            if !path.extension().is_some_and(|ext| {
+                ["wav", "flac", "mp3"]
+                    .iter()
+                    .any(|supported| ext.eq_ignore_ascii_case(supported))
+            }) {
                 report.outcomes.push(FileOutcome {
                     path: path_text,
                     status: ImportStatus::Unsupported,
@@ -325,6 +334,49 @@ impl Catalog {
                 report.outcomes.push(FileOutcome {
                     path: path_text,
                     status: ImportStatus::Unchanged,
+                });
+                continue;
+            }
+            let extension = path
+                .extension()
+                .and_then(|ext| ext.to_str())
+                .unwrap_or("")
+                .to_ascii_lowercase();
+            if extension == "flac" || extension == "mp3" {
+                let facts = if extension == "flac" {
+                    decode_flac_facts(&path)
+                } else {
+                    decode_mp3_facts(&path)
+                };
+                let facts = match facts {
+                    Ok(facts) => facts,
+                    Err(status) => {
+                        report.outcomes.push(FileOutcome {
+                            path: path_text,
+                            status,
+                        });
+                        continue;
+                    }
+                };
+                if !matches!(file_sha256(&path), Ok((current_digest, current_length)) if current_digest == digest && current_length == byte_length)
+                {
+                    report.complete = false;
+                    report.outcomes.push(FileOutcome {
+                        path: path_text,
+                        status: ImportStatus::Unreadable,
+                    });
+                    continue;
+                }
+                let path_hash: [u8; 32] = sha2::Sha256::digest(path_text.as_bytes()).into();
+                let op = format!(
+                    "audio-import:{}:{}",
+                    hex_digest(&path_hash),
+                    hex_digest(&digest)
+                );
+                self.insert_import_track_with_facts(&op, &path_text, digest, byte_length, facts)?;
+                report.outcomes.push(FileOutcome {
+                    path: path_text,
+                    status: ImportStatus::Imported,
                 });
                 continue;
             }
@@ -413,8 +465,12 @@ impl Catalog {
                 &path_text,
                 digest,
                 byte_length,
-                duration,
-                spec,
+                AudioFacts {
+                    duration,
+                    sample_rate: spec.sample_rate,
+                    channels: spec.channels,
+                    bit_depth: spec.bits_per_sample,
+                },
             )?;
             report.outcomes.push(FileOutcome {
                 path: path_text,
@@ -453,8 +509,7 @@ impl Catalog {
         path: &str,
         digest: [u8; 32],
         byte_length: u64,
-        duration: f64,
-        spec: hound::WavSpec,
+        facts: AudioFacts,
     ) -> Result<(), CatalogError> {
         let tx = self
             .connection
@@ -506,7 +561,7 @@ impl Catalog {
             rusqlite::params![id, path, digest.as_slice(), length],
         )?;
         tx.execute("INSERT INTO operations(operation_id,track_id,path,sha256,byte_length) VALUES(?1,?2,?3,?4,?5)", rusqlite::params![operation_id,id,path,digest.as_slice(),length])?;
-        tx.execute("INSERT INTO audio_facts(track_id,duration_seconds,sample_rate,channels,bit_depth,missing) VALUES(?1,?2,?3,?4,?5,0)", rusqlite::params![id,duration,spec.sample_rate,spec.channels,spec.bits_per_sample])?;
+        tx.execute("INSERT INTO audio_facts(track_id,duration_seconds,sample_rate,channels,bit_depth,missing) VALUES(?1,?2,?3,?4,?5,0)", rusqlite::params![id,facts.duration,facts.sample_rate,facts.channels,facts.bit_depth])?;
         tx.commit()?;
         Ok(())
     }
@@ -891,6 +946,168 @@ pub struct ImportReport {
 }
 
 const MAX_WAV_CHUNKS: usize = 4096;
+
+#[derive(Clone, Copy)]
+struct AudioFacts {
+    duration: f64,
+    sample_rate: u32,
+    channels: u16,
+    bit_depth: u16,
+}
+
+fn decode_flac_facts(path: &Path) -> Result<AudioFacts, ImportStatus> {
+    let file = std::fs::File::open(path).map_err(|_| ImportStatus::Unreadable)?;
+    let mut reader = claxon::FlacReader::new_ext(
+        file,
+        claxon::FlacReaderOptions {
+            metadata_only: false,
+            read_vorbis_comment: false,
+        },
+    )
+    .map_err(|_| ImportStatus::Malformed)?;
+    let info = reader.streaminfo();
+    if info.sample_rate == 0 || info.channels == 0 || info.bits_per_sample == 0 {
+        return Err(ImportStatus::Malformed);
+    }
+    let samples = reader
+        .samples()
+        .try_fold(0_u64, |count, sample| {
+            sample.map(|_| count.saturating_add(1))
+        })
+        .map_err(|_| ImportStatus::Malformed)?;
+    if samples == 0 || samples % u64::from(info.channels) != 0 {
+        return Err(ImportStatus::Malformed);
+    }
+    Ok(AudioFacts {
+        duration: (samples / u64::from(info.channels)) as f64 / f64::from(info.sample_rate),
+        sample_rate: info.sample_rate,
+        channels: info.channels as u16,
+        bit_depth: info.bits_per_sample as u16,
+    })
+}
+
+fn decode_mp3_facts(path: &Path) -> Result<AudioFacts, ImportStatus> {
+    use std::io::{Read, Seek, SeekFrom};
+    const INPUT: usize = 32 * 1024;
+    const MAX_ID3_TAG: u64 = 16 * 1024 * 1024;
+    let mut file = std::fs::File::open(path).map_err(|_| ImportStatus::Unreadable)?;
+    let mut header = [0_u8; 10];
+    let header_len = file
+        .read(&mut header)
+        .map_err(|_| ImportStatus::Unreadable)?;
+    if header_len >= 3 && &header[..3] == b"ID3" {
+        if header_len != 10
+            || !matches!(header[3], 2..=4)
+            || header[4] == 0xff
+            || header[5] & 15 != 0
+            || header[6..10].iter().any(|byte| byte & 0x80 != 0)
+        {
+            return Err(ImportStatus::Malformed);
+        }
+        let tag_len = u64::from(header[6]) * 2_097_152
+            + u64::from(header[7]) * 16_384
+            + u64::from(header[8]) * 128
+            + u64::from(header[9])
+            + 10
+            + if header[5] & 16 != 0 { 10 } else { 0 };
+        if tag_len > MAX_ID3_TAG {
+            return Err(ImportStatus::Unsupported);
+        }
+        file.seek(SeekFrom::Start(tag_len))
+            .map_err(|_| ImportStatus::Malformed)?;
+    } else {
+        file.seek(SeekFrom::Start(0))
+            .map_err(|_| ImportStatus::Unreadable)?;
+    }
+    let mut input = [0_u8; INPUT];
+    let mut length = file
+        .read(&mut input)
+        .map_err(|_| ImportStatus::Unreadable)?;
+    let mut decoder = nanomp3::Decoder::new();
+    let mut pcm = [0_f32; nanomp3::MAX_SAMPLES_PER_FRAME];
+    let (mut rate, mut channels, mut samples, mut frames) = (0_u32, 0_u16, 0_u64, 0_u64);
+    loop {
+        if length == 0 {
+            break;
+        }
+        let (consumed, decoded) = decoder.decode(&input[..length], &mut pcm);
+        if consumed > length {
+            return Err(ImportStatus::Malformed);
+        }
+        if consumed == 0 {
+            if length == INPUT {
+                return Err(ImportStatus::Malformed);
+            }
+            let read = file
+                .read(&mut input[length..])
+                .map_err(|_| ImportStatus::Unreadable)?;
+            if read == 0 {
+                break;
+            }
+            length += read;
+            continue;
+        }
+        input.copy_within(consumed..length, 0);
+        length -= consumed;
+        let info = match decoded {
+            Ok(info) => {
+                samples = samples
+                    .checked_add(info.samples_produced as u64)
+                    .ok_or(ImportStatus::Malformed)?;
+                info
+            }
+            Err(nanomp3::DecodeError::ReservoirUnavailable(info)) => {
+                // The initial reservoir-dependent frames are valid frames, but
+                // their PCM is not reconstructable without preceding audio.
+                samples = samples
+                    .checked_add(if info.sample_rate >= 32_000 {
+                        1152
+                    } else {
+                        576
+                    })
+                    .ok_or(ImportStatus::Malformed)?;
+                info
+            }
+            Err(nanomp3::DecodeError::UnsupportedLayer(info)) => {
+                let _ = info;
+                return Err(ImportStatus::Unsupported);
+            }
+            Err(nanomp3::DecodeError::NoFrame | nanomp3::DecodeError::Corrupt(_)) => {
+                return Err(ImportStatus::Malformed);
+            }
+            Err(_) => return Err(ImportStatus::Malformed),
+        };
+        if info.layer != 3 {
+            return Err(ImportStatus::Unsupported);
+        }
+        if rate == 0 {
+            rate = info.sample_rate;
+            channels = u16::from(info.channels.num());
+        }
+        if info.sample_rate != rate || u16::from(info.channels.num()) != channels {
+            return Err(ImportStatus::Unsupported);
+        }
+        frames += 1;
+        if length < INPUT {
+            let read = file
+                .read(&mut input[length..])
+                .map_err(|_| ImportStatus::Unreadable)?;
+            length += read;
+            if read == 0 && length == 0 {
+                break;
+            }
+        }
+    }
+    if frames == 0 || rate == 0 || channels == 0 || samples == 0 {
+        return Err(ImportStatus::Malformed);
+    }
+    Ok(AudioFacts {
+        duration: (samples / u64::from(channels)) as f64 / f64::from(rate),
+        sample_rate: rate,
+        channels,
+        bit_depth: 16,
+    })
+}
 
 // Supported M2 WAV matrix: integer PCM 8/16/24/32 and IEEE float32.
 // Other structurally valid RIFF/WAVE format-tag/bit-depth combinations are Unsupported.
@@ -1589,6 +1806,82 @@ mod tests {
         );
         assert!(unrelated_preserved, "cleanup removed an unrelated file");
         assert!(temporary_clean, "owned temporary artifacts remain");
+    }
+
+    #[test]
+    fn flac_import_records_decoder_facts_and_malformed_files_per_file() {
+        let root = database_path().with_extension("flac-import");
+        std::fs::create_dir_all(&root).unwrap();
+        let flac = root.join("tone.flac");
+        std::fs::write(&flac, include_bytes!("../tests/fixtures/tone.flac")).unwrap();
+        let truncated = root.join("truncated.flac");
+        let mut truncated_bytes = [b'f', b'L', b'a', b'C', 0x80, 0, 0, 34].to_vec();
+        truncated_bytes.extend_from_slice(b"broken");
+        std::fs::write(&truncated, truncated_bytes).unwrap();
+        let db = database_path();
+        let mut catalog = Catalog::open(&db).unwrap();
+        let report = catalog.import_audio_directory(&root).unwrap();
+        assert!(report.complete);
+        assert_eq!(report.outcomes.len(), 2);
+        assert_eq!(report.outcomes[0].status, ImportStatus::Imported);
+        assert_eq!(report.outcomes[1].status, ImportStatus::Malformed);
+        let facts: (u32, u32, u32) = catalog
+            .connection
+            .query_row(
+                "SELECT sample_rate,channels,bit_depth FROM audio_facts WHERE track_id=1",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(facts, (44_100, 1, 16));
+        assert_eq!(
+            std::fs::read(&flac).unwrap(),
+            include_bytes!("../tests/fixtures/tone.flac")
+        );
+        drop(catalog);
+        remove_database(&db);
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn mp3_import_records_stream_facts_and_isolates_truncated_input() {
+        let root = database_path().with_extension("mp3-import");
+        std::fs::create_dir_all(&root).unwrap();
+        let mp3 = root.join("tone.mp3");
+        std::fs::write(&mp3, include_bytes!("../tests/fixtures/tone.mp3")).unwrap();
+        let tagged = root.join("tagged.mp3");
+        let mut tagged_bytes = [b'I', b'D', b'3', 4, 0, 0, 0, 0, 0, 0].to_vec();
+        tagged_bytes.extend_from_slice(include_bytes!("../tests/fixtures/tone.mp3"));
+        std::fs::write(&tagged, tagged_bytes).unwrap();
+        let truncated = root.join("truncated.mp3");
+        let fixture = include_bytes!("../tests/fixtures/tone.mp3");
+        std::fs::write(&truncated, &fixture[..32]).unwrap();
+        let truncated_tail = root.join("truncated-tail.mp3");
+        std::fs::write(&truncated_tail, &fixture[..fixture.len() - 20]).unwrap();
+        let db = database_path();
+        let mut catalog = Catalog::open(&db).unwrap();
+        let report = catalog.import_audio_directory(&root).unwrap();
+        assert_eq!(report.outcomes.len(), 4);
+        assert_eq!(report.outcomes[0].status, ImportStatus::Imported);
+        assert_eq!(report.outcomes[1].status, ImportStatus::Imported);
+        assert_eq!(report.outcomes[2].status, ImportStatus::Malformed);
+        assert_eq!(report.outcomes[3].status, ImportStatus::Malformed);
+        let facts: (u32, u32, u32) = catalog
+            .connection
+            .query_row(
+                "SELECT sample_rate,channels,bit_depth FROM audio_facts WHERE track_id=1",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(facts, (44_100, 1, 16));
+        assert_eq!(
+            std::fs::read(&mp3).unwrap(),
+            include_bytes!("../tests/fixtures/tone.mp3")
+        );
+        drop(catalog);
+        remove_database(&db);
+        let _ = std::fs::remove_dir_all(root);
     }
 
     fn write_test_wav(path: &Path, samples: &[i16]) {
