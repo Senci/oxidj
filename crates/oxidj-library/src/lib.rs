@@ -992,16 +992,88 @@ fn decode_flac_facts(path: &Path) -> Result<AudioFacts, ImportStatus> {
     })
 }
 
+fn mp3_frame_size(header: [u8; 4]) -> Result<usize, ImportStatus> {
+    let bits = u32::from_be_bytes(header);
+    if bits >> 21 != 0x7ff {
+        return Err(ImportStatus::Malformed);
+    }
+    let version = (bits >> 19) & 3;
+    let layer = (bits >> 17) & 3;
+    if version == 1 || layer == 0 {
+        return Err(ImportStatus::Malformed);
+    }
+    if layer != 1 {
+        return Err(ImportStatus::Unsupported);
+    }
+    let bitrate_index = ((bits >> 12) & 15) as usize;
+    let sample_rate_index = ((bits >> 10) & 3) as usize;
+    if bitrate_index == 15 || sample_rate_index == 3 {
+        return Err(ImportStatus::Malformed);
+    }
+    if bitrate_index == 0 {
+        return Err(ImportStatus::Unsupported);
+    }
+    let bitrates = if version == 3 {
+        [
+            0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320,
+        ]
+    } else {
+        [0, 8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160]
+    };
+    let mut sample_rates = [44_100, 48_000, 32_000];
+    if version == 2 {
+        sample_rates.iter_mut().for_each(|rate| *rate /= 2);
+    } else if version == 0 {
+        sample_rates.iter_mut().for_each(|rate| *rate /= 4);
+    }
+    let bitrate = bitrates[bitrate_index] as usize * 1000;
+    let sample_rate = sample_rates[sample_rate_index] as usize;
+    let padding = ((bits >> 9) & 1) as usize;
+    let coefficient = if version == 3 { 144 } else { 72 };
+    Ok(coefficient * bitrate / sample_rate + padding)
+}
+
+fn validate_mp3_frame_layout(
+    file: &mut std::fs::File,
+    start: u64,
+    end: u64,
+) -> Result<(), ImportStatus> {
+    use std::io::{Read, Seek, SeekFrom};
+    let mut offset = start;
+    let mut frames = 0_u64;
+    while offset < end {
+        if end - offset < 4 {
+            return Err(ImportStatus::Malformed);
+        }
+        file.seek(SeekFrom::Start(offset))
+            .map_err(|_| ImportStatus::Unreadable)?;
+        let mut header = [0_u8; 4];
+        file.read_exact(&mut header)
+            .map_err(|_| ImportStatus::Malformed)?;
+        let frame_size = mp3_frame_size(header)? as u64;
+        offset = offset
+            .checked_add(frame_size)
+            .filter(|next| *next <= end)
+            .ok_or(ImportStatus::Malformed)?;
+        frames += 1;
+    }
+    if frames == 0 {
+        return Err(ImportStatus::Malformed);
+    }
+    Ok(())
+}
+
 fn decode_mp3_facts(path: &Path) -> Result<AudioFacts, ImportStatus> {
     use std::io::{Read, Seek, SeekFrom};
     const INPUT: usize = 32 * 1024;
     const MAX_ID3_TAG: u64 = 16 * 1024 * 1024;
     let mut file = std::fs::File::open(path).map_err(|_| ImportStatus::Unreadable)?;
+    let file_len = file.metadata().map_err(|_| ImportStatus::Unreadable)?.len();
     let mut header = [0_u8; 10];
     let header_len = file
         .read(&mut header)
         .map_err(|_| ImportStatus::Unreadable)?;
-    if header_len >= 3 && &header[..3] == b"ID3" {
+    let audio_start = if header_len >= 3 && &header[..3] == b"ID3" {
         if header_len != 10
             || !matches!(header[3], 2..=4)
             || header[4] == 0xff
@@ -1019,12 +1091,28 @@ fn decode_mp3_facts(path: &Path) -> Result<AudioFacts, ImportStatus> {
         if tag_len > MAX_ID3_TAG {
             return Err(ImportStatus::Unsupported);
         }
-        file.seek(SeekFrom::Start(tag_len))
-            .map_err(|_| ImportStatus::Malformed)?;
+        if tag_len > file_len {
+            return Err(ImportStatus::Malformed);
+        }
+        tag_len
     } else {
-        file.seek(SeekFrom::Start(0))
+        0
+    };
+    let mut audio_end = file_len;
+    if file_len.saturating_sub(audio_start) >= 128 {
+        file.seek(SeekFrom::Start(file_len - 128))
             .map_err(|_| ImportStatus::Unreadable)?;
+        let mut tag = [0_u8; 3];
+        file.read_exact(&mut tag)
+            .map_err(|_| ImportStatus::Unreadable)?;
+        if &tag == b"TAG" {
+            audio_end -= 128;
+        }
     }
+    validate_mp3_frame_layout(&mut file, audio_start, audio_end)?;
+    file.seek(SeekFrom::Start(audio_start))
+        .map_err(|_| ImportStatus::Unreadable)?;
+    let mut file = file.take(audio_end - audio_start);
     let mut input = [0_u8; INPUT];
     let mut length = file
         .read(&mut input)
@@ -1850,6 +1938,62 @@ mod tests {
     }
 
     #[test]
+    fn flac_import_rejects_missing_declared_samples_after_whole_frame_truncation() {
+        let root = database_path().with_extension("flac-total-import");
+        std::fs::create_dir_all(&root).unwrap();
+        let valid = root.join("valid.flac");
+        let truncated = root.join("truncated.flac");
+        std::fs::write(&valid, include_bytes!("../tests/fixtures/tone-total.flac")).unwrap();
+        std::fs::write(
+            &truncated,
+            include_bytes!("../tests/fixtures/tone-total-truncated.flac"),
+        )
+        .unwrap();
+        let db = database_path();
+        let mut catalog = Catalog::open(&db).unwrap();
+        let report = catalog.import_audio_directory(&root).unwrap();
+        assert_eq!(report.outcomes.len(), 2);
+        assert_eq!(
+            report
+                .outcomes
+                .iter()
+                .find(|outcome| outcome.path.ends_with("valid.flac"))
+                .unwrap()
+                .status,
+            ImportStatus::Imported
+        );
+        assert_eq!(
+            report
+                .outcomes
+                .iter()
+                .find(|outcome| outcome.path.ends_with("truncated.flac"))
+                .unwrap()
+                .status,
+            ImportStatus::Malformed
+        );
+        let facts: (f64, u32, u32, u32) = catalog
+            .connection
+            .query_row(
+                "SELECT duration_seconds,sample_rate,channels,bit_depth FROM audio_facts JOIN tracks ON tracks.id=audio_facts.track_id WHERE path=?1",
+                [valid.to_string_lossy().as_ref()],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            )
+            .unwrap();
+        assert_eq!(facts, (0.1, 44_100, 1, 16));
+        assert_eq!(
+            std::fs::read(&valid).unwrap(),
+            include_bytes!("../tests/fixtures/tone-total.flac")
+        );
+        assert_eq!(
+            std::fs::read(&truncated).unwrap(),
+            include_bytes!("../tests/fixtures/tone-total-truncated.flac")
+        );
+        drop(catalog);
+        remove_database(&db);
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
     fn mp3_import_records_stream_facts_and_isolates_truncated_input() {
         let root = database_path().with_extension("mp3-import");
         std::fs::create_dir_all(&root).unwrap();
@@ -1884,6 +2028,77 @@ mod tests {
         assert_eq!(
             std::fs::read(&mp3).unwrap(),
             include_bytes!("../tests/fixtures/tone.mp3")
+        );
+        drop(catalog);
+        remove_database(&db);
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn mp3_import_validates_frame_boundaries_and_keeps_channel_duration() {
+        let root = database_path().with_extension("mp3-boundaries-import");
+        std::fs::create_dir_all(&root).unwrap();
+        let junk_prefix = root.join("junk-prefix.mp3");
+        let mut junk_bytes = b"NOT AN AUDIO FRAME".repeat(10);
+        junk_bytes.extend_from_slice(include_bytes!("../tests/fixtures/tone.mp3"));
+        std::fs::write(&junk_prefix, junk_bytes).unwrap();
+        let junk_between = root.join("junk-between-frames.mp3");
+        let fixture = include_bytes!("../tests/fixtures/tone.mp3");
+        let mut junk_between_bytes = fixture[..209].to_vec();
+        junk_between_bytes.extend_from_slice(b"junk");
+        junk_between_bytes.extend_from_slice(&fixture[209..]);
+        std::fs::write(&junk_between, junk_between_bytes).unwrap();
+        let id3v1 = root.join("id3v1.mp3");
+        let mut id3v1_bytes = include_bytes!("../tests/fixtures/tone.mp3").to_vec();
+        id3v1_bytes.extend_from_slice(b"TAG");
+        id3v1_bytes.extend_from_slice(&[0; 125]);
+        std::fs::write(&id3v1, id3v1_bytes).unwrap();
+        let mono = root.join("tone-mono.mp3");
+        std::fs::write(&mono, include_bytes!("../tests/fixtures/tone.mp3")).unwrap();
+        let stereo = root.join("tone-stereo.mp3");
+        std::fs::write(&stereo, include_bytes!("../tests/fixtures/tone-stereo.mp3")).unwrap();
+        let db = database_path();
+        let mut catalog = Catalog::open(&db).unwrap();
+        let report = catalog.import_audio_directory(&root).unwrap();
+        for (name, expected) in [
+            ("junk-prefix.mp3", ImportStatus::Malformed),
+            ("junk-between-frames.mp3", ImportStatus::Malformed),
+            ("id3v1.mp3", ImportStatus::Imported),
+            ("tone-mono.mp3", ImportStatus::Imported),
+            ("tone-stereo.mp3", ImportStatus::Imported),
+        ] {
+            assert_eq!(
+                report
+                    .outcomes
+                    .iter()
+                    .find(|outcome| outcome.path.ends_with(name))
+                    .unwrap()
+                    .status,
+                expected,
+                "unexpected outcome for {name}"
+            );
+        }
+        for (path, expected_duration, expected_channels) in [
+            (&mono, 8_064_f64 / 44_100.0, 1_u32),
+            (&stereo, 10_368_f64 / 44_100.0, 2_u32),
+        ] {
+            let facts: (f64, u32, u32, u32) = catalog
+                .connection
+                .query_row(
+                    "SELECT duration_seconds,sample_rate,channels,bit_depth FROM audio_facts JOIN tracks ON tracks.id=audio_facts.track_id WHERE path=?1",
+                    [path.to_string_lossy().as_ref()],
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+                )
+                .unwrap();
+            assert_eq!(facts, (expected_duration, 44_100, expected_channels, 16));
+        }
+        assert_eq!(
+            std::fs::read(&mono).unwrap(),
+            include_bytes!("../tests/fixtures/tone.mp3")
+        );
+        assert_eq!(
+            std::fs::read(&stereo).unwrap(),
+            include_bytes!("../tests/fixtures/tone-stereo.mp3")
         );
         drop(catalog);
         remove_database(&db);

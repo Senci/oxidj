@@ -211,7 +211,7 @@ fn print_usage(to_stdout: bool) {
     );
     let _ = writeln!(
         output,
-        "  catalog import --dir <directory> --db <path>   Import WAV references recursively"
+        "  catalog import --dir <directory> --db <path>   Import WAV/FLAC/MP3 references recursively"
     );
     let _ = writeln!(
         output,
