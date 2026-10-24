@@ -204,7 +204,6 @@ impl eframe::App for Probe {
                 self.table.selected.iter().take(8).collect::<Vec<_>>(),
                 self.table.last_drop
             );
-            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
         }
         if self.started.elapsed() < Duration::from_secs(15) {
             ctx.request_repaint();
