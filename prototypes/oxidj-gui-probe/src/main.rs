@@ -6,11 +6,25 @@ struct Probe {
     count: usize,
     started: Instant,
     frames: u64,
+    reported: bool,
 }
 
 impl eframe::App for Probe {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.frames += 1;
+        if self.frames == 1 {
+            eprintln!("probe_started rows={} elapsed_ms=0", self.count);
+        } else if !self.reported && self.started.elapsed() >= Duration::from_secs(15) {
+            self.reported = true;
+            eprintln!(
+                "probe_finished rows={} frames={} elapsed_ms={} callback_fps={:.1}",
+                self.count,
+                self.frames,
+                self.started.elapsed().as_millis(),
+                self.frames as f64 / self.started.elapsed().as_secs_f64().max(0.001)
+            );
+            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+        }
         egui::CentralPanel::default().show(ctx, |ui| {
             ui.heading(format!(
                 "Synthetic virtualized track list: {} rows",
@@ -58,6 +72,7 @@ fn main() -> eframe::Result {
                 count,
                 started: Instant::now(),
                 frames: 0,
+                reported: false,
             }))
         }),
     )
