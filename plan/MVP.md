@@ -9,7 +9,7 @@
 
 ## Revised local M1–M3 acceptance contract v1 (2026-10-23)
 
-This dated, scoped amendment supersedes the historical M1–M3 acceptance criteria only for delivery of the bounded local-library product slice. It does not change `idea.md`'s wider vision or mark any historical test, scale target, qualification, or GUI gate as passed. The chosen path remains SQLite/WAL/FULL, Symphonia, and egui/eframe, with existing ADR-001 qualification before production GUI admission. M1–M3 are incomplete until implementation, evidence, independent acceptance, and the terminal release contract below are complete.
+This dated, scoped amendment supersedes the historical M1–M3 acceptance criteria only for delivery of the bounded local-library product slice. It does not change `idea.md`'s wider vision or mark any historical test, scale target, qualification, or GUI gate as passed. The chosen path remains SQLite/WAL/FULL and egui/eframe, with existing ADR-001 qualification before production GUI admission. For a future M2 plan only, the conditional planning selection is Hound `=3.5.1`, Claxon `=0.4.3`, and nanomp3 `=0.2.0`, each with `default-features = false` and no explicit features; nanomp3-core `=0.2.0` is the reviewed transitive edge with defaults disabled, not another direct dependency. This is a recommendation only: it neither amends accepted ADR-004 nor enables a dependency or gate. Existing Symphonia statements in ADR-004 and the executable layer gate remain authoritative until the separate coordinated review and integration below. No replacement decoder is admitted, compiled, cargo-deny-approved, or implemented by this plan amendment. M1–M3 are incomplete until implementation, evidence, independent acceptance, and the terminal release contract below are complete.
 
 The local catalog is versioned, reference-only, single-process, local-filesystem and capped at 10,000 tracks. This is a scope boundary, not measured capacity or evidence of performance, crash durability, or scale. It imports no personal media into the repository or attachments. Only owner-authorized samples may be used in private local smoke tests; originals must remain unchanged.
 
@@ -28,11 +28,15 @@ The local catalog is versioned, reference-only, single-process, local-filesystem
 
 ### Implementation and gate sequencing
 
-1. Integrate this exact amendment only after independent Sol review and lead integration. The local dependency exception is not effective before both.
-2. Implement M1 bounded catalog and verified restart/backup/migration operations; M1 remains incomplete pending evidence and independent acceptance.
-3. Implement M2 importer on shared library handlers; declare/test exact encoding matrix and preserve source bytes.
-4. Complete unchanged ADR-001 framework/accessibility/platform gates before production M3 GUI admission; failed gates reopen framework selection rather than imply a pass.
-5. Integrate M3 over shared handlers and run real application smoke.
-6. Complete independent acceptance and terminal CI/merge/remote-readback contract above.
+1. Before decoder dependency admission, independently review and integrate a coordinated amendment to ADR-004, active architecture/research summaries, layer policy, and the narrow executable library-owner gate. Until then, decoder dependencies remain prohibited; this plan amendment does not change the current executable gate. Do not infer that Claxon, nanomp3, or nanomp3-core are allowed because the current denylist names Hound/Symphonia. The future gate may permit only the three named direct decoders in `oxidj-library` normal dependencies; classify Hound, Claxon, nanomp3, and nanomp3-core as audio so core/CLI remain barred. Keep core/CLI decoder bans, forbidden upward edges, realtime/M4 isolation, unchanged license allowlist, and unrelated audio/UI/vendor/persistence prohibitions.
+2. Integrate this exact amendment only after independent Sol review and lead integration. This conditional planning selection is not an effective dependency exception.
+3. Before admission, verify published archive identity and whole-workspace feature closure; run the cargo-deny/build checks. They remain outstanding. Independently review the strict MP3 framing/tag/refill/reservoir/final-frame design and fixtures; prove WAV container bounds/padding/trailing-byte/EOF behavior and FLAC frame/CRC/count/EOF behavior. Test each declared encoding and malformed inputs. Preserve bounded memory, workers and queues, with explicit resource-limit outcomes. Do not treat helper claims or the lower README MSRV assertion as established evidence.
+4. Implement M1 bounded catalog and verified restart/backup/migration operations; M1 remains incomplete pending evidence and independent acceptance.
+5. Implement M2 importer on shared library handlers; declare/test exact encoding matrix and preserve source bytes.
+6. Complete unchanged ADR-001 framework/accessibility/platform gates before production M3 GUI admission; failed gates reopen framework selection rather than imply a pass.
+7. Integrate M3 over shared handlers and run real application smoke.
+8. Complete independent acceptance and terminal CI/merge/remote-readback contract above.
 
 Qualification protocol, runner, threshold, P0/P1, B1/B2, WAL/recovery and ADR-005/A1–A3/C1–C6 remain independently governed by their source records. Do not relabel proposal, unmeasured, NOT READY, NOT PASSED, or NOT QUALIFYING evidence as passed. No code, dependency, qualification, benchmark, or fault-campaign result is implied by this documentation amendment.
+
+This conditional plan amendment passes no implementation, validation, dependency-admission, M2-readiness, or qualification gate. Current M1/M2/M3, ADR-005, qualification, and readiness statuses remain unchanged.
