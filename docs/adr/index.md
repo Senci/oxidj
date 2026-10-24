@@ -17,7 +17,7 @@
 
 **Accepted ≠ unconditional.** Each acceptance carries tracked preconditions:
 
-- **ADR-001** — final framework commitment gated on a 200k-row prototype, then 500k rows at 60fps plus accessibility/interaction evidence.
+- **ADR-001** — current prototype gated on the 200k-row smoke test; later final framework commitment retains the 500k-row 60fps target plus accessibility/interaction evidence. Owner deferred 60fps qualification from the current probe stage; it remains unverified, not passed.
 - **ADR-002** — SQLite/WAL with `synchronous=FULL`; zero-loss-on-ack is conditional on the supported storage stack honoring sync. The named `local-catalog-alpha-v1` exception permits only the bounded 10,000-track local slice after exact-diff independent Sol review and lead integration; PR #13 integrated it at `671ae2b3df933ada97297bbba19ea1394657c14e`. The separate representative 500k-track qualification gate remains NOT READY and unpassed.
 - **ADR-003** — field-relationship risk must be carried into ADR-005; import-edit-export validation is decision-bearing.
 - **ADR-004** — M0 = `core` + `cli` only; a `cargo xtask layers` gate must fail on a forbidden edge.

@@ -138,7 +138,7 @@ Established by ADR-001. **Prototype-first, evaluate-second**:
 2. Slint is excluded at the free tier under its GPL-3.0/commercial terms and MIT (ADR-009). Retain it only as a fallback conditional on explicit purchase approval; it offers declarative UI, built-in `ListView` virtualization, and AccessKit by default.
 3. Defer: `Qt` (deferred on `cxx-qt` API-stability grounds, **not** licensing disqualification — Qt/LGPL is theoretically compatible with MIT), `Tauri 2` (unless web-tech team), `iced` (no stable a11y — disqualified if a11y is a hard requirement), `Xilem` (zero production users).
 
-**Gates before final commitment:** 200k-row virtualized list at 60fps; AccessKit tree smoke test with NVDA/VoiceOver/Orca. Final framework choice deferred to M3.
+**Gates by stage:** Current prototype: 200k-row virtualized-list smoke test and AccessKit inspection. Later final-framework stage: retain the 500k-row 60fps target plus representative accessibility and interaction checks. The owner deferred 60fps qualification from the current probe stage; this planning assumption is not a measured pass. Final framework choice remains deferred to M3.
 
 ---
 

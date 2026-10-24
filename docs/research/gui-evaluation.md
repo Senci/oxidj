@@ -41,7 +41,7 @@ OxiDJ needs a cross-platform Rust desktop GUI framework for M3 (Usable library U
 
 ### OxiDJ Requirement
 - 100k–500k tracks in library view
-- Smooth 60fps scrolling
+- Smooth 60fps scrolling (target; qualification deferred from current prototype stage to later final-framework review per owner decision 2026-10-24)
 - Search/filter without full re-render
 
 ### Framework Capabilities
