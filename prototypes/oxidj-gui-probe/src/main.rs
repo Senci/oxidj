@@ -234,6 +234,10 @@ impl TableState {
     }
 }
 
+fn auto_scroll_row(elapsed: Duration, count: usize) -> Option<usize> {
+    (count > 0).then(|| (elapsed.as_millis() / 100) as usize % count)
+}
+
 fn track_row(ui: &mut egui::Ui, index: usize, table: &mut TableState) -> egui::Rect {
     let label = format!("Track {index:06} — Synthetic Artist — Synthetic Album");
     let (drop_response, dropped) = ui.dnd_drop_zone::<usize, _>(egui::Frame::default(), |ui| {
@@ -296,6 +300,8 @@ fn render_tracks(ui: &mut egui::Ui, count: usize, table: &mut TableState) -> f32
 
 struct Probe {
     count: usize,
+    auto_scroll_enabled: bool,
+    presentation_observer_enabled: bool,
     started: Instant,
     frames: u64,
     reported: bool,
@@ -308,30 +314,31 @@ struct Probe {
 
 impl eframe::App for Probe {
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
-        if self.presentation.is_none() && self.presentation_error.is_none() {
-            match PresentationObserver::from_frame(frame) {
-                Ok(observer) => self.presentation = Some(observer),
-                Err(error) => self.presentation_error = Some(error),
+        if self.presentation_observer_enabled {
+            if self.presentation.is_none() && self.presentation_error.is_none() {
+                match PresentationObserver::from_frame(frame) {
+                    Ok(observer) => self.presentation = Some(observer),
+                    Err(error) => self.presentation_error = Some(error),
+                }
+            }
+            if let Some(observer) = &mut self.presentation {
+                let result = if self.started.elapsed() < Duration::from_secs(12) {
+                    observer.observe()
+                } else {
+                    observer.drain()
+                };
+                if let Err(error) = result {
+                    self.presentation_error = Some(error);
+                    self.presentation = None;
+                }
             }
         }
-        if let Some(observer) = &mut self.presentation {
-            let result = if self.started.elapsed() < Duration::from_secs(12) {
-                observer.observe()
-            } else {
-                observer.drain()
-            };
-            if let Err(error) = result {
-                self.presentation_error = Some(error);
-                self.presentation = None;
+        if self.auto_scroll_enabled && self.started.elapsed() < Duration::from_secs(12) {
+            if let Some(row) = auto_scroll_row(self.started.elapsed(), self.count) {
+                self.table.focused = row;
+                self.table.has_focus = true;
+                self.table.scroll_to_focused = true;
             }
-        }
-        if std::env::var_os("OXIDJ_PRESENT_SCROLL").is_some()
-            && self.started.elapsed() < Duration::from_secs(12)
-            && self.count > 0
-        {
-            self.table.focused = ((self.started.elapsed().as_millis() / 100) as usize) % self.count;
-            self.table.has_focus = true;
-            self.table.scroll_to_focused = true;
         }
         self.frames += 1;
         let (window_focused, keys) = ctx.input(|i| {
@@ -401,8 +408,10 @@ impl eframe::App for Probe {
                     )
                 });
             eprintln!(
-                "probe_finished rows={} update_callbacks={} elapsed_ms={} callback_fps={:.1} keyboard_events={} focused_row={} widget_focused_row={:?} scroll_offset={:.1} selected_rows={:?} last_drop={:?} presentation_window_ms=12000 presentation_feedback_presented={} presentation_feedback_unique_timestamps={} presentation_fps={:.2} presentation_feedback_discarded={} last_refresh_ns={:?} presentation_error={:?}",
+                "probe_finished rows={} auto_scroll_enabled={} presentation_observer_enabled={} update_callbacks={} elapsed_ms={} callback_fps={:.1} keyboard_events={} focused_row={} widget_focused_row={:?} scroll_offset={:.1} selected_rows={:?} last_drop={:?} presentation_window_ms=12000 presentation_feedback_presented={} presentation_feedback_unique_timestamps={} presentation_fps={:.2} presentation_feedback_discarded={} last_refresh_ns={:?} presentation_error={:?}",
                 self.count,
+                self.auto_scroll_enabled,
+                self.presentation_observer_enabled,
                 self.frames,
                 self.started.elapsed().as_millis(),
                 self.frames as f64 / self.started.elapsed().as_secs_f64().max(0.001),
@@ -428,8 +437,19 @@ impl eframe::App for Probe {
 
 #[cfg(test)]
 mod tests {
-    use super::{TableState, render_tracks, show_tracks, track_row};
+    use super::{TableState, auto_scroll_row, render_tracks, show_tracks, track_row};
     use eframe::egui::{self, Event, Key, PointerButton, Pos2, RawInput, Rect, Vec2};
+    use std::time::Duration;
+
+    #[test]
+    fn auto_scroll_advances_every_100ms_and_wraps() {
+        assert_eq!(auto_scroll_row(Duration::from_millis(0), 3), Some(0));
+        assert_eq!(auto_scroll_row(Duration::from_millis(99), 3), Some(0));
+        assert_eq!(auto_scroll_row(Duration::from_millis(100), 3), Some(1));
+        assert_eq!(auto_scroll_row(Duration::from_millis(299), 3), Some(2));
+        assert_eq!(auto_scroll_row(Duration::from_millis(300), 3), Some(0));
+        assert_eq!(auto_scroll_row(Duration::from_millis(0), 0), None);
+    }
 
     fn render_rows(
         ctx: &egui::Context,
@@ -668,6 +688,8 @@ fn main() -> eframe::Result {
         .nth(1)
         .and_then(|v| v.parse().ok())
         .unwrap_or(200_000);
+    let auto_scroll_enabled = std::env::var_os("OXIDJ_PRESENT_SCROLL").is_some();
+    let presentation_observer_enabled = !auto_scroll_enabled;
     let options = eframe::NativeOptions {
         viewport: eframe::egui::ViewportBuilder::default().with_inner_size([1100.0, 800.0]),
         ..Default::default()
@@ -678,6 +700,8 @@ fn main() -> eframe::Result {
         Box::new(move |_cc| {
             Ok(Box::new(Probe {
                 count,
+                auto_scroll_enabled,
+                presentation_observer_enabled,
                 started: Instant::now(),
                 frames: 0,
                 reported: false,
