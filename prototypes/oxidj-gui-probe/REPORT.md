@@ -119,3 +119,13 @@ For a bounded Orca check, ran `/usr/bin/orca --list-apps` with the Bot Screen's 
 ### Current isolated Bot Screen recheck (2026-10-25)
 
 Restarted the authorized private Bot Screen (`DISPLAY=:20`, 1440×900) and launched the 200k probe. The window rendered the virtualized rows and status, but the CUA AX capture exposed only the top-level window. One background click on the visible first row returned `effect=unverifiable`; its follow-up screenshot was unchanged (`Focused row: 0 | selected: 0 | last drop: None | drag: idle`). Per the probe guide, the click was not repeated. This run does not verify pointer delivery, selection, or reorder. Orca and runtime AT-SPI were not retried because no app tree was exposed by the available capture route. The probe reported 17 update callbacks / 15,035ms and `presentation_error=Some("native handles are not Wayland")`; neither is frame-rate qualification. 500k/60fps remains deferred and unverified.
+
+### Focused-row scroll correction and live Bot Screen verification (2026-10-25)
+
+The owner observed that keyboard selection pinned the focused row to the top. Root cause was `show_tracks` setting the scroll offset to `focused * row_height_with_spacing` on every navigation event. Commit `e65c6f6` now preserves the viewport while the row remains visible, and shifts only enough to reveal a row above or below it. The pure offset regression covers visible, lower-edge and upper-edge cases.
+
+Verified current `e65c6f6` on the isolated Hermes Bot Screen (`DISPLAY=:20`, 1440×900) with the 200,000-row build. Before and after visible Up/Down, focused row changed 35→34→35 while the viewport's first row stayed 9 and its visible range stayed 9–36. Home moved focus to 0 and restored row 0 at the top; Up at the upper boundary kept focus at 0. End moved focus to 199,999 and revealed rows 199,973–199,999; Down at the lower boundary kept focus at 199,999. Thus in-view selection no longer jumps, and off-screen navigation reveals only the needed rows.
+
+A held drag on row 12 showed the 3px amber insertion line between rows 16 and 17. Releasing then repainting produced `last drop: Some((12, 17)) | drag: drop 12->17`; rendered order changed accordingly. Screenshots are committed under `evidence/current-bot-screen/`: before/after Up and Down, Home/End boundaries, held insertion cue, and reorder readback.
+
+`cargo test --offline --manifest-path prototypes/oxidj-gui-probe/Cargo.toml`: 14 passed. `cargo xtask ci`: layers, fmt, clippy and check all passed. `git diff --check`: exit 0. This 200k interaction run does not qualify 500k/60fps; that remains deferred and unverified.
