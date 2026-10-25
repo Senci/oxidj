@@ -172,6 +172,7 @@ struct TableState {
     order: Vec<usize>,
     drag_source: Option<usize>,
     drag_active: bool,
+    drag_trace: String,
 }
 
 impl TableState {
@@ -273,9 +274,11 @@ fn track_row(ui: &mut egui::Ui, index: usize, table: &mut TableState) -> egui::R
     }
     if response.is_pointer_button_down_on() && table.drag_source.is_none() {
         table.drag_source = Some(index);
+        table.drag_trace = format!("pressed row={index}");
     }
     if response.dragged() {
         table.drag_active = true;
+        table.drag_trace = format!("active source={:?} response={index}", table.drag_source);
     }
     response.rect
 }
@@ -291,21 +294,27 @@ fn finish_row_drag(
     }
     let Some(source) = table.drag_source.take() else {
         table.drag_active = false;
+        table.drag_trace = "release without source".to_owned();
         return;
     };
     let active = std::mem::take(&mut table.drag_active);
     if !active {
+        table.drag_trace = format!("release below threshold source={source}");
         return;
     }
     let Some(target) = release_pos.and_then(|pos| {
         rows.iter()
             .find_map(|(index, rect)| rect.contains(pos).then_some(*index))
     }) else {
+        table.drag_trace = format!("release outside rows source={source}");
         return;
     };
     if source != target {
         table.last_drop = Some((source, target));
         table.reorder(source, target);
+        table.drag_trace = format!("drop {source}->{target}");
+    } else {
+        table.drag_trace = format!("drop same row={source}");
     }
 }
 
@@ -339,10 +348,15 @@ fn show_tracks(ui: &mut egui::Ui, count: usize, table: &mut TableState) -> f32 {
 fn render_tracks(ui: &mut egui::Ui, count: usize, table: &mut TableState) -> f32 {
     ui.heading(format!("Synthetic virtualized track list: {count} rows"));
     ui.label(format!(
-        "Focused row: {} | selected: {} | last drop: {:?}",
+        "Focused row: {} | selected: {} | last drop: {:?} | drag: {}",
         table.focused,
         table.selected.len(),
-        table.last_drop
+        table.last_drop,
+        if table.drag_trace.is_empty() {
+            "idle"
+        } else {
+            &table.drag_trace
+        }
     ));
     ui.label("Click selects; Up/Down, Home/End navigate; Space selects; Ctrl/Command+Space toggles; Shift+Up/Down extends selection; drag a row onto another to record a drop.");
     show_tracks(ui, count, table)
@@ -636,6 +650,7 @@ mod tests {
         assert!(table.selected.contains(&0));
         assert_eq!(table.last_drop, None);
         assert_eq!(table.order, vec![0, 1]);
+        assert_eq!(table.drag_trace, "release below threshold source=0");
     }
 
     #[test]
@@ -682,6 +697,7 @@ mod tests {
 
         assert_eq!(table.last_drop, Some((0, 1)));
         assert_eq!(table.order, vec![1, 0]);
+        assert_eq!(table.drag_trace, "drop 0->1");
         assert_eq!(
             table
                 .order
