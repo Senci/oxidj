@@ -601,7 +601,7 @@ impl Catalog {
     pub fn list_track_details(&self) -> Result<Vec<TrackDetails>, CatalogError> {
         let mut statement = self.connection.prepare(
             "SELECT t.id,t.path,t.sha256,t.byte_length,f.duration_seconds,f.sample_rate,\
-             f.channels,f.bit_depth,f.missing FROM tracks t \
+             f.channels,f.bit_depth FROM tracks t \
              LEFT JOIN audio_facts f ON f.track_id=t.id ORDER BY t.id",
         )?;
         let rows = statement.query_map([], |row| {
@@ -617,23 +617,14 @@ impl Catalog {
                 row.get::<_, Option<u32>>(5)?,
                 row.get::<_, Option<u16>>(6)?,
                 row.get::<_, Option<u16>>(7)?,
-                row.get::<_, Option<bool>>(8)?,
             ))
         })?;
         let mut tracks = Vec::new();
         for row in rows {
-            let (
-                id,
-                path,
-                digest,
-                byte_length,
-                duration,
-                sample_rate,
-                channels,
-                bit_depth,
-                missing,
-            ) = row?;
-            let availability = if missing.unwrap_or(false) || !Path::new(&path).exists() {
+            let (id, path, digest, byte_length, duration, sample_rate, channels, bit_depth) = row?;
+            // Availability is a live filesystem observation; the persisted missing flag
+            // records the last complete scan and is maintained by the importer.
+            let availability = if !Path::new(&path).exists() {
                 TrackAvailability::Missing
             } else {
                 TrackAvailability::Available
@@ -2021,12 +2012,34 @@ mod tests {
             std::fs::read(&flac).unwrap(),
             include_bytes!("../tests/fixtures/tone.flac")
         );
+        let original = details[0].clone();
         std::fs::remove_file(&flac).unwrap();
         assert_eq!(
             catalog.list_track_details().unwrap()[0].availability,
             TrackAvailability::Missing
         );
+        let scan = catalog.import_audio_directory(&root).unwrap();
+        assert!(scan.complete);
+        assert_eq!(
+            catalog.list_track_details().unwrap()[0].availability,
+            TrackAvailability::Missing
+        );
         drop(catalog);
+
+        // Restoring identical bytes changes current availability, not catalog identity or facts.
+        std::fs::write(&flac, include_bytes!("../tests/fixtures/tone.flac")).unwrap();
+        let reopened = Catalog::open(&db).unwrap();
+        let restored = reopened.list_track_details().unwrap();
+        assert_eq!(restored.len(), 1);
+        assert_eq!(restored[0].track.id, original.track.id);
+        assert_eq!(restored[0].track.sha256, original.track.sha256);
+        assert_eq!(restored[0].track.byte_length, original.track.byte_length);
+        assert_eq!(restored[0].duration_seconds, original.duration_seconds);
+        assert_eq!(restored[0].sample_rate, original.sample_rate);
+        assert_eq!(restored[0].channels, original.channels);
+        assert_eq!(restored[0].bit_depth, original.bit_depth);
+        assert_eq!(restored[0].availability, TrackAvailability::Available);
+        drop(reopened);
         remove_database(&db);
         let _ = std::fs::remove_dir_all(root);
     }
