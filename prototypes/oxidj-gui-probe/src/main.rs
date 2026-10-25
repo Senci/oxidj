@@ -169,9 +169,24 @@ struct TableState {
     scroll_to_focused: bool,
     widget_focused: Option<usize>,
     last_drop: Option<(usize, usize)>,
+    order: Vec<usize>,
+    drag_source: Option<usize>,
 }
 
 impl TableState {
+    fn ensure_order(&mut self, count: usize) {
+        if self.order.len() != count {
+            self.order = (0..count).collect();
+        }
+    }
+
+    fn reorder(&mut self, source: usize, target: usize) {
+        if source < self.order.len() && target < self.order.len() && source != target {
+            let item = self.order.remove(source);
+            self.order.insert(target, item);
+        }
+    }
+
     fn select_only(&mut self, index: usize) {
         self.selected.clear();
         self.selected.insert(index);
@@ -239,36 +254,38 @@ fn auto_scroll_row(elapsed: Duration, count: usize) -> Option<usize> {
 }
 
 fn track_row(ui: &mut egui::Ui, index: usize, table: &mut TableState) -> egui::Rect {
-    let label = format!("Track {index:06} — Synthetic Artist — Synthetic Album");
-    let (drop_response, dropped) = ui.dnd_drop_zone::<usize, _>(egui::Frame::default(), |ui| {
-        ui.dnd_drag_source(egui::Id::new(("track-drag", index)), index, |ui| {
-            let row = ui.selectable_label(table.selected.contains(&index), &label);
-            if table.has_focus && table.focused == index {
-                row.request_focus();
-            }
-            if row.has_focus() {
-                table.widget_focused = Some(index);
-            }
-            row.on_hover_text("Synthetic row; drag onto another row to record a drop")
-        })
-    });
-    if drop_response.inner.inner.clicked() {
+    let item = table.order.get(index).copied().unwrap_or(index);
+    let label = format!("Track {item:06} — Synthetic Artist — Synthetic Album");
+    let response = ui.add(
+        egui::Button::selectable(table.selected.contains(&index), &label)
+            .sense(egui::Sense::click_and_drag()),
+    );
+    if response.clicked() {
         let (shift, command) = ui.input(|i| (i.modifiers.shift, i.modifiers.command));
         table.click(index, shift, command);
     }
-    if drop_response.inner.inner.has_focus() {
-        table.focused = index;
-        table.has_focus = true;
+    if table.has_focus && table.focused == index {
+        response.request_focus();
     }
-    if let Some(source) = dropped {
-        table.last_drop = Some((*source, index));
-        table.focused = index;
-        table.has_focus = true;
+    if response.has_focus() {
+        table.widget_focused = Some(index);
     }
-    drop_response.response.rect
+    if response.dragged() {
+        table.drag_source = Some(index);
+    }
+    if ui.input(|input| input.pointer.any_released()) && response.hovered() {
+        if let Some(source) = table.drag_source.take() {
+            if source != index {
+                table.last_drop = Some((source, index));
+                table.reorder(source, index);
+            }
+        }
+    }
+    response.rect
 }
 
 fn show_tracks(ui: &mut egui::Ui, count: usize, table: &mut TableState) -> f32 {
+    table.ensure_order(count);
     const ROW_HEIGHT: f32 = 24.0;
     let row_height_with_spacing = ROW_HEIGHT + ui.spacing().item_spacing.y;
     let scroll_area = ScrollArea::vertical().auto_shrink([false, false]);
@@ -463,6 +480,7 @@ mod tests {
             ..Default::default()
         };
         ctx.run(input, |ctx| {
+            table.ensure_order(2);
             egui::CentralPanel::default().show(ctx, |ui| {
                 rects.clear();
                 for index in 0..2 {
@@ -540,6 +558,46 @@ mod tests {
     }
 
     #[test]
+    fn widget_click_selects_without_reordering() {
+        let ctx = egui::Context::default();
+        let mut table = TableState::default();
+        let mut rects = Vec::new();
+        let _ = render_rows(&ctx, &mut table, Vec::new(), &mut rects);
+        let point = rects[0].center();
+        let _ = render_rows(
+            &ctx,
+            &mut table,
+            vec![
+                Event::PointerMoved(point),
+                Event::PointerButton {
+                    pos: point,
+                    button: PointerButton::Primary,
+                    pressed: true,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ],
+            &mut rects,
+        );
+        let _ = render_rows(
+            &ctx,
+            &mut table,
+            vec![
+                Event::PointerMoved(point),
+                Event::PointerButton {
+                    pos: point,
+                    button: PointerButton::Primary,
+                    pressed: false,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ],
+            &mut rects,
+        );
+        assert!(table.selected.contains(&0));
+        assert_eq!(table.last_drop, None);
+        assert_eq!(table.order, vec![0, 1]);
+    }
+
+    #[test]
     fn drag_source_released_over_another_row_records_drop() {
         let ctx = egui::Context::default();
         let mut table = TableState::default();
@@ -581,6 +639,15 @@ mod tests {
         );
 
         assert_eq!(table.last_drop, Some((0, 1)));
+        assert_eq!(table.order, vec![1, 0]);
+        assert_eq!(
+            table
+                .order
+                .iter()
+                .map(|item| format!("Track {item:06}"))
+                .collect::<Vec<_>>(),
+            vec!["Track 000001", "Track 000000"]
+        );
     }
 
     #[test]
@@ -697,7 +764,8 @@ fn main() -> eframe::Result {
     eframe::run_native(
         "OxiDJ isolated GUI probe",
         options,
-        Box::new(move |_cc| {
+        Box::new(move |cc| {
+            cc.egui_ctx.enable_accesskit();
             Ok(Box::new(Probe {
                 count,
                 auto_scroll_enabled,
