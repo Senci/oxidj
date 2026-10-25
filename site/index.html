@@ -3,63 +3,134 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="color-scheme" content="dark light" />
+    <meta name="color-scheme" content="dark" />
     <meta
       name="description"
-      content="FILE #0042 — OxiDJ teaser. A classified dossier about your library. Under review."
+      content="OxiDJ project timeline: goals, current progress, decisions and the roadmap."
     />
-    <title>FILE #0042 — OxiDJ Teaser</title>
-    <link rel="stylesheet" href="/src/styles/style.css" />
+    <title>OxiDJ — Project Roadmap</title>
+    <link rel="stylesheet" href="./src/styles/roadmap.css" />
   </head>
   <body>
-    <main id="app">
-      <header class="case-header">
-        <p class="stamp" aria-hidden="true">CLASSIFIED</p>
-        <p class="eyes-only">EYES ONLY</p>
-        <h1>FILE #0042</h1>
-        <p class="subtitle">SUBJECT: YOUR LIBRARY</p>
-        <p class="status">STATUS: UNDER REVIEW</p>
-      </header>
+    <a class="skip-link" href="#main">Skip to roadmap</a>
+    <header class="site-header">
+      <a class="wordmark" href="./" aria-label="OxiDJ project roadmap home">
+        <span class="wordmark-mark" aria-hidden="true">O</span>
+        <span>OXIDJ <span class="wordmark-slash">/</span> PROJECT LOG</span>
+      </a>
+      <nav aria-label="Main navigation">
+        <a href="#roadmap">Roadmap</a>
+        <a href="#updates">Updates</a>
+        <a href="#goals">Goals</a>
+        <a class="nav-secondary" href="./dossier.html"
+          >Project dossier <span aria-hidden="true">↗</span></a
+        >
+      </nav>
+    </header>
 
-      <section aria-labelledby="dossier-heading" class="panel">
-        <h2 id="dossier-heading">DOSSIER</h2>
-        <dl id="dossier-fields" class="dossier-fields"></dl>
-      </section>
-
-      <section aria-labelledby="evidence-heading" class="panel">
-        <h2 id="evidence-heading">EVIDENCE LOG</h2>
-        <ol id="evidence-log" class="evidence-log"></ol>
-      </section>
-
-      <section aria-labelledby="analysis-heading" class="panel">
-        <h2 id="analysis-heading">LIVE ANALYSIS</h2>
-        <p id="analysis-output" class="analysis-output" aria-live="polite">AWAITING INPUT…</p>
-      </section>
-
-      <section aria-labelledby="asylum-heading" class="panel">
-        <h2 id="asylum-heading">ASYLUM</h2>
-        <button id="asylum-button" type="button" class="asylum-button">REQUEST ASYLUM</button>
-        <p id="asylum-output" class="asylum-output" aria-live="polite"></p>
-      </section>
-
-      <footer class="case-footer">
-        <p>
-          OxiDJ — an open-source, Rust-first DJ library manager. Currently at M0: research and
-          architecture. No actual libraries were harmed.
-        </p>
-        <p>
-          Repository:
-          <a href="https://github.com/" id="repo-link" rel="noopener noreferrer"
-            >github.com/ (placeholder — URL pending)</a
+    <main id="main">
+      <section class="hero" aria-labelledby="page-title">
+        <div class="hero-copy">
+          <p class="eyebrow">
+            <span class="live-dot"></span> OPEN-SOURCE · RUST-FIRST · LOCAL-FIRST
+          </p>
+          <h1 id="page-title">The road to a<br /><em>trustworthy</em> library.</h1>
+          <p class="hero-intro">
+            Follow OxiDJ from its first durable catalog to a dependable, interoperable DJ library.
+            This log separates shipped work from active work and later qualification.
+          </p>
+          <a class="text-link" href="#roadmap"
+            >Explore the roadmap <span aria-hidden="true">↓</span></a
           >
-        </p>
-      </footer>
+        </div>
+        <aside class="current-card" aria-labelledby="current-heading">
+          <div class="card-topline">
+            <span>NOW IN DEVELOPMENT</span><span class="status-dot"></span>
+          </div>
+          <p class="current-code">M3 <span>/</span> LOCAL LIBRARY UI</p>
+          <h2 id="current-heading">Make the library usable.</h2>
+          <p id="current-summary"></p>
+          <div class="current-meta">
+            <span>Current focus</span><strong id="current-focus"></strong>
+          </div>
+          <div class="current-meta"><span>Snapshot</span><strong id="snapshot-date"></strong></div>
+        </aside>
+        <div class="hero-index" aria-hidden="true">FIELD NOTES <span>001—008</span></div>
+      </section>
+
+      <section class="signal-row" aria-label="Project status summary">
+        <div>
+          <span class="signal-label">CURRENT TRACK</span><strong>M1 — M3 / LOCAL LIBRARY</strong>
+        </div>
+        <div>
+          <span class="signal-label">VERIFIED MILESTONE</span><strong>M0 / FOUNDATION</strong>
+        </div>
+        <div>
+          <span class="signal-label">LATER QUALIFICATION</span
+          ><strong>500K TRACKS / DEFERRED</strong>
+        </div>
+      </section>
+
+      <section id="roadmap" class="content-section" aria-labelledby="roadmap-heading">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">01 — DELIVERY SEQUENCE</p>
+            <h2 id="roadmap-heading">Milestones</h2>
+          </div>
+          <p>
+            Local-library delivery comes first. Interoperability and performance qualification stay
+            distinct.
+          </p>
+        </div>
+        <ol id="milestone-list" class="milestone-list" aria-label="OxiDJ milestone timeline"></ol>
+      </section>
+
+      <section
+        id="updates"
+        class="content-section updates-section"
+        aria-labelledby="updates-heading"
+      >
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">02 — CHANGELOG</p>
+            <h2 id="updates-heading">Recent progress</h2>
+          </div>
+          <p>
+            Not every milestone is done. Each entry links to the plan or reviewed work behind it.
+          </p>
+        </div>
+        <ol id="update-list" class="update-list" aria-label="Recent project updates"></ol>
+      </section>
+
+      <section id="goals" class="goals-panel" aria-labelledby="goals-heading">
+        <div class="goals-lead">
+          <p class="eyebrow">03 — PRODUCT DIRECTION</p>
+          <h2 id="goals-heading">Build trust before decks.</h2>
+        </div>
+        <ul id="goal-list" class="goal-list"></ul>
+      </section>
+
+      <section class="qualification-panel" aria-labelledby="qualification-heading">
+        <div class="qualification-icon" aria-hidden="true">↗</div>
+        <div>
+          <p class="eyebrow">SEPARATE WORKSTREAM · NOT A M1–M3 GATE</p>
+          <h2 id="qualification-heading">Representative-scale qualification stays later.</h2>
+          <p id="qualification-summary"></p>
+        </div>
+        <a class="text-link" id="qualification-source" href="#"
+          >Read the qualification plan <span aria-hidden="true">↗</span></a
+        >
+      </section>
     </main>
-    <noscript>
-      <p class="noscript-note">
-        This dossier requires JavaScript to conduct its review. Your library remains at large.
-      </p>
-    </noscript>
-    <script type="module" src="/src/main.ts"></script>
+
+    <footer class="site-footer">
+      <span>OXIDJ <span class="wordmark-slash">/</span> DEVELOPMENT LOG</span>
+      <span>Maintained with the project roadmap. No performance pass implied.</span>
+      <a id="repo-link" href="https://github.com/Senci/oxidj"
+        >Source on GitHub <span aria-hidden="true">↗</span></a
+      >
+    </footer>
+    <noscript><p class="noscript">Enable JavaScript to view this generated roadmap.</p></noscript>
+    <script type="module" src="./src/roadmap.ts"></script>
   </body>
 </html>

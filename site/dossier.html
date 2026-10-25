@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="dark light" />
+    <meta
+      name="description"
+      content="FILE #0042 — OxiDJ project dossier. The project is building a trustworthy local DJ library."
+    />
+    <title>FILE #0042 — OxiDJ Teaser</title>
+    <link rel="stylesheet" href="./src/styles/style.css" />
+  </head>
+  <body>
+    <main id="app">
+      <header class="case-header">
+        <p class="stamp" aria-hidden="true">CLASSIFIED</p>
+        <p class="eyes-only">EYES ONLY</p>
+        <h1>FILE #0042</h1>
+        <p class="subtitle">SUBJECT: YOUR LIBRARY</p>
+        <p class="status">STATUS: LOCAL LIBRARY IN DEVELOPMENT</p>
+      </header>
+
+      <section aria-labelledby="dossier-heading" class="panel">
+        <h2 id="dossier-heading">DOSSIER</h2>
+        <dl id="dossier-fields" class="dossier-fields"></dl>
+      </section>
+
+      <section aria-labelledby="evidence-heading" class="panel">
+        <h2 id="evidence-heading">EVIDENCE LOG</h2>
+        <ol id="evidence-log" class="evidence-log"></ol>
+      </section>
+
+      <section aria-labelledby="analysis-heading" class="panel">
+        <h2 id="analysis-heading">LIVE ANALYSIS</h2>
+        <p id="analysis-output" class="analysis-output" aria-live="polite">AWAITING INPUT…</p>
+      </section>
+
+      <section aria-labelledby="asylum-heading" class="panel">
+        <h2 id="asylum-heading">ASYLUM</h2>
+        <button id="asylum-button" type="button" class="asylum-button">REQUEST ASYLUM</button>
+        <p id="asylum-output" class="asylum-output" aria-live="polite"></p>
+      </section>
+
+      <footer class="case-footer">
+        <p>
+          OxiDJ — an open-source, Rust-first DJ library manager. Current focus: bounded local
+          catalog, file import and usable library UI. No actual libraries were harmed.
+        </p>
+        <p>
+          Repository:
+          <a href="https://github.com/Senci/oxidj" id="repo-link" rel="noopener noreferrer"
+            >github.com/Senci/oxidj</a
+          >
+        </p>
+        <p><a href="./">Project roadmap and progress</a></p>
+      </footer>
+    </main>
+    <noscript>
+      <p class="noscript-note">
+        This dossier requires JavaScript to conduct its review. Your library remains at large.
+      </p>
+    </noscript>
+    <script type="module" src="./src/main.ts"></script>
+  </body>
+</html>
