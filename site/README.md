@@ -13,7 +13,8 @@ of truth; the site is a readable snapshot, not a second decision record. Link to
 and label deferred or unverified gates as such.
 
 Current status was read from the OxiDJ Kanban board and repository plan on 2026-10-25.
-M1–M3 delivery is in progress; M0 is verified complete. The active local UI work is not a
+The next closeout sequence is M1 catalog acceptance, M2 reference-only import acceptance,
+then M3 persisted-UI smoke. M0 is verified complete. The reviewed local UI slice is not a
 production framework approval. The 500k-row / 60fps qualification remains deferred and
 unverified.
 

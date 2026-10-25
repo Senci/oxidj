@@ -27,8 +27,8 @@ const repo = 'https://github.com/Senci/oxidj';
 export const roadmapSnapshot = {
   verifiedAt: '2026-10-25',
   currentSummary:
-    'The local catalog and importer are taking shape. The integrated library UI is the active build; the isolated 200k-row interaction probe is reviewed.',
-  currentFocus: 'Persisted catalog UI and real-app smoke',
+    'The provisional library UI slice is committed and reviewed, but M1–M3 acceptance remains open. Closeout is queued in dependency order: M1 catalog, M2 import, then M3 persisted-UI smoke.',
+  currentFocus: 'M1 catalog acceptance closeout',
   qualificationSummary:
     'The 500k-row / 60fps target is preserved for a later qualification workstream. It is deferred and unverified—not passed, and not a gate for the bounded M1–M3 local slice.',
   qualificationSource: `${repo}/blob/master/plan/MVP.md#qualification-checkpoint`,
@@ -54,7 +54,7 @@ export const milestones: readonly Milestone[] = [
     goal: 'Store stable track identities and technical facts in a bounded, local SQLite catalog.',
     progress:
       'Catalog, restart, backup and restore work is present. Full M1 acceptance and release evidence remain open.',
-    next: 'Close remaining migration, failure-handling and end-to-end acceptance evidence.',
+    next: 'Audit remaining acceptance gaps, verify stable IDs and facts, then proceed to M2.',
     source: { label: 'M1 acceptance', href: `${repo}/blob/master/plan/MVP.md` },
   },
   {
@@ -72,11 +72,11 @@ export const milestones: readonly Milestone[] = [
     id: 'M3',
     title: 'Usable library UI',
     status: 'in-progress',
-    statusLabel: 'Active build',
+    statusLabel: 'Acceptance open',
     goal: 'Browse and search the persistent catalog through shared application handlers.',
     progress:
-      'Integrated UI work is active. The isolated egui probe is reviewed: Bot Screen showed the insertion line, row reorder and corrected keyboard scrolling.',
-    next: 'Complete the persisted-catalog UI and import/reopen interaction smoke.',
+      'The provisional integrated viewer and details query are committed and reviewed. M3 acceptance, including fresh-GUI import/reopen smoke, remains open; probe evidence is separate.',
+    next: 'After M1 and M2 closeout, verify import, fresh GUI reopen and interaction smoke.',
     source: { label: 'M3 acceptance', href: `${repo}/blob/master/plan/MVP.md` },
   },
   {
