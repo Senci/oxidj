@@ -172,7 +172,7 @@ struct TableState {
     order: Vec<usize>,
     drag_source: Option<usize>,
     drag_active: bool,
-    drop_target: Option<usize>,
+    drop_indicator: Option<(usize, f32)>,
     drag_trace: String,
 }
 
@@ -183,11 +183,14 @@ impl TableState {
         }
     }
 
-    fn reorder(&mut self, source: usize, target: usize) {
-        if source < self.order.len() && target < self.order.len() && source != target {
-            let item = self.order.remove(source);
-            self.order.insert(target, item);
+    fn reorder_at(&mut self, source: usize, slot: usize) -> Option<usize> {
+        if source >= self.order.len() || slot > self.order.len() {
+            return None;
         }
+        let item = self.order.remove(source);
+        let target = slot.saturating_sub(usize::from(source < slot));
+        self.order.insert(target, item);
+        Some(target)
     }
 
     fn select_only(&mut self, index: usize) {
@@ -303,22 +306,41 @@ fn finish_row_drag(
         table.drag_trace = format!("release below threshold source={source}");
         return;
     }
-    let Some(target) = release_pos.and_then(|pos| drop_target_at(rows, pos)) else {
+    let Some((slot, _)) = release_pos.and_then(|pos| drop_position_at(rows, pos)) else {
+        table.drag_trace = format!("release outside rows source={source}");
+        return;
+    };
+    let Some(target) = table.reorder_at(source, slot) else {
         table.drag_trace = format!("release outside rows source={source}");
         return;
     };
     if source != target {
         table.last_drop = Some((source, target));
-        table.reorder(source, target);
         table.drag_trace = format!("drop {source}->{target}");
     } else {
         table.drag_trace = format!("drop same row={source}");
     }
 }
 
-fn drop_target_at(rows: &[(usize, egui::Rect)], pos: egui::Pos2) -> Option<usize> {
-    rows.iter()
-        .find_map(|(index, rect)| rect.contains(pos).then_some(*index))
+fn drop_position_at(rows: &[(usize, egui::Rect)], pos: egui::Pos2) -> Option<(usize, f32)> {
+    if let Some((index, rect)) = rows.iter().find(|(_, rect)| rect.contains(pos)) {
+        let after = pos.y >= rect.center().y;
+        return Some((
+            index + usize::from(after),
+            if after { rect.bottom() } else { rect.top() },
+        ));
+    }
+    rows.windows(2).find_map(|pair| {
+        let [(before_index, before), (after_index, after)] = pair else {
+            return None;
+        };
+        (after_index == &(before_index + 1)
+            && pos.x >= before.left()
+            && pos.x <= before.right()
+            && pos.y > before.bottom()
+            && pos.y < after.top())
+        .then_some((*after_index, (before.bottom() + after.top()) * 0.5))
+    })
 }
 
 fn show_tracks(ui: &mut egui::Ui, count: usize, table: &mut TableState) -> f32 {
@@ -343,26 +365,23 @@ fn show_tracks(ui: &mut egui::Ui, count: usize, table: &mut TableState) -> f32 {
             input.pointer.interact_pos(),
         )
     });
-    table.drop_target = if table.drag_active && !released {
-        release_pos.and_then(|pos| drop_target_at(&row_rects, pos))
+    table.drop_indicator = if table.drag_active && !released {
+        release_pos.and_then(|pos| drop_position_at(&row_rects, pos))
     } else {
         None
     };
-    if let Some(target) = table.drop_target {
-        if let Some((_, rect)) = row_rects.iter().find(|(index, _)| *index == target) {
-            let cue = egui::Color32::from_rgb(255, 190, 0);
-            ui.painter().rect_filled(
-                rect.shrink(1.0),
-                2.0,
-                egui::Color32::from_rgba_unmultiplied(cue.r(), cue.g(), cue.b(), 56),
-            );
-            ui.painter().rect_stroke(
-                rect.expand(1.0),
-                2.0,
-                egui::Stroke::new(2.0_f32, cue),
-                egui::StrokeKind::Outside,
-            );
-        }
+    if let Some((_, y)) = table.drop_indicator {
+        let left = row_rects
+            .first()
+            .map_or(ui.min_rect().left(), |(_, rect)| rect.left());
+        let right = row_rects
+            .first()
+            .map_or(ui.max_rect().right(), |(_, rect)| rect.right());
+        let cue = egui::Color32::from_rgb(255, 190, 0);
+        ui.painter().line_segment(
+            [egui::pos2(left, y), egui::pos2(right, y)],
+            egui::Stroke::new(3.0_f32, cue),
+        );
     }
     finish_row_drag(table, &row_rects, released, release_pos);
     table.scroll_to_focused = false;
@@ -526,7 +545,7 @@ impl eframe::App for Probe {
 #[cfg(test)]
 mod tests {
     use super::{
-        TableState, auto_scroll_row, drop_target_at, render_tracks, show_tracks, track_row,
+        TableState, auto_scroll_row, drop_position_at, render_tracks, show_tracks, track_row,
     };
     use eframe::egui::{self, Event, Key, PointerButton, Pos2, RawInput, Rect, Vec2};
     use std::time::Duration;
@@ -735,7 +754,20 @@ mod tests {
     }
 
     #[test]
-    fn drop_target_at_returns_row_under_pointer_only() {
+    fn reorder_at_moves_item_to_the_indicated_slot() {
+        let mut table = TableState {
+            order: vec![0, 1, 2],
+            ..Default::default()
+        };
+
+        assert_eq!(table.reorder_at(0, 2), Some(1));
+        assert_eq!(table.order, vec![1, 0, 2]);
+        assert_eq!(table.reorder_at(2, 0), Some(0));
+        assert_eq!(table.order, vec![2, 1, 0]);
+    }
+
+    #[test]
+    fn drop_position_at_returns_insertion_slot_and_gap_line() {
         let rows = [
             (
                 4,
@@ -747,9 +779,23 @@ mod tests {
             ),
         ];
 
-        assert_eq!(drop_target_at(&rows, egui::pos2(10.0, 10.0)), Some(4));
-        assert_eq!(drop_target_at(&rows, egui::pos2(10.0, 30.0)), Some(5));
-        assert_eq!(drop_target_at(&rows, egui::pos2(60.0, 10.0)), None);
+        assert_eq!(
+            drop_position_at(&rows, egui::pos2(10.0, 5.0)),
+            Some((4, 0.0))
+        );
+        assert_eq!(
+            drop_position_at(&rows, egui::pos2(10.0, 15.0)),
+            Some((5, 20.0))
+        );
+        assert_eq!(
+            drop_position_at(&rows, egui::pos2(10.0, 22.0)),
+            Some((5, 22.0))
+        );
+        assert_eq!(
+            drop_position_at(&rows, egui::pos2(10.0, 29.0)),
+            Some((5, 24.0))
+        );
+        assert_eq!(drop_position_at(&rows, egui::pos2(60.0, 10.0)), None);
     }
 
     #[test]
