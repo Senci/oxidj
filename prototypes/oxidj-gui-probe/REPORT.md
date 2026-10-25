@@ -129,3 +129,13 @@ Verified current `e65c6f6` on the isolated Hermes Bot Screen (`DISPLAY=:20`, 144
 A held drag on row 12 showed the 3px amber insertion line between rows 16 and 17. Releasing then repainting produced `last drop: Some((12, 17)) | drag: drop 12->17`; rendered order changed accordingly. Screenshots are committed under `evidence/current-bot-screen/`: before/after Up and Down, Home/End boundaries, held insertion cue, and reorder readback.
 
 `cargo test --offline --manifest-path prototypes/oxidj-gui-probe/Cargo.toml`: 14 passed. `cargo xtask ci`: layers, fmt, clippy and check all passed. `git diff --check`: exit 0. This 200k interaction run does not qualify 500k/60fps; that remains deferred and unverified.
+
+### Independent single-window Bot Screen readback (2026-10-25)
+
+Repeated keyboard checks on the fixed `e65c6f6` build after closing the older probe window on Bot Screen `DISPLAY=:20`. Each screenshot shows only the current 200k probe window.
+
+- Visible-row preservation: focus 70→69 with viewport rows 44–71 unchanged; screenshots `scroll-before-visible-up.png` and `scroll-after-visible-up.png`.
+- Upper boundary reveal: focus 34 with rows 8–35 visible, then Up ×28 reached focus 6 with rows 6–33 visible. The viewport moved only enough to reveal focus; screenshots `scroll-before-upper-cross.png` and `scroll-after-upper-cross.png`.
+- Lower reveal: Down ×35 reached focus 70 with rows 44–71 visible; focus sits near the viewport bottom rather than at its top. Screenshot `scroll-after-lower-cross.png`.
+
+Keyboard events used the isolated Bot Screen XTest helper, and every result was read from a fresh screenshot. `e65c6f6` is unchanged. This supplies the previously requested visible-row and upper/lower reveal readbacks; it does not claim native display, presentation timing, screen-reader, platform, or 500k/60fps qualification.
