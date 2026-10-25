@@ -1,0 +1,11 @@
+[package]
+name = "oxidj-library-ui"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[dependencies]
+eframe = { version = "=0.32.3", features = ["accesskit"] }
+oxidj-library = { path = "../../crates/oxidj-library" }

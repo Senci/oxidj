@@ -596,6 +596,71 @@ impl Catalog {
         Ok(tracks)
     }
 
+    /// List tracks with decoded technical facts and current filesystem availability.
+    /// Results are ordered by stable local ID; presentation sorting belongs to callers.
+    pub fn list_track_details(&self) -> Result<Vec<TrackDetails>, CatalogError> {
+        let mut statement = self.connection.prepare(
+            "SELECT t.id,t.path,t.sha256,t.byte_length,f.duration_seconds,f.sample_rate,\
+             f.channels,f.bit_depth,f.missing FROM tracks t \
+             LEFT JOIN audio_facts f ON f.track_id=t.id ORDER BY t.id",
+        )?;
+        let rows = statement.query_map([], |row| {
+            let id: i64 = row.get(0)?;
+            let digest: Vec<u8> = row.get(2)?;
+            let byte_length: i64 = row.get(3)?;
+            Ok((
+                id,
+                row.get::<_, String>(1)?,
+                digest,
+                byte_length,
+                row.get::<_, Option<f64>>(4)?,
+                row.get::<_, Option<u32>>(5)?,
+                row.get::<_, Option<u16>>(6)?,
+                row.get::<_, Option<u16>>(7)?,
+                row.get::<_, Option<bool>>(8)?,
+            ))
+        })?;
+        let mut tracks = Vec::new();
+        for row in rows {
+            let (
+                id,
+                path,
+                digest,
+                byte_length,
+                duration,
+                sample_rate,
+                channels,
+                bit_depth,
+                missing,
+            ) = row?;
+            let availability = if missing.unwrap_or(false) || !Path::new(&path).exists() {
+                TrackAvailability::Missing
+            } else {
+                TrackAvailability::Available
+            };
+            tracks.push(TrackDetails {
+                track: TrackReference {
+                    id: oxidj_core::TrackId::new(
+                        u64::try_from(id).map_err(|_| rusqlite::Error::InvalidQuery)?,
+                    )
+                    .map_err(|_| rusqlite::Error::InvalidQuery)?,
+                    path,
+                    sha256: digest
+                        .try_into()
+                        .map_err(|_| rusqlite::Error::InvalidQuery)?,
+                    byte_length: u64::try_from(byte_length)
+                        .map_err(|_| rusqlite::Error::InvalidQuery)?,
+                },
+                duration_seconds: duration,
+                sample_rate,
+                channels,
+                bit_depth,
+                availability,
+            });
+        }
+        Ok(tracks)
+    }
+
     /// Insert a reference with transactional operation-ID replay protection.
     pub fn insert_track(
         &mut self,
@@ -1394,6 +1459,24 @@ fn collect_regular_files(root: &Path, paths: &mut Vec<PathBuf>, complete: &mut b
     }
 }
 
+/// Filesystem presence reported by a catalog query.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TrackAvailability {
+    Available,
+    Missing,
+}
+
+/// Track reference plus persisted audio facts and current availability.
+#[derive(Clone, Debug, PartialEq)]
+pub struct TrackDetails {
+    pub track: TrackReference,
+    pub duration_seconds: Option<f64>,
+    pub sample_rate: Option<u32>,
+    pub channels: Option<u16>,
+    pub bit_depth: Option<u16>,
+    pub availability: TrackAvailability,
+}
+
 /// Minimum accepted local catalog record. Digest is the raw 32-byte SHA-256.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TrackReference {
@@ -1928,9 +2011,20 @@ mod tests {
             )
             .unwrap();
         assert_eq!(facts, (44_100, 1, 16));
+        let details = catalog.list_track_details().unwrap();
+        assert_eq!(details.len(), 1);
+        assert_eq!(details[0].sample_rate, Some(44_100));
+        assert_eq!(details[0].channels, Some(1));
+        assert_eq!(details[0].bit_depth, Some(16));
+        assert_eq!(details[0].availability, TrackAvailability::Available);
         assert_eq!(
             std::fs::read(&flac).unwrap(),
             include_bytes!("../tests/fixtures/tone.flac")
+        );
+        std::fs::remove_file(&flac).unwrap();
+        assert_eq!(
+            catalog.list_track_details().unwrap()[0].availability,
+            TrackAvailability::Missing
         );
         drop(catalog);
         remove_database(&db);
