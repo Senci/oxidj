@@ -30,6 +30,80 @@ fn set_rollback_journal_header_for_fixture(path: &std::path::Path) {
 }
 
 #[test]
+fn fresh_process_audio_facts_reader() {
+    let database = std::env::var_os("OXIDJ_CATALOG_FACTS_CHILD_DB");
+    if let Some(database) = database {
+        let catalog = Catalog::open(database).expect("child opens persisted catalog");
+        let details = catalog
+            .list_track_details()
+            .expect("read persisted details");
+        assert_eq!(details.len(), 1);
+        let detail = &details[0];
+        assert_eq!(detail.track.id.as_u64(), 1);
+        assert_eq!(
+            detail.track.path,
+            std::env::var("OXIDJ_CATALOG_FACTS_CHILD_PATH").unwrap()
+        );
+        assert_eq!(detail.duration_seconds, Some(4.0 / 48_000.0));
+        assert_eq!(detail.sample_rate, Some(48_000));
+        assert_eq!(detail.channels, Some(2));
+        assert_eq!(detail.bit_depth, Some(16));
+    }
+}
+
+#[test]
+fn imported_audio_facts_survive_fresh_process_reopen() {
+    let database = database_path();
+    let root = database.with_extension("audio");
+    std::fs::create_dir(&root).unwrap();
+    let wav = root.join("known.wav");
+    let samples = [1_i16, 2, 3, 4, 5, 6, 7, 8];
+    let data: Vec<u8> = samples
+        .iter()
+        .flat_map(|sample| sample.to_le_bytes())
+        .collect();
+    let mut bytes = Vec::new();
+    bytes.extend_from_slice(b"RIFF");
+    bytes.extend_from_slice(&(36_u32 + data.len() as u32).to_le_bytes());
+    bytes.extend_from_slice(b"WAVEfmt ");
+    bytes.extend_from_slice(&16_u32.to_le_bytes());
+    bytes.extend_from_slice(&1_u16.to_le_bytes());
+    bytes.extend_from_slice(&2_u16.to_le_bytes());
+    bytes.extend_from_slice(&48_000_u32.to_le_bytes());
+    bytes.extend_from_slice(&192_000_u32.to_le_bytes());
+    bytes.extend_from_slice(&4_u16.to_le_bytes());
+    bytes.extend_from_slice(&16_u16.to_le_bytes());
+    bytes.extend_from_slice(b"data");
+    bytes.extend_from_slice(&(data.len() as u32).to_le_bytes());
+    bytes.extend_from_slice(&data);
+    std::fs::write(&wav, bytes).unwrap();
+
+    let mut catalog = Catalog::open(&database).unwrap();
+    let report = catalog.import_wav_directory(&root).unwrap();
+    assert!(report.complete);
+    assert_eq!(report.outcomes.len(), 1);
+    assert_eq!(catalog.list_tracks().unwrap()[0].id.as_u64(), 1);
+    drop(catalog);
+
+    let child = Command::new(std::env::current_exe().unwrap())
+        .args(["--exact", "fresh_process_audio_facts_reader", "--nocapture"])
+        .env("OXIDJ_CATALOG_FACTS_CHILD_DB", &database)
+        .env("OXIDJ_CATALOG_FACTS_CHILD_PATH", &wav)
+        .output()
+        .unwrap();
+    assert_eq!(
+        child.status.code(),
+        Some(0),
+        "child stdout: {:?}; stderr: {:?}",
+        child.stdout,
+        child.stderr
+    );
+
+    let _ = std::fs::remove_file(database);
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
 fn catalog_record_survives_a_fresh_cli_process() {
     let database = database_path();
     let database_arg = database.to_str().expect("temporary path is not UTF-8");
