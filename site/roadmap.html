@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="dark" />
+    <meta
+      name="description"
+      content="OxiDJ project timeline: goals, current progress, decisions and the roadmap."
+    />
+    <title>OxiDJ — Project Roadmap</title>
+    <link rel="stylesheet" href="./src/styles/roadmap.css" />
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to roadmap</a>
+    <header class="site-header">
+      <a class="wordmark" href="./" aria-label="OxiDJ home">
+        <span class="wordmark-mark" aria-hidden="true">O</span>
+        <span>OXIDJ <span class="wordmark-slash">/</span> PROJECT LOG</span>
+      </a>
+      <nav aria-label="Main navigation">
+        <a href="#roadmap">Roadmap</a>
+        <a href="#updates">Updates</a>
+        <a href="#goals">Goals</a>
+        <a class="nav-secondary" href="./dossier.html"
+          >Project dossier <span aria-hidden="true">↗</span></a
+        >
+      </nav>
+    </header>
+
+    <main id="main">
+      <section class="hero" aria-labelledby="page-title">
+        <div class="hero-copy">
+          <p class="eyebrow">
+            <span class="live-dot"></span> OPEN-SOURCE · RUST-FIRST · LOCAL-FIRST
+          </p>
+          <h1 id="page-title">The road to a<br /><em>trustworthy</em> library.</h1>
+          <p class="hero-intro">
+            Follow OxiDJ from its first durable catalog to a dependable, interoperable DJ library.
+            This log separates shipped work from active work and later qualification.
+          </p>
+          <a class="text-link" href="#roadmap"
+            >Explore the roadmap <span aria-hidden="true">↓</span></a
+          >
+        </div>
+        <aside class="current-card" aria-labelledby="current-heading">
+          <div class="card-topline">
+            <span>NOW IN DEVELOPMENT</span><span class="status-dot"></span>
+          </div>
+          <p class="current-code">M1 <span>/</span> CATALOG ACCEPTANCE</p>
+          <h2 id="current-heading">Close the catalog acceptance gaps.</h2>
+          <p id="current-summary"></p>
+          <div class="current-meta">
+            <span>Current focus</span><strong id="current-focus"></strong>
+          </div>
+          <div class="current-meta"><span>Snapshot</span><strong id="snapshot-date"></strong></div>
+        </aside>
+        <div class="hero-index" aria-hidden="true">FIELD NOTES <span>001—008</span></div>
+      </section>
+
+      <section class="signal-row" aria-label="Project status summary">
+        <div>
+          <span class="signal-label">CURRENT TRACK</span><strong>M1 — M3 / LOCAL LIBRARY</strong>
+        </div>
+        <div>
+          <span class="signal-label">VERIFIED MILESTONE</span><strong>M0 / FOUNDATION</strong>
+        </div>
+        <div>
+          <span class="signal-label">LATER QUALIFICATION</span
+          ><strong>500K TRACKS / DEFERRED</strong>
+        </div>
+      </section>
+
+      <section id="roadmap" class="content-section" aria-labelledby="roadmap-heading">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">01 — DELIVERY SEQUENCE</p>
+            <h2 id="roadmap-heading">Milestones</h2>
+          </div>
+          <p>
+            Local-library delivery comes first. Interoperability and performance qualification stay
+            distinct.
+          </p>
+        </div>
+        <ol id="milestone-list" class="milestone-list" aria-label="OxiDJ milestone timeline"></ol>
+      </section>
+
+      <section
+        id="updates"
+        class="content-section updates-section"
+        aria-labelledby="updates-heading"
+      >
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">02 — CHANGELOG</p>
+            <h2 id="updates-heading">Recent progress</h2>
+          </div>
+          <p>
+            Not every milestone is done. Each entry links to the plan or reviewed work behind it.
+          </p>
+        </div>
+        <ol id="update-list" class="update-list" aria-label="Recent project updates"></ol>
+      </section>
+
+      <section id="goals" class="goals-panel" aria-labelledby="goals-heading">
+        <div class="goals-lead">
+          <p class="eyebrow">03 — PRODUCT DIRECTION</p>
+          <h2 id="goals-heading">Build trust before decks.</h2>
+        </div>
+        <ul id="goal-list" class="goal-list"></ul>
+      </section>
+
+      <section class="qualification-panel" aria-labelledby="qualification-heading">
+        <div class="qualification-icon" aria-hidden="true">↗</div>
+        <div>
+          <p class="eyebrow">SEPARATE WORKSTREAM · NOT A M1–M3 GATE</p>
+          <h2 id="qualification-heading">Representative-scale qualification stays later.</h2>
+          <p id="qualification-summary"></p>
+        </div>
+        <a class="text-link" id="qualification-source" href="#"
+          >Read the qualification plan <span aria-hidden="true">↗</span></a
+        >
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <span>OXIDJ <span class="wordmark-slash">/</span> DEVELOPMENT LOG</span>
+      <span>Maintained with the project roadmap. No performance pass implied.</span>
+      <a id="repo-link" href="https://github.com/Senci/oxidj"
+        >Source on GitHub <span aria-hidden="true">↗</span></a
+      >
+    </footer>
+    <noscript
+      ><p class="noscript">
+        The interactive timeline needs JavaScript. Current focus: M1 catalog acceptance, then M2
+        import and M3 persisted-UI smoke.
+        <a href="https://github.com/Senci/oxidj/blob/master/plan/MVP.md"
+          >Read the complete milestone plan</a
+        >.
+      </p></noscript
+    >
+    <script type="module" src="./src/roadmap.ts"></script>
+  </body>
+</html>

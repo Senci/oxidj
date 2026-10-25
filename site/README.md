@@ -1,51 +1,61 @@
-# OxiDJ project log
+# OxiDJ project site
 
-Repository-backed GitDocs site for OxiDJ's stages, goals, current progress and roadmap.
-The homepage is the milestone timeline. The previous FILE #0042 dossier remains at
-`/dossier.html`.
+The Pages root is a Hallmark-built teaser. The dated development timeline is preserved at
+`./roadmap.html`, and the earlier FILE #0042 dossier remains reachable at `./dossier.html`.
+All three entries build to `dist/`; Vite's relative base supports `/oxidj/` and local previews.
 
 ## Keep it current
 
-Update `src/data/roadmap.ts` when a milestone changes, a goal is accepted, or a reviewed
-result changes project status. Set `roadmapSnapshot.verifiedAt` to the date the Kanban board
-and canonical plan were checked. Keep `plan/MVP.md`, `plan/STATUS.md` and ADRs as the source
-of truth; the site is a readable snapshot, not a second decision record. Link to evidence,
-and label deferred or unverified gates as such.
+`src/data/roadmap.ts` owns the dated milestone snapshot used by the timeline. Update it when
+reviewed project status changes, and keep the teaser's short progress summary and snapshot
+date consistent. Canonical decisions remain in `idea.md`, `plan/MVP.md`, `plan/STATUS.md`
+and ADRs; the site is not a second decision record.
 
-Current status was read from the OxiDJ Kanban board and repository plan on 2026-10-25.
-The next closeout sequence is M1 catalog acceptance, M2 reference-only import acceptance,
-then M3 persisted-UI smoke. M0 is verified complete. The reviewed local UI slice is not a
-production framework approval. The 500k-row / 60fps qualification remains deferred and
-unverified.
+Snapshot: 2026-10-25. M0 is verified complete. The provisional integrated library viewer is
+reviewed, but local M1, M2 and M3 acceptance remains open. Catalog closeout precedes importer
+closeout and fresh-GUI smoke. No production GUI, representative-scale or platform approval
+is claimed. Vendor interoperability and performance features remain later work.
 
-## Local workflow
+## Local checks
 
-Use Bun. Commands run locally and do not publish the site.
-
-```bash
-bun install
+```sh
+bun install --frozen-lockfile
 bun run dev
 bun run typecheck
 bun run lint
+bun run test
+bun run format:check
 bun run build
 bun run preview
 ```
 
-The static build is written to `dist/`. Vite uses a relative base path for repository
-subpaths; both the roadmap and dossier are included in the build.
+`.github/workflows/pages.yml` runs the site checks, builds `site/dist`, uploads that directory
+and deploys with the GitHub Pages environment. The repository must select **GitHub Actions**
+as its Pages source. A local build does not confirm live deployment; inspect the Actions run
+and read back the published URL after pushing. This task does not push or claim deployment.
 
-## Structure
+## Design and verification
 
-```text
-site/
-├── index.html                 # project timeline homepage
-├── dossier.html               # retained FILE #0042 teaser
-├── src/data/roadmap.ts        # structured, dated roadmap snapshot
-├── src/roadmap.ts             # roadmap renderer
-├── src/styles/roadmap.css     # timeline UI
-└── src/                       # original dossier app and tests
-```
+Teaser only: Ink theme, editorial genre, Conversational FAQ with a Stage hero. The CLI help
+excerpt was captured from the actual repository; subcommand arguments are explicitly omitted.
+No GUI screenshot is republished because the available captures contain local paths. No
+stand-in imagery, fabricated UI, stock photos or missing-material slots are used.
+
+- `src/styles/teaser.css`: stamp, critique, layout and review record
+- `src/styles/tokens.css` and `base.css`: Hallmark scaffold, cool-tinted neutral adjustment
+- `.hallmark/preflight.json` and `log.json`: material and design decisions
+- `.hallmark/verification.md`: commands, outcomes, judged gates and capture locations
+
+The installed Hallmark bundle lacked its executable tools and theme files. Verification used
+upstream `https://github.com/Nutlope/hallmark` at
+`7ec868225c6caa040558c321ee0fefa0e73f83a8`, checked out locally in the uncommitted
+`../.hallmark-tooling`. Its scripts require Node, puppeteer-core and Chromium for rendering.
+Do not add that checkout or its dependencies to this project.
+
+The roadmap and dossier retain their existing designs; Hallmark sweeps target the new teaser,
+not a silent redesign of those routes. The teaser remains fully readable with JavaScript off.
+The roadmap keeps its original TypeScript renderer and provides a no-script source-plan link.
 
 ## Licence
 
-MIT. See `LICENSE`.
+Site: MIT, see `LICENSE`. Fonts load from Google Fonts: Epilogue and IBM Plex Mono.

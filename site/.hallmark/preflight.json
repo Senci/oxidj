@@ -1,0 +1,23 @@
+{
+  "scanned": "2026-10-25",
+  "findings": {
+    "fonts": "Existing roadmap: Inter/system and system mono (src/styles/roadmap.css:14-15); preserved on roadmap only",
+    "palette": "Existing dark green roadmap palette (src/styles/roadmap.css:1-16)",
+    "motion": "CSS only; teaser theme permits state changes only",
+    "spacing": "New teaser uses Hallmark scaffold scale",
+    "framework": "Vite 6 / TypeScript / Bun (package.json:7-29); relative base (vite.config.ts:5)",
+    "product": "Real CLI help captured with cargo run -q -p oxidj-cli -- --help, exit 0. Existing GUI screenshots contain local paths and are not republished."
+  },
+  "preserve": [
+    "roadmap content and renderer at roadmap.html",
+    "dossier.html",
+    "relative asset base"
+  ],
+  "introduce": ["Ink teaser at index.html", "Pages workflow", "tokens, stamp and design log"],
+  "inferences": {
+    "audience": "DJ-library users and contributors",
+    "job": "understand the project and inspect source or roadmap",
+    "tone": "editorial, technical; Ink permits state motion only"
+  },
+  "tooling": "Installed bundle is incomplete. Retrieved upstream Nutlope/hallmark into uncommitted .hallmark-tooling for real scaffold and lint execution."
+}

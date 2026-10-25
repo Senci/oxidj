@@ -31,7 +31,7 @@ export const roadmapSnapshot = {
   currentFocus: 'M1 catalog acceptance closeout',
   qualificationSummary:
     'The 500k-row / 60fps target is preserved for a later qualification workstream. It is deferred and unverified—not passed, and not a gate for the bounded M1–M3 local slice.',
-  qualificationSource: `${repo}/blob/master/plan/MVP.md#qualification-checkpoint`,
+  qualificationSource: `${repo}/blob/master/plan/MVP.md`,
   repo,
 } as const;
 

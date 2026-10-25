@@ -8,7 +8,8 @@ export default defineConfig({
     sourcemap: false,
     rollupOptions: {
       input: {
-        roadmap: fileURLToPath(new URL('./index.html', import.meta.url)),
+        teaser: fileURLToPath(new URL('./index.html', import.meta.url)),
+        roadmap: fileURLToPath(new URL('./roadmap.html', import.meta.url)),
         dossier: fileURLToPath(new URL('./dossier.html', import.meta.url)),
       },
     },

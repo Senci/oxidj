@@ -1,0 +1,36 @@
+[
+  {
+    "shape": "Conversational FAQ",
+    "theme": "ink",
+    "axes": "light/grotesk-sans/chromatic-teal",
+    "hero": "Stage",
+    "nav": "edge-aligned",
+    "footer": "letter close",
+    "imagery": "none; real CLI help excerpt",
+    "photos": [],
+    "entry": "index.html",
+    "fingerprint": "Hanging|Two-column asymmetric|Hairline and paper change|Solid|None|None",
+    "sections": [
+      "Hero with CLI proof",
+      "Current capability rows",
+      "Reference-only boundary grid",
+      "Acceptance closeout rows",
+      "Letter close"
+    ],
+    "signature": "Actual reference-only catalog CLI commands",
+    "waived": [],
+    "prompt": "OxiDJ GitHub Pages teaser; preserve roadmap and dossier",
+    "date": "2026-10-25",
+    "mode": "build",
+    "draw": "bb241f",
+    "tooling_commit": "7ec868225c6caa040558c321ee0fefa0e73f83a8",
+    "hero_review": { "verdict": "fix", "resolved": 2, "unresolved": 0 },
+    "finish_review": { "verdict": "fix", "resolved": 2, "unresolved": 0 },
+    "sweep": { "floor_fail": 0, "reflex": 0, "warn": 0, "waivers": 0 },
+    "swaps": [
+      "Actual CLI help instead of private-path GUI captures",
+      "Ownership grid instead of a third repeated row composition",
+      "Repository action instead of an unavailable release download"
+    ]
+  }
+]
