@@ -171,6 +171,7 @@ struct TableState {
     last_drop: Option<(usize, usize)>,
     order: Vec<usize>,
     drag_source: Option<usize>,
+    drag_active: bool,
 }
 
 impl TableState {
@@ -270,18 +271,42 @@ fn track_row(ui: &mut egui::Ui, index: usize, table: &mut TableState) -> egui::R
     if response.has_focus() {
         table.widget_focused = Some(index);
     }
-    if response.dragged() {
+    if response.is_pointer_button_down_on() && table.drag_source.is_none() {
         table.drag_source = Some(index);
     }
-    if ui.input(|input| input.pointer.any_released()) && response.hovered() {
-        if let Some(source) = table.drag_source.take() {
-            if source != index {
-                table.last_drop = Some((source, index));
-                table.reorder(source, index);
-            }
-        }
+    if response.dragged() {
+        table.drag_active = true;
     }
     response.rect
+}
+
+fn finish_row_drag(
+    table: &mut TableState,
+    rows: &[(usize, egui::Rect)],
+    released: bool,
+    release_pos: Option<egui::Pos2>,
+) {
+    if !released {
+        return;
+    }
+    let Some(source) = table.drag_source.take() else {
+        table.drag_active = false;
+        return;
+    };
+    let active = std::mem::take(&mut table.drag_active);
+    if !active {
+        return;
+    }
+    let Some(target) = release_pos.and_then(|pos| {
+        rows.iter()
+            .find_map(|(index, rect)| rect.contains(pos).then_some(*index))
+    }) else {
+        return;
+    };
+    if source != target {
+        table.last_drop = Some((source, target));
+        table.reorder(source, target);
+    }
 }
 
 fn show_tracks(ui: &mut egui::Ui, count: usize, table: &mut TableState) -> f32 {
@@ -294,11 +319,19 @@ fn show_tracks(ui: &mut egui::Ui, count: usize, table: &mut TableState) -> f32 {
     } else {
         scroll_area
     };
+    let mut row_rects = Vec::new();
     let output = scroll_area.show_rows(ui, ROW_HEIGHT, count, |ui, rows| {
         for index in rows {
-            track_row(ui, index, table);
+            row_rects.push((index, track_row(ui, index, table)));
         }
     });
+    let (released, release_pos) = ui.input(|input| {
+        (
+            input.pointer.button_released(egui::PointerButton::Primary),
+            input.pointer.interact_pos(),
+        )
+    });
+    finish_row_drag(table, &row_rects, released, release_pos);
     table.scroll_to_focused = false;
     output.state.offset.y
 }
@@ -486,6 +519,14 @@ mod tests {
                 for index in 0..2 {
                     rects.push(track_row(ui, index, table));
                 }
+                let (released, release_pos) = ui.input(|input| {
+                    (
+                        input.pointer.button_released(PointerButton::Primary),
+                        input.pointer.interact_pos(),
+                    )
+                });
+                let rows = rects.iter().copied().enumerate().collect::<Vec<_>>();
+                super::finish_row_drag(table, &rows, released, release_pos);
             });
         })
     }
@@ -626,6 +667,7 @@ mod tests {
             vec![Event::PointerMoved(target)],
             &mut rects,
         );
+        assert_eq!(table.drag_source, Some(0));
         let _ = render_rows(
             &ctx,
             &mut table,
