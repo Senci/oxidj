@@ -167,6 +167,7 @@ struct TableState {
     anchor: Option<usize>,
     has_focus: bool,
     scroll_to_focused: bool,
+    scroll_offset: f32,
     widget_focused: Option<usize>,
     last_drop: Option<(usize, usize)>,
     order: Vec<usize>,
@@ -259,6 +260,21 @@ fn auto_scroll_row(elapsed: Duration, count: usize) -> Option<usize> {
     (count > 0).then(|| (elapsed.as_millis() / 100) as usize % count)
 }
 
+fn offset_to_reveal_row(
+    current_offset: f32,
+    viewport_height: f32,
+    row_top: f32,
+    row_bottom: f32,
+) -> Option<f32> {
+    if row_top < current_offset {
+        Some(row_top.max(0.0))
+    } else if row_bottom > current_offset + viewport_height {
+        Some((row_bottom - viewport_height).max(0.0))
+    } else {
+        None
+    }
+}
+
 fn track_row(ui: &mut egui::Ui, index: usize, table: &mut TableState) -> egui::Rect {
     let item = table.order.get(index).copied().unwrap_or(index);
     let label = format!("Track {item:06} — Synthetic Artist — Synthetic Album");
@@ -348,8 +364,20 @@ fn show_tracks(ui: &mut egui::Ui, count: usize, table: &mut TableState) -> f32 {
     const ROW_HEIGHT: f32 = 24.0;
     let row_height_with_spacing = ROW_HEIGHT + ui.spacing().item_spacing.y;
     let scroll_area = ScrollArea::vertical().auto_shrink([false, false]);
-    let scroll_area = if table.scroll_to_focused {
-        scroll_area.vertical_scroll_offset(table.focused as f32 * row_height_with_spacing)
+    let focused_top = table.focused as f32 * row_height_with_spacing;
+    let requested_offset = table
+        .scroll_to_focused
+        .then(|| {
+            offset_to_reveal_row(
+                table.scroll_offset,
+                ui.available_height(),
+                focused_top,
+                focused_top + row_height_with_spacing,
+            )
+        })
+        .flatten();
+    let scroll_area = if let Some(offset) = requested_offset {
+        scroll_area.vertical_scroll_offset(offset)
     } else {
         scroll_area
     };
@@ -384,6 +412,7 @@ fn show_tracks(ui: &mut egui::Ui, count: usize, table: &mut TableState) -> f32 {
         );
     }
     finish_row_drag(table, &row_rects, released, release_pos);
+    table.scroll_offset = output.state.offset.y;
     table.scroll_to_focused = false;
     output.state.offset.y
 }
@@ -545,7 +574,8 @@ impl eframe::App for Probe {
 #[cfg(test)]
 mod tests {
     use super::{
-        TableState, auto_scroll_row, drop_position_at, render_tracks, show_tracks, track_row,
+        TableState, auto_scroll_row, drop_position_at, offset_to_reveal_row, render_tracks,
+        show_tracks, track_row,
     };
     use eframe::egui::{self, Event, Key, PointerButton, Pos2, RawInput, Rect, Vec2};
     use std::time::Duration;
@@ -558,6 +588,13 @@ mod tests {
         assert_eq!(auto_scroll_row(Duration::from_millis(299), 3), Some(2));
         assert_eq!(auto_scroll_row(Duration::from_millis(300), 3), Some(0));
         assert_eq!(auto_scroll_row(Duration::from_millis(0), 0), None);
+    }
+
+    #[test]
+    fn focused_row_scrolls_only_when_outside_the_viewport() {
+        assert_eq!(offset_to_reveal_row(0.0, 100.0, 26.0, 52.0), None);
+        assert_eq!(offset_to_reveal_row(0.0, 100.0, 104.0, 130.0), Some(30.0));
+        assert_eq!(offset_to_reveal_row(120.0, 100.0, 78.0, 104.0), Some(78.0));
     }
 
     fn render_rows(
