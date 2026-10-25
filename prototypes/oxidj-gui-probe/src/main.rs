@@ -172,6 +172,7 @@ struct TableState {
     order: Vec<usize>,
     drag_source: Option<usize>,
     drag_active: bool,
+    drop_target: Option<usize>,
     drag_trace: String,
 }
 
@@ -302,10 +303,7 @@ fn finish_row_drag(
         table.drag_trace = format!("release below threshold source={source}");
         return;
     }
-    let Some(target) = release_pos.and_then(|pos| {
-        rows.iter()
-            .find_map(|(index, rect)| rect.contains(pos).then_some(*index))
-    }) else {
+    let Some(target) = release_pos.and_then(|pos| drop_target_at(rows, pos)) else {
         table.drag_trace = format!("release outside rows source={source}");
         return;
     };
@@ -316,6 +314,11 @@ fn finish_row_drag(
     } else {
         table.drag_trace = format!("drop same row={source}");
     }
+}
+
+fn drop_target_at(rows: &[(usize, egui::Rect)], pos: egui::Pos2) -> Option<usize> {
+    rows.iter()
+        .find_map(|(index, rect)| rect.contains(pos).then_some(*index))
 }
 
 fn show_tracks(ui: &mut egui::Ui, count: usize, table: &mut TableState) -> f32 {
@@ -340,6 +343,27 @@ fn show_tracks(ui: &mut egui::Ui, count: usize, table: &mut TableState) -> f32 {
             input.pointer.interact_pos(),
         )
     });
+    table.drop_target = if table.drag_active && !released {
+        release_pos.and_then(|pos| drop_target_at(&row_rects, pos))
+    } else {
+        None
+    };
+    if let Some(target) = table.drop_target {
+        if let Some((_, rect)) = row_rects.iter().find(|(index, _)| *index == target) {
+            let cue = egui::Color32::from_rgb(255, 190, 0);
+            ui.painter().rect_filled(
+                rect.shrink(1.0),
+                2.0,
+                egui::Color32::from_rgba_unmultiplied(cue.r(), cue.g(), cue.b(), 56),
+            );
+            ui.painter().rect_stroke(
+                rect.expand(1.0),
+                2.0,
+                egui::Stroke::new(2.0_f32, cue),
+                egui::StrokeKind::Outside,
+            );
+        }
+    }
     finish_row_drag(table, &row_rects, released, release_pos);
     table.scroll_to_focused = false;
     output.state.offset.y
@@ -501,7 +525,9 @@ impl eframe::App for Probe {
 
 #[cfg(test)]
 mod tests {
-    use super::{TableState, auto_scroll_row, render_tracks, show_tracks, track_row};
+    use super::{
+        TableState, auto_scroll_row, drop_target_at, render_tracks, show_tracks, track_row,
+    };
     use eframe::egui::{self, Event, Key, PointerButton, Pos2, RawInput, Rect, Vec2};
     use std::time::Duration;
 
@@ -706,6 +732,24 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec!["Track 000001", "Track 000000"]
         );
+    }
+
+    #[test]
+    fn drop_target_at_returns_row_under_pointer_only() {
+        let rows = [
+            (
+                4,
+                egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(50.0, 20.0)),
+            ),
+            (
+                5,
+                egui::Rect::from_min_size(egui::pos2(0.0, 24.0), egui::vec2(50.0, 20.0)),
+            ),
+        ];
+
+        assert_eq!(drop_target_at(&rows, egui::pos2(10.0, 10.0)), Some(4));
+        assert_eq!(drop_target_at(&rows, egui::pos2(10.0, 30.0)), Some(5));
+        assert_eq!(drop_target_at(&rows, egui::pos2(60.0, 10.0)), None);
     }
 
     #[test]
