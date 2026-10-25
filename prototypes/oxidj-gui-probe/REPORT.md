@@ -109,3 +109,9 @@ The preceding paragraph is superseded for accessibility-tree and keyboard observ
 - This run's initial 15-second probe summary preceded the input actions; its zero keyboard-event count is not evidence about the later actions. The Wayland presentation observer also reported `native handles are not Wayland`, so this run adds no frame-presentation measurement.
 
 The remaining prototype-stage live gaps are pointer drag/reorder verification and an interactive screen-reader check. The 500k-row/60fps qualification remains deferred and unverified per owner decision; it is not a gate for this stage. No production admission is claimed.
+
+### Bot Screen recheck (2026-10-25)
+
+Reused the still-running isolated Bot Screen probe (200k rows, PID 154182, window 20971523; `DISPLAY=:20`). The current screenshot shows the list and status (`Focused row: 4 | selected: 1 | last drop: None`). A background pointer click at window-relative `(120,138)` returned `effect=unverifiable`; its required follow-up capture was unchanged, so no pointer selection pass is claimed and the action was not repeated. The CUA AX capture exposed only the top-level window, not the row children.
+
+For a bounded Orca check, ran `/usr/bin/orca --list-apps` with the Bot Screen's private display and D-Bus environment (extracted in-process, not printed). Orca exited 0 but listed `Desktop has 0 app(s)` and first reported that `org.a11y.atspi.Registry` could not be activated. Starting `/usr/lib/at-spi2-registryd --use-gnome-session` on that same private bus remained alive, but a second `orca --list-apps` still returned zero apps. The registry subprocess was stopped after the check. This is a real, unsuccessful isolated Orca discovery attempt, not a screen-reader pass; interactive speech and navigation remain NOT RUN. No live drag/drop or frame-rate measurement was attempted.
