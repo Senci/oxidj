@@ -493,7 +493,16 @@ fn f02_checker_rejects_reordered_membership_and_dangling_endpoint() {
 #[test]
 fn f07_checker_rejects_changed_absolute_mark_and_optionality_or_units() {
     let source = std::fs::read(fixture("F-07", "source.bin")).unwrap();
-    let text = String::from_utf8(source.clone()).unwrap();
+    let request = oxidj_rekordbox::TempoEditRequest {
+        track_id: "700".into(),
+        tempo_index: 0,
+        expected_old_bpm: "120".into(),
+        new_bpm: "125".into(),
+    };
+    let edited = oxidj_rekordbox::prepare_tempo_edit(&source, &request)
+        .unwrap()
+        .bytes;
+    let text = String::from_utf8(edited).unwrap();
     for changed in [
         text.replace("Start=\"5\"", "Start=\"5.5\""),
         text.replace("Start=\"5\"", "Start=\"5000\""),
