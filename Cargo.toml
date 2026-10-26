@@ -21,6 +21,7 @@ resolver = "2"
 members = [
     "crates/oxidj-core",
     "crates/oxidj-library",
+    "crates/oxidj-rekordbox",
     "crates/oxidj-cli",
     "xtask",
 ]
@@ -40,6 +41,7 @@ description = "OxiDJ: a modern, open-source DJ library and performance applicati
 [workspace.dependencies]
 oxidj-core = { path = "crates/oxidj-core", version = "0.1.0" }
 oxidj-library = { path = "crates/oxidj-library", version = "0.1.0" }
+oxidj-rekordbox = { path = "crates/oxidj-rekordbox", version = "0.1.0" }
 
 # --- In-repo lint policy (reproducible on a fresh clone; M0-10 §0.2 / §0.4) ---
 # `cargo::` lints (emitted by Cargo itself) are nightly-only on the 1.99 stable

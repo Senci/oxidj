@@ -14,7 +14,8 @@ crates at the **same layer or lower**. Depending on a higher layer is a forbidde
 |-------|--------------|----------------------------------------------------------|
 | 0     | `oxidj-core` | Neutral domain model and rules. Zero infrastructure deps. |
 | 1     | `oxidj-library` | Local catalog handlers; owns SQLite and migrations. |
-| 1     | `oxidj-cli`  | Command-line entry point; calls library handlers.    |
+| 1     | `oxidj-rekordbox` | Isolated read-only Rekordbox XML adapter (M4 preview). |
+| 1     | `oxidj-cli`  | Command-line entry point; calls library and adapter handlers.    |
 | exempt| `xtask`      | Build-time tooling (`cargo xtask`), never a product dep.  |
 
 The M1 layer model keeps persistence behind the library: CLI calls library handlers,
@@ -31,6 +32,8 @@ policy change. `xtask` is outside the product dependency graph.
 ```mermaid
 flowchart TB
     cli["oxidj-cli<br/>layer 1"] --> library["oxidj-library<br/>layer 1"]
+    cli --> rekordbox["oxidj-rekordbox<br/>layer 1"]
+    rekordbox --> xml["quick-xml"]
     library --> core["oxidj-core<br/>layer 0"]
     library --> sqlite["rusqlite + rusqlite_migration"]
     core -. "forbidden upward edge" .-> library
@@ -38,7 +41,8 @@ flowchart TB
 ```
 
 The bounded M1 local-catalog slice populates `oxidj-library`; it is not an empty
-scaffold. Audio, analysis, vendor adapters and UI remain outside this slice.
+scaffold. The M4 read-only XML preview is isolated in `oxidj-rekordbox` at layer 1;
+its parser dependency is confined there. Other vendor adapters, audio analysis and UI remain outside this slice.
 
 ## What the gate enforces
 

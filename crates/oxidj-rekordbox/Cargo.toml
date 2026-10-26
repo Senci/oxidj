@@ -1,0 +1,14 @@
+[package]
+name = "oxidj-rekordbox"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Isolated read-only Rekordbox XML inspection adapter."
+publish = false
+
+[dependencies]
+quick-xml = "=0.41.0"
+
+[lints]
+workspace = true

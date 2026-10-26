@@ -33,7 +33,7 @@ use sha2 as _;
 fn layer_of(name: &str) -> Option<u8> {
     match name {
         "oxidj-core" => Some(0),
-        "oxidj-library" | "oxidj-cli" => Some(1),
+        "oxidj-library" | "oxidj-cli" | "oxidj-rekordbox" => Some(1),
         _ => None,
     }
 }

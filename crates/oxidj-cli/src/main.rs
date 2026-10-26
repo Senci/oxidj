@@ -59,9 +59,53 @@ fn run(args: &[String]) -> i32 {
             }
         },
         "catalog" => run_catalog(&args[2..]),
+        "rekordbox" => run_rekordbox(&args[2..]),
         unknown => {
             eprintln!("error: unknown command: {unknown}");
             USAGE
+        }
+    }
+}
+
+fn run_rekordbox(args: &[String]) -> i32 {
+    if args.len() != 3 || args[0] != "preview" || args[1] != "--xml" {
+        eprintln!("error: rekordbox preview requires --xml PATH");
+        return USAGE;
+    }
+    let Some(path) = args.get(2) else {
+        eprintln!("error: rekordbox preview requires --xml PATH");
+        return USAGE;
+    };
+    match oxidj_rekordbox::parse_file(path) {
+        Ok(p) => {
+            println!("Tracks:");
+            for t in p.tracks {
+                println!("{}\t{}\t{}", t.id, t.name, t.location);
+                for x in t.tempos {
+                    println!(
+                        "  TEMPO\t{}\t{}\t{}\t{}",
+                        x.start_seconds, x.bpm, x.meter, x.beat
+                    );
+                }
+                for x in t.marks {
+                    println!(
+                        "  POSITION_MARK\t{}\t{}\t{}\t{}\t{:?}",
+                        x.name, x.kind, x.start_seconds, x.number, x.end_seconds
+                    );
+                }
+            }
+            println!("Playlists:");
+            for p in p.playlists {
+                println!("{}\t{}", p.path.join("/"), p.tracks.join(","));
+            }
+            for x in p.unsupported {
+                eprintln!("warning: unsupported content: {x}");
+            }
+            OK
+        }
+        Err(e) => {
+            eprintln!("error: {e}");
+            DOMAIN
         }
     }
 }
@@ -197,6 +241,10 @@ fn print_usage(to_stdout: bool) {
     };
     let _ = writeln!(output, "usage: oxidj-cli <command>");
     let _ = writeln!(output, "commands:");
+    let _ = writeln!(
+        output,
+        "  rekordbox preview --xml <path>   Read-only Rekordbox XML preview"
+    );
     let _ = writeln!(
         output,
         "  track-id <n>   Construct and echo a domain TrackId (n >= 1)"

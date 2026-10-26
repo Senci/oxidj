@@ -158,6 +158,7 @@ version = "0.1.0"
 dependencies = [
  "oxidj-core",
  "oxidj-library",
+ "oxidj-rekordbox",
 ]
 
 [[package]]
@@ -175,6 +176,13 @@ dependencies = [
  "rusqlite",
  "rusqlite_migration",
  "sha2",
+]
+
+[[package]]
+name = "oxidj-rekordbox"
+version = "0.1.0"
+dependencies = [
+ "quick-xml",
 ]
 
 [[package]]

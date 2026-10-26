@@ -1,5 +1,6 @@
 use oxidj_core as _;
 use oxidj_library::Catalog;
+use oxidj_rekordbox as _;
 use std::process::{Command, Output};
 use std::time::{SystemTime, UNIX_EPOCH};
 
