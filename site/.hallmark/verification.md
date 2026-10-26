@@ -92,10 +92,14 @@ hero (79), requested black redaction (7b), and always-enabled joke button (26b).
 Screen-word-count notes are expected in a CLI guide/roadmap, not invented marketing mass.
 The owner specifically requires straight quotes, overriding the typographic-quote hint.
 
-## Handoff
+## Integration and deployment
 
-All scoped files are ready for lead review. No live deployment is claimed here.
-After review and integration, use the existing Pages workflow, verify its exact head,
-and read back home, roadmap, dossier, metadata/assets and 404 on the public origin.
-Project-level robots.txt ships as requested; crawler policy is authoritative only at
-origin root on GitHub Pages. No new photography or other material is needed.
+Lead review passed. Commit `ff79e20eb74e6020dc3cab5189cabd0e8c1a2fc2` is on
+`master` and `origin/master`. GitHub Pages workflow run
+[40386661061](https://github.com/Senci/oxidj/actions/runs/40386661061) completed
+success for that exact commit.
+
+Read-back on 2026-10-26 returned HTTP 200 for home, roadmap, dossier and styled
+404 at `https://senci.github.io/oxidj/`. The project-level `robots.txt` ships as
+requested; crawler policy is authoritative only at origin root on GitHub Pages.
+No new photography or other material is needed.
