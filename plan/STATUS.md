@@ -11,7 +11,7 @@ Bounded Rekordbox XML groundwork is implemented and independently reviewed:
 - **A1 synthetic XML relationship fixtures:** frozen F-02/F-07/F-10 artifacts and independent semantic checks (`eb3700d`, `da4b39a`; `xtask/tests/rekordbox_xml_a1.rs`). These passing synthetic tests do not pass A1 qualification.
 - **Read-only Rekordbox XML preview:** adapter and CLI inspection with visible unsupported-content warnings, without catalog or source mutation (`405c4ce`, `248c783`, `c4649c6`; `crates/oxidj-rekordbox` and CLI integration tests).
 - **Bounded fail-closed subset export:** no-edit, source-to-new-file XML export with no-overwrite publication, independent semantic checks, and rejection of unsupported content or inconsistent declared playlist counts (`065b744`, `3a961b9`).
-- **Bounded XML edit exports:** guarded tempo-value, position-mark Start, and position-mark Name edits publish to a new destination and preserve unrelated source bytes. Exact-value guards, fail-closed validation, XML 1.0 character checks, semantic re-parse, and output alias/no-overwrite protections are covered. Name editing and its review fixes were approved on `f0d6d8f` and `ec2813b`; focused tests pass 3/3 and `cargo xtask ci-full` exits 0. These are synthetic XML-subset capabilities, not Rekordbox application acceptance.
+- **Bounded XML edit exports:** guarded tempo BPM, tempo-point `Inizio`, and position-mark Start/Name edits publish to a new destination and preserve unrelated source bytes. Exact-value guards, fail-closed validation, XML 1.0 character checks for names, semantic re-parse, and output alias/no-overwrite protections are covered. Tempo-point `Inizio` edit was approved on `57bdd90`; focused regression passes and `cargo xtask ci-full` exits 0. These are synthetic XML-subset capabilities, not Rekordbox application acceptance.
 
 This is implemented XML-subset groundwork, not full Rekordbox application or OneLibrary compatibility. Vendor-application/hardware round-trip acceptance remains unpassed. ADR-005 remains **Proposed**, promotion **UNPASSED**; A1–A3/C1–C6 qualification remains **OPEN / NOT QUALIFYING**. Production GUI admission/accessibility/platform and 500k/60fps qualification remain separate and unpassed. M1–M3 bounded acceptance stays complete.
 
@@ -75,7 +75,7 @@ M0-08's handoff evidence was re-run verbatim on the integrated checkout:
 ## Next tasks
 
 1. **Bounded local M1–M3 contract — complete.** Implementation, private local sample smoke, provisional UI smoke, independent reviews, and local release gates are complete.
-2. **M4 — in progress:** A1 synthetic XML fixtures, read-only preview and bounded fail-closed, no-edit subset export are implemented; see the verified commits above. Full Rekordbox app/OneLibrary compatibility, ADR-005 promotion and A1–A3/C1–C6 qualification remain unpassed.
+2. **M4 — in progress:** A1 synthetic XML fixtures, read-only preview, bounded fail-closed no-edit subset export, and guarded single-field edit exports are implemented; see the verified commits above. Full Rekordbox app/OneLibrary compatibility, ADR-005 promotion and A1–A3/C1–C6 qualification remain unpassed.
 3. **Keep separate gates deferred:** production GUI framework/accessibility/platform admission and 500k/60fps qualification remain unpassed. Bounded XML-subset implementation does not satisfy these or the broader interoperability/schema gates.
 
 ## Local Tier-2 tool availability (audited)

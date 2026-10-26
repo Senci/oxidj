@@ -20,7 +20,7 @@ M0 is verified complete. The named `local-catalog-alpha-v1` dependency exception
 - M1: bounded implementation candidate is under independent review; backup/restore, migration-failure, transaction-failure and complete M1 evidence remain open. Vendor DJ metadata schema remains proposed and unaccepted (ADR-005). Persistence dependencies for representative-scale qualification remain gated on the separate 500k-track route (ADR-002).
 - M2: filesystem import (plan/MVP.md).
 - M3: usable library UI — prototype direction only (egui/eframe, ADR-001), not committed to production.
-- M4: complete Rekordbox/OneLibrary interoperability remains unqualified. The current XML preview, preflight, and no-edit exporter cover a bounded subset only; no vendor application acceptance or undocumented-format compatibility is claimed (interoperability.md §Fixture D).
+- M4: complete Rekordbox/OneLibrary interoperability remains unqualified. XML preview, preflight, no-edit export, and guarded edits to selected tempo and position-mark fields cover a bounded synthetic subset only; no vendor application acceptance or undocumented-format compatibility is claimed (interoperability.md §Fixture D).
 - M4+: realtime DJ functionality — decks, mixing, effects, stems, streaming, broad controller support (idea.md §Priorities/MVP).
 
 The first major product proof — the MVP (idea.md) — is library-first: import a real DJ library, manage it safely in OxiDJ, export it again, and continue using compatible DJ software/hardware without unexpected metadata loss.
