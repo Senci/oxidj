@@ -6,6 +6,33 @@ import { escapeHtml, renderRoadmap } from '../logic/roadmapMarkup';
 const template = readFileSync(new URL('../../roadmap.html', import.meta.url), 'utf8');
 
 describe('static roadmap', () => {
+  it('records bounded M4 implementation without promoting qualification or reopening M1–M3', () => {
+    for (const id of ['M1', 'M2', 'M3']) {
+      expect(milestones.find((milestone) => milestone.id === id)?.status).toBe('complete');
+    }
+    const m4 = milestones.find((milestone) => milestone.id === 'M4');
+    if (!m4) throw new Error('Missing M4 milestone');
+    expect(m4.status).toBe('in-progress');
+    expect(m4.statusLabel).toBe('In progress');
+    for (const implemented of [
+      'A1 synthetic XML fixtures',
+      'read-only Rekordbox XML preview',
+      'bounded fail-closed, no-edit subset export',
+    ]) {
+      expect(m4.progress).toContain(implemented);
+    }
+    expect(m4.progress).toContain('not full Rekordbox app or OneLibrary compatibility');
+    expect(m4.next).toContain('ADR-005 promotion remain unpassed');
+    expect(m4.next).toContain('A1–A3/C1–C6 qualification remains OPEN / NOT QUALIFYING');
+    expect(m4.next).toContain('Production GUI admission and 500k/60fps gates remain separate');
+    expect(m4.source.href).toMatch(/\/plan\/STATUS\.md$/);
+    expect(roadmapSnapshot.currentSummary).toContain('M4 is in progress');
+    expect(roadmapSnapshot.currentFocus).toContain('M4');
+    expect(roadmapSnapshot.qualificationSummary).toContain('deferred and unverified—not passed');
+    expect(projectUpdates[0]?.category).toBe('M4 · XML groundwork');
+    expect(projectUpdates[0]?.detail).toContain('qualification remain unpassed');
+  });
+
   it('renders every typed milestone and evidence link without client JavaScript', () => {
     const html = renderRoadmap(template);
     expect(html).not.toContain('<!-- roadmap:');

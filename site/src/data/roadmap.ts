@@ -27,8 +27,8 @@ const repo = 'https://github.com/Senci/oxidj';
 export const roadmapSnapshot = {
   verifiedAt: '2026-10-26',
   currentSummary:
-    'Bounded local M1–M3 acceptance is complete and independently reviewed. Production GUI admission, vendor interoperability, and 500k/60fps qualification remain separate and unpassed.',
-  currentFocus: 'Bounded local-library contract complete',
+    'Bounded local M1–M3 acceptance is complete. M4 is in progress with synthetic XML fixtures, read-only preview and bounded subset export implemented; full vendor compatibility remains unpassed.',
+  currentFocus: 'M4: bounded Rekordbox XML groundwork',
   qualificationSummary:
     'The 500k-row / 60fps target is preserved for a later qualification workstream. It is deferred and unverified—not passed, and not a gate for the bounded M1–M3 local slice.',
   qualificationSource: `${repo}/blob/master/plan/MVP.md`,
@@ -82,12 +82,13 @@ export const milestones: readonly Milestone[] = [
   {
     id: 'M4',
     title: 'OneLibrary / Rekordbox interoperability',
-    status: 'planned',
-    statusLabel: 'Separate workstream',
+    status: 'in-progress',
+    statusLabel: 'In progress',
     goal: 'Preserve meaning across vendor-library import and export.',
-    progress: 'Kept separate from bounded local M1–M3 delivery.',
-    next: 'Start after the local-library contract; use reviewed schemas and round-trip fixtures.',
-    source: { label: 'Project plan', href: `${repo}/blob/master/plan/MVP.md` },
+    progress:
+      'A1 synthetic XML fixtures, read-only Rekordbox XML preview, and bounded fail-closed, no-edit subset export are implemented. This is not full Rekordbox app or OneLibrary compatibility.',
+    next: 'Full Rekordbox app/OneLibrary compatibility and ADR-005 promotion remain unpassed; A1–A3/C1–C6 qualification remains OPEN / NOT QUALIFYING. Production GUI admission and 500k/60fps gates remain separate.',
+    source: { label: 'M4 status and evidence', href: `${repo}/blob/master/plan/STATUS.md` },
   },
   {
     id: 'M5',
@@ -122,6 +123,14 @@ export const milestones: readonly Milestone[] = [
 ];
 
 export const projectUpdates: readonly ProjectUpdate[] = [
+  {
+    date: '2026-10-26',
+    category: 'M4 · XML groundwork',
+    title: 'Bounded Rekordbox XML paths implemented.',
+    detail:
+      'A1 synthetic fixtures, read-only preview and fail-closed, no-edit subset export are implemented. Full Rekordbox app/OneLibrary compatibility, ADR-005 promotion and A1–A3/C1–C6 qualification remain unpassed.',
+    source: { label: 'M4 status and evidence', href: `${repo}/blob/master/plan/STATUS.md` },
+  },
   {
     date: '2026-10-26',
     category: 'M1–M3 · acceptance',
