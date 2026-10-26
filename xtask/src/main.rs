@@ -33,7 +33,10 @@ use sha2 as _;
 fn layer_of(name: &str) -> Option<u8> {
     match name {
         "oxidj-core" => Some(0),
-        "oxidj-library" | "oxidj-cli" | "oxidj-rekordbox" => Some(1),
+        "oxidj-library" => Some(1),
+        "oxidj-rekordbox" => Some(2),
+        "oxidj-application" => Some(3),
+        "oxidj-cli" => Some(4),
         _ => None,
     }
 }
@@ -481,7 +484,9 @@ mod tests {
     fn layers_assign_core_bottom_product_crates_above_xtask_exempt() {
         assert_eq!(layer_of("oxidj-core"), Some(0));
         assert_eq!(layer_of("oxidj-library"), Some(1));
-        assert_eq!(layer_of("oxidj-cli"), Some(1));
+        assert_eq!(layer_of("oxidj-rekordbox"), Some(2));
+        assert_eq!(layer_of("oxidj-application"), Some(3));
+        assert_eq!(layer_of("oxidj-cli"), Some(4));
         assert_eq!(layer_of("xtask"), None);
     }
 

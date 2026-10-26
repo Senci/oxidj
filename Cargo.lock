@@ -153,12 +153,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "63fa2238e662d3d3c1a71168b3278f23422cf9bf76f6943ee6b1c2581d74eb5c"
 
 [[package]]
+name = "oxidj-application"
+version = "0.1.0"
+dependencies = [
+ "oxidj-rekordbox",
+]
+
+[[package]]
 name = "oxidj-cli"
 version = "0.1.0"
 dependencies = [
+ "oxidj-application",
  "oxidj-core",
  "oxidj-library",
- "oxidj-rekordbox",
 ]
 
 [[package]]

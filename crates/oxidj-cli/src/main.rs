@@ -76,7 +76,7 @@ fn run_rekordbox(args: &[String]) -> i32 {
         eprintln!("error: rekordbox preview requires --xml PATH");
         return USAGE;
     };
-    match oxidj_rekordbox::parse_file(path) {
+    match oxidj_application::preview_rekordbox_xml(path) {
         Ok(p) => {
             println!("Tracks:");
             for t in p.tracks {

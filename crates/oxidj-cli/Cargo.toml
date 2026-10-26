@@ -15,7 +15,7 @@ path = "src/main.rs"
 [dependencies]
 oxidj-core = { workspace = true }
 oxidj-library = { workspace = true }
-oxidj-rekordbox = { workspace = true }
+oxidj-application = { workspace = true }
 
 [lints]
 workspace = true

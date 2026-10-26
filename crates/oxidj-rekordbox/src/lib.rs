@@ -85,6 +85,7 @@ pub fn parse_file(path: impl AsRef<Path>) -> Result<Preview, Error> {
 pub fn parse(bytes: &[u8]) -> Result<Preview, Error> {
     let mut r = Reader::from_reader(bytes);
     r.config_mut().trim_text(true);
+    r.config_mut().check_end_names = true;
     let mut buf = Vec::new();
     let mut stack: Vec<String> = Vec::new();
     let mut out = Preview {
@@ -386,6 +387,17 @@ mod tests {
         let e = parse(b"<DJ_PLAYLISTS Version=\"2.0.0\"/>").unwrap_err();
         assert!(e.to_string().contains("unsupported XML version"));
     }
+    #[test]
+    fn rejects_mismatched_closing_tags() {
+        let malformed = b"<DJ_PLAYLISTS Version=\"1.0.0\"><COLLECTION></PLAYLISTS>";
+        assert!(
+            parse(malformed)
+                .unwrap_err()
+                .to_string()
+                .contains("malformed XML")
+        );
+    }
+
     #[test]
     fn rejects_duplicate_track_ids() {
         let x=b"<DJ_PLAYLISTS Version=\"1.0.0\"><COLLECTION><TRACK TrackID=\"1\" Name=\"a\" Location=\"x\"/><TRACK TrackID=\"1\" Name=\"b\" Location=\"y\"/></COLLECTION></DJ_PLAYLISTS>";

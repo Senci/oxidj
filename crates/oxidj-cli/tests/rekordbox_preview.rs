@@ -1,6 +1,6 @@
+use oxidj_application as _;
 use oxidj_core as _;
 use oxidj_library as _;
-use oxidj_rekordbox as _;
 use std::process::Command;
 
 #[test]

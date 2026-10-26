@@ -10,16 +10,20 @@ Lower layer number = closer to the domain core. A crate may depend **only** on
 crates at the **same layer or lower**. Depending on a higher layer is a forbidden
 (upward) edge.
 
-| Layer | Crate        | Role                                                     |
-|-------|--------------|----------------------------------------------------------|
-| 0     | `oxidj-core` | Neutral domain model and rules. Zero infrastructure deps. |
-| 1     | `oxidj-library` | Local catalog handlers; owns SQLite and migrations. |
-| 1     | `oxidj-rekordbox` | Isolated read-only Rekordbox XML adapter (M4 preview). |
-| 1     | `oxidj-cli`  | Command-line entry point; calls library and adapter handlers.    |
-| exempt| `xtask`      | Build-time tooling (`cargo xtask`), never a product dep.  |
+| Layer | Crate | Role |
+|-------|-------|------|
+| 0 | `oxidj-core` | Neutral domain model and rules; zero infrastructure deps. |
+| 1 | `oxidj-library` | Shared catalog/application handlers; owns SQLite and migrations. |
+| 2 | `oxidj-rekordbox` | Isolated vendor XML adapter (M4 preview). |
+| 3 | `oxidj-application` | Orchestrates shared handlers and adapter operations for callers. |
+| 4 | `oxidj-cli` | Thin command-line presentation; calls application/library handlers. |
+| exempt | `xtask` | Build-time tooling (`cargo xtask`), never a product dep. |
 
-The M1 layer model keeps persistence behind the library: CLI calls library handlers,
-and both layer-1 crates may depend on core. The core cannot depend upward.
+The dependency path for vendor operations is CLI → application handler → isolated
+adapter, while catalog operations still use the library handlers; the adapter's
+vendor parsing does not enter the CLI, application domain, or library. The Rekordbox
+adapter is layer 2, the application orchestration layer is layer 3, and the CLI is
+layer 4. Persistence remains owned by the library; the core cannot depend upward.
 `oxidj-library` alone may depend on `rusqlite` and `rusqlite_migration`; all
 other persistence dependencies remain forbidden. For the bounded M2 importer,
 `oxidj-library` may also have normal dependencies on Hound `=3.5.1`, Claxon
@@ -31,8 +35,9 @@ policy change. `xtask` is outside the product dependency graph.
 
 ```mermaid
 flowchart TB
-    cli["oxidj-cli<br/>layer 1"] --> library["oxidj-library<br/>layer 1"]
-    cli --> rekordbox["oxidj-rekordbox<br/>layer 1"]
+    cli["oxidj-cli<br/>layer 4"] --> app["oxidj-application<br/>layer 3"]
+    cli --> library["oxidj-library<br/>layer 1"]
+    app --> rekordbox
     rekordbox --> xml["quick-xml"]
     library --> core["oxidj-core<br/>layer 0"]
     library --> sqlite["rusqlite + rusqlite_migration"]
@@ -41,8 +46,10 @@ flowchart TB
 ```
 
 The bounded M1 local-catalog slice populates `oxidj-library`; it is not an empty
-scaffold. The M4 read-only XML preview is isolated in `oxidj-rekordbox` at layer 1;
-its parser dependency is confined there. Other vendor adapters, audio analysis and UI remain outside this slice.
+scaffold. The M4 preview keeps XML parsing in `oxidj-rekordbox` at layer 2; the
+application handler invokes that adapter and exposes it to the CLI without making
+the parser a CLI or library dependency. Other vendor adapters, audio analysis and UI
+remain outside this slice.
 
 ## What the gate enforces
 
