@@ -49,6 +49,28 @@ pub struct ExportPreflight {
     pub withheld_units: Vec<String>,
     pub loss_report: Vec<String>,
 }
+/// One optimistic, ordinal-scoped tempo edit request.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TempoEditRequest {
+    pub track_id: String,
+    pub tempo_index: usize,
+    pub expected_old_bpm: String,
+    pub new_bpm: String,
+}
+/// The exact change prepared for a source track's tempo point.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TempoEditChange {
+    pub track_id: String,
+    pub tempo_index: usize,
+    pub old_bpm: String,
+    pub new_bpm: String,
+}
+/// Validated, transformed XML bytes plus the proposed change summary.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PreparedTempoEdit {
+    pub bytes: Vec<u8>,
+    pub change: TempoEditChange,
+}
 #[derive(Debug)]
 pub struct Error(pub String);
 impl std::fmt::Display for Error {
@@ -566,6 +588,149 @@ pub fn preflight_export(bytes: &[u8]) -> Result<ExportPreflight, Error> {
 pub fn export_xml(bytes: &[u8]) -> Result<Vec<u8>, Error> {
     preflight_export(bytes)?;
     Ok(bytes.to_vec())
+}
+
+fn tempo_bpm_range(
+    bytes: &[u8],
+    request: &TempoEditRequest,
+) -> Result<std::ops::Range<usize>, Error> {
+    let mut reader = Reader::from_reader(bytes);
+    reader.config_mut().check_end_names = true;
+    let mut buf = Vec::new();
+    let mut stack: Vec<String> = Vec::new();
+    let mut track_id: Option<String> = None;
+    let mut tempo_index = 0usize;
+    let mut value_range = None;
+    loop {
+        let event_start = reader.buffer_position() as usize;
+        let event = reader
+            .read_event_into(&mut buf)
+            .map_err(|error| Error(format!("malformed XML: {error}")))?;
+        match event {
+            Event::Start(element) => {
+                let name = String::from_utf8_lossy(element.name().as_ref()).into_owned();
+                if name == "TRACK" && stack.last().is_some_and(|parent| parent == "COLLECTION") {
+                    track_id = Some(attr(&element, "TrackID")?);
+                    tempo_index = 0;
+                } else if name == "TEMPO" && track_id.as_deref() == Some(&request.track_id) {
+                    if tempo_index == request.tempo_index {
+                        value_range = Some(bpm_attribute_range(
+                            &element,
+                            event_start,
+                            &request.expected_old_bpm,
+                        )?);
+                    }
+                    tempo_index += 1;
+                }
+                stack.push(name);
+            }
+            Event::Empty(element) => {
+                let name = String::from_utf8_lossy(element.name().as_ref()).into_owned();
+                if name == "TEMPO" && track_id.as_deref() == Some(&request.track_id) {
+                    if tempo_index == request.tempo_index {
+                        value_range = Some(bpm_attribute_range(
+                            &element,
+                            event_start,
+                            &request.expected_old_bpm,
+                        )?);
+                    }
+                    tempo_index += 1;
+                }
+            }
+            Event::End(element) => {
+                let name = String::from_utf8_lossy(element.name().as_ref()).into_owned();
+                if name == "TRACK" && stack.last().is_some_and(|parent| parent == "TRACK") {
+                    track_id = None;
+                }
+                stack.pop();
+            }
+            Event::Eof => break,
+            _ => {}
+        }
+        buf.clear();
+    }
+    value_range.ok_or_else(|| {
+        Error(format!(
+            "no tempo point {} for TrackID {}",
+            request.tempo_index, request.track_id
+        ))
+    })
+}
+
+fn bpm_attribute_range(
+    element: &quick_xml::events::BytesStart<'_>,
+    event_start: usize,
+    expected_old_bpm: &str,
+) -> Result<std::ops::Range<usize>, Error> {
+    for attribute in element.attributes().with_checks(true) {
+        let attribute = attribute.map_err(|error| Error(error.to_string()))?;
+        if attribute.key.as_ref() == b"Bpm" {
+            let actual = attribute
+                .decoded_and_normalized_value(quick_xml::XmlVersion::Explicit1_0, element.decoder())
+                .map_err(|error| Error(error.to_string()))?;
+            if actual != expected_old_bpm {
+                return Err(Error(format!(
+                    "tempo BPM changed: expected {expected_old_bpm}, found {actual}"
+                )));
+            }
+            let event_bytes = element.as_ref();
+            let value_offset = attribute.value.as_ptr() as usize - event_bytes.as_ptr() as usize;
+            let start = event_start + 1 + value_offset;
+            return Ok(start..start + attribute.value.len());
+        }
+    }
+    Err(Error("TEMPO missing Bpm attribute".into()))
+}
+
+/// Prepare a single BPM edit while preserving every other source byte.
+pub fn prepare_tempo_edit(
+    bytes: &[u8],
+    request: &TempoEditRequest,
+) -> Result<PreparedTempoEdit, Error> {
+    let source = preflight_export(bytes)?;
+    let track = source
+        .selected_tracks
+        .iter()
+        .find(|track| track.id == request.track_id)
+        .ok_or_else(|| Error(format!("unknown TrackID {}", request.track_id)))?;
+    let tempo = track.tempos.get(request.tempo_index).ok_or_else(|| {
+        Error(format!(
+            "no tempo point {} for TrackID {}",
+            request.tempo_index, request.track_id
+        ))
+    })?;
+    if tempo.bpm != request.expected_old_bpm {
+        return Err(Error(format!(
+            "tempo BPM changed: expected {}, found {}",
+            request.expected_old_bpm, tempo.bpm
+        )));
+    }
+    validate_decimal("new BPM", &request.new_bpm, true)?;
+    let range = tempo_bpm_range(bytes, request)?;
+    let mut output = bytes.to_vec();
+    output.splice(range, request.new_bpm.bytes());
+    let verified = preflight_export(&output)?;
+    let actual = verified
+        .selected_tracks
+        .iter()
+        .find(|track| track.id == request.track_id)
+        .and_then(|track| track.tempos.get(request.tempo_index))
+        .ok_or_else(|| Error("edited tempo point missing after validation".into()))?;
+    if actual.bpm != request.new_bpm {
+        return Err(Error(format!(
+            "edited BPM verification failed: expected {}, found {}",
+            request.new_bpm, actual.bpm
+        )));
+    }
+    Ok(PreparedTempoEdit {
+        bytes: output,
+        change: TempoEditChange {
+            track_id: request.track_id.clone(),
+            tempo_index: request.tempo_index,
+            old_bpm: request.expected_old_bpm.clone(),
+            new_bpm: request.new_bpm.clone(),
+        },
+    })
 }
 
 #[cfg(test)]

@@ -2,7 +2,10 @@
 
 use std::path::Path;
 
-pub use oxidj_rekordbox::{Error as RekordboxError, ExportDecision, ExportPreflight, Preview};
+pub use oxidj_rekordbox::{
+    Error as RekordboxError, ExportDecision, ExportPreflight, PreparedTempoEdit, Preview,
+    TempoEditChange, TempoEditRequest,
+};
 
 /// Read-only preview handler; parsing and vendor-specific semantics stay in the adapter.
 pub fn preview_rekordbox_xml(path: impl AsRef<Path>) -> Result<Preview, RekordboxError> {
@@ -15,12 +18,42 @@ pub fn preflight_rekordbox_xml(path: impl AsRef<Path>) -> Result<ExportPreflight
     oxidj_rekordbox::preflight_export(&bytes)
 }
 
+/// Prepare a validated tempo edit without writing any file.
+pub fn prepare_rekordbox_tempo_edit(
+    input: impl AsRef<Path>,
+    request: &TempoEditRequest,
+) -> Result<PreparedTempoEdit, RekordboxError> {
+    let bytes = std::fs::read(input).map_err(|error| RekordboxError(error.to_string()))?;
+    oxidj_rekordbox::prepare_tempo_edit(&bytes, request)
+}
+
 /// Safely export the bounded no-edit XML subset without replacing any file.
 pub fn export_rekordbox_xml(
     input: impl AsRef<Path>,
     output: impl AsRef<Path>,
 ) -> Result<(), RekordboxError> {
-    use std::{fs, io::Write};
+    let (source_bytes, output) = read_new_export_source(input, output)?;
+    let bytes = oxidj_rekordbox::export_xml(&source_bytes)?;
+    publish_new_file(&output, &bytes)
+}
+
+/// Prepare again against current source bytes, then publish the edit as a new file.
+pub fn export_rekordbox_tempo_edit(
+    input: impl AsRef<Path>,
+    output: impl AsRef<Path>,
+    request: &TempoEditRequest,
+) -> Result<TempoEditChange, RekordboxError> {
+    let (source_bytes, output) = read_new_export_source(input, output)?;
+    let prepared = oxidj_rekordbox::prepare_tempo_edit(&source_bytes, request)?;
+    publish_new_file(&output, &prepared.bytes)?;
+    Ok(prepared.change)
+}
+
+fn read_new_export_source(
+    input: impl AsRef<Path>,
+    output: impl AsRef<Path>,
+) -> Result<(Vec<u8>, std::path::PathBuf), RekordboxError> {
+    use std::fs;
     let input = input.as_ref();
     let output = output.as_ref();
     let source = fs::canonicalize(input).map_err(|e| RekordboxError(e.to_string()))?;
@@ -35,8 +68,12 @@ pub fn export_rekordbox_xml(
             "refusing to overwrite existing output".into(),
         ));
     }
-    let source_bytes = fs::read(&source).map_err(|e| RekordboxError(e.to_string()))?;
-    let bytes = oxidj_rekordbox::export_xml(&source_bytes)?;
+    let bytes = fs::read(source).map_err(|e| RekordboxError(e.to_string()))?;
+    Ok((bytes, output.to_path_buf()))
+}
+
+fn publish_new_file(output: &Path, bytes: &[u8]) -> Result<(), RekordboxError> {
+    use std::{fs, io::Write};
     let parent = output
         .parent()
         .filter(|p| !p.as_os_str().is_empty())
@@ -52,7 +89,7 @@ pub fn export_rekordbox_xml(
             .create_new(true)
             .open(&temp)
             .map_err(|e| RekordboxError(e.to_string()))?;
-        file.write_all(&bytes)
+        file.write_all(bytes)
             .map_err(|e| RekordboxError(e.to_string()))?;
         file.sync_all().map_err(|e| RekordboxError(e.to_string()))?;
         fs::hard_link(&temp, output).map_err(|e| RekordboxError(e.to_string()))?;

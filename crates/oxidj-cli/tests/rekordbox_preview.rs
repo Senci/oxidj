@@ -68,6 +68,22 @@ fn export_preserves_bytes_and_refuses_source_alias_existing_and_invalid_outputs(
     );
     assert_eq!(fs::read(&output).unwrap(), source);
     assert_eq!(fs::read(&fixture).unwrap(), source);
+
+    let f07 = format!(
+        "{}/../../xtask/tests/fixtures/rekordbox-a1/F-07/source.bin",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let f07_source = fs::read(&f07).unwrap();
+    let f07_output = temporary_path("export-f07");
+    let f07_result = run(&f07, f07_output.to_str().unwrap());
+    assert_eq!(
+        f07_result.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&f07_result.stderr)
+    );
+    assert_eq!(fs::read(&f07_output).unwrap(), f07_source);
+    assert_eq!(fs::read(&f07).unwrap(), f07_source);
     assert_ne!(run(&fixture, &fixture).status.code(), Some(0));
     assert_eq!(fs::read(&fixture).unwrap(), source);
     assert_ne!(
@@ -87,6 +103,7 @@ fn export_preserves_bytes_and_refuses_source_alias_existing_and_invalid_outputs(
     assert!(!bad.exists());
     let _ = fs::remove_file(invalid);
     let _ = fs::remove_file(output);
+    let _ = fs::remove_file(f07_output);
 }
 
 #[test]
@@ -180,6 +197,116 @@ fn export_plan_rejects_unsupported_input_without_changing_source() {
             .contains("unsupported TRACK attribute Extra")
     );
     assert_eq!(fs::read_to_string(&input).unwrap(), xml);
+    let _ = fs::remove_file(input);
+}
+
+#[test]
+fn tempo_edit_exports_one_bpm_change_and_preserves_all_other_source_bytes() {
+    let fixture = format!(
+        "{}/../../xtask/tests/fixtures/rekordbox-a1/F-07/source.bin",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let source = fs::read(&fixture).unwrap();
+    let input = temporary_path("tempo-edit-input");
+    let output = temporary_path("tempo-edit-output");
+    fs::write(&input, &source).unwrap();
+    assert!(!output.exists());
+
+    let result = Command::new(env!("CARGO_BIN_EXE_oxidj-cli"))
+        .args([
+            "rekordbox",
+            "edit-tempo",
+            "--xml",
+            input.to_str().unwrap(),
+            "--output",
+            output.to_str().unwrap(),
+            "--track-id",
+            "700",
+            "--tempo-index",
+            "0",
+            "--expected-bpm",
+            "120",
+            "--bpm",
+            "125",
+        ])
+        .output()
+        .expect("run CLI");
+
+    assert_eq!(
+        result.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let expected =
+        String::from_utf8(source.clone())
+            .unwrap()
+            .replacen("Bpm=\"120\"", "Bpm=\"125\"", 1);
+    assert_eq!(fs::read_to_string(&output).unwrap(), expected);
+    assert_eq!(fs::read(&input).unwrap(), source);
+    let _ = fs::remove_file(input);
+    let _ = fs::remove_file(output);
+}
+
+#[test]
+fn tempo_edit_rejects_stale_missing_and_invalid_changes_without_writes() {
+    let fixture = format!(
+        "{}/../../xtask/tests/fixtures/rekordbox-a1/F-07/source.bin",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let source = fs::read(&fixture).unwrap();
+    let input = temporary_path("tempo-edit-rejected-input");
+    fs::write(&input, &source).unwrap();
+
+    for (label, tempo_index, old_bpm, new_bpm) in [
+        ("stale", "0", "119", "125"),
+        ("missing", "9", "120", "125"),
+        ("invalid", "0", "120", "fast"),
+        ("ambiguous", "0", "120", "125"),
+    ] {
+        let case_source = if label == "ambiguous" {
+            let xml = String::from_utf8(source.clone())
+                .unwrap()
+                .replace("Entries=\"1\"", "Entries=\"2\"")
+                .replace(
+                    "</COLLECTION>",
+                    "    <TRACK TrackID=\"700\" Name=\"Duplicate\" Location=\"file://localhost/music/duplicate.flac\"/>\n  </COLLECTION>",
+                );
+            xml.into_bytes()
+        } else {
+            source.clone()
+        };
+        fs::write(&input, &case_source).unwrap();
+        let output = temporary_path(&format!("tempo-edit-{label}-output"));
+        let result = Command::new(env!("CARGO_BIN_EXE_oxidj-cli"))
+            .args([
+                "rekordbox",
+                "edit-tempo",
+                "--xml",
+                input.to_str().unwrap(),
+                "--output",
+                output.to_str().unwrap(),
+                "--track-id",
+                "700",
+                "--tempo-index",
+                tempo_index,
+                "--expected-bpm",
+                old_bpm,
+                "--bpm",
+                new_bpm,
+            ])
+            .output()
+            .expect("run CLI");
+
+        assert_ne!(result.status.code(), Some(0), "{label} edit accepted");
+        assert!(!output.exists(), "{label} edit created output");
+        assert_eq!(
+            fs::read(&input).unwrap(),
+            case_source,
+            "{label} edit changed source"
+        );
+    }
+
     let _ = fs::remove_file(input);
 }
 

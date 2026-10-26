@@ -251,10 +251,10 @@ fn tempo_values(track: &Element) -> Result<Vec<Value>, String> {
         .collect()
 }
 
-fn check_f07(source: &[u8]) -> Result<(Value, Value), String> {
-    let root = root(source)?;
-    let track = validate_envelope(&root, 1)?[0];
-    let source_tempo = tempo_values(track)?;
+fn check_f07(source: &[u8], edited: &[u8]) -> Result<(Value, Value), String> {
+    let source_root = root(source)?;
+    let source_track = validate_envelope(&source_root, 1)?[0];
+    let source_tempo = tempo_values(source_track)?;
     if Value::Array(source_tempo.clone())
         != json!([
             {"inizio":"0","bpm":"120","metro":"4/4","battito":1},
@@ -263,12 +263,47 @@ fn check_f07(source: &[u8]) -> Result<(Value, Value), String> {
     {
         return Err("F-07 source tempo values/order mismatch".to_owned());
     }
-    let marks = track.children_named("POSITION_MARK");
-    if marks.len() != 1 {
+    let edited_root = root(edited)?;
+    let edited_track = validate_envelope(&edited_root, 1)?[0];
+    if source_track.attr("TrackID")? != edited_track.attr("TrackID")? {
+        return Err("F-07 edited track identity mismatch".to_owned());
+    }
+    let effective_tempo = tempo_values(edited_track)?;
+    let operation = &read_json("F-07", "operations.json")[0];
+    let target_index = operation["target"]
+        .as_str()
+        .and_then(|target| target.strip_prefix("tempo[")?.strip_suffix("].Bpm"))
+        .ok_or("F-07 operation target is invalid")?
+        .parse::<usize>()
+        .map_err(|error| error.to_string())?;
+    if effective_tempo.len() != source_tempo.len() {
+        return Err("F-07 edited tempo count mismatch".to_owned());
+    }
+    for (index, (source_point, edited_point)) in
+        source_tempo.iter().zip(&effective_tempo).enumerate()
+    {
+        if index == target_index {
+            if source_point["bpm"] != operation["old"] || edited_point["bpm"] != operation["new"] {
+                return Err("F-07 edited target BPM mismatch".to_owned());
+            }
+            for field in ["inizio", "metro", "battito"] {
+                if source_point[field] != edited_point[field] {
+                    return Err(format!("F-07 target tempo {field} changed"));
+                }
+            }
+        } else if source_point != edited_point {
+            return Err("F-07 non-target tempo point changed".to_owned());
+        }
+    }
+    let source_marks = source_track.children_named("POSITION_MARK");
+    let edited_marks = edited_track.children_named("POSITION_MARK");
+    if source_marks.len() != 1 || edited_marks.len() != 1 {
         return Err("F-07 expected exactly one absolute mark".to_owned());
     }
-    let mark = marks[0];
-    if mark.attr("Name")? != "Intro"
+    let source_mark = source_marks[0];
+    let mark = edited_marks[0];
+    if source_mark != mark
+        || mark.attr("Name")? != "Intro"
         || mark.attr("Type")? != "0"
         || mark.attr("Start")? != "5"
         || mark.attr("Num")? != "0"
@@ -276,11 +311,25 @@ fn check_f07(source: &[u8]) -> Result<(Value, Value), String> {
     {
         return Err("F-07 absolute mark or absent End mismatch".to_owned());
     }
-    let source_mark = json!({"name":"Intro","type":0,"start_seconds":"5","num":0,"end":"absent"});
-    let mut effective_tempo = source_tempo.clone();
-    effective_tempo[0]["bpm"] = json!("125");
-    let visible = json!({"tempo":effective_tempo,"position_mark":source_mark,"report":[]});
-    let archive = json!({"source_tempo_bpm":["120","128"],"source_mark":source_mark,"operation":{"operation_id":"e1","target":"tempo[0].Bpm","old":"120","new":"125","expected_result":"accepted"},"effective_tempo_bpm":["125","128"],"effective_mark":source_mark,"revision":1});
+    let source_mark = json!({"name":source_mark.attr("Name")?,"type":source_mark.attr("Type")?.parse::<i64>().map_err(|e| format!("{e}"))?,"start_seconds":source_mark.attr("Start")?,"num":source_mark.attr("Num")?.parse::<i64>().map_err(|e| format!("{e}"))?,"end":"absent"});
+    let effective_mark = json!({"name":mark.attr("Name")?,"type":mark.attr("Type")?.parse::<i64>().map_err(|e| format!("{e}"))?,"start_seconds":mark.attr("Start")?,"num":mark.attr("Num")?.parse::<i64>().map_err(|e| format!("{e}"))?,"end":"absent"});
+    let source_bpm: Vec<&str> = source_tempo
+        .iter()
+        .map(|point| point["bpm"].as_str().unwrap())
+        .collect();
+    let effective_bpm: Vec<&str> = effective_tempo
+        .iter()
+        .map(|point| point["bpm"].as_str().unwrap())
+        .collect();
+    let archived_operation = json!({
+        "operation_id":operation["operation_id"],
+        "target":operation["target"],
+        "old":operation["old"],
+        "new":operation["new"],
+        "expected_result":operation["expected_result"]
+    });
+    let visible = json!({"tempo":effective_tempo,"position_mark":effective_mark,"report":[]});
+    let archive = json!({"source_tempo_bpm":source_bpm,"source_mark":source_mark,"operation":archived_operation,"effective_tempo_bpm":effective_bpm,"effective_mark":effective_mark,"revision":1});
     Ok((archive, visible))
 }
 
@@ -378,21 +427,17 @@ fn a1_fixture_bytes_match_frozen_provenance_and_goldens() {
     assert_eq!(read_json("F-02", "expected-report.json"), json!([]));
 
     let source = std::fs::read(fixture("F-07", "source.bin")).unwrap();
-    let exported = oxidj_rekordbox::export_xml(&source).unwrap();
-    assert_eq!(exported, source);
-    let exported_root = root(&exported).unwrap();
-    let exported_track = validate_envelope(&exported_root, 1).unwrap()[0];
-    assert_eq!(
-        tempo_values(exported_track).unwrap(),
-        tempo_values(
-            root(&source).unwrap().children_named("COLLECTION")[0].children_named("TRACK")[0]
-        )
+    let request = oxidj_rekordbox::TempoEditRequest {
+        track_id: "700".into(),
+        tempo_index: 0,
+        expected_old_bpm: "120".into(),
+        new_bpm: "125".into(),
+    };
+    let exported = oxidj_rekordbox::prepare_tempo_edit(&source, &request)
         .unwrap()
-    );
-    let exported_mark = exported_track.children_named("POSITION_MARK")[0];
-    assert_eq!(exported_mark.attr("Num").unwrap(), "0");
-    assert!(!exported_mark.attributes.contains_key("End"));
-    let (archive, visible) = check_f07(&exported).unwrap();
+        .bytes;
+    assert_ne!(exported, source);
+    let (archive, visible) = check_f07(&source, &exported).unwrap();
     assert_eq!(archive, read_json("F-07", "expected-archive.json"));
     assert_eq!(visible, read_json("F-07", "expected-visible.json"));
     assert_eq!(
@@ -448,15 +493,16 @@ fn f02_checker_rejects_reordered_membership_and_dangling_endpoint() {
 #[test]
 fn f07_checker_rejects_changed_absolute_mark_and_optionality_or_units() {
     let source = std::fs::read(fixture("F-07", "source.bin")).unwrap();
-    let text = String::from_utf8(source).unwrap();
+    let text = String::from_utf8(source.clone()).unwrap();
     for changed in [
         text.replace("Start=\"5\"", "Start=\"5.5\""),
         text.replace("Start=\"5\"", "Start=\"5000\""),
         text.replace("Num=\"0\"", ""),
         text.replace("Num=\"0\"", "Num=\"0\" End=\"5\""),
     ] {
-        assert!(check_f07(changed.as_bytes()).is_err());
+        assert!(check_f07(&source, changed.as_bytes()).is_err());
     }
+    assert!(check_f07(&source, &source).is_err());
 }
 
 #[test]

@@ -68,6 +68,55 @@ fn run(args: &[String]) -> i32 {
 }
 
 fn run_rekordbox(args: &[String]) -> i32 {
+    if args.first().is_some_and(|action| action == "edit-tempo") {
+        if args.len() != 13
+            || args[1] != "--xml"
+            || args[3] != "--output"
+            || args[5] != "--track-id"
+            || args[7] != "--tempo-index"
+            || args[9] != "--expected-bpm"
+            || args[11] != "--bpm"
+        {
+            eprintln!(
+                "error: expected rekordbox edit-tempo --xml IN --output NEW --track-id ID --tempo-index N --expected-bpm OLD --bpm NEW"
+            );
+            return USAGE;
+        }
+        let Ok(tempo_index) = args[8].parse::<usize>() else {
+            eprintln!("error: tempo index must be a non-negative integer");
+            return USAGE;
+        };
+        let request = oxidj_application::TempoEditRequest {
+            track_id: args[6].clone(),
+            tempo_index,
+            expected_old_bpm: args[10].clone(),
+            new_bpm: args[12].clone(),
+        };
+        let prepared = match oxidj_application::prepare_rekordbox_tempo_edit(&args[2], &request) {
+            Ok(prepared) => prepared,
+            Err(error) => {
+                eprintln!("error: tempo edit rejected: {error}");
+                return DOMAIN;
+            }
+        };
+        println!(
+            "Planned: TrackID={} TEMPO[{}].Bpm {} to {}",
+            prepared.change.track_id,
+            prepared.change.tempo_index,
+            prepared.change.old_bpm,
+            prepared.change.new_bpm
+        );
+        return match oxidj_application::export_rekordbox_tempo_edit(&args[2], &args[4], &request) {
+            Ok(_) => {
+                println!("Wrote new XML: {}", args[4]);
+                OK
+            }
+            Err(error) => {
+                eprintln!("error: tempo edit export failed: {error}");
+                DOMAIN
+            }
+        };
+    }
     if args.len() == 3 && args[0] == "export-plan" && args[1] == "--xml" {
         return match oxidj_application::preflight_rekordbox_xml(&args[2]) {
             Ok(plan) => {
@@ -124,7 +173,7 @@ fn run_rekordbox(args: &[String]) -> i32 {
     }
     if args.len() != 3 || args[0] != "preview" || args[1] != "--xml" {
         eprintln!(
-            "error: expected rekordbox preview --xml PATH, export-plan --xml PATH, or export --xml IN --output NEW"
+            "error: expected rekordbox preview --xml PATH, export-plan --xml PATH, edit-tempo --xml IN --output NEW --track-id ID --tempo-index N --expected-bpm OLD --bpm NEW, or export --xml IN --output NEW"
         );
         return USAGE;
     }
@@ -304,6 +353,10 @@ fn print_usage(to_stdout: bool) {
     let _ = writeln!(
         output,
         "  rekordbox export-plan --xml <path>   Read-only bounded export preflight"
+    );
+    let _ = writeln!(
+        output,
+        "  rekordbox edit-tempo --xml <in> --output <new> --track-id <id> --tempo-index <n> --expected-bpm <old> --bpm <new>   Export one BPM edit"
     );
     let _ = writeln!(
         output,
