@@ -26,10 +26,12 @@ The dependency sketch shows the accepted one-way direction: product layers depen
 
 ```mermaid
 flowchart TB
-    cli["oxidj-cli"] --> core["oxidj-core<br/>neutral domain; no UI, persistence, audio, or vendor deps"]
-    ui["oxidj-ui<br/>M3"] --> library["oxidj-library<br/>commands, import/export"]
-    library --> core
-    adapters["oxidj-adapters<br/>vendor formats"] --> library
+    cli["oxidj-cli"] --> app["oxidj-application<br/>typed application handlers"]
+    ui["oxidj-ui<br/>M3"] --> app
+    app --> library["oxidj-library<br/>commands, import/export"]
+    app --> adapters["oxidj-rekordbox<br/>read-only XML preview"]
+    library --> core["oxidj-core<br/>neutral domain; no UI, persistence, audio, or vendor deps"]
+    adapters --> xml["quick-xml<br/>XML parsing only"]
     storage["oxidj-storage<br/>SQLite, migrations"] --> core
     analysis["oxidj-analysis<br/>BPM, beatgrid, waveform, key"] --> core
     audio["WAV/FLAC/MP3 decode in oxidj-library<br/>M2 import only"] --> library
@@ -48,7 +50,7 @@ The **M2 decoder exception** is deliberately narrow: `oxidj-library` may use the
 
 These decoders are denied in `oxidj-core` and `oxidj-cli`; every other audio dependency remains denied in all product crates, including `oxidj-library`. `nanomp3-core` is not an additional direct-dependency exception. This admission authorizes policy only: decoder dependencies are not added by this ADR amendment. Realtime audio remains isolated in the deferred `oxidj-engine` crate.
 
-**Command-first application layer:** All operations (import, edit, export, analysis) flow through typed internal commands in `oxidj-core` or `oxidj-library`, usable by GUI, CLI, tests, and future automation without duplication. (soundcraft.md ADOPT: "One application-operation path for UI and headless callers.")
+**Command-first application layer:** Stateful operations (import, edit, export, analysis) flow through typed internal commands in `oxidj-application`/`oxidj-library`, usable by GUI, CLI, tests, and future automation without duplication. Read-only source previews may use a typed application handler that composes an isolated format adapter directly; the adapter depends only on its parsing library and does not require catalog/library access. This preview path is inspection-only and does not imply catalog mutation or compatibility guarantees. (soundcraft.md ADOPT: "One application-operation path for UI and headless callers.")
 
 **M0 scope:** Only `oxidj-core` and `oxidj-cli` are scaffolded. Adapters, storage, analysis, audio-specific crates, and UI are deferred to M1–M3; the M2 import decoders are hosted directly by `oxidj-library` under the narrow exception above.
 
@@ -94,7 +96,7 @@ These decoders are denied in `oxidj-core` and `oxidj-cli`; every other audio dep
 
 > **Review status: COMPLETED 2026-10-15 (gpt-6.1-sol, reasoning medium). Final ruling: ACCEPT.** The review gate is satisfied. The dependency rules are accepted; M0-08 bootstraps `oxidj-core` + `oxidj-cli` only and owns the layer gate.
 
-**DECISION:** Layered crate architecture — core (domain only) at the bottom, with library, storage, analysis, audio, adapters, and UI in layers above; a separate realtime engine crate (oxidj-engine) enters only at M4. Command-first operations flow through core/library. M0 scaffolds only core + CLI.
+**DECISION:** Layered crate architecture — core (domain only) at the bottom, with application handlers composing library and isolated adapters above; storage, analysis, audio, UI, and separate realtime engine crate are added only as implemented responsibilities warrant. Stateful command-first operations flow through application/library; read-only source preview may flow through an application handler to an isolated adapter. M0 scaffolds only core + CLI.
 
 **WHY NOW:** Crate boundaries are difficult-to-reverse (restructuring after code is written costs migration effort). SoundCraft and the audio evaluation both provide evidence. M0-08 (Cargo workspace) depends on this layout.
 
@@ -124,7 +126,7 @@ These decoders are denied in `oxidj-core` and `oxidj-cli`; every other audio dep
 - Splitting cohesive private modules *before* stable APIs or persisted contracts exist is cheap; untangling coupled implementations afterwards is not. Layering pays only where the boundary is already known, and merging later still costs import and API churn without recovering the premature interface design.
 - **"Zero dependencies" means zero *infrastructure* dependencies, not zero external crates.** Core owns domain IDs and timestamp semantics using small foundational types or newtypes where justified. Serialization belongs in storage/adapter DTOs by default; any serialization dependency inside core must be an explicit, argued exception. A generic shared-types crate is rejected.
 - **Offline decoding is not realtime audio I/O.** Analysis may own file decoding and PCM processing without device access; extract a shared decoding crate only if a second consumer genuinely needs it. Device I/O and realtime execution stay deferred to `oxidj-engine`.
-- UI and CLI must call the **same library command handlers** and never touch persistence directly. Core holds domain types and rules — not application orchestration.
+- Stateful UI and CLI operations use the same typed application/library command handlers and never access persistence directly. A read-only format preview may instead use an application handler that calls an isolated adapter; that adapter has no catalog/library dependency. Core holds domain types and rules — not application orchestration.
 
 **Counterargument recorded:** modules cannot enforce crate-level dependency isolation. Starting with fewer crates makes accidental coupling easier, and extraction becomes expensive once storage, an async runtime or vendor types leak across boundaries. Creating populated library/storage boundaries immediately would be safer **if** M1 implementation were starting alongside M0.
 
@@ -140,7 +142,7 @@ These decoders are denied in `oxidj-core` and `oxidj-cli`; every other audio dep
 
 - The accepted boundary is the **dependency-rule set**, not a fixed crate inventory. Empty crates provide no protection.
 - `oxidj-core` owns domain types and rules, with **zero infrastructure dependencies**: no UI, audio, persistence, or vendor dependencies. Justified foundational external crates are permitted.
-- Create `oxidj-library` when application command handlers arrive; CLI and UI must share those handlers rather than access persistence directly. Add other crates only when their implemented responsibilities warrant isolation. `oxidj-engine` remains deferred to **M4**.
+- Create `oxidj-library` when stateful application command handlers arrive; CLI and UI share those handlers rather than accessing persistence directly. A read-only source-preview handler may compose an isolated adapter without routing through catalog/library commands. Add other crates only when their implemented responsibilities warrant isolation. `oxidj-engine` remains deferred to **M4**.
 
 **M0-08 acceptance criteria (binding):**
 
