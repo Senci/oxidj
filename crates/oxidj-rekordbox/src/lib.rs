@@ -875,7 +875,17 @@ pub fn prepare_position_mark_name_edit(
     if mark.name != request.expected_old_name {
         return Err(Error("position mark Name changed".into()));
     }
-    if request.new_name.is_empty() || request.new_name.chars().any(char::is_control) {
+    if request.new_name.is_empty()
+        || request.new_name.chars().any(|character| {
+            let code = character as u32;
+            !(code == 0x9
+                || code == 0xA
+                || code == 0xD
+                || (0x20..=0xD7FF).contains(&code)
+                || (0xE000..=0xFFFD).contains(&code)
+                || (0x10000..=0x10FFFF).contains(&code))
+        })
+    {
         return Err(Error("invalid position mark Name".into()));
     }
     let mut reader = Reader::from_reader(bytes);

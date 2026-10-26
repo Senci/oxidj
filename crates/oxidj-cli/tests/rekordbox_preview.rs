@@ -286,10 +286,173 @@ fn edit_mark_name_escapes_xml_and_targets_ordinal_by_decoded_old_name() {
         "{}",
         String::from_utf8_lossy(&result.stderr)
     );
-    let actual = fs::read_to_string(&output).unwrap();
-    assert!(actual.contains("Name=\"A &quot;new&quot; &amp; &lt;cue&gt;\""));
-    assert!(actual.contains("Name=\"Second\""));
+    let expected = source.replace(
+        "Name=\"Cue &amp; one\"",
+        "Name=\"A &quot;new&quot; &amp; &lt;cue&gt;\"",
+    );
+    assert_eq!(fs::read(&output).unwrap(), expected.as_bytes());
     assert_eq!(fs::read_to_string(&input).unwrap(), source);
+    let _ = fs::remove_file(input);
+    let _ = fs::remove_file(output);
+}
+
+#[test]
+fn edit_mark_name_rejects_invalid_stale_missing_and_unsupported_without_writes() {
+    let fixture = format!(
+        "{}/../../xtask/tests/fixtures/rekordbox-a1/F-07/source.bin",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let original = fs::read(&fixture).unwrap();
+    let input = temporary_path("mark-name-rejected-input");
+    fs::write(&input, &original).unwrap();
+    let unsupported = String::from_utf8(original.clone())
+        .unwrap()
+        .replace("Name=\"Intro\"", "Name=\"Intro\" Extra=\"x\"")
+        .into_bytes();
+    for (label, bytes, index, old_name, new_name) in [
+        ("stale", original.clone(), "0", "stale", "New".to_owned()),
+        ("missing", original.clone(), "9", "Intro", "New".to_owned()),
+        ("empty", original.clone(), "0", "Intro", String::new()),
+        (
+            "control",
+            original.clone(),
+            "0",
+            "Intro",
+            "bad\u{0001}".to_owned(),
+        ),
+        (
+            "xml-forbidden",
+            original.clone(),
+            "0",
+            "Intro",
+            "bad\u{FFFF}".to_owned(),
+        ),
+        (
+            "unsupported",
+            unsupported.clone(),
+            "0",
+            "Intro",
+            "New".to_owned(),
+        ),
+    ] {
+        fs::write(&input, &bytes).unwrap();
+        let output = temporary_path(&format!("mark-name-{label}-output"));
+        let result = Command::new(env!("CARGO_BIN_EXE_oxidj-cli"))
+            .args([
+                "rekordbox",
+                "edit-mark-name",
+                "--xml",
+                input.to_str().unwrap(),
+                "--output",
+                output.to_str().unwrap(),
+                "--track-id",
+                "700",
+                "--mark-index",
+                index,
+                "--expected-name",
+                old_name,
+                "--name",
+                &new_name,
+            ])
+            .output()
+            .unwrap();
+        assert_ne!(result.status.code(), Some(0), "{label} accepted");
+        assert!(!output.exists(), "{label} published output");
+        assert_eq!(fs::read(&input).unwrap(), bytes, "{label} changed source");
+    }
+    let alias = Command::new(env!("CARGO_BIN_EXE_oxidj-cli"))
+        .args([
+            "rekordbox",
+            "edit-mark-name",
+            "--xml",
+            input.to_str().unwrap(),
+            "--output",
+            input.to_str().unwrap(),
+            "--track-id",
+            "700",
+            "--mark-index",
+            "0",
+            "--expected-name",
+            "Intro",
+            "--name",
+            "New",
+        ])
+        .output()
+        .unwrap();
+    assert_ne!(alias.status.code(), Some(0));
+    assert_eq!(fs::read(&input).unwrap(), unsupported);
+    let existing = temporary_path("mark-name-existing-output");
+    fs::write(&existing, b"keep existing").unwrap();
+    let no_overwrite = Command::new(env!("CARGO_BIN_EXE_oxidj-cli"))
+        .args([
+            "rekordbox",
+            "edit-mark-name",
+            "--xml",
+            input.to_str().unwrap(),
+            "--output",
+            existing.to_str().unwrap(),
+            "--track-id",
+            "700",
+            "--mark-index",
+            "0",
+            "--expected-name",
+            "Intro",
+            "--name",
+            "New",
+        ])
+        .output()
+        .unwrap();
+    assert_ne!(no_overwrite.status.code(), Some(0));
+    assert_eq!(fs::read(&existing).unwrap(), b"keep existing");
+    let _ = fs::remove_file(existing);
+    let _ = fs::remove_file(input);
+}
+
+#[test]
+fn edit_mark_name_targets_nonzero_ordinal_exactly() {
+    let fixture = format!(
+        "{}/../../xtask/tests/fixtures/rekordbox-a1/F-07/source.bin",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let source = fs::read_to_string(&fixture).unwrap().replace(
+        "Name=\"Intro\" Type=\"0\" Start=\"5\" Num=\"0\"/>",
+        "Name=\"Intro\" Type=\"0\" Start=\"5\" Num=\"0\"/>\n      <POSITION_MARK Name=\"Second\" Type=\"0\" Start=\"6\" Num=\"1\"/>",
+    );
+    let input = temporary_path("mark-name-ordinal-input");
+    let output = temporary_path("mark-name-ordinal-output");
+    fs::write(&input, &source).unwrap();
+    let result = Command::new(env!("CARGO_BIN_EXE_oxidj-cli"))
+        .args([
+            "rekordbox",
+            "edit-mark-name",
+            "--xml",
+            input.to_str().unwrap(),
+            "--output",
+            output.to_str().unwrap(),
+            "--track-id",
+            "700",
+            "--mark-index",
+            "1",
+            "--expected-name",
+            "Second",
+            "--name",
+            "Renamed",
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(
+        result.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    assert_eq!(
+        fs::read(&output).unwrap(),
+        source
+            .replace("Name=\"Second\"", "Name=\"Renamed\"")
+            .as_bytes()
+    );
+    assert_eq!(fs::read(&input).unwrap(), source.as_bytes());
     let _ = fs::remove_file(input);
     let _ = fs::remove_file(output);
 }
