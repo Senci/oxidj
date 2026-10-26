@@ -15,7 +15,7 @@ fn track_id_process_contract() {
     assert_eq!(no_command.status.code(), Some(2));
     assert_eq!(
         no_command.stderr,
-        b"usage: oxidj-cli <command>\ncommands:\n  track-id <n>   Construct and echo a domain TrackId (n >= 1)\n  catalog init --db <path>   Initialize local catalog\n  catalog list --db <path>   List local catalog tracks\n  catalog import --dir <directory> --db <path>   Import WAV references recursively\n  catalog backup --db <source> --to <new-backup>   Create verified backup\n  catalog restore --from <backup> --db <new-destination>   Restore backup\n"
+        b"usage: oxidj-cli <command>\ncommands:\n  track-id <n>   Construct and echo a domain TrackId (n >= 1)\n  catalog init --db <path>   Initialize local catalog\n  catalog list --db <path>   List local catalog tracks\n  catalog import --dir <directory> --db <path>   Import WAV/FLAC/MP3 references recursively\n  catalog backup --db <source> --to <new-backup>   Create verified backup\n  catalog restore --from <backup> --db <new-destination>   Restore backup\n"
     );
 
     let success = run(&["track-id", "1"]);
