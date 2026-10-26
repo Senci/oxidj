@@ -67,6 +67,24 @@ pub struct PreparedPlaylistRename {
     pub bytes: Vec<u8>,
     pub change: PlaylistRenameChange,
 }
+/// One optimistic, ordinal-scoped rename of a non-root Type=0 folder.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FolderRenameRequest {
+    pub folder_index: usize,
+    pub expected_old_name: String,
+    pub new_name: String,
+}
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FolderRenameChange {
+    pub folder_index: usize,
+    pub old_name: String,
+    pub new_name: String,
+}
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PreparedFolderRename {
+    pub bytes: Vec<u8>,
+    pub change: FolderRenameChange,
+}
 /// One optimistic, ordinal-scoped tempo edit request.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TempoEditRequest {
@@ -804,6 +822,148 @@ pub fn prepare_playlist_rename(
         bytes: output,
         change: PlaylistRenameChange {
             playlist_index: request.playlist_index,
+            old_name: request.expected_old_name.clone(),
+            new_name: request.new_name.clone(),
+        },
+    })
+}
+
+/// Prepare one guarded non-root folder rename, preserving every other source byte.
+pub fn prepare_folder_rename(
+    bytes: &[u8],
+    request: &FolderRenameRequest,
+) -> Result<PreparedFolderRename, Error> {
+    let before = preflight_export(bytes)?;
+    let valid = |s: &str| {
+        !s.is_empty()
+            && s.chars().all(|c| {
+                let n = c as u32;
+                n == 9
+                    || n == 10
+                    || n == 13
+                    || (32..=0xD7FF).contains(&n)
+                    || (0xE000..=0xFFFD).contains(&n)
+                    || (0x10000..=0x10FFFF).contains(&n)
+            })
+    };
+    if !valid(&request.new_name) {
+        return Err(Error("invalid folder Name".into()));
+    }
+    let mut reader = Reader::from_reader(bytes);
+    reader.config_mut().check_end_names = true;
+    let mut buf = Vec::new();
+    let mut folders: Vec<(String, Vec<String>)> = Vec::new();
+    let mut stack: Vec<String> = Vec::new();
+    let mut node_path: Vec<String> = Vec::new();
+    let mut siblings: Vec<(Vec<String>, String)> = Vec::new();
+    let mut folder_no = 0usize;
+    let mut range = None;
+    loop {
+        let start = reader.buffer_position() as usize;
+        let ev = reader
+            .read_event_into(&mut buf)
+            .map_err(|e| Error(format!("malformed XML: {e}")))?;
+        match ev {
+            Event::Start(e) if e.name().as_ref() == b"NODE" => {
+                let ty = attr(&e, "Type")?;
+                let name = attr(&e, "Name")?;
+                let parent = node_path.iter().skip(1).cloned().collect::<Vec<_>>();
+                siblings.push((parent.clone(), name.clone()));
+                if ty == "0" && !node_path.is_empty() {
+                    if folder_no == request.folder_index {
+                        if name != request.expected_old_name {
+                            return Err(Error("folder Name changed".into()));
+                        }
+                        range = Some(attribute_value_range(
+                            &e,
+                            start,
+                            "Name",
+                            &request.expected_old_name,
+                        )?);
+                    }
+                    folders.push((name.clone(), node_path.iter().skip(1).cloned().collect()));
+                    folder_no += 1;
+                }
+                node_path.push(name);
+                stack.push("NODE".into());
+            }
+            Event::Empty(e) if e.name().as_ref() == b"NODE" => {
+                let ty = attr(&e, "Type")?;
+                let name = attr(&e, "Name")?;
+                let parent = node_path.iter().skip(1).cloned().collect::<Vec<_>>();
+                siblings.push((parent, name.clone()));
+                if ty == "0" && !node_path.is_empty() {
+                    if folder_no == request.folder_index {
+                        if name != request.expected_old_name {
+                            return Err(Error("folder Name changed".into()));
+                        }
+                        range = Some(attribute_value_range(
+                            &e,
+                            start,
+                            "Name",
+                            &request.expected_old_name,
+                        )?);
+                    }
+                    folders.push((name, node_path.iter().skip(1).cloned().collect()));
+                    folder_no += 1;
+                }
+            }
+            Event::Start(e) => stack.push(String::from_utf8_lossy(e.name().as_ref()).into_owned()),
+            Event::End(e) => {
+                if e.name().as_ref() == b"NODE" {
+                    node_path.pop();
+                }
+                stack.pop();
+            }
+            Event::Eof => break,
+            _ => {}
+        }
+        buf.clear();
+    }
+    let old = folders.get(request.folder_index).ok_or_else(|| {
+        Error(format!(
+            "no non-root folder at ordinal {}",
+            request.folder_index
+        ))
+    })?;
+    if old.0 != request.expected_old_name {
+        return Err(Error("folder Name changed".into()));
+    }
+    let range = range.ok_or_else(|| Error("folder Name location missing".into()))?;
+    let parent = old.1.clone();
+    let matches = siblings
+        .iter()
+        .filter(|(p, n)| p == &parent && n == &request.new_name)
+        .count();
+    if matches > usize::from(request.expected_old_name == request.new_name) {
+        return Err(Error("duplicate sibling playlist/folder Name".into()));
+    }
+    let escaped = request
+        .new_name
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&apos;");
+    let mut output = bytes.to_vec();
+    output.splice(range, escaped.bytes());
+    let after = preflight_export(&output)?;
+    let mut expected = before.selected_playlists.clone();
+    for playlist in &mut expected {
+        if playlist.path.len() > parent.len()
+            && playlist.path[..parent.len()] == parent[..]
+            && playlist.path[parent.len()] == request.expected_old_name
+        {
+            playlist.path[parent.len()] = request.new_name.clone();
+        }
+    }
+    if after.selected_playlists != expected || after.selected_tracks != before.selected_tracks {
+        return Err(Error("folder rename verification failed".into()));
+    }
+    Ok(PreparedFolderRename {
+        bytes: output,
+        change: FolderRenameChange {
+            folder_index: request.folder_index,
             old_name: request.expected_old_name.clone(),
             new_name: request.new_name.clone(),
         },

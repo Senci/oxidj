@@ -892,6 +892,77 @@ fn tempo_edit_rejects_stale_missing_and_invalid_changes_without_writes() {
 }
 
 #[test]
+fn folder_rename_exports_one_guarded_name_and_rejects_unsafe_cases() {
+    let fixture = format!(
+        "{}/../../xtask/tests/fixtures/rekordbox-a1/F-02/source.bin",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let source = String::from_utf8(fs::read(&fixture).unwrap())
+        .unwrap()
+        .replace("<NODE Type=\"0\" Name=\"ROOT\" Count=\"1\">", "<NODE Type=\"0\" Name=\"ROOT\" Count=\"2\">")
+        .replace(
+            "      </NODE>\n    </NODE>",
+            "      </NODE>\n      <NODE Type=\"1\" Name=\"Clash\" Entries=\"0\" KeyType=\"0\"/>\n    </NODE>",
+        )
+        .into_bytes();
+    let input = temporary_path("folder-rename-input");
+    let output = temporary_path("folder-rename-output");
+    fs::write(&input, &source).unwrap();
+    let invoke = |old: &str, new: &str, target: &std::path::Path| {
+        Command::new(env!("CARGO_BIN_EXE_oxidj-cli"))
+            .args([
+                "rekordbox",
+                "rename-folder",
+                "--xml",
+                input.to_str().unwrap(),
+                "--output",
+                target.to_str().unwrap(),
+                "--folder-index",
+                "0",
+                "--expected-name",
+                old,
+                "--name",
+                new,
+            ])
+            .output()
+            .unwrap()
+    };
+    let success = invoke("Sets", "Live & Studio", &output);
+    assert_eq!(success.status.code(), Some(0), "{:?}", success.stderr);
+    let mut expected = source.clone();
+    let from = b"Name=\"Sets\"";
+    let at = expected
+        .windows(from.len())
+        .position(|w| w == from)
+        .unwrap();
+    expected.splice(
+        at..at + from.len(),
+        b"Name=\"Live &amp; Studio\"".iter().copied(),
+    );
+    assert_eq!(fs::read(&output).unwrap(), expected);
+    assert_eq!(fs::read(&input).unwrap(), source);
+    assert_ne!(
+        invoke("Sets", "Replacement", &output).status.code(),
+        Some(0)
+    );
+    for (tag, old, new) in [
+        ("collision", "Sets", "Clash"),
+        ("stale", "stale", "Next"),
+        ("invalid", "Sets", "bad\u{1}name"),
+    ] {
+        let rejected = temporary_path(&format!("folder-rename-{tag}"));
+        assert_ne!(
+            invoke(old, new, &rejected).status.code(),
+            Some(0),
+            "{tag} rename accepted"
+        );
+        assert!(!rejected.exists(), "{tag} rename published output");
+    }
+    let _ = fs::remove_file(input);
+    let _ = fs::remove_file(output);
+}
+
+#[test]
 fn playlist_rename_exports_one_guarded_name_and_rejects_unsafe_cases() {
     let fixture = format!(
         "{}/../../xtask/tests/fixtures/rekordbox-a1/F-02/source.bin",

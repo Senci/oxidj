@@ -3,13 +3,13 @@
 use std::path::Path;
 
 pub use oxidj_rekordbox::{
-    Error as RekordboxError, ExportDecision, ExportPreflight, PlaylistRenameChange,
-    PlaylistRenameRequest, PositionMarkEditChange, PositionMarkEditRequest,
-    PositionMarkEndEditChange, PositionMarkEndEditRequest, PositionMarkNameEditChange,
-    PositionMarkNameEditRequest, PreparedPlaylistRename, PreparedPositionMarkEdit,
-    PreparedPositionMarkEndEdit, PreparedPositionMarkNameEdit, PreparedTempoEdit,
-    PreparedTempoStartEdit, Preview, TempoEditChange, TempoEditRequest, TempoStartEditChange,
-    TempoStartEditRequest,
+    Error as RekordboxError, ExportDecision, ExportPreflight, FolderRenameChange,
+    FolderRenameRequest, PlaylistRenameChange, PlaylistRenameRequest, PositionMarkEditChange,
+    PositionMarkEditRequest, PositionMarkEndEditChange, PositionMarkEndEditRequest,
+    PositionMarkNameEditChange, PositionMarkNameEditRequest, PreparedFolderRename,
+    PreparedPlaylistRename, PreparedPositionMarkEdit, PreparedPositionMarkEndEdit,
+    PreparedPositionMarkNameEdit, PreparedTempoEdit, PreparedTempoStartEdit, Preview,
+    TempoEditChange, TempoEditRequest, TempoStartEditChange, TempoStartEditRequest,
 };
 
 /// Read-only preview handler; parsing and vendor-specific semantics stay in the adapter.
@@ -31,6 +31,18 @@ pub fn export_rekordbox_playlist_rename(
 ) -> Result<PlaylistRenameChange, RekordboxError> {
     let (source, output) = read_new_export_source(input, output)?;
     let prepared = oxidj_rekordbox::prepare_playlist_rename(&source, request)?;
+    publish_new_file(&output, &prepared.bytes)?;
+    Ok(prepared.change)
+}
+
+/// Export one guarded folder rename to a new, non-overwriting file.
+pub fn export_rekordbox_folder_rename(
+    input: impl AsRef<Path>,
+    output: impl AsRef<Path>,
+    request: &FolderRenameRequest,
+) -> Result<FolderRenameChange, RekordboxError> {
+    let (source, output) = read_new_export_source(input, output)?;
+    let prepared = oxidj_rekordbox::prepare_folder_rename(&source, request)?;
     publish_new_file(&output, &prepared.bytes)?;
     Ok(prepared.change)
 }

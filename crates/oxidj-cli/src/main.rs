@@ -68,6 +68,43 @@ fn run(args: &[String]) -> i32 {
 }
 
 fn run_rekordbox(args: &[String]) -> i32 {
+    if args.first().is_some_and(|action| action == "rename-folder") {
+        if args.len() != 11
+            || args[1] != "--xml"
+            || args[3] != "--output"
+            || args[5] != "--folder-index"
+            || args[7] != "--expected-name"
+            || args[9] != "--name"
+        {
+            eprintln!(
+                "error: expected rekordbox rename-folder --xml IN --output NEW --folder-index N --expected-name OLD --name NEW"
+            );
+            return USAGE;
+        }
+        let Ok(folder_index) = args[6].parse::<usize>() else {
+            eprintln!("error: folder index must be a non-negative integer");
+            return USAGE;
+        };
+        let request = oxidj_application::FolderRenameRequest {
+            folder_index,
+            expected_old_name: args[8].clone(),
+            new_name: args[10].clone(),
+        };
+        return match oxidj_application::export_rekordbox_folder_rename(&args[2], &args[4], &request)
+        {
+            Ok(change) => {
+                println!(
+                    "Renamed folder[{}]: {:?} to {:?}",
+                    change.folder_index, change.old_name, change.new_name
+                );
+                OK
+            }
+            Err(error) => {
+                eprintln!("error: folder rename rejected: {error}");
+                DOMAIN
+            }
+        };
+    }
     if args
         .first()
         .is_some_and(|action| action == "rename-playlist")
@@ -587,6 +624,10 @@ fn print_usage(to_stdout: bool) {
     let _ = writeln!(
         output,
         "  rekordbox export-plan --xml <path>   Read-only bounded export preflight"
+    );
+    let _ = writeln!(
+        output,
+        "  rekordbox rename-folder --xml <in> --output <new> --folder-index <n> --expected-name <old> --name <new>   Export one guarded folder rename"
     );
     let _ = writeln!(
         output,
