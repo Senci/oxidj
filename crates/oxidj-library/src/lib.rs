@@ -2707,6 +2707,38 @@ mod tests {
     }
 
     #[test]
+    fn disappearance_after_discovery_is_reported_unreadable_and_incomplete() {
+        let root = database_path().with_extension("disappearing-file");
+        std::fs::create_dir_all(&root).unwrap();
+        let first = root.join("a.wav");
+        let vanished = root.join("b.wav");
+        write_test_wav(&first, &[1, 2]);
+        write_test_wav(&vanished, &[3, 4]);
+        let db = database_path();
+        let mut catalog = Catalog::open(&db).unwrap();
+        let report = catalog
+            .import_audio_directory_cancellable_with_hook(
+                &root,
+                &std::sync::atomic::AtomicBool::new(false),
+                || {
+                    if vanished.exists() {
+                        std::fs::remove_file(&vanished).unwrap();
+                    }
+                },
+            )
+            .unwrap();
+        assert!(!report.complete);
+        assert!(!report.cancelled);
+        assert_eq!(report.outcomes.len(), 2);
+        assert_eq!(report.outcomes[0].status, ImportStatus::Imported);
+        assert_eq!(report.outcomes[1].status, ImportStatus::Unreadable);
+        assert_eq!(catalog.list_tracks().unwrap().len(), 1);
+        drop(catalog);
+        remove_database(&db);
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
     fn missing_is_only_marked_after_complete_scan() {
         let root = database_path().with_extension("missing-scan");
         std::fs::create_dir_all(&root).unwrap();
