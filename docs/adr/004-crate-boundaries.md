@@ -52,7 +52,7 @@ These decoders are denied in `oxidj-core` and `oxidj-cli`; every other audio dep
 
 **Command-first application layer:** Stateful operations (import, edit, export, analysis) flow through typed internal commands in `oxidj-application`/`oxidj-library`, usable by GUI, CLI, tests, and future automation without duplication. Read-only source previews may use a typed application handler that composes an isolated format adapter directly; the adapter depends only on its parsing library and does not require catalog/library access. This preview path is inspection-only and does not imply catalog mutation or compatibility guarantees. (soundcraft.md ADOPT: "One application-operation path for UI and headless callers.")
 
-**M0 scope:** Only `oxidj-core` and `oxidj-cli` are scaffolded. Adapters, storage, analysis, audio-specific crates, and UI are deferred to M1–M3; the M2 import decoders are hosted directly by `oxidj-library` under the narrow exception above.
+**M0 scope:** Only `oxidj-core` and `oxidj-cli` were scaffolded. Additional crates and adapter responsibilities are introduced when implemented responsibilities warrant them. The bounded M4 Rekordbox read-only XML preview is one such adapter; it does not claim application compatibility. The M2 import decoders are hosted directly by `oxidj-library` under the narrow exception above.
 
 ## Evidence
 
