@@ -6,6 +6,13 @@ import { escapeHtml, renderRoadmap } from '../logic/roadmapMarkup';
 const template = readFileSync(new URL('../../roadmap.html', import.meta.url), 'utf8');
 
 describe('static roadmap', () => {
+  it('shows current M4 work in the no-JavaScript roadmap shell', () => {
+    const shell = template.replace(/\s+/g, ' ');
+    expect(shell).toContain('M4 XML groundwork in progress.');
+    expect(shell).toContain('full vendor compatibility remains unpassed');
+    expect(shell).toContain('Bounded local acceptance, not production qualification.');
+  });
+
   it('records bounded M4 implementation without promoting qualification or reopening M1–M3', () => {
     for (const id of ['M1', 'M2', 'M3']) {
       expect(milestones.find((milestone) => milestone.id === id)?.status).toBe('complete');
