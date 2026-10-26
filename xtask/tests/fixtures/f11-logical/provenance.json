@@ -20,8 +20,8 @@
     },
     "expected-archive.json": {
       "path": "expected-archive.json",
-      "length_bytes": 1327,
-      "sha256": "dfcc390d636dd152fbcbaf95037f99acc1959191ea3f99c5c1a118315aebb23e"
+      "length_bytes": 1092,
+      "sha256": "9a7daa438f3da116454a85b798bdced1c66ce68a71737f5a5ab6bc5fe20eacd8"
     },
     "expected-visible.json": {
       "path": "expected-visible.json",

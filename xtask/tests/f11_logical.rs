@@ -58,9 +58,27 @@ fn independently_check(
     {
         return Err("c2 zero point mismatch");
     }
-    if archived["revision"] != 0
+    let record = archived["records"]
+        .as_array()
+        .and_then(|records| records.first())
+        .cloned()
+        .unwrap_or(Value::Null);
+    if archived["track_id"] != "t1"
+        || archived["revision"] != 0
         || archived["operations"] != json!([])
         || archived["source_cues"] != json!(cues)
+        || archived["records"].as_array().map(Vec::len) != Some(1)
+        || record["record_id"] != "r-cues"
+        || record["track_id"] != "t1"
+        || record["source_revision"] != "s1"
+        || record["source_namespace"] != "F-11"
+        || record["origin"] != "SYNTHETIC"
+        || record["source_provenance"]
+            != json!({"case_id":"F-11","source_kind":"mixxx-cueinfo-logical","source_version":"logical-v1"})
+        || record["effective_revision"] != 0
+        || record["overlays"] != json!([])
+        || record["analysis"] != json!([])
+        || record["cues"] != json!([c0, c1, c2])
     {
         return Err("archive mismatch");
     }
@@ -84,16 +102,11 @@ fn f11_logical_artifacts_and_provenance_are_frozen() {
     let provenance = read("provenance.json");
     assert_eq!(provenance["source_sha256"], digest(&source));
     assert_eq!(provenance["source_length_bytes"], source.len());
-    for file in [
-        "expected-archive.json",
-        "expected-visible.json",
-        "expected-plan.json",
-        "expected-report.json",
-    ] {
+    for (file, info) in provenance["artifacts"].as_object().unwrap() {
         let bytes = std::fs::read(fixture(file)).unwrap();
-        let info = &provenance["artifacts"][file];
-        assert_eq!(info["length_bytes"], bytes.len());
-        assert_eq!(info["sha256"], digest(&bytes));
+        assert_eq!(info["path"], file.as_str());
+        assert_eq!(info["length_bytes"], bytes.len(), "{file}");
+        assert_eq!(info["sha256"], digest(&bytes), "{file}");
     }
     assert_eq!(read("case.json")["case_id"], "F-11");
     assert_eq!(read("case.json")["contract_version"], "logical-v1");
@@ -114,7 +127,17 @@ fn f11_independent_checker_rejects_end_zero_and_range_mutations() {
     let visible = read("expected-visible.json");
     let plan = read("expected-plan.json");
     let report = read("expected-report.json");
-    let text = String::from_utf8(source).unwrap();
+    let text = String::from_utf8(source.clone()).unwrap();
+    let mut archive_mutations = Vec::new();
+    let mut bad_archive = archive.clone();
+    bad_archive["records"][0]["cues"][1]["end_usec"] = json!(26000000);
+    archive_mutations.push(bad_archive);
+    let mut bad_visible = visible.clone();
+    bad_visible["cues"][0]["end_usec"] = json!(10000000);
+    assert!(independently_check(&source, &archive, &bad_visible, &plan, &report).is_err());
+    for mutated in archive_mutations {
+        assert!(independently_check(&source, &mutated, &visible, &plan, &report).is_err());
+    }
     for changed in [
         text.replacen(
             "\"start_usec\":10000000",
@@ -125,8 +148,22 @@ fn f11_independent_checker_rejects_end_zero_and_range_mutations() {
         text.replacen("\"end_usec\":25000000", "\"end_usec\":null", 1),
         text.replacen("\"end_usec\":25000000", "\"end_usec\":26000000", 1),
     ] {
+        let mutated_source = changed.as_bytes();
+        let mut consistent_archive = archive.clone();
+        let parsed: Value = serde_json::from_slice(mutated_source).unwrap();
+        consistent_archive["source_cues"] = parsed["cues"].clone();
+        if let Some(records) = consistent_archive["records"].as_array_mut() {
+            records[0]["cues"] = parsed["cues"].clone();
+        }
         assert!(
-            independently_check(changed.as_bytes(), &archive, &visible, &plan, &report).is_err()
+            independently_check(
+                mutated_source,
+                &consistent_archive,
+                &visible,
+                &plan,
+                &report
+            )
+            .is_err()
         );
     }
 }
