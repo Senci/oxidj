@@ -3,8 +3,9 @@
 use std::path::Path;
 
 pub use oxidj_rekordbox::{
-    Error as RekordboxError, ExportDecision, ExportPreflight, PreparedTempoEdit, Preview,
-    TempoEditChange, TempoEditRequest,
+    Error as RekordboxError, ExportDecision, ExportPreflight, PositionMarkEditChange,
+    PositionMarkEditRequest, PreparedPositionMarkEdit, PreparedTempoEdit, Preview, TempoEditChange,
+    TempoEditRequest,
 };
 
 /// Read-only preview handler; parsing and vendor-specific semantics stay in the adapter.
@@ -27,6 +28,15 @@ pub fn prepare_rekordbox_tempo_edit(
     oxidj_rekordbox::prepare_tempo_edit(&bytes, request)
 }
 
+/// Prepare one validated position mark Start edit without writing any file.
+pub fn prepare_rekordbox_position_mark_edit(
+    input: impl AsRef<Path>,
+    request: &PositionMarkEditRequest,
+) -> Result<PreparedPositionMarkEdit, RekordboxError> {
+    let bytes = std::fs::read(input).map_err(|error| RekordboxError(error.to_string()))?;
+    oxidj_rekordbox::prepare_position_mark_edit(&bytes, request)
+}
+
 /// Safely export the bounded no-edit XML subset without replacing any file.
 pub fn export_rekordbox_xml(
     input: impl AsRef<Path>,
@@ -45,6 +55,18 @@ pub fn export_rekordbox_tempo_edit(
 ) -> Result<TempoEditChange, RekordboxError> {
     let (source_bytes, output) = read_new_export_source(input, output)?;
     let prepared = oxidj_rekordbox::prepare_tempo_edit(&source_bytes, request)?;
+    publish_new_file(&output, &prepared.bytes)?;
+    Ok(prepared.change)
+}
+
+/// Re-validate one position mark Start edit, then publish it as a new file.
+pub fn export_rekordbox_position_mark_edit(
+    input: impl AsRef<Path>,
+    output: impl AsRef<Path>,
+    request: &PositionMarkEditRequest,
+) -> Result<PositionMarkEditChange, RekordboxError> {
+    let (source_bytes, output) = read_new_export_source(input, output)?;
+    let prepared = oxidj_rekordbox::prepare_position_mark_edit(&source_bytes, request)?;
     publish_new_file(&output, &prepared.bytes)?;
     Ok(prepared.change)
 }

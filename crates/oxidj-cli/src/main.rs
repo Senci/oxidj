@@ -68,6 +68,58 @@ fn run(args: &[String]) -> i32 {
 }
 
 fn run_rekordbox(args: &[String]) -> i32 {
+    if args.first().is_some_and(|action| action == "edit-position") {
+        if args.len() != 13
+            || args[1] != "--xml"
+            || args[3] != "--output"
+            || args[5] != "--track-id"
+            || args[7] != "--mark-index"
+            || args[9] != "--expected-start"
+            || args[11] != "--start"
+        {
+            eprintln!(
+                "error: expected rekordbox edit-position --xml IN --output NEW --track-id ID --mark-index N --expected-start OLD --start NEW"
+            );
+            return USAGE;
+        }
+        let Ok(mark_index) = args[8].parse::<usize>() else {
+            eprintln!("error: mark index must be a non-negative integer");
+            return USAGE;
+        };
+        let request = oxidj_application::PositionMarkEditRequest {
+            track_id: args[6].clone(),
+            mark_index,
+            expected_old_start_seconds: args[10].clone(),
+            new_start_seconds: args[12].clone(),
+        };
+        let prepared =
+            match oxidj_application::prepare_rekordbox_position_mark_edit(&args[2], &request) {
+                Ok(prepared) => prepared,
+                Err(error) => {
+                    eprintln!("error: position mark edit rejected: {error}");
+                    return DOMAIN;
+                }
+            };
+        println!(
+            "Planned: TrackID={} POSITION_MARK[{}].Start {} to {}",
+            prepared.change.track_id,
+            prepared.change.mark_index,
+            prepared.change.old_start_seconds,
+            prepared.change.new_start_seconds
+        );
+        return match oxidj_application::export_rekordbox_position_mark_edit(
+            &args[2], &args[4], &request,
+        ) {
+            Ok(_) => {
+                println!("Wrote new XML: {}", args[4]);
+                OK
+            }
+            Err(error) => {
+                eprintln!("error: position mark edit export failed: {error}");
+                DOMAIN
+            }
+        };
+    }
     if args.first().is_some_and(|action| action == "edit-tempo") {
         if args.len() != 13
             || args[1] != "--xml"
@@ -173,7 +225,7 @@ fn run_rekordbox(args: &[String]) -> i32 {
     }
     if args.len() != 3 || args[0] != "preview" || args[1] != "--xml" {
         eprintln!(
-            "error: expected rekordbox preview --xml PATH, export-plan --xml PATH, edit-tempo --xml IN --output NEW --track-id ID --tempo-index N --expected-bpm OLD --bpm NEW, or export --xml IN --output NEW"
+            "error: expected rekordbox preview --xml PATH, export-plan --xml PATH, edit-position --xml IN --output NEW --track-id ID --mark-index N --expected-start OLD --start NEW, edit-tempo --xml IN --output NEW --track-id ID --tempo-index N --expected-bpm OLD --bpm NEW, or export --xml IN --output NEW"
         );
         return USAGE;
     }
@@ -353,6 +405,10 @@ fn print_usage(to_stdout: bool) {
     let _ = writeln!(
         output,
         "  rekordbox export-plan --xml <path>   Read-only bounded export preflight"
+    );
+    let _ = writeln!(
+        output,
+        "  rekordbox edit-position --xml <in> --output <new> --track-id <id> --mark-index <n> --expected-start <old> --start <new>   Export one position edit"
     );
     let _ = writeln!(
         output,

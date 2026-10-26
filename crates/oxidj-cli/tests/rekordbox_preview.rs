@@ -249,6 +249,154 @@ fn tempo_edit_exports_one_bpm_change_and_preserves_all_other_source_bytes() {
 }
 
 #[test]
+fn position_mark_edit_changes_only_start_and_preserves_optional_end() {
+    let fixture = format!(
+        "{}/../../xtask/tests/fixtures/rekordbox-a1/F-07/source.bin",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let source = fs::read_to_string(&fixture).unwrap().replace(
+        "Type=\"0\" Start=\"5\" Num=\"0\"",
+        "Type=\"4\" Start=\"5\" End=\"10\" Num=\"0\"",
+    );
+    assert!(source.contains("Type=\"4\" Start=\"5\" End=\"10\" Num=\"0\""));
+    let input = temporary_path("position-edit-input");
+    let output = temporary_path("position-edit-output");
+    fs::write(&input, &source).unwrap();
+
+    let result = Command::new(env!("CARGO_BIN_EXE_oxidj-cli"))
+        .args([
+            "rekordbox",
+            "edit-position",
+            "--xml",
+            input.to_str().unwrap(),
+            "--output",
+            output.to_str().unwrap(),
+            "--track-id",
+            "700",
+            "--mark-index",
+            "0",
+            "--expected-start",
+            "5",
+            "--start",
+            "6",
+        ])
+        .output()
+        .expect("run CLI");
+
+    assert_eq!(
+        result.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let expected = source.replace(
+        "Type=\"4\" Start=\"5\" End=\"10\" Num=\"0\"",
+        "Type=\"4\" Start=\"6\" End=\"10\" Num=\"0\"",
+    );
+    assert_eq!(fs::read_to_string(&output).unwrap(), expected);
+    assert_eq!(fs::read_to_string(&input).unwrap(), source);
+    let _ = fs::remove_file(input);
+    let _ = fs::remove_file(output);
+}
+
+#[test]
+fn position_mark_edit_keeps_absent_end_absent_for_point_marks() {
+    let fixture = format!(
+        "{}/../../xtask/tests/fixtures/rekordbox-a1/F-07/source.bin",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let source = fs::read_to_string(&fixture).unwrap();
+    let input = temporary_path("position-point-input");
+    let output = temporary_path("position-point-output");
+    fs::write(&input, &source).unwrap();
+
+    let result = Command::new(env!("CARGO_BIN_EXE_oxidj-cli"))
+        .args([
+            "rekordbox",
+            "edit-position",
+            "--xml",
+            input.to_str().unwrap(),
+            "--output",
+            output.to_str().unwrap(),
+            "--track-id",
+            "700",
+            "--mark-index",
+            "0",
+            "--expected-start",
+            "5",
+            "--start",
+            "0",
+        ])
+        .output()
+        .expect("run CLI");
+
+    assert_eq!(
+        result.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let expected = source.replace("Start=\"5\"", "Start=\"0\"");
+    assert_eq!(fs::read_to_string(&output).unwrap(), expected);
+    assert!(!expected.contains(" End="));
+    assert_eq!(fs::read_to_string(&input).unwrap(), source);
+    let _ = fs::remove_file(input);
+    let _ = fs::remove_file(output);
+}
+
+#[test]
+fn position_mark_edit_rejects_stale_missing_invalid_and_crossing_end_without_writes() {
+    let fixture = format!(
+        "{}/../../xtask/tests/fixtures/rekordbox-a1/F-07/source.bin",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let source = fs::read_to_string(&fixture).unwrap().replace(
+        "Type=\"0\" Start=\"5\" Num=\"0\"",
+        "Type=\"4\" Start=\"5\" End=\"10\" Num=\"0\"",
+    );
+    let input = temporary_path("position-edit-rejected-input");
+    fs::write(&input, &source).unwrap();
+
+    for (label, mark_index, old_start, new_start) in [
+        ("stale", "0", "4", "6"),
+        ("missing", "4", "5", "6"),
+        ("invalid", "0", "5", "fast"),
+        ("crossing-end", "0", "5", "10"),
+    ] {
+        let output = temporary_path(&format!("position-edit-{label}-output"));
+        let result = Command::new(env!("CARGO_BIN_EXE_oxidj-cli"))
+            .args([
+                "rekordbox",
+                "edit-position",
+                "--xml",
+                input.to_str().unwrap(),
+                "--output",
+                output.to_str().unwrap(),
+                "--track-id",
+                "700",
+                "--mark-index",
+                mark_index,
+                "--expected-start",
+                old_start,
+                "--start",
+                new_start,
+            ])
+            .output()
+            .expect("run CLI");
+
+        assert_ne!(result.status.code(), Some(0), "{label} edit accepted");
+        assert!(!output.exists(), "{label} edit created output");
+        assert_eq!(
+            fs::read_to_string(&input).unwrap(),
+            source,
+            "{label} changed source"
+        );
+    }
+
+    let _ = fs::remove_file(input);
+}
+
+#[test]
 fn tempo_edit_rejects_stale_missing_and_invalid_changes_without_writes() {
     let fixture = format!(
         "{}/../../xtask/tests/fixtures/rekordbox-a1/F-07/source.bin",

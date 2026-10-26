@@ -10,7 +10,7 @@ M0 is verified complete. The named `local-catalog-alpha-v1` dependency exception
 
 - `oxidj-core` — a domain `TrackId` type that reserves `0`. Unit, integration, and doctests pass under the gate (docs/testing.md).
 - `oxidj-library` — local SQLite catalog, versioned schema, reference-record handlers, operation-ID replay protection, and a 10,000-track cap.
-- `oxidj-cli` — catalog commands, read-only Rekordbox XML preview and export preflight, plus bounded no-edit XML export.
+- `oxidj-cli` — catalog commands, read-only Rekordbox XML preview and export preflight, plus bounded no-edit, tempo-edit, and position-mark edit exports.
 - `oxidj-rekordbox` — isolated adapter for a strict Rekordbox XML subset, tested against synthetic A1 fixtures; preflight rejects unsupported input and never writes.
 - `xtask` — a repo-owned quality gate: `cargo xtask ci` (Tier 1 per-handoff gate) and `cargo xtask ci-full` (Tier 1 + tests + licence gate, used by CI).
 - Six accepted ADRs (GUI, persistence, metadata, crate boundaries, audio, licence) and the architecture baseline (docs/adr/index.md, docs/architecture.md).
