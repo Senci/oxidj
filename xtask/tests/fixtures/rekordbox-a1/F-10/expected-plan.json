@@ -1,0 +1,17 @@
+{
+  "contract_version": "logical-v1",
+  "case_id": "F-10",
+  "target_format": "rekordbox-xml",
+  "export_policy": "safe-v1",
+  "decision_phase": "pre-write",
+  "outcome": "ALLOW_EXPORT",
+  "selected_units": [
+    {"unit_id":"tempo[0]","inizio_seconds":"0","bpm":"120","metro":"4/4","battito":1},
+    {"unit_id":"tempo[1]","inizio_seconds":"8","bpm":"128","metro":"4/4","battito":1},
+    {"unit_id":"tempo[2]","inizio_seconds":"16","bpm":"132","metro":"7/8","battito":3}
+  ],
+  "withheld_units": [],
+  "report": [],
+  "target_write": "permitted-but-not-performed-by-fixture-harness",
+  "no_write_expected": false
+}

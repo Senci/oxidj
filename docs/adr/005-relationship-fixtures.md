@@ -63,6 +63,7 @@ For each case/subcase the future fixture directory must contain:
 | `operations.json` | Ordered mutations with operation ID, target address, expected revision, typed old/new values and expected result |
 | `expected-archive.json` | Hand-reviewed initial/final native records, history, revisions, provenance and effective values, including rejected-operation invariance |
 | `expected-visible.json` | Explicit target-visible post-edit/post-policy values, order and omissions; null when export is blocked |
+| `expected-plan.json` | Exact pre-write decision, selected/withheld units, report, and whether a target write is permitted or must not occur |
 | `expected-report.json` | Exact ordered `safe-v1` entries; empty list when no loss |
 | `provenance.json` | Artifact paths/lengths/SHA-256, source version/citation, logical vs real-format classification, checker identity/version |
 
@@ -325,7 +326,9 @@ No operation: preserve exact optionality and range, report `[]`. Reset variants
 add c2 point start0 (valid zero) and c3 with absent start/end (unresolved position,
 not zero). Archive preserves all distinctions; unresolved c3 is not represented
 as a valid positioned cue. Export behavior for absent-start real Mixxx DTO remains
-A2 rather than a fabricated valid position. Loop endpoint inclusivity unclaimed.
+A2 rather than a fabricated valid position. The c3 absent-start export-plan/report
+subcase is explicitly deferred until its logical target outcome is separately
+specified; it is not part of the executable fixture set. Loop endpoint inclusivity unclaimed.
 
 ### F-12: Deterministic hotcue overflow and transport loss
 

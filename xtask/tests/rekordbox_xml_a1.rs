@@ -284,7 +284,7 @@ fn check_f07(source: &[u8]) -> Result<(Value, Value), String> {
     Ok((archive, visible))
 }
 
-fn check_f10(source: &[u8]) -> Result<(Value, Value), String> {
+fn check_f10(source: &[u8]) -> Result<(Value, Value, Value), String> {
     let root = root(source)?;
     let track = validate_envelope(&root, 1)?[0];
     let tempo = tempo_values(track)?;
@@ -299,7 +299,28 @@ fn check_f10(source: &[u8]) -> Result<(Value, Value), String> {
     }
     let result = json!({"tempo":tempo,"revision":0,"report":[]});
     let visible = json!({"tempo":result["tempo"],"report":[]});
-    Ok((result, visible))
+    let plan = json!({
+        "contract_version":"logical-v1",
+        "case_id":"F-10",
+        "target_format":"rekordbox-xml",
+        "export_policy":"safe-v1",
+        "decision_phase":"pre-write",
+        "outcome":"ALLOW_EXPORT",
+        "selected_units": result["tempo"].as_array().unwrap().iter().enumerate().map(|(index, tempo)| {
+            json!({
+                "unit_id":format!("tempo[{index}]"),
+                "inizio_seconds":tempo["inizio"],
+                "bpm":tempo["bpm"],
+                "metro":tempo["metro"],
+                "battito":tempo["battito"]
+            })
+        }).collect::<Vec<_>>(),
+        "withheld_units":[],
+        "report":[],
+        "target_write":"permitted-but-not-performed-by-fixture-harness",
+        "no_write_expected":false
+    });
+    Ok((result, visible, plan))
 }
 
 fn fixture(case_id: &str, name: &str) -> PathBuf {
@@ -382,9 +403,18 @@ fn a1_fixture_bytes_match_frozen_provenance_and_goldens() {
 
     let source = std::fs::read(fixture("F-10", "source.bin")).unwrap();
     let exported = oxidj_rekordbox::export_xml(&source).unwrap();
-    let (archive, visible) = check_f10(&exported).unwrap();
+    let (archive, visible, plan) = check_f10(&exported).unwrap();
     assert_eq!(archive, read_json("F-10", "expected-archive.json"));
     assert_eq!(visible, read_json("F-10", "expected-visible.json"));
+    assert_eq!(plan, read_json("F-10", "expected-plan.json"));
+    let provenance = read_json("F-10", "provenance.json");
+    let plan_bytes = std::fs::read(fixture("F-10", "expected-plan.json")).unwrap();
+    assert_eq!(provenance["expected_plan_path"], "expected-plan.json");
+    assert_eq!(provenance["expected_plan_length_bytes"], plan_bytes.len());
+    assert_eq!(
+        provenance["expected_plan_sha256"],
+        format!("{:x}", Sha256::digest(&plan_bytes))
+    );
     assert_eq!(read_json("F-10", "operations.json"), json!([]));
     assert_eq!(read_json("F-10", "expected-report.json"), json!([]));
 }
