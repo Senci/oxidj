@@ -93,6 +93,25 @@ pub struct PreparedPositionMarkEdit {
     pub bytes: Vec<u8>,
     pub change: PositionMarkEditChange,
 }
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PositionMarkNameEditRequest {
+    pub track_id: String,
+    pub mark_index: usize,
+    pub expected_old_name: String,
+    pub new_name: String,
+}
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PositionMarkNameEditChange {
+    pub track_id: String,
+    pub mark_index: usize,
+    pub old_name: String,
+    pub new_name: String,
+}
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PreparedPositionMarkNameEdit {
+    pub bytes: Vec<u8>,
+    pub change: PositionMarkNameEditChange,
+}
 #[derive(Debug)]
 pub struct Error(pub String);
 impl std::fmt::Display for Error {
@@ -835,6 +854,115 @@ pub fn prepare_position_mark_edit(
             mark_index: request.mark_index,
             old_start_seconds: request.expected_old_start_seconds.clone(),
             new_start_seconds: request.new_start_seconds.clone(),
+        },
+    })
+}
+
+pub fn prepare_position_mark_name_edit(
+    bytes: &[u8],
+    request: &PositionMarkNameEditRequest,
+) -> Result<PreparedPositionMarkNameEdit, Error> {
+    let source = preflight_export(bytes)?;
+    let track = source
+        .selected_tracks
+        .iter()
+        .find(|t| t.id == request.track_id)
+        .ok_or_else(|| Error(format!("unknown TrackID {}", request.track_id)))?;
+    let mark = track
+        .marks
+        .get(request.mark_index)
+        .ok_or_else(|| Error("position mark missing".into()))?;
+    if mark.name != request.expected_old_name {
+        return Err(Error("position mark Name changed".into()));
+    }
+    if request.new_name.is_empty() || request.new_name.chars().any(char::is_control) {
+        return Err(Error("invalid position mark Name".into()));
+    }
+    let mut reader = Reader::from_reader(bytes);
+    reader.config_mut().check_end_names = true;
+    let mut buf = Vec::new();
+    let mut stack: Vec<String> = Vec::new();
+    let mut tid: Option<String> = None;
+    let mut index = 0usize;
+    let mut range = None;
+    loop {
+        let start = reader.buffer_position() as usize;
+        match reader
+            .read_event_into(&mut buf)
+            .map_err(|e| Error(e.to_string()))?
+        {
+            Event::Start(e) => {
+                let tag = String::from_utf8_lossy(e.name().as_ref()).into_owned();
+                if tag == "TRACK" && stack.last().is_some_and(|x| x == "COLLECTION") {
+                    tid = Some(attr(&e, "TrackID")?);
+                    index = 0;
+                } else if tag == "POSITION_MARK" && tid.as_deref() == Some(&request.track_id) {
+                    if index == request.mark_index {
+                        range = Some(attribute_value_range(
+                            &e,
+                            start,
+                            "Name",
+                            &request.expected_old_name,
+                        )?);
+                    }
+                    index += 1;
+                }
+                stack.push(tag);
+            }
+            Event::Empty(e) => {
+                if e.name().as_ref() == b"POSITION_MARK"
+                    && tid.as_deref() == Some(&request.track_id)
+                {
+                    if index == request.mark_index {
+                        range = Some(attribute_value_range(
+                            &e,
+                            start,
+                            "Name",
+                            &request.expected_old_name,
+                        )?);
+                    }
+                    index += 1;
+                }
+            }
+            Event::End(e) => {
+                if e.name().as_ref() == b"TRACK" && stack.last().is_some_and(|x| x == "TRACK") {
+                    tid = None;
+                }
+                stack.pop();
+            }
+            Event::Eof => break,
+            _ => {}
+        }
+        buf.clear();
+    }
+    let range = range.ok_or_else(|| Error("position mark missing".into()))?;
+    let escaped = request
+        .new_name
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&apos;");
+    let mut output = bytes.to_vec();
+    output.splice(range, escaped.bytes());
+    let verified = preflight_export(&output)?;
+    let actual = verified
+        .selected_tracks
+        .iter()
+        .find(|t| t.id == request.track_id)
+        .ok_or_else(|| Error("edited track missing".into()))?;
+    let mut expected = track.clone();
+    expected.marks[request.mark_index].name = request.new_name.clone();
+    if actual != &expected {
+        return Err(Error("edited Name verification failed".into()));
+    }
+    Ok(PreparedPositionMarkNameEdit {
+        bytes: output,
+        change: PositionMarkNameEditChange {
+            track_id: request.track_id.clone(),
+            mark_index: request.mark_index,
+            old_name: request.expected_old_name.clone(),
+            new_name: request.new_name.clone(),
         },
     })
 }

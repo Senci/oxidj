@@ -249,6 +249,52 @@ fn tempo_edit_exports_one_bpm_change_and_preserves_all_other_source_bytes() {
 }
 
 #[test]
+fn edit_mark_name_escapes_xml_and_targets_ordinal_by_decoded_old_name() {
+    let fixture = format!(
+        "{}/../../xtask/tests/fixtures/rekordbox-a1/F-07/source.bin",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let source = fs::read_to_string(&fixture).unwrap().replace(
+        "Name=\"Intro\" Type=\"0\" Start=\"5\" Num=\"0\"/>",
+        "Name=\"Cue &amp; one\" Type=\"0\" Start=\"5\" Num=\"0\"/>\n      <POSITION_MARK Type=\"0\" Name=\"Second\" Start=\"6\" Num=\"1\"/>",
+    );
+    let input = temporary_path("mark-name-input");
+    let output = temporary_path("mark-name-output");
+    fs::write(&input, &source).unwrap();
+    let result = Command::new(env!("CARGO_BIN_EXE_oxidj-cli"))
+        .args([
+            "rekordbox",
+            "edit-mark-name",
+            "--xml",
+            input.to_str().unwrap(),
+            "--output",
+            output.to_str().unwrap(),
+            "--track-id",
+            "700",
+            "--mark-index",
+            "0",
+            "--expected-name",
+            "Cue & one",
+            "--name",
+            "A \"new\" & <cue>",
+        ])
+        .output()
+        .expect("run CLI");
+    assert_eq!(
+        result.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let actual = fs::read_to_string(&output).unwrap();
+    assert!(actual.contains("Name=\"A &quot;new&quot; &amp; &lt;cue&gt;\""));
+    assert!(actual.contains("Name=\"Second\""));
+    assert_eq!(fs::read_to_string(&input).unwrap(), source);
+    let _ = fs::remove_file(input);
+    let _ = fs::remove_file(output);
+}
+
+#[test]
 fn position_mark_edit_changes_only_start_and_preserves_optional_end() {
     let fixture = format!(
         "{}/../../xtask/tests/fixtures/rekordbox-a1/F-07/source.bin",

@@ -68,6 +68,49 @@ fn run(args: &[String]) -> i32 {
 }
 
 fn run_rekordbox(args: &[String]) -> i32 {
+    if args
+        .first()
+        .is_some_and(|action| action == "edit-mark-name")
+    {
+        if args.len() != 13
+            || args[1] != "--xml"
+            || args[3] != "--output"
+            || args[5] != "--track-id"
+            || args[7] != "--mark-index"
+            || args[9] != "--expected-name"
+            || args[11] != "--name"
+        {
+            eprintln!(
+                "error: expected rekordbox edit-mark-name --xml IN --output NEW --track-id ID --mark-index N --expected-name OLD --name NEW"
+            );
+            return USAGE;
+        }
+        let Ok(mark_index) = args[8].parse::<usize>() else {
+            eprintln!("error: mark index must be a non-negative integer");
+            return USAGE;
+        };
+        let request = oxidj_application::PositionMarkNameEditRequest {
+            track_id: args[6].clone(),
+            mark_index,
+            expected_old_name: args[10].clone(),
+            new_name: args[12].clone(),
+        };
+        return match oxidj_application::export_rekordbox_position_mark_name_edit(
+            &args[2], &args[4], &request,
+        ) {
+            Ok(change) => {
+                println!(
+                    "Renamed TrackID={} POSITION_MARK[{}]: {:?} to {:?}",
+                    change.track_id, change.mark_index, change.old_name, change.new_name
+                );
+                OK
+            }
+            Err(error) => {
+                eprintln!("error: position mark name edit rejected: {error}");
+                DOMAIN
+            }
+        };
+    }
     if args.first().is_some_and(|action| action == "edit-position") {
         if args.len() != 13
             || args[1] != "--xml"

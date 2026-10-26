@@ -4,8 +4,9 @@ use std::path::Path;
 
 pub use oxidj_rekordbox::{
     Error as RekordboxError, ExportDecision, ExportPreflight, PositionMarkEditChange,
-    PositionMarkEditRequest, PreparedPositionMarkEdit, PreparedTempoEdit, Preview, TempoEditChange,
-    TempoEditRequest,
+    PositionMarkEditRequest, PositionMarkNameEditChange, PositionMarkNameEditRequest,
+    PreparedPositionMarkEdit, PreparedPositionMarkNameEdit, PreparedTempoEdit, Preview,
+    TempoEditChange, TempoEditRequest,
 };
 
 /// Read-only preview handler; parsing and vendor-specific semantics stay in the adapter.
@@ -55,6 +56,27 @@ pub fn export_rekordbox_tempo_edit(
 ) -> Result<TempoEditChange, RekordboxError> {
     let (source_bytes, output) = read_new_export_source(input, output)?;
     let prepared = oxidj_rekordbox::prepare_tempo_edit(&source_bytes, request)?;
+    publish_new_file(&output, &prepared.bytes)?;
+    Ok(prepared.change)
+}
+
+/// Prepare a guarded position-mark Name edit without writing any file.
+pub fn prepare_rekordbox_position_mark_name_edit(
+    input: impl AsRef<Path>,
+    request: &PositionMarkNameEditRequest,
+) -> Result<PreparedPositionMarkNameEdit, RekordboxError> {
+    let bytes = std::fs::read(input).map_err(|e| RekordboxError(e.to_string()))?;
+    oxidj_rekordbox::prepare_position_mark_name_edit(&bytes, request)
+}
+
+/// Export one guarded position-mark Name edit to a new file.
+pub fn export_rekordbox_position_mark_name_edit(
+    input: impl AsRef<Path>,
+    output: impl AsRef<Path>,
+    request: &PositionMarkNameEditRequest,
+) -> Result<PositionMarkNameEditChange, RekordboxError> {
+    let (source, output) = read_new_export_source(input, output)?;
+    let prepared = oxidj_rekordbox::prepare_position_mark_name_edit(&source, request)?;
     publish_new_file(&output, &prepared.bytes)?;
     Ok(prepared.change)
 }
