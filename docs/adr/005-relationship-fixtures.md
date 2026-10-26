@@ -1,6 +1,6 @@
 # ADR-005 Relationship Fixtures
 
-**Status:** Proposed logical-v1 contract — no executed fixture results.
+**Status:** Proposed logical-v1 contract — A1 synthetic XML fixture tests pass; all other fixture results and overall promotion remain unqualified.
 **Date:** 2026-10-16
 **Owner:** OxiDJ lead
 **Companion:** [ADR-005](005-metadata-schema.md)
@@ -362,10 +362,17 @@ those controls or restores and defines no product media/retention policy.
 
 ## 5. Unresolved artifact and qualification gates
 
-- **A1 XML binding:** freeze complete source XML documents, required envelope,
-  documented numeric Type/key-type encodings and optional-field absence for
-  F-02/F-07/F-10, with hashes and independent XML checker rules. These recipes
-  are not an invented complete XML wire document or executed adapter fixture.
+- **A1 XML binding — synthetic fixture set frozen:**
+  [`xtask/tests/fixtures/rekordbox-a1/`](../../xtask/tests/fixtures/rekordbox-a1/)
+  contains complete synthetic XML byte documents (`source.bin`) for F-02/F-07/F-10,
+  independent semantic goldens, provenance/digests, and an independent Rust XML
+  checker in `xtask/tests/rekordbox_xml_a1.rs`. The pinned Rekordbox XML format
+  list (URL and digest in each `provenance.json`) specifies version 1.0.0,
+  playlist `Type` 0/1, `KeyType` 0 for TrackID, and `POSITION_MARK` Cue=0; optional
+  mark `End` is absent in the cue fixture. Tests reject mutations, omissions,
+  dangling endpoints and reordered membership/tempo points. This is synthetic
+  fixture evidence only: no Rekordbox application acceptance or product adapter
+  is claimed.
 - **A2 Mixxx binding:** select the exact adapter transport/envelope and pin how
   BeatMap/BeatGrid proto, sample-rate context and CueInfo DTO optionality/colors
   are carried. A CueInfo C++ DTO is not a library-file format. Bind raw bytes,
@@ -383,15 +390,15 @@ those controls or restores and defines no product media/retention policy.
 | Case | Required specification behavior | Observed result |
 |---|---|---|
 | F-01 | Explicit reconciliation/conflicts, archive vs current location | NOT DEMONSTRATED |
-| F-02 | XML child order, shared endpoints | NOT DEMONSTRATED |
+| F-02 | XML child order, shared endpoints | PASS — synthetic A1 checker/tests; no application acceptance |
 | F-03 | Constant grid/cue/range preservation | NOT DEMONSTRATED |
 | F-04 | Revisioned edits, stale conflicts, analysis precedence | NOT DEMONSTRATED |
 | F-05 | Synthetic unknown-kind bytes; real vendor gap | NOT DEMONSTRATED |
 | F-06 / F-06b | Absolute independence / declared anchor loss | NOT DEMONSTRATED |
-| F-07 | XML tempo edit without false absolute-cue dependency | NOT DEMONSTRATED |
+| F-07 | XML tempo edit without false absolute-cue dependency | PASS — synthetic A1 checker/tests; no UI claim |
 | F-08 / F-08b | Synthetic encoding retention / unsafe edit withholding | NOT DEMONSTRATED |
 | F-09 | Independent post-edit/loss-aware checker and controls | NOT DEMONSTRATED |
-| F-10 | Ordered variable tempo/meter preservation | NOT DEMONSTRATED |
+| F-10 | Ordered variable tempo/meter preservation | PASS — synthetic A1 checker/tests |
 | F-11 | Point/range/optional-end distinctions | NOT DEMONSTRATED |
 | F-12 | 40 archived, 38 visible, exact two-entry loss report | NOT DEMONSTRATED |
 | B1/B2 | Atomic test-only reference transition and boundary snapshots | NOT DEMONSTRATED |

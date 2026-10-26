@@ -1,0 +1,9 @@
+{
+  "playlist_tree": [
+    {"name":"Sets","children":[
+      {"name":"House","track_ids":[100,200,300]},
+      {"name":"Techno","track_ids":[200,400]}
+    ]}
+  ],
+  "report": []
+}

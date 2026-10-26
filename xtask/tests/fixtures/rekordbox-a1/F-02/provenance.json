@@ -1,0 +1,10 @@
+{
+  "source_path": "source.bin",
+  "source_format": "synthetic Rekordbox XML, not vendor-generated",
+  "source_length_bytes": 950,
+  "specification": "https://cdn.rekordbox.com/files/20200410160904/xml_format_list.pdf",
+  "specification_version": "1.0.0",
+  "specification_sha256": "2acbe04491bfed8b3c53a977a63e372c1605dfc4d8f8047fe89f28f36151aeeb",
+  "source_sha256": "4304e6df3de22a0f718ca3e23e3a577ae361d45b946c161f7e3557767587ee9f",
+  "checker": "xtask/tests/rekordbox_xml_a1.rs"
+}

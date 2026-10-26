@@ -1,0 +1,10 @@
+{
+  "contract_version": "logical-v1",
+  "case_id": "F-07",
+  "source_kind": "rekordbox-xml",
+  "source_version": "1.0.0",
+  "ordered_track_ids": [700],
+  "source_assertions": {"tempo_bpm": ["120", "128"], "absolute_mark_start_seconds": "5", "mark_end": "absent"},
+  "target_format": "rekordbox-xml",
+  "export_policy": "safe-v1"
+}

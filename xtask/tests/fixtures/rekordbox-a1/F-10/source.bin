@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<DJ_PLAYLISTS Version="1.0.0">
+  <PRODUCT Name="OxiDJ synthetic fixture" Version="0" Company="OxiDJ"/>
+  <COLLECTION Entries="1">
+    <TRACK TrackID="1000" Name="Variable tempo" Location="file://localhost/music/variable.flac">
+      <TEMPO Inizio="0" Bpm="120" Metro="4/4" Battito="1"/>
+      <TEMPO Inizio="8" Bpm="128" Metro="4/4" Battito="1"/>
+      <TEMPO Inizio="16" Bpm="132" Metro="7/8" Battito="3"/>
+    </TRACK>
+  </COLLECTION>
+  <PLAYLISTS>
+    <NODE Type="0" Name="ROOT" Count="0"/>
+  </PLAYLISTS>
+</DJ_PLAYLISTS>

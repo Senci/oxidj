@@ -1,0 +1,20 @@
+{
+  "track_ids": [100, 200, 300, 400],
+  "track_names": ["A", "B", "C", "D"],
+  "locations": [
+    "file://localhost/music/a.flac",
+    "file://localhost/music/b.flac",
+    "file://localhost/music/c.flac",
+    "file://localhost/music/d.flac"
+  ],
+  "playlist_tree": [
+    {"name":"Sets","children":[
+      {"name":"House","track_ids":[100,200,300]},
+      {"name":"Techno","track_ids":[200,400]}
+    ]}
+  ],
+  "membership_count": 5,
+  "revision": 0,
+  "history": [],
+  "report": []
+}

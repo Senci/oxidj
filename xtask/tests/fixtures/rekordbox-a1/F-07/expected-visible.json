@@ -1,0 +1,8 @@
+{
+  "tempo": [
+    {"inizio":"0","bpm":"125","metro":"4/4","battito":1},
+    {"inizio":"10","bpm":"128","metro":"4/4","battito":1}
+  ],
+  "position_mark": {"name":"Intro","type":0,"start_seconds":"5","num":0,"end":"absent"},
+  "report": []
+}

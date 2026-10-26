@@ -17,6 +17,11 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::process::Command;
 
+#[cfg(test)]
+use quick_xml as _;
+#[cfg(test)]
+use sha2 as _;
+
 // --- Layer table (ADR-004) -------------------------------------------------
 // Lower layer number = closer to the domain core. A crate may depend only on
 // crates at the SAME layer or LOWER; depending on a higher layer is a forbidden

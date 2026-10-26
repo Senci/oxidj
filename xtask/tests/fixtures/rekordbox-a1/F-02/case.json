@@ -1,0 +1,11 @@
+{
+  "contract_version": "logical-v1",
+  "case_id": "F-02",
+  "source_kind": "rekordbox-xml",
+  "source_version": "1.0.0",
+  "ordered_track_ids": [100, 200, 300, 400],
+  "ordered_playlist_names": ["Sets/House", "Sets/Techno"],
+  "source_assertions": {"shared_track_id": 200, "membership_count": 5},
+  "target_format": "rekordbox-xml",
+  "export_policy": "safe-v1"
+}
