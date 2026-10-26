@@ -132,6 +132,25 @@ pub struct PreparedPositionMarkNameEdit {
     pub bytes: Vec<u8>,
     pub change: PositionMarkNameEditChange,
 }
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PositionMarkEndEditRequest {
+    pub track_id: String,
+    pub mark_index: usize,
+    pub expected_old_end_seconds: String,
+    pub new_end_seconds: String,
+}
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PositionMarkEndEditChange {
+    pub track_id: String,
+    pub mark_index: usize,
+    pub old_end_seconds: String,
+    pub new_end_seconds: String,
+}
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PreparedPositionMarkEndEdit {
+    pub bytes: Vec<u8>,
+    pub change: PositionMarkEndEditChange,
+}
 #[derive(Debug)]
 pub struct Error(pub String);
 impl std::fmt::Display for Error {
@@ -857,6 +876,76 @@ fn position_mark_start_range(
     })
 }
 
+fn position_mark_end_range(
+    bytes: &[u8],
+    request: &PositionMarkEndEditRequest,
+) -> Result<std::ops::Range<usize>, Error> {
+    let mut reader = Reader::from_reader(bytes);
+    reader.config_mut().check_end_names = true;
+    let mut buf = Vec::new();
+    let mut stack: Vec<String> = Vec::new();
+    let mut track_id: Option<String> = None;
+    let mut index = 0usize;
+    let mut range = None;
+    loop {
+        let start = reader.buffer_position() as usize;
+        let event = reader
+            .read_event_into(&mut buf)
+            .map_err(|e| Error(format!("malformed XML: {e}")))?;
+        match event {
+            Event::Start(element) => {
+                let name = String::from_utf8_lossy(element.name().as_ref()).into_owned();
+                if name == "TRACK" && stack.last().is_some_and(|parent| parent == "COLLECTION") {
+                    track_id = Some(attr(&element, "TrackID")?);
+                    index = 0;
+                } else if name == "POSITION_MARK" && track_id.as_deref() == Some(&request.track_id)
+                {
+                    if index == request.mark_index {
+                        range = Some(attribute_value_range(
+                            &element,
+                            start,
+                            "End",
+                            &request.expected_old_end_seconds,
+                        )?);
+                    }
+                    index += 1;
+                }
+                stack.push(name);
+            }
+            Event::Empty(element) => {
+                let name = String::from_utf8_lossy(element.name().as_ref()).into_owned();
+                if name == "POSITION_MARK" && track_id.as_deref() == Some(&request.track_id) {
+                    if index == request.mark_index {
+                        range = Some(attribute_value_range(
+                            &element,
+                            start,
+                            "End",
+                            &request.expected_old_end_seconds,
+                        )?);
+                    }
+                    index += 1;
+                }
+            }
+            Event::End(element) => {
+                let name = String::from_utf8_lossy(element.name().as_ref()).into_owned();
+                if name == "TRACK" && stack.last().is_some_and(|open| open == "TRACK") {
+                    track_id = None;
+                }
+                stack.pop();
+            }
+            Event::Eof => break,
+            _ => {}
+        }
+        buf.clear();
+    }
+    range.ok_or_else(|| {
+        Error(format!(
+            "no position mark {} for TrackID {}",
+            request.mark_index, request.track_id
+        ))
+    })
+}
+
 fn attribute_value_range(
     element: &quick_xml::events::BytesStart<'_>,
     event_start: usize,
@@ -943,6 +1032,67 @@ pub fn prepare_position_mark_edit(
             mark_index: request.mark_index,
             old_start_seconds: request.expected_old_start_seconds.clone(),
             new_start_seconds: request.new_start_seconds.clone(),
+        },
+    })
+}
+
+pub fn prepare_position_mark_end_edit(
+    bytes: &[u8],
+    request: &PositionMarkEndEditRequest,
+) -> Result<PreparedPositionMarkEndEdit, Error> {
+    let source = preflight_export(bytes)?;
+    let track = source
+        .selected_tracks
+        .iter()
+        .find(|track| track.id == request.track_id)
+        .ok_or_else(|| Error(format!("unknown TrackID {}", request.track_id)))?;
+    let mark = track
+        .marks
+        .get(request.mark_index)
+        .ok_or_else(|| Error("position mark missing".into()))?;
+    let old = mark
+        .end_seconds
+        .as_ref()
+        .ok_or_else(|| Error("POSITION_MARK missing End attribute".into()))?;
+    if old != &request.expected_old_end_seconds {
+        return Err(Error(format!(
+            "position mark End changed: expected {}, found {old}",
+            request.expected_old_end_seconds
+        )));
+    }
+    validate_decimal("new position mark End", &request.new_end_seconds, false)?;
+    let new_end = request
+        .new_end_seconds
+        .parse::<f64>()
+        .map_err(|_| Error("invalid new position mark End".into()))?;
+    let start = mark
+        .start_seconds
+        .parse::<f64>()
+        .map_err(|_| Error("invalid position mark Start".into()))?;
+    if new_end <= start {
+        return Err(Error("edited position mark End must be after Start".into()));
+    }
+    let range = position_mark_end_range(bytes, request)?;
+    let mut output = bytes.to_vec();
+    output.splice(range, request.new_end_seconds.bytes());
+    let verified = preflight_export(&output)?;
+    let mut expected = track.clone();
+    expected.marks[request.mark_index].end_seconds = Some(request.new_end_seconds.clone());
+    let actual = verified
+        .selected_tracks
+        .iter()
+        .find(|track| track.id == request.track_id)
+        .ok_or_else(|| Error("edited track missing after validation".into()))?;
+    if actual != &expected {
+        return Err(Error("edited position mark verification failed".into()));
+    }
+    Ok(PreparedPositionMarkEndEdit {
+        bytes: output,
+        change: PositionMarkEndEditChange {
+            track_id: request.track_id.clone(),
+            mark_index: request.mark_index,
+            old_end_seconds: request.expected_old_end_seconds.clone(),
+            new_end_seconds: request.new_end_seconds.clone(),
         },
     })
 }

@@ -581,6 +581,107 @@ fn edit_mark_name_targets_nonzero_ordinal_exactly() {
 }
 
 #[test]
+fn position_mark_end_edit_exports_one_guarded_end_and_refuses_unsafe_edits() {
+    let fixture = format!(
+        "{}/../../xtask/tests/fixtures/rekordbox-a1/F-07/source.bin",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let source = fs::read_to_string(&fixture).unwrap().replace(
+        "Type=\"0\" Start=\"5\" Num=\"0\"",
+        "Type=\"4\" Start=\"5\" End=\"10\" Num=\"0\"",
+    );
+    let input = temporary_path("end-edit-input");
+    let output = temporary_path("end-edit-output");
+    fs::write(&input, &source).unwrap();
+    let invoke = |destination: &std::path::Path, old: &str, new: &str, index: &str| {
+        Command::new(env!("CARGO_BIN_EXE_oxidj-cli"))
+            .args([
+                "rekordbox",
+                "edit-mark-end",
+                "--xml",
+                input.to_str().unwrap(),
+                "--output",
+                destination.to_str().unwrap(),
+                "--track-id",
+                "700",
+                "--mark-index",
+                index,
+                "--expected-end",
+                old,
+                "--end",
+                new,
+            ])
+            .output()
+            .unwrap()
+    };
+    let success = invoke(&output, "10", "12.5", "0");
+    assert_eq!(
+        success.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&success.stderr)
+    );
+    assert_eq!(
+        fs::read(&output).unwrap(),
+        source.replace("End=\"10\"", "End=\"12.5\"").as_bytes()
+    );
+    assert_eq!(fs::read(&input).unwrap(), source.as_bytes());
+    let existing = temporary_path("end-edit-existing");
+    fs::write(&existing, b"keep").unwrap();
+    for (dest, old, new, index, payload) in [
+        (&existing, "10", "13", "0", source.clone()),
+        (&input, "10", "13", "0", source.clone()),
+        (
+            &temporary_path("end-edit-missing"),
+            "10",
+            "13",
+            "9",
+            source.clone(),
+        ),
+        (
+            &temporary_path("end-edit-stale"),
+            "9",
+            "13",
+            "0",
+            source.clone(),
+        ),
+        (
+            &temporary_path("end-edit-invalid"),
+            "10",
+            "NaN",
+            "0",
+            source.clone(),
+        ),
+        (
+            &temporary_path("end-edit-crossing"),
+            "10",
+            "5",
+            "0",
+            source.clone(),
+        ),
+    ] {
+        fs::write(&input, &payload).unwrap();
+        let result = invoke(dest, old, new, index);
+        assert_ne!(result.status.code(), Some(0));
+        if dest == &existing {
+            assert_eq!(fs::read(dest).unwrap(), b"keep");
+        } else if dest != &input {
+            assert!(!dest.exists());
+        }
+        assert_eq!(fs::read(&input).unwrap(), payload.as_bytes());
+    }
+    let absent = source.replace(" End=\"10\"", "");
+    fs::write(&input, &absent).unwrap();
+    let absent_out = temporary_path("end-edit-absent");
+    assert_ne!(invoke(&absent_out, "10", "12", "0").status.code(), Some(0));
+    assert!(!absent_out.exists());
+    assert_eq!(fs::read(&input).unwrap(), absent.as_bytes());
+    for path in [&input, &output, &existing, &absent_out] {
+        let _ = fs::remove_file(path);
+    }
+}
+
+#[test]
 fn position_mark_edit_changes_only_start_and_preserves_optional_end() {
     let fixture = format!(
         "{}/../../xtask/tests/fixtures/rekordbox-a1/F-07/source.bin",

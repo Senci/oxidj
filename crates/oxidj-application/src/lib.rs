@@ -4,8 +4,9 @@ use std::path::Path;
 
 pub use oxidj_rekordbox::{
     Error as RekordboxError, ExportDecision, ExportPreflight, PositionMarkEditChange,
-    PositionMarkEditRequest, PositionMarkNameEditChange, PositionMarkNameEditRequest,
-    PreparedPositionMarkEdit, PreparedPositionMarkNameEdit, PreparedTempoEdit,
+    PositionMarkEditRequest, PositionMarkEndEditChange, PositionMarkEndEditRequest,
+    PositionMarkNameEditChange, PositionMarkNameEditRequest, PreparedPositionMarkEdit,
+    PreparedPositionMarkEndEdit, PreparedPositionMarkNameEdit, PreparedTempoEdit,
     PreparedTempoStartEdit, Preview, TempoEditChange, TempoEditRequest, TempoStartEditChange,
     TempoStartEditRequest,
 };
@@ -30,6 +31,15 @@ pub fn prepare_rekordbox_tempo_edit(
     oxidj_rekordbox::prepare_tempo_edit(&bytes, request)
 }
 
+/// Prepare one guarded position mark End edit without writing any file.
+pub fn prepare_rekordbox_position_mark_end_edit(
+    input: impl AsRef<Path>,
+    request: &PositionMarkEndEditRequest,
+) -> Result<PreparedPositionMarkEndEdit, RekordboxError> {
+    let bytes = std::fs::read(input).map_err(|error| RekordboxError(error.to_string()))?;
+    oxidj_rekordbox::prepare_position_mark_end_edit(&bytes, request)
+}
+
 /// Prepare one validated position mark Start edit without writing any file.
 pub fn prepare_rekordbox_position_mark_edit(
     input: impl AsRef<Path>,
@@ -37,6 +47,18 @@ pub fn prepare_rekordbox_position_mark_edit(
 ) -> Result<PreparedPositionMarkEdit, RekordboxError> {
     let bytes = std::fs::read(input).map_err(|error| RekordboxError(error.to_string()))?;
     oxidj_rekordbox::prepare_position_mark_edit(&bytes, request)
+}
+
+/// Export one guarded position mark End edit to a new file.
+pub fn export_rekordbox_position_mark_end_edit(
+    input: impl AsRef<Path>,
+    output: impl AsRef<Path>,
+    request: &PositionMarkEndEditRequest,
+) -> Result<PositionMarkEndEditChange, RekordboxError> {
+    let (source, output) = read_new_export_source(input, output)?;
+    let prepared = oxidj_rekordbox::prepare_position_mark_end_edit(&source, request)?;
+    publish_new_file(&output, &prepared.bytes)?;
+    Ok(prepared.change)
 }
 
 /// Safely export the bounded no-edit XML subset without replacing any file.

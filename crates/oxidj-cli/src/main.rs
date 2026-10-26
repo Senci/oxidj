@@ -68,6 +68,49 @@ fn run(args: &[String]) -> i32 {
 }
 
 fn run_rekordbox(args: &[String]) -> i32 {
+    if args.first().is_some_and(|action| action == "edit-mark-end") {
+        if args.len() != 13
+            || args[1] != "--xml"
+            || args[3] != "--output"
+            || args[5] != "--track-id"
+            || args[7] != "--mark-index"
+            || args[9] != "--expected-end"
+            || args[11] != "--end"
+        {
+            eprintln!(
+                "error: expected rekordbox edit-mark-end --xml IN --output NEW --track-id ID --mark-index N --expected-end OLD --end NEW"
+            );
+            return USAGE;
+        }
+        let Ok(mark_index) = args[8].parse::<usize>() else {
+            eprintln!("error: mark index must be a non-negative integer");
+            return USAGE;
+        };
+        let request = oxidj_application::PositionMarkEndEditRequest {
+            track_id: args[6].clone(),
+            mark_index,
+            expected_old_end_seconds: args[10].clone(),
+            new_end_seconds: args[12].clone(),
+        };
+        return match oxidj_application::export_rekordbox_position_mark_end_edit(
+            &args[2], &args[4], &request,
+        ) {
+            Ok(change) => {
+                println!(
+                    "Edited TrackID={} POSITION_MARK[{}].End {} to {}",
+                    change.track_id,
+                    change.mark_index,
+                    change.old_end_seconds,
+                    change.new_end_seconds
+                );
+                OK
+            }
+            Err(error) => {
+                eprintln!("error: position mark End edit rejected: {error}");
+                DOMAIN
+            }
+        };
+    }
     if args
         .first()
         .is_some_and(|action| action == "edit-mark-name")
@@ -503,6 +546,10 @@ fn print_usage(to_stdout: bool) {
     let _ = writeln!(
         output,
         "  rekordbox export-plan --xml <path>   Read-only bounded export preflight"
+    );
+    let _ = writeln!(
+        output,
+        "  rekordbox edit-mark-end --xml <in> --output <new> --track-id <id> --mark-index <n> --expected-end <old> --end <new>   Export one guarded End edit"
     );
     let _ = writeln!(
         output,
