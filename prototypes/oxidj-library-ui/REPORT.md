@@ -12,11 +12,13 @@ Status: provisional local slice only; this is not production framework admission
 
 ## GUI interaction/error checks
 
-- Bot Screen is isolated at display `:20`; GUI process/window was observed live as `oxidj-library-ui` / `OxiDJ Local Library`.
-- A coordinate click through the generic desktop input route was unverified and did not change app state. After calibrating exact X11 window bounds from the live screenshot, an XTest press/release at the filename activated the row; a fresh Bot Screen capture showed ID `1` selected and the details pane populated with filename/path, 0.040 s, 44,100 Hz, 1 channel, 16 bit, 8,994 bytes, Available, and the exact digest above. See `evidence/selected-track-details.png`.
-- The first GUI launch without the Bot Screen environment failed with Winit's expected missing-display error; relaunch with the private environment succeeded. This is environment setup.
-- A separate GUI process pointed at a database path whose parent directory does not exist and rendered the catalog-open error in red; see `evidence/catalog-error.png`. This did not modify the valid fixture catalog.
-- Search, sort, empty, and missing-file states are implemented but were not all live-interacted in this smoke. Missing availability is also determined by current path existence on query.
+- Bot Screen on display `:20` showed the live `oxidj-library-ui` process and window.
+- Live click selected ID `1`; details showed `fixture.flac`, 0.040 s, 44,100 Hz, 1 channel, 16 bit, 8,994 bytes, Available, and the digest above.
+- GUI import of two synthetic WAVs returned `Import: 2 outcomes`; rows were IDs `2` (`alpha.wav`, 44,100 Hz, mono, 16-bit) and `3` (`beta.wav`, 48,000 Hz, stereo, 16-bit). Both showed Available. Before/after SHA-256 matched: alpha `d3c8fc6137c0007f41d22a7fe97461d4cc9d1180269636897de99c1bdeb0c61a`; beta `cc661faf12b03aa2fb27776dbcd3efb2f37b233538e87dada306544b3031ff91`.
+- Live search for `fixture` narrowed the list; clearing search restored all rows. Filename ascending showed alpha, beta, fixture; descending showed fixture, beta, alpha.
+- Temporarily moving only synthetic `alpha.wav` away and reloading changed its availability to Missing. Restoring it restored the source hash.
+- Fresh GUI process reopened the same persisted catalog after the importing process exited. It showed all three rows without rescanning.
+- Fresh GUI on an empty scratch catalog rendered “Library is empty. Import a folder of supported audio references.” A nonexistent-parent catalog rendered the red catalog-open error. Neither touched the persisted acceptance catalog.
 
 ## Qualification boundary
 
