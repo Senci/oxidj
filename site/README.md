@@ -1,20 +1,21 @@
 # OxiDJ project site
 
-The Pages root is a Hallmark-built teaser. The dated development timeline is preserved at
-`./roadmap.html`, and the earlier FILE #0042 dossier remains reachable at `./dossier.html`.
-All three entries build to `dist/`; Vite's relative base supports `/oxidj/` and local previews.
+The Pages teaser lives at `./`, the evidence-linked timeline at `./roadmap.html`, and the
+preserved earlier dossier at `./dossier.html`. All three entries build to `dist/`; Vite's
+relative base supports `/oxidj/` and local previews.
 
 ## Keep it current
 
-`src/data/roadmap.ts` owns the dated milestone snapshot used by the timeline. Update it when
-reviewed project status changes, and keep the teaser's short progress summary and snapshot
-date consistent. Canonical decisions remain in `idea.md`, `plan/MVP.md`, `plan/STATUS.md`
-and ADRs; the site is not a second decision record.
+`src/data/roadmap.ts` owns the dated milestone snapshot. Vite renders it into the roadmap
+HTML at development/build time through `src/logic/roadmapMarkup.ts`; no client JavaScript
+is required to read milestones, updates, goals or qualification caveats. Tests verify every
+source item and evidence link survives rendering. Keep the teaser summary and snapshot
+consistent. Canonical decisions remain in `idea.md`, `plan/MVP.md`, `plan/STATUS.md` and ADRs.
 
 Snapshot: 2026-10-26. Bounded local M1, M2 and provisional M3 acceptance is complete and
-independently reviewed. See `plan/MVP.md` and `plan/STATUS.md` for evidence. Production GUI
-admission, accessibility/platform checks, vendor interoperability, and 500k/60fps qualification
-remain separate and unpassed.
+independently reviewed. Production GUI admission, accessibility/platform checks, vendor
+interoperability, and 500k/60fps qualification remain separate and unpassed. The dated
+snapshot is not a blanket statement about every subsequent interoperability experiment.
 
 ## Local checks
 
@@ -26,37 +27,42 @@ bun run lint
 bun run test
 bun run format:check
 bun run build
-bun run preview
+bun run preview --host 127.0.0.1 --port 4174 --base /oxidj/
 ```
 
-`.github/workflows/pages.yml` runs the site checks, builds `site/dist`, uploads that directory
-and deploys with the GitHub Pages environment. The repository uses **GitHub Actions** as its
-Pages source. Production URL: <https://senci.github.io/oxidj/>. The latest deployment succeeded
-at commit `3a961b9` in [workflow run 40354293183](https://github.com/Senci/oxidj/actions/runs/40354293183);
-the build checks and deploy job passed.
+The build verifier checks all three entries, local assets, project-relative links and HTML
+anchors under a synthetic `/oxidj/` base. It also checks static roadmap content and the
+script-free teaser. `.github/workflows/pages.yml` runs the site checks and deploys `site/dist`
+on relevant master pushes. Pages uses **GitHub Actions** as its source. Production:
+<https://senci.github.io/oxidj/>. Check the Actions deployment associated with the merged
+commit before claiming a new version is live.
 
 ## Design and verification
 
-Teaser only: Ink theme, editorial genre, Conversational FAQ with a Stage hero. The CLI help
-excerpt was captured from the actual repository; subcommand arguments are explicitly omitted.
-No GUI screenshot is republished because the available captures contain local paths. No
-stand-in imagery, fabricated UI, stock photos or missing-material slots are used.
+Both active pages use the owner-requested Tokyo-night black, purple primary and cyan
+secondary. `src/styles/night.css` owns their shared tokens and foundations; `teaser.css`
+and `roadmap.css` own their compositions. The archived dossier is unchanged.
 
-- `src/styles/teaser.css`: stamp, critique, layout and review record
-- `src/styles/tokens.css` and `base.css`: Hallmark scaffold, cool-tinted neutral adjustment
-- `.hallmark/preflight.json` and `log.json`: material and design decisions
-- `.hallmark/verification.md`: commands, outcomes, judged gates and capture locations
+- The teaser shows the actual reference-only library flow, with a readable semantic
+  mobile alternative; actual CLI help remains below the hero.
+- The roadmap retains the milestone spine, typed evidence, source links and qualification
+  boundaries, with larger body/details text and corrected static completion summaries.
+- A small locally hosted, cropped Pixabay vinyl photograph appears below each hero.
+  It is atmosphere, not an OxiDJ playback screenshot or an endorsement. The prominent
+  cartridge trademark in the original is excluded from the crop. See `public/images/README.md`.
+- CSS scroll-linked photo parallax progressively enhances supported desktop browsers.
+  It is static on mobile, unsupported browsers and with reduced motion; content never
+  depends on animation or a reveal script.
 
-The installed Hallmark bundle lacked its executable tools and theme files. Verification used
-upstream `https://github.com/Nutlope/hallmark` at
-`7ec868225c6caa040558c321ee0fefa0e73f83a8`, checked out locally in the uncommitted
-`../.hallmark-tooling`. Its scripts require Node, puppeteer-core and Chromium for rendering.
-Do not add that checkout or its dependencies to this project.
-
-The roadmap and dossier retain their existing designs; Hallmark sweeps target the new teaser,
-not a silent redesign of those routes. The teaser remains fully readable with JavaScript off.
-The roadmap keeps its original TypeScript renderer and provides a no-script source-plan link.
+Design decisions: `design.md`, `.hallmark/preflight.json`, `.hallmark/log.json`.
+Check evidence: `.hallmark/verification.md`. Generated captures and local review tooling
+are not deliverable dependencies. The installed Hallmark bundle lacks executable tools;
+render verification uses upstream <https://github.com/Nutlope/hallmark> at
+`7ec868225c6caa040558c321ee0fefa0e73f83a8`, with external puppeteer-core and Chromium.
 
 ## Licence
 
-Site: MIT, see `LICENSE`. Fonts load from Google Fonts: Epilogue and IBM Plex Mono.
+Site code: MIT, see `LICENSE`. The Pixabay photograph is **not MIT** and is separately
+licensed under the Pixabay Content License, documented in `public/images/README.md` and
+credited on both pages. Fonts load from Google Fonts: Epilogue and IBM Plex Mono, with
+local fallback faces.

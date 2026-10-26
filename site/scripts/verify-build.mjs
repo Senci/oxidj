@@ -32,7 +32,12 @@ const teaser = readFileSync(new URL('index.html', root), 'utf8');
 assert.match(teaser, /href="\.\/roadmap\.html"/);
 assert.match(teaser, /href="\.\/dossier\.html"/);
 assert.doesNotMatch(teaser, /<script\b/); // Essential teaser content is script-independent.
-assert.match(readFileSync(new URL('roadmap.html', root), 'utf8'), /assets\/roadmap-[^" ]+\.js/);
+const roadmap = readFileSync(new URL('roadmap.html', root), 'utf8');
+assert.doesNotMatch(roadmap, /<!-- roadmap:/);
+assert.equal((roadmap.match(/class="milestone milestone-/g) ?? []).length, 8);
+assert.match(roadmap, /Bounded local M1–M3 acceptance is complete/);
+assert.match(roadmap, /Production GUI admission/);
+assert.match(roadmap, /assets\/roadmap-[^" ]+\.css/);
 console.log(
   `Pages build verified: ${entries.length} entries, ${checked} local references under /oxidj/, script-free teaser.`,
 );

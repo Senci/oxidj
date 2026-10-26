@@ -3,7 +3,9 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="color-scheme" content="light" />
+    <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
+    <meta name="color-scheme" content="dark" />
+    <meta name="theme-color" content="#101016" />
     <meta
       name="description"
       content="OxiDJ is an open-source, Rust-first DJ library in development. Explore the local-library work, source and roadmap."
@@ -35,25 +37,61 @@
             ><a href="./roadmap.html">Follow the roadmap</a>
           </div>
         </div>
-        <figure class="command-proof" aria-label="Excerpt from actual OxiDJ CLI help">
-          <figcaption>
-            Actual <code>oxidj-cli --help</code>.<br />Subcommands shown without arguments.
+        <figure class="flow-diagram" aria-labelledby="flow-caption">
+          <svg
+            class="flow-art"
+            viewBox="0 0 600 400"
+            role="img"
+            aria-labelledby="flow-title flow-description"
+          >
+            <title id="flow-title">The reference-only library</title>
+            <desc id="flow-description">
+              WAV, FLAC and MP3 files are probed and decoded. References and technical facts enter
+              the local catalog. Search and details read that catalog. Original audio stays
+              unchanged.
+            </desc>
+            <path class="wire" d="M54 60H546M54 340H546" />
+            <path
+              class="reference-wire"
+              d="M140 138H180V200H216M140 200H216M140 262H180V200M386 200H434"
+            />
+            <rect class="node" x="24" y="112" width="116" height="52" rx="6" />
+            <rect class="node" x="24" y="174" width="116" height="52" rx="6" />
+            <rect class="node" x="24" y="236" width="116" height="52" rx="6" />
+            <text x="82" y="144" text-anchor="middle">WAV</text>
+            <text x="82" y="206" text-anchor="middle">FLAC</text>
+            <text x="82" y="268" text-anchor="middle">MP3</text>
+            <rect class="catalog-node" x="216" y="124" width="170" height="152" rx="8" />
+            <text class="diagram-title" x="301" y="170" text-anchor="middle">Local catalog</text>
+            <text class="diagram-note" x="301" y="204" text-anchor="middle">Stable identities</text>
+            <text class="diagram-note" x="301" y="228" text-anchor="middle">Technical facts</text>
+            <text class="diagram-note" x="301" y="252" text-anchor="middle">File references</text>
+            <path class="wire" d="M434 160V240M434 160H570M434 200H570M434 240H570" />
+            <text x="450" y="150">Search</text>
+            <text x="450" y="190">Sort</text>
+            <text x="450" y="230">Inspect</text>
+            <text class="diagram-note" x="82" y="94" text-anchor="middle">Source audio</text>
+            <text class="diagram-note diagram-accent" x="300" y="316" text-anchor="middle">
+              References in. Originals untouched.
+            </text>
+          </svg>
+          <ol class="mobile-flow" aria-label="Reference-only library flow">
+            <li><strong>WAV / FLAC / MP3</strong><span>Source audio stays unchanged</span></li>
+            <li>
+              <strong>Local catalog</strong
+              ><span>Stable identities, technical facts and file references</span>
+            </li>
+            <li><strong>Library viewer</strong><span>Search, sort and inspect</span></li>
+          </ol>
+          <figcaption id="flow-caption">
+            Reference-only import, not a copy of your audio.
           </figcaption>
-          <pre><code>catalog init
-  Initialize local catalog
-
-catalog list
-  List local catalog tracks
-
-catalog import
-  Import WAV/FLAC/MP3
-  references recursively</code></pre>
         </figure>
       </section>
       <section class="answer-section container" aria-labelledby="today">
         <div class="section-intro">
           <h2 id="today">What’s in OxiDJ today?</h2>
-          <p class="lead">Working local-library code. Acceptance is still open.</p>
+          <p class="lead">Working local-library code. Production qualification remains open.</p>
         </div>
         <dl class="ruled-list">
           <div>
@@ -69,12 +107,36 @@ catalog import
             <dd>Search, sort, selection and track details. Not production approval.</dd>
           </div>
         </dl>
+        <figure class="command-proof" aria-label="Excerpt from actual OxiDJ CLI help">
+          <figcaption>
+            Actual <code>oxidj-cli --help</code>. Subcommands shown without arguments.
+          </figcaption>
+          <div class="command-grid">
+            <pre><code><span>catalog init</span>
+Initialize local catalog</code></pre>
+            <pre><code><span>catalog list</span>
+List local catalog tracks</code></pre>
+            <pre><code><span>catalog import</span>
+Import WAV/FLAC/MP3
+references recursively</code></pre>
+          </div>
+        </figure>
       </section>
       <section class="paper-band" aria-labelledby="yours">
         <div class="container">
           <div class="section-intro">
             <h2 id="yours">What stays yours?</h2>
             <p class="lead">The source audio. The local catalog. The choice of ecosystem.</p>
+          </div>
+          <div class="photo-strip" aria-hidden="true">
+            <img
+              class="parallax-photo"
+              src="./images/vinyl-detail.webp"
+              width="1280"
+              height="320"
+              alt=""
+              loading="lazy"
+            />
           </div>
           <dl class="ruled-list">
             <div>
@@ -131,8 +193,15 @@ catalog import
         ><a href="./roadmap.html">Development log</a><a href="./dossier.html">Project dossier</a>
       </nav>
       <small
-        >Project snapshot: <time datetime="2026-10-26">26 October 2026</time>. Site under the MIT
-        licence.</small
+        >Project snapshot: <time datetime="2026-10-26">26 October 2026</time>. Site code under the
+        MIT licence; photograph separately licensed.</small
+      >
+      <small data-credits
+        >Vinyl detail:
+        <a href="https://pixabay.com/photos/vinyl-plate-vinyl-record-record-4808792/"
+          >Bru-nO on Pixabay</a
+        >, cropped and toned, under the
+        <a href="https://pixabay.com/service/license-summary/">Pixabay Content License</a>.</small
       >
     </footer>
   </body>
