@@ -2024,6 +2024,12 @@ mod tests {
             )
             .unwrap();
         assert_eq!(facts, (44_100, 1, 16));
+        let imported = catalog.list_tracks().unwrap();
+        assert_eq!(imported.len(), 1);
+        let (expected_digest, expected_length) = file_sha256(&flac).unwrap();
+        assert_eq!(imported[0].id.as_u64(), 1);
+        assert_eq!(imported[0].sha256, expected_digest);
+        assert_eq!(imported[0].byte_length, expected_length);
         let details = catalog.list_track_details().unwrap();
         assert_eq!(details.len(), 1);
         assert_eq!(details[0].sample_rate, Some(44_100));
@@ -2220,6 +2226,19 @@ mod tests {
                 )
                 .unwrap();
             assert_eq!(facts, (expected_duration, 44_100, expected_channels, 16));
+            let imported = catalog
+                .list_tracks()
+                .unwrap()
+                .into_iter()
+                .find(|track| track.path == path.to_string_lossy())
+                .unwrap();
+            let (expected_digest, expected_length) = file_sha256(path).unwrap();
+            assert_eq!(
+                imported.id.as_u64(),
+                if expected_channels == 1 { 2 } else { 3 }
+            );
+            assert_eq!(imported.sha256, expected_digest);
+            assert_eq!(imported.byte_length, expected_length);
         }
         assert_eq!(
             std::fs::read(&mono).unwrap(),
