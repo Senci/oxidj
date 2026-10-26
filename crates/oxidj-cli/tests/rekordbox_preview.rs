@@ -891,6 +891,77 @@ fn tempo_edit_rejects_stale_missing_and_invalid_changes_without_writes() {
     let _ = fs::remove_file(input);
 }
 
+#[test]
+fn playlist_rename_exports_one_guarded_name_and_rejects_unsafe_cases() {
+    let fixture = format!(
+        "{}/../../xtask/tests/fixtures/rekordbox-a1/F-02/source.bin",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let source = fs::read(&fixture).unwrap();
+    let input = temporary_path("playlist-rename-input");
+    fs::write(&input, &source).unwrap();
+    let output = temporary_path("playlist-rename-output");
+    let invoke = |old: &str, new: &str, target: &std::path::Path| {
+        Command::new(env!("CARGO_BIN_EXE_oxidj-cli"))
+            .args([
+                "rekordbox",
+                "rename-playlist",
+                "--xml",
+                input.to_str().unwrap(),
+                "--output",
+                target.to_str().unwrap(),
+                "--playlist-index",
+                "0",
+                "--expected-name",
+                old,
+                "--name",
+                new,
+            ])
+            .output()
+            .unwrap()
+    };
+    let success = invoke("House", "Summer & Sun", &output);
+    assert_eq!(success.status.code(), Some(0), "{:?}", success.stderr);
+    let mut expected = source.clone();
+    let marker = b"Name=\"House\"";
+    assert_eq!(
+        expected
+            .windows(marker.len())
+            .filter(|w| *w == marker)
+            .count(),
+        1
+    );
+    let position = expected
+        .windows(marker.len())
+        .position(|w| w == marker)
+        .unwrap();
+    expected.splice(
+        position..position + marker.len(),
+        b"Name=\"Summer &amp; Sun\"".iter().copied(),
+    );
+    assert_eq!(fs::read(&output).unwrap(), expected);
+    assert_eq!(fs::read(&input).unwrap(), source);
+    let overwrite = invoke("House", "Replacement", &output);
+    assert_ne!(overwrite.status.code(), Some(0));
+    assert_eq!(fs::read(&output).unwrap(), expected);
+
+    for (label, old, new) in [
+        ("stale", "stale", "Next"),
+        ("duplicate", "House", "Techno"),
+        ("invalid", "House", "bad\u{1}name"),
+    ] {
+        let rejected = temporary_path(&format!("playlist-rename-{label}"));
+        assert_ne!(
+            invoke(old, new, &rejected).status.code(),
+            Some(0),
+            "{label} rename accepted"
+        );
+        assert!(!rejected.exists(), "{label} rename published output");
+    }
+    let _ = fs::remove_file(input);
+    let _ = fs::remove_file(output);
+}
+
 fn temporary_path(label: &str) -> std::path::PathBuf {
     let stamp = SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)

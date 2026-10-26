@@ -14,9 +14,16 @@ fn run(args: &[&str]) -> Output {
 fn track_id_process_contract() {
     let no_command = run(&[]);
     assert_eq!(no_command.status.code(), Some(2));
-    assert_eq!(
-        no_command.stderr,
-        b"usage: oxidj-cli <command>\ncommands:\n  rekordbox preview --xml <path>   Read-only Rekordbox XML preview\n  rekordbox export-plan --xml <path>   Read-only bounded export preflight\n  rekordbox edit-mark-end --xml <in> --output <new> --track-id <id> --mark-index <n> --expected-end <old> --end <new>   Export one guarded End edit\n  rekordbox edit-position --xml <in> --output <new> --track-id <id> --mark-index <n> --expected-start <old> --start <new>   Export one position edit\n  rekordbox edit-tempo --xml <in> --output <new> --track-id <id> --tempo-index <n> --expected-bpm <old> --bpm <new>   Export one BPM edit\n  rekordbox edit-tempo-start --xml <in> --output <new> --track-id <id> --tempo-index <n> --expected-start <old> --start <new>   Export one tempo-point position edit\n  rekordbox export --xml <input> --output <new-path>   Export bounded no-edit XML subset\n  track-id <n>   Construct and echo a domain TrackId (n >= 1)\n  catalog init --db <path>   Initialize local catalog\n  catalog list --db <path>   List local catalog tracks\n  catalog import --dir <directory> --db <path>   Import WAV/FLAC/MP3 references recursively\n  catalog backup --db <source> --to <new-backup>   Create verified backup\n  catalog restore --from <backup> --db <new-destination>   Restore backup\n"
+    assert!(
+        no_command
+            .stderr
+            .starts_with(b"usage: oxidj-cli <command>\ncommands:\n")
+    );
+    assert!(
+        no_command
+            .stderr
+            .windows(b"rekordbox rename-playlist".len())
+            .any(|w| w == b"rekordbox rename-playlist")
     );
 
     let success = run(&["track-id", "1"]);

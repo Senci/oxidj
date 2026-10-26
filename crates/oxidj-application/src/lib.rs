@@ -3,9 +3,10 @@
 use std::path::Path;
 
 pub use oxidj_rekordbox::{
-    Error as RekordboxError, ExportDecision, ExportPreflight, PositionMarkEditChange,
-    PositionMarkEditRequest, PositionMarkEndEditChange, PositionMarkEndEditRequest,
-    PositionMarkNameEditChange, PositionMarkNameEditRequest, PreparedPositionMarkEdit,
+    Error as RekordboxError, ExportDecision, ExportPreflight, PlaylistRenameChange,
+    PlaylistRenameRequest, PositionMarkEditChange, PositionMarkEditRequest,
+    PositionMarkEndEditChange, PositionMarkEndEditRequest, PositionMarkNameEditChange,
+    PositionMarkNameEditRequest, PreparedPlaylistRename, PreparedPositionMarkEdit,
     PreparedPositionMarkEndEdit, PreparedPositionMarkNameEdit, PreparedTempoEdit,
     PreparedTempoStartEdit, Preview, TempoEditChange, TempoEditRequest, TempoStartEditChange,
     TempoStartEditRequest,
@@ -20,6 +21,18 @@ pub fn preview_rekordbox_xml(path: impl AsRef<Path>) -> Result<Preview, Rekordbo
 pub fn preflight_rekordbox_xml(path: impl AsRef<Path>) -> Result<ExportPreflight, RekordboxError> {
     let bytes = std::fs::read(path).map_err(|error| RekordboxError(error.to_string()))?;
     oxidj_rekordbox::preflight_export(&bytes)
+}
+
+/// Export one guarded playlist rename to a new, non-overwriting file.
+pub fn export_rekordbox_playlist_rename(
+    input: impl AsRef<Path>,
+    output: impl AsRef<Path>,
+    request: &PlaylistRenameRequest,
+) -> Result<PlaylistRenameChange, RekordboxError> {
+    let (source, output) = read_new_export_source(input, output)?;
+    let prepared = oxidj_rekordbox::prepare_playlist_rename(&source, request)?;
+    publish_new_file(&output, &prepared.bytes)?;
+    Ok(prepared.change)
 }
 
 /// Prepare a validated tempo edit without writing any file.

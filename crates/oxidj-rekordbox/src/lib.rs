@@ -49,6 +49,24 @@ pub struct ExportPreflight {
     pub withheld_units: Vec<String>,
     pub loss_report: Vec<String>,
 }
+/// One optimistic, ordinal-scoped playlist rename request.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PlaylistRenameRequest {
+    pub playlist_index: usize,
+    pub expected_old_name: String,
+    pub new_name: String,
+}
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PlaylistRenameChange {
+    pub playlist_index: usize,
+    pub old_name: String,
+    pub new_name: String,
+}
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PreparedPlaylistRename {
+    pub bytes: Vec<u8>,
+    pub change: PlaylistRenameChange,
+}
 /// One optimistic, ordinal-scoped tempo edit request.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TempoEditRequest {
@@ -661,6 +679,134 @@ pub fn preflight_export(bytes: &[u8]) -> Result<ExportPreflight, Error> {
         selected_playlists: preview.playlists,
         withheld_units: Vec::new(),
         loss_report: Vec::new(),
+    })
+}
+
+/// Prepare one guarded playlist rename, preserving all source bytes outside Name.
+pub fn prepare_playlist_rename(
+    bytes: &[u8],
+    request: &PlaylistRenameRequest,
+) -> Result<PreparedPlaylistRename, Error> {
+    let before = preflight_export(bytes)?;
+    let old = before
+        .selected_playlists
+        .get(request.playlist_index)
+        .ok_or_else(|| Error(format!("no playlist at ordinal {}", request.playlist_index)))?;
+    if old.name != request.expected_old_name {
+        return Err(Error("playlist Name changed".into()));
+    }
+    let valid = |s: &str| {
+        !s.is_empty()
+            && s.chars().all(|c| {
+                let n = c as u32;
+                n == 9
+                    || n == 10
+                    || n == 13
+                    || (32..=0xD7FF).contains(&n)
+                    || (0xE000..=0xFFFD).contains(&n)
+                    || (0x10000..=0x10FFFF).contains(&n)
+            })
+    };
+    if !valid(&request.new_name) {
+        return Err(Error("invalid playlist Name".into()));
+    }
+    let mut reader = Reader::from_reader(bytes);
+    reader.config_mut().check_end_names = true;
+    let mut buf = Vec::new();
+    let mut stack: Vec<String> = Vec::new();
+    let mut node_path: Vec<String> = Vec::new();
+    let mut siblings: Vec<(Vec<String>, String)> = Vec::new();
+    let mut playlist_no = 0usize;
+    let mut range = None;
+    loop {
+        let start = reader.buffer_position() as usize;
+        let ev = reader
+            .read_event_into(&mut buf)
+            .map_err(|e| Error(format!("malformed XML: {e}")))?;
+        match ev {
+            Event::Start(e) if e.name().as_ref() == b"NODE" => {
+                let ty = attr(&e, "Type")?;
+                let name = attr(&e, "Name")?;
+                let parent = node_path.iter().skip(1).cloned().collect();
+                siblings.push((parent, name.clone()));
+                if ty == "1" {
+                    if playlist_no == request.playlist_index {
+                        range = Some(attribute_value_range(
+                            &e,
+                            start,
+                            "Name",
+                            &request.expected_old_name,
+                        )?);
+                    }
+                    playlist_no += 1;
+                }
+                node_path.push(name);
+                stack.push("NODE".into());
+            }
+            Event::Empty(e) if e.name().as_ref() == b"NODE" => {
+                let ty = attr(&e, "Type")?;
+                let name = attr(&e, "Name")?;
+                let parent = node_path.iter().skip(1).cloned().collect();
+                siblings.push((parent, name));
+                if ty == "1" {
+                    if playlist_no == request.playlist_index {
+                        range = Some(attribute_value_range(
+                            &e,
+                            start,
+                            "Name",
+                            &request.expected_old_name,
+                        )?);
+                    }
+                    playlist_no += 1;
+                }
+            }
+            Event::Start(e) => stack.push(String::from_utf8_lossy(e.name().as_ref()).into_owned()),
+            Event::End(e) => {
+                if e.name().as_ref() == b"NODE" {
+                    node_path.pop();
+                }
+                stack.pop();
+            }
+            Event::Eof => break,
+            _ => {}
+        }
+        buf.clear();
+    }
+    let range = range.ok_or_else(|| Error("playlist Name location missing".into()))?;
+    let parent = old.path[..old.path.len().saturating_sub(1)].to_vec();
+    let matching_siblings = siblings
+        .iter()
+        .filter(|(sibling_parent, name)| sibling_parent == &parent && name == &request.new_name)
+        .count();
+    if matching_siblings > usize::from(request.expected_old_name == request.new_name) {
+        return Err(Error("duplicate sibling playlist/folder Name".into()));
+    }
+    let escaped = request
+        .new_name
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&apos;");
+    let mut output = bytes.to_vec();
+    output.splice(range, escaped.bytes());
+    let after = preflight_export(&output)?;
+    let mut expected = before.selected_playlists.clone();
+    expected[request.playlist_index].name = request.new_name.clone();
+    expected[request.playlist_index].path.pop();
+    expected[request.playlist_index]
+        .path
+        .push(request.new_name.clone());
+    if after.selected_playlists != expected || after.selected_tracks != before.selected_tracks {
+        return Err(Error("playlist rename verification failed".into()));
+    }
+    Ok(PreparedPlaylistRename {
+        bytes: output,
+        change: PlaylistRenameChange {
+            playlist_index: request.playlist_index,
+            old_name: request.expected_old_name.clone(),
+            new_name: request.new_name.clone(),
+        },
     })
 }
 
