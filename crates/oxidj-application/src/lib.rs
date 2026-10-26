@@ -5,8 +5,9 @@ use std::path::Path;
 pub use oxidj_rekordbox::{
     Error as RekordboxError, ExportDecision, ExportPreflight, PositionMarkEditChange,
     PositionMarkEditRequest, PositionMarkNameEditChange, PositionMarkNameEditRequest,
-    PreparedPositionMarkEdit, PreparedPositionMarkNameEdit, PreparedTempoEdit, Preview,
-    TempoEditChange, TempoEditRequest,
+    PreparedPositionMarkEdit, PreparedPositionMarkNameEdit, PreparedTempoEdit,
+    PreparedTempoStartEdit, Preview, TempoEditChange, TempoEditRequest, TempoStartEditChange,
+    TempoStartEditRequest,
 };
 
 /// Read-only preview handler; parsing and vendor-specific semantics stay in the adapter.
@@ -56,6 +57,27 @@ pub fn export_rekordbox_tempo_edit(
 ) -> Result<TempoEditChange, RekordboxError> {
     let (source_bytes, output) = read_new_export_source(input, output)?;
     let prepared = oxidj_rekordbox::prepare_tempo_edit(&source_bytes, request)?;
+    publish_new_file(&output, &prepared.bytes)?;
+    Ok(prepared.change)
+}
+
+/// Prepare a validated tempo-point Inizio edit without writing any file.
+pub fn prepare_rekordbox_tempo_start_edit(
+    input: impl AsRef<Path>,
+    request: &TempoStartEditRequest,
+) -> Result<PreparedTempoStartEdit, RekordboxError> {
+    let bytes = std::fs::read(input).map_err(|error| RekordboxError(error.to_string()))?;
+    oxidj_rekordbox::prepare_tempo_start_edit(&bytes, request)
+}
+
+/// Export one guarded tempo-point Inizio edit to a new file.
+pub fn export_rekordbox_tempo_start_edit(
+    input: impl AsRef<Path>,
+    output: impl AsRef<Path>,
+    request: &TempoStartEditRequest,
+) -> Result<TempoStartEditChange, RekordboxError> {
+    let (source, output) = read_new_export_source(input, output)?;
+    let prepared = oxidj_rekordbox::prepare_tempo_start_edit(&source, request)?;
     publish_new_file(&output, &prepared.bytes)?;
     Ok(prepared.change)
 }

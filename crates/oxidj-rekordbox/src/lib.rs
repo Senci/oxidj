@@ -57,6 +57,26 @@ pub struct TempoEditRequest {
     pub expected_old_bpm: String,
     pub new_bpm: String,
 }
+/// One optimistic, ordinal-scoped tempo-point start edit request.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TempoStartEditRequest {
+    pub track_id: String,
+    pub tempo_index: usize,
+    pub expected_old_start_seconds: String,
+    pub new_start_seconds: String,
+}
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TempoStartEditChange {
+    pub track_id: String,
+    pub tempo_index: usize,
+    pub old_start_seconds: String,
+    pub new_start_seconds: String,
+}
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PreparedTempoStartEdit {
+    pub bytes: Vec<u8>,
+    pub change: TempoStartEditChange,
+}
 /// The exact change prepared for a source track's tempo point.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TempoEditChange {
@@ -698,6 +718,75 @@ fn tempo_bpm_range(
     })
 }
 
+fn tempo_start_range(
+    bytes: &[u8],
+    request: &TempoStartEditRequest,
+) -> Result<std::ops::Range<usize>, Error> {
+    let mut reader = Reader::from_reader(bytes);
+    reader.config_mut().check_end_names = true;
+    let mut buf = Vec::new();
+    let mut stack: Vec<String> = Vec::new();
+    let mut track_id: Option<String> = None;
+    let mut tempo_index = 0usize;
+    let mut value_range = None;
+    loop {
+        let event_start = reader.buffer_position() as usize;
+        let event = reader
+            .read_event_into(&mut buf)
+            .map_err(|error| Error(format!("malformed XML: {error}")))?;
+        match event {
+            Event::Start(element) => {
+                let name = String::from_utf8_lossy(element.name().as_ref()).into_owned();
+                if name == "TRACK" && stack.last().is_some_and(|parent| parent == "COLLECTION") {
+                    track_id = Some(attr(&element, "TrackID")?);
+                    tempo_index = 0;
+                } else if name == "TEMPO" && track_id.as_deref() == Some(&request.track_id) {
+                    if tempo_index == request.tempo_index {
+                        value_range = Some(attribute_value_range(
+                            &element,
+                            event_start,
+                            "Inizio",
+                            &request.expected_old_start_seconds,
+                        )?);
+                    }
+                    tempo_index += 1;
+                }
+                stack.push(name);
+            }
+            Event::Empty(element) => {
+                let name = String::from_utf8_lossy(element.name().as_ref()).into_owned();
+                if name == "TEMPO" && track_id.as_deref() == Some(&request.track_id) {
+                    if tempo_index == request.tempo_index {
+                        value_range = Some(attribute_value_range(
+                            &element,
+                            event_start,
+                            "Inizio",
+                            &request.expected_old_start_seconds,
+                        )?);
+                    }
+                    tempo_index += 1;
+                }
+            }
+            Event::End(element) => {
+                let name = String::from_utf8_lossy(element.name().as_ref()).into_owned();
+                if name == "TRACK" && stack.last().is_some_and(|parent| parent == "TRACK") {
+                    track_id = None;
+                }
+                stack.pop();
+            }
+            Event::Eof => break,
+            _ => {}
+        }
+        buf.clear();
+    }
+    value_range.ok_or_else(|| {
+        Error(format!(
+            "no tempo point {} for TrackID {}",
+            request.tempo_index, request.track_id
+        ))
+    })
+}
+
 fn position_mark_start_range(
     bytes: &[u8],
     request: &PositionMarkEditRequest,
@@ -1049,6 +1138,55 @@ pub fn prepare_tempo_edit(
             tempo_index: request.tempo_index,
             old_bpm: request.expected_old_bpm.clone(),
             new_bpm: request.new_bpm.clone(),
+        },
+    })
+}
+
+/// Prepare a single tempo-point Inizio edit while preserving every other source byte.
+pub fn prepare_tempo_start_edit(
+    bytes: &[u8],
+    request: &TempoStartEditRequest,
+) -> Result<PreparedTempoStartEdit, Error> {
+    let source = preflight_export(bytes)?;
+    let track = source
+        .selected_tracks
+        .iter()
+        .find(|track| track.id == request.track_id)
+        .ok_or_else(|| Error(format!("unknown TrackID {}", request.track_id)))?;
+    let tempo = track.tempos.get(request.tempo_index).ok_or_else(|| {
+        Error(format!(
+            "no tempo point {} for TrackID {}",
+            request.tempo_index, request.track_id
+        ))
+    })?;
+    if tempo.start_seconds != request.expected_old_start_seconds {
+        return Err(Error(format!(
+            "tempo Inizio changed: expected {}, found {}",
+            request.expected_old_start_seconds, tempo.start_seconds
+        )));
+    }
+    validate_decimal("new tempo Inizio", &request.new_start_seconds, false)?;
+    let range = tempo_start_range(bytes, request)?;
+    let mut output = bytes.to_vec();
+    output.splice(range, request.new_start_seconds.bytes());
+    let verified = preflight_export(&output)?;
+    let mut expected_track = track.clone();
+    expected_track.tempos[request.tempo_index].start_seconds = request.new_start_seconds.clone();
+    let actual_track = verified
+        .selected_tracks
+        .iter()
+        .find(|track| track.id == request.track_id)
+        .ok_or_else(|| Error("edited track missing after validation".into()))?;
+    if actual_track != &expected_track {
+        return Err(Error("edited tempo Inizio verification failed".into()));
+    }
+    Ok(PreparedTempoStartEdit {
+        bytes: output,
+        change: TempoStartEditChange {
+            track_id: request.track_id.clone(),
+            tempo_index: request.tempo_index,
+            old_start_seconds: request.expected_old_start_seconds.clone(),
+            new_start_seconds: request.new_start_seconds.clone(),
         },
     })
 }

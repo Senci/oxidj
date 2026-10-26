@@ -249,6 +249,129 @@ fn tempo_edit_exports_one_bpm_change_and_preserves_all_other_source_bytes() {
 }
 
 #[test]
+fn tempo_start_edit_exports_one_guarded_inizio_change_and_preserves_source() {
+    let fixture = format!(
+        "{}/../../xtask/tests/fixtures/rekordbox-a1/F-07/source.bin",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let source = fs::read(&fixture).unwrap();
+    let input = temporary_path("tempo-start-input");
+    let output = temporary_path("tempo-start-output");
+    fs::write(&input, &source).unwrap();
+    assert!(!output.exists());
+
+    let result = Command::new(env!("CARGO_BIN_EXE_oxidj-cli"))
+        .args([
+            "rekordbox",
+            "edit-tempo-start",
+            "--xml",
+            input.to_str().unwrap(),
+            "--output",
+            output.to_str().unwrap(),
+            "--track-id",
+            "700",
+            "--tempo-index",
+            "1",
+            "--expected-start",
+            "10",
+            "--start",
+            "12.5",
+        ])
+        .output()
+        .expect("run CLI");
+
+    assert_eq!(
+        result.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let expected =
+        String::from_utf8(source.clone())
+            .unwrap()
+            .replacen("Inizio=\"10\"", "Inizio=\"12.5\"", 1);
+    assert_eq!(fs::read(&output).unwrap(), expected.as_bytes());
+    assert_eq!(fs::read(&input).unwrap(), source);
+
+    let existing = temporary_path("tempo-start-existing");
+    fs::write(&existing, b"keep this file").unwrap();
+    let rejected = Command::new(env!("CARGO_BIN_EXE_oxidj-cli"))
+        .args([
+            "rekordbox",
+            "edit-tempo-start",
+            "--xml",
+            input.to_str().unwrap(),
+            "--output",
+            existing.to_str().unwrap(),
+            "--track-id",
+            "700",
+            "--tempo-index",
+            "1",
+            "--expected-start",
+            "10",
+            "--start",
+            "12.5",
+        ])
+        .output()
+        .expect("run CLI");
+    assert_ne!(rejected.status.code(), Some(0));
+    assert_eq!(fs::read(&existing).unwrap(), b"keep this file");
+
+    for (index, expected_start, new_start) in
+        [("1", "9", "12"), ("1", "10", "NaN"), ("8", "10", "12")]
+    {
+        let rejected = Command::new(env!("CARGO_BIN_EXE_oxidj-cli"))
+            .args([
+                "rekordbox",
+                "edit-tempo-start",
+                "--xml",
+                input.to_str().unwrap(),
+                "--output",
+                output.to_str().unwrap(),
+                "--track-id",
+                "700",
+                "--tempo-index",
+                index,
+                "--expected-start",
+                expected_start,
+                "--start",
+                new_start,
+            ])
+            .output()
+            .expect("run CLI");
+        assert_ne!(rejected.status.code(), Some(0));
+        assert_eq!(fs::read(&output).unwrap(), expected.as_bytes());
+        assert_eq!(fs::read(&input).unwrap(), source);
+    }
+
+    let alias = Command::new(env!("CARGO_BIN_EXE_oxidj-cli"))
+        .args([
+            "rekordbox",
+            "edit-tempo-start",
+            "--xml",
+            input.to_str().unwrap(),
+            "--output",
+            input.to_str().unwrap(),
+            "--track-id",
+            "700",
+            "--tempo-index",
+            "1",
+            "--expected-start",
+            "10",
+            "--start",
+            "12.5",
+        ])
+        .output()
+        .expect("run CLI");
+    assert_ne!(alias.status.code(), Some(0));
+    assert_eq!(fs::read(&input).unwrap(), source);
+
+    let _ = fs::remove_file(input);
+    let _ = fs::remove_file(output);
+    let _ = fs::remove_file(existing);
+}
+
+#[test]
 fn edit_mark_name_escapes_xml_and_targets_ordinal_by_decoded_old_name() {
     let fixture = format!(
         "{}/../../xtask/tests/fixtures/rekordbox-a1/F-07/source.bin",
