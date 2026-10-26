@@ -409,6 +409,8 @@ pub fn export_xml(bytes: &[u8]) -> Result<Vec<u8>, Error> {
     let mut stack: Vec<String> = Vec::new();
     let mut roots = 0usize;
     let mut top_level = Vec::new();
+    // Each playlist declares direct track references; each folder declares direct child NODES.
+    let mut node_counts: Vec<(String, usize, usize)> = Vec::new();
     loop {
         match reader
             .read_event_into(&mut buf)
@@ -416,6 +418,26 @@ pub fn export_xml(bytes: &[u8]) -> Result<Vec<u8>, Error> {
         {
             Event::Start(e) => {
                 let name = validate_export_element(&e, stack.last().map(String::as_str))?;
+                if name == "NODE" {
+                    let ty = attr(&e, "Type")?;
+                    let field = if ty == "0" { "Count" } else { "Entries" };
+                    let declared = attr(&e, field)?
+                        .parse::<usize>()
+                        .map_err(|_| Error(format!("invalid NODE {field}")))?;
+                    node_counts.push((ty.clone(), declared, 0));
+                    if let Some((parent_ty, _, count)) = node_counts.iter_mut().rev().nth(1)
+                        && parent_ty == "0"
+                    {
+                        *count += 1;
+                    }
+                }
+                if stack.last().is_some_and(|p| p == "NODE")
+                    && name == "TRACK"
+                    && let Some((ty, _, count)) = node_counts.last_mut()
+                    && ty == "1"
+                {
+                    *count += 1;
+                }
                 if name == "COLLECTION" {
                     let declared = attr(&e, "Entries")?
                         .parse::<usize>()
@@ -437,6 +459,28 @@ pub fn export_xml(bytes: &[u8]) -> Result<Vec<u8>, Error> {
             }
             Event::Empty(e) => {
                 let name = validate_export_element(&e, stack.last().map(String::as_str))?;
+                if name == "NODE" {
+                    let ty = attr(&e, "Type")?;
+                    let field = if ty == "0" { "Count" } else { "Entries" };
+                    let declared = attr(&e, field)?
+                        .parse::<usize>()
+                        .map_err(|_| Error(format!("invalid NODE {field}")))?;
+                    if declared != 0 {
+                        return Err(Error("NODE Count/Entries mismatch".into()));
+                    }
+                    if let Some((parent_ty, _, count)) = node_counts.last_mut()
+                        && parent_ty == "0"
+                    {
+                        *count += 1;
+                    }
+                }
+                if stack.last().is_some_and(|p| p == "NODE")
+                    && name == "TRACK"
+                    && let Some((ty, _, count)) = node_counts.last_mut()
+                    && ty == "1"
+                {
+                    *count += 1;
+                }
                 if !valid_export_parent(&stack, &name) {
                     return Err(Error(format!("invalid XML structure: {name}")));
                 }
@@ -447,7 +491,16 @@ pub fn export_xml(bytes: &[u8]) -> Result<Vec<u8>, Error> {
                     top_level.push(name);
                 }
             }
-            Event::End(_) => {
+            Event::End(e) => {
+                let end_name = e.name();
+                let tag = std::str::from_utf8(end_name.as_ref())
+                    .map_err(|_| Error("non-UTF-8 closing element".into()))?;
+                if tag == "NODE"
+                    && let Some((_, declared, actual)) = node_counts.pop()
+                    && declared != actual
+                {
+                    return Err(Error("NODE Count/Entries mismatch".into()));
+                }
                 stack
                     .pop()
                     .ok_or_else(|| Error("unexpected closing element".into()))?;
@@ -503,9 +556,20 @@ mod tests {
         for source in [f02.as_slice(), f07.as_slice(), f10.as_slice()] {
             assert_eq!(export_xml(source).unwrap(), source);
         }
-        let mutated = String::from_utf8(f02.to_vec())
-            .unwrap()
-            .replace("Name=\"A\"", "Name=\"A\" Extra=\"x\"");
+        let f02_text = String::from_utf8(f02.to_vec()).unwrap();
+        let bad_folder_count = f02_text.replacen("Count=\"2\"", "Count=\"3\"", 1);
+        assert_ne!(
+            bad_folder_count, f02_text,
+            "fixture must exercise folder Count"
+        );
+        assert!(export_xml(bad_folder_count.as_bytes()).is_err());
+        let bad_playlist_entries = f02_text.replacen("Entries=\"3\"", "Entries=\"4\"", 1);
+        assert_ne!(
+            bad_playlist_entries, f02_text,
+            "fixture must exercise playlist Entries"
+        );
+        assert!(export_xml(bad_playlist_entries.as_bytes()).is_err());
+        let mutated = f02_text.replace("Name=\"A\"", "Name=\"A\" Extra=\"x\"");
         assert!(export_xml(mutated.as_bytes()).is_err());
         assert!(export_xml(b"<DJ_PLAYLISTS Version=\"1.0.0\"/>").is_err());
     }
