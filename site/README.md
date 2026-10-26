@@ -30,10 +30,10 @@ bun run preview
 ```
 
 `.github/workflows/pages.yml` runs the site checks, builds `site/dist`, uploads that directory
-and deploys with the GitHub Pages environment. The repository must select **GitHub Actions**
-as its Pages source. A local build does not confirm live deployment; inspect the Actions run
-and read back the published URL after pushing. The latest recorded deployment attempt failed
-because Pages was not enabled/configured for Actions.
+and deploys with the GitHub Pages environment. The repository uses **GitHub Actions** as its
+Pages source. Production URL: <https://senci.github.io/oxidj/>. The latest deployment succeeded
+at commit `3a961b9` in [workflow run 40354293183](https://github.com/Senci/oxidj/actions/runs/40354293183);
+the build checks and deploy job passed.
 
 ## Design and verification
 
