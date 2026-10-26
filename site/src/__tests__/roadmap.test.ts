@@ -1,0 +1,53 @@
+import { readFileSync } from 'node:fs';
+import { describe, expect, it } from 'vitest';
+import { milestones, productGoals, projectUpdates, roadmapSnapshot } from '../data/roadmap';
+import { escapeHtml, renderRoadmap } from '../logic/roadmapMarkup';
+
+const template = readFileSync(new URL('../../roadmap.html', import.meta.url), 'utf8');
+
+describe('static roadmap', () => {
+  it('renders every typed milestone and evidence link without client JavaScript', () => {
+    const html = renderRoadmap(template);
+    expect(html).not.toContain('<!-- roadmap:');
+    expect(html.match(/class="milestone milestone-/g)).toHaveLength(milestones.length);
+    for (const milestone of milestones) {
+      for (const value of [
+        milestone.title,
+        milestone.goal,
+        milestone.progress,
+        milestone.next,
+        milestone.statusLabel,
+        milestone.source.href,
+      ]) {
+        expect(html).toContain(escapeHtml(value));
+      }
+    }
+  });
+
+  it('preserves every update, goal and snapshot caveat', () => {
+    const html = renderRoadmap(template);
+    for (const update of projectUpdates) {
+      expect(html).toContain(escapeHtml(update.title));
+      expect(html).toContain(escapeHtml(update.detail));
+      expect(html).toContain(escapeHtml(update.source.href));
+    }
+    for (const goal of productGoals) expect(html).toContain(escapeHtml(goal));
+    expect(html).toContain(escapeHtml(roadmapSnapshot.currentSummary));
+    expect(html).toContain(escapeHtml(roadmapSnapshot.qualificationSummary));
+    expect(html).toContain(escapeHtml(roadmapSnapshot.verifiedAt));
+    expect(html).not.toContain('Close the catalog acceptance gaps');
+  });
+
+  it('escapes markup and fails on a misspelled template fragment', () => {
+    expect(escapeHtml(`<script title="x">&'</script>`)).toBe(
+      '&lt;script title=&quot;x&quot;&gt;&amp;&#39;&lt;/script&gt;',
+    );
+    expect(() => renderRoadmap('<!-- roadmap:missing -->')).toThrow('Unknown roadmap fragment');
+  });
+
+  it('leaves other HTML unchanged and is idempotent', () => {
+    expect(renderRoadmap('<p>Existing dossier</p>')).toBe('<p>Existing dossier</p>');
+    const html = renderRoadmap(template);
+    expect(renderRoadmap(html)).toBe(html);
+  });
+});

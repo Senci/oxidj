@@ -1,23 +1,38 @@
 {
-  "scanned": "2026-10-25",
+  "scanned": "2026-10-26",
+  "mode": "redesign",
+  "depth": "full",
+  "routes": [
+    { "route": "/", "file": "index.html", "scope": "page" },
+    { "route": "/roadmap.html", "file": "roadmap.html", "scope": "page" }
+  ],
   "findings": {
-    "fonts": "Existing roadmap: Inter/system and system mono (src/styles/roadmap.css:14-15); preserved on roadmap only",
-    "palette": "Existing dark green roadmap palette (src/styles/roadmap.css:1-16)",
-    "motion": "CSS only; teaser theme permits state changes only",
-    "spacing": "New teaser uses Hallmark scaffold scale",
-    "framework": "Vite 6 / TypeScript / Bun (package.json:7-29); relative base (vite.config.ts:5)",
-    "product": "Real CLI help captured with cargo run -q -p oxidj-cli -- --help, exit 0. Existing GUI screenshots contain local paths and are not republished."
+    "before_teaser": "index.html:6 forced light colour scheme; teaser.css:46-58 oversized sparse hero; actual CLI evidence was useful",
+    "before_roadmap": "roadmap.html:34-58 decorative eyebrow/dots and stale M1 focus; roadmap.html:61-71 stale M0 summary; roadmap.css:3-15 green palette and tiny label/details sizes",
+    "brand": "No root design.md or brand spec; owner explicitly requested Tokyo-night black, purple primary and cyan secondary",
+    "fonts": "Preserve Epilogue/IBM Plex Mono from index.html:15; apply Epilogue to roadmap for shared identity",
+    "framework": "Vite/TypeScript/Bun, package.json:7-29; retain relative base and all three build entries in vite.config.ts",
+    "facts": "idea.md:16-27 principles; plan/MVP.md:29-38 bounded M1-M3 completion and separate unpassed gates; dated typed roadmap data preserved",
+    "product": "Use actual reference-only library system as a labelled diagram and retain existing CLI help. No private-path GUI capture or invented product screen"
   },
   "preserve": [
-    "roadmap content and renderer at roadmap.html",
-    "dossier.html",
-    "relative asset base"
+    "all roadmap source data/evidence links",
+    "all three entry routes and project-relative paths",
+    "existing teaser facts, CLI excerpt and limitations",
+    "archived dossier unchanged"
   ],
-  "introduce": ["Ink teaser at index.html", "Pages workflow", "tokens, stamp and design log"],
+  "introduce": [
+    "shared night.css tokens",
+    "library and bounded-acceptance diagrams",
+    "readable mobile flow list",
+    "static build-time roadmap rendering",
+    "locally hosted credited Pixabay vinyl detail",
+    "reduced-motion-safe desktop photo parallax"
+  ],
   "inferences": {
     "audience": "DJ-library users and contributors",
-    "job": "understand the project and inspect source or roadmap",
-    "tone": "editorial, technical; Ink permits state motion only"
+    "job": "understand the project and inspect source/roadmap",
+    "tone": "compact technical night-time evidence index"
   },
-  "tooling": "Installed bundle is incomplete. Retrieved upstream Nutlope/hallmark into uncommitted .hallmark-tooling for real scaffold and lint execution."
+  "tooling": "Installed executable tools missing; recovered upstream Nutlope/hallmark at 7ec868225c6caa040558c321ee0fefa0e73f83a8 in workspace-local uncommitted tooling; Puppeteer/axe outside site dependencies"
 }

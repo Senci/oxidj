@@ -1,5 +1,44 @@
 [
   {
+    "date": "2026-10-26",
+    "mode": "redesign",
+    "depth": "full",
+    "scope": "site",
+    "entry": ["index.html", "roadmap.html"],
+    "shape": "Library flow and evidence index",
+    "theme": "Tokyo night (by owner request)",
+    "axes": "dark/grotesk-sans/purple-primary-cyan-secondary",
+    "hero": "Banner",
+    "nav": "edge-aligned",
+    "footer": "project colophon",
+    "imagery": "Labelled real-system diagrams and one local cropped Pixabay vinyl photograph",
+    "photos": ["Pixabay 4808792, Bru-nO"],
+    "signature": "Audio outside the reference-only catalog",
+    "fingerprint": "Banner|Diagram and ledger|Rules and dark surface changes|Solid|Subordinate vinyl detail|Photo scroll transform",
+    "sections": [
+      "Library diagram hero",
+      "Capability rows and actual CLI",
+      "Ownership with subordinate vinyl layer",
+      "Local acceptance ledger",
+      "Project colophon"
+    ],
+    "waived": [
+      "59: owner-requested compact spacing",
+      "77: roadmap status-summary band",
+      "78: long-document milestone ledger"
+    ],
+    "prompt": "Audit and redesign teaser and roadmap; compact Tokyo-night purple/cyan, diagrams and restrained Pixabay parallax; preserve content and deploy",
+    "tooling_commit": "7ec868225c6caa040558c321ee0fefa0e73f83a8",
+    "hero_review": { "verdict": "fix", "resolved": 3, "unresolved": 0 },
+    "finish_review": { "verdict": "ship", "findings": 0 },
+    "sweep": {
+      "floor_fail": 0,
+      "open_reflex": 0,
+      "warn": 0,
+      "notes": "Existing copy budgets preserved; source/dev render sweep and separate production browser verification"
+    }
+  },
+  {
     "shape": "Conversational FAQ",
     "theme": "ink",
     "axes": "light/grotesk-sans/chromatic-teal",

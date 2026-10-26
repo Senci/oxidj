@@ -1,83 +1,111 @@
-# Teaser verification
+# Active Pages redesign verification
 
-Local verification on 2026-10-25. This is not a live deployment record.
+2026-10-26. Scope: teaser and roadmap only; archived dossier and product code unchanged.
+Deployment is recorded on the task/PR after merge, not inferred from these local results.
 
-## Hallmark decisions and reviews
+## Before and preserved material
 
-- Dealt Terminal, Ink and Bloom using upstream Hallmark at
-  `7ec868225c6caa040558c321ee0fefa0e73f83a8`. Inspected all three theme pictures;
-  chose Ink 2/3. Draw `bb241f`: Conversational FAQ, Stage, edge-aligned navigation,
-  letter-close footer. No previous project Hallmark build log was present.
-- Real material: `idea.md`, `plan/MVP.md`, the dated roadmap snapshot, and actual
-  `cargo run -q -p oxidj-cli -- --help` output (exit 0). The CLI excerpt omits arguments
-  and says so before the excerpt. No product mock, photograph or private-path GUI capture.
-- Hero fresh-context review: **fix**, two findings. Increased CLI text from 14px to 20px;
-  moved attribution/argument qualification before the commands. Recaptures inspected at
-  desktop and 375px; both resolved.
-- Finish fresh-context review: **fix**, two findings. Replaced the middle repeated row
-  layout with three unboxed columns, collapsing at mobile; made generic headings specific
-  to OxiDJ and catalog acceptance. Final full-page captures inspected; both resolved.
-- Theme adaptation: neutrals use a slight cool tint to meet the editorial chroma floor;
-  no motion beyond link/control state. Repository links replace an unavailable release
-  download. No waivers, missing facts or image slots.
+Before captures: `.hallmark/before/screen-{home,roadmap-html}-{desktop,phone}.png`.
+The teaser was sparse/light; the roadmap had a useful spine, statuses and evidence links,
+but tiny copy, decorative dots and stale M1/M0 static summaries.
+
+Preserved: all three routes, project-relative asset base, teaser facts and CLI help excerpt,
+all eight milestones, five updates, five product goals and every typed source/evidence link.
+`src/data/roadmap.ts` is unchanged. The renderer moved from client DOM construction to
+Vite HTML transformation so all roadmap content survives JavaScript being off.
+
+Copy corrections/recompositions:
+
+- “Working local-library code. Acceptance is still open.” became “Working local-library
+  code. Production qualification remains open.” The bounded contract is complete.
+- “Close the catalog acceptance gaps.” and M1 focus became “Local-library contract
+  complete.” The M0-only verified summary became the M1/M2/provisional-M3 status.
+- The roadmap hero introduction became “Shipped work, active development and later
+  qualification, kept distinct.” Existing detail survives in the timeline and summary.
+- Decorative field-note count, eyebrow labels, glued arrows, caps and dots were removed;
+  the open-source/Rust/local principles remain in the teaser and linked source.
+- M3's provisional status is explicit immediately below its completion heading. No
+  production GUI, broad interoperability or 500k/60fps pass is implied.
+
+The CLI help moved below the teaser hero, intact. Its historical actual-output provenance
+is retained. The photo source/licence and crop are in `public/images/README.md`.
 
 ## Executed checks
 
-From `site/`: `bun run typecheck`, `bun run lint`, `bun run test`, `bun run build`,
-`bun run format:check`. Exit 0. Vitest: **4 files, 37 tests passed**.
-Build emits `dist/index.html`, `dist/roadmap.html`, `dist/dossier.html`.
-Build verifier: **3 entries, 25 local references under /oxidj/, script-free teaser**.
-
-From repository root:
+All site commands exited 0 after implementation:
 
 ```sh
-HALLMARK_PUPPETEER="$PWD/.hallmark-tooling" CHROME_PATH=/usr/sbin/chromium \
-  node .hallmark-tooling/skills/hallmark/scripts/sloplint.mjs \
-  site/index.html site/src/styles/teaser.css --genre editorial --render \
-  --url http://127.0.0.1:4174/oxidj/
+bun run typecheck
+bun run lint
+bun run test
+bun run format:check
+bun run build
 ```
 
-Production preview: `bun run preview --host 127.0.0.1 --port 4174 --base /oxidj/`.
-Render result: **0 FAIL, 0 REFLEX, 0 WARN**, exit 0. Four-size hero stage also passed.
-The render tier produced desktop folds (1280, 1440, 1920) and desktop/mobile full pages.
-Final captures are local ignored files in `site/.hallmark/shots/` and attached to the handoff.
+Vitest: **5 files / 41 tests passed**, including four new static-roadmap tests.
+Production build: **3 entries, 28 local references under /oxidj/, script-free teaser**.
+The build verifier checks eight statically emitted milestones and no unresolved markers.
 
-A local Puppeteer smoke against production preview verified:
+`cargo xtask ci`: exit 0:
 
-- `/oxidj/`, `/oxidj/roadmap.html` (eight rendered milestones), `/oxidj/dossier.html`;
-- no horizontal overflow at 320, 375, 768, 1024, 1280, 1440 and 1920px;
-- Tab focuses the visible skip link with an outline;
-- four main teaser sections and acceptance caveat remain with JavaScript disabled;
-- no page exceptions or local 4xx/5xx responses (favicon excluded).
+```text
+=> ci summary: layers=ok fmt=ok clippy=ok check=ok  [all pass]
+```
 
-`cargo xtask ci`: exit 0,
-`=> ci summary: layers=ok fmt=ok clippy=ok check=ok  [all pass]`.
-`git diff --check`: exit 0.
+## Real-browser verification
 
-## Judged gates and finish review
+Production server: `bun run preview --host 127.0.0.1 --port 4174 --base /oxidj/`.
+Puppeteer/Chromium checked `/oxidj/`, `/oxidj/roadmap.html`, `/oxidj/dossier.html`:
 
-- 6b/44: left-weighted Stage, capped container; head, lede, action and CLI proof fit at
-  1280x800; 1440 and 1920 folds inspected. Mobile naturally stacks.
-- 8/9/32: no previous project build to repeat; current capability rows, ownership columns
-  on a paper change, acceptance rows, and a letter close vary the rhythm.
-- 11/16/23/29/38/47: no card hover theatre, toast, glow, accented heading word, drawn
-  window or fake UI. Accent is a focus/underline signal, not a filled surface.
-- 46/54/58/63/66/69/70: no invented evidence, eyebrows, decorative dots, glued arrows,
-  badges, fake submission or stock signup. Copy stays specific and bounded.
-- 77/80/81/82/83/84/85: full-width lists/columns provide mass; actual CLI text replaces
-  private-path screenshots. No photo wall, empty slots, counting marks or newsletter close.
-- Finish: balanced headings, one primary recipe/container, no skipped heading levels,
-  three weights maximum, themed browser surfaces, no justified prose, no hidden mobile
-  content. Forms, tooltips, pricing, avatars, video and slots are absent, so their checks
-  are not applicable. External fonts have CSS fallback faces.
+- HTTP 200 and no horizontal overflow at 320, 375, 768, 1024, 1280, 1440, 1920px.
+- Both redesigned heroes show headline/action at 1280×800.
+- Both redesigned routes: Tab reaches the visible outlined skip link; every in-page
+  navigation target exists; no page exceptions or console/resource errors.
+- JavaScript off: all eight roadmap milestones remain present, with production caveats;
+  teaser content remains readable. No reveal hides essential content.
+- Axe WCAG 2 A/AA and 2.1 AA: **zero violations**, both redesigned routes at 1440 and 375px.
+- Local photograph loads on both routes. Desktop computed animation is `photo-depth`;
+  reduced-motion computed animation and transform are both `none`. Mobile is static.
+- Dossier retained and checked for route/resource/overflow regressions. Its pre-existing
+  default favicon request is excluded; the redesigned routes have an explicit local icon.
 
-## Deployment and material handoff
+Final production captures: `.hallmark/final/{home,roadmap}-{1440,375,1280}.png`,
+`{home,roadmap}-fold.png`, and `{home,roadmap}-photo.png`.
+Machine results: `.hallmark/final/browser-results.json`. Capture tooling/dependencies stay
+outside the site's package manifest. Initial tooling was accidentally traversed by local
+format/lint; moved it outside `site/`, restored the untouched dependency manifest/lock,
+and reran the real checks. No third-party tooling is committed.
 
-Pages workflow builds and uploads `site/dist` on relevant master pushes or manual dispatch.
-The repository needs GitHub Actions selected as its Pages source. Nothing was pushed and
-no Actions deployment or public URL readback was performed; deployment is **unverified**.
+## Hallmark rendered sweep and independent reviews
 
-No replacement slots or missing material block shipping. The most valuable future material
-is a clean, owner-approved capture of the integrated library using synthetic files and
-public-safe paths, after UI acceptance. It should replace the CLI proof only when real and
-legible, never with a drawn interface.
+The installed skill lacks executables. Retrieved upstream Nutlope/hallmark at
+`7ec868225c6caa040558c321ee0fefa0e73f83a8` into workspace-local review tooling.
+Ran the actual `sloplint.mjs`, not a substitute report, with `HALLMARK_PUPPETEER` pointing
+to external browser dependencies and `CHROME_PATH=/usr/sbin/chromium`.
+
+Source/development render sweep, each HTML plus its stylesheet, `--genre atmospheric
+--render --url http://127.0.0.1:4173/<route>`: **0 FAIL, 0 open REFLEX, 0 WARN**, exit 0
+on both pages. Production output is separately exercised above; its minified CSS strips
+the source design stamp, so stamp-based render bookkeeping uses the development route.
+
+Waivers: compact ruled spacing (59), roadmap's single status-summary band (77), and
+long-document item headings (78; unused in the last sweep). Existing dense evidence
+copy reports as notes under the redesign's content-preservation policy, not as a claim
+that the page meets an 80-word marketing budget.
+
+Hero review (fresh subagent): **fix**, three substantive findings, all resolved:
+mobile diagram text reflowed, M3 qualification raised, stale acceptance sentence corrected.
+Finish/source review (fresh subagent): **ship**, no actionable defects; appropriate to
+merge if gates pass. Independently reran 41 tests, typecheck, lint, build and whitespace
+check. Old strength noted: CLI proof was previously above the fold; it is still present.
+
+Judged finish: no fake metrics or GUI, no hidden reveal, one button recipe/container,
+one photo-scroll pattern, instant focus, tokenized palette/type, section rhythm by rules
+and surfaces. Source evidence intentionally stays more detailed than marketing copy.
+
+## Material handoff
+
+No empty slots or missing material block release. The only stock asset is a credited,
+local 1280×320 vinyl crop used in shallow strips, subordinate to the library diagrams.
+A future owner-approved capture of the real integrated library using synthetic audio
+and public-safe paths would add more product evidence; no private library data was used.
