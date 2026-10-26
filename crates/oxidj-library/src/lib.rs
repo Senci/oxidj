@@ -249,8 +249,16 @@ impl Catalog {
         root: impl AsRef<Path>,
         cancel: &std::sync::atomic::AtomicBool,
     ) -> Result<ImportReport, CatalogError> {
+        self.import_audio_directory_cancellable_with_hook(root.as_ref(), cancel, || {})
+    }
+
+    fn import_audio_directory_cancellable_with_hook(
+        &mut self,
+        input_root: &Path,
+        cancel: &std::sync::atomic::AtomicBool,
+        mut after_file: impl FnMut(),
+    ) -> Result<ImportReport, CatalogError> {
         use std::sync::atomic::Ordering;
-        let input_root = root.as_ref();
         let mut report = ImportReport {
             complete: true,
             cancelled: false,
@@ -302,6 +310,7 @@ impl Catalog {
                     path: path_text,
                     status: ImportStatus::Unsupported,
                 });
+                after_file();
                 continue;
             }
             let (digest, byte_length) = match file_sha256(&path) {
@@ -312,6 +321,7 @@ impl Catalog {
                         path: path_text,
                         status: ImportStatus::Unreadable,
                     });
+                    after_file();
                     continue;
                 }
             };
@@ -336,6 +346,7 @@ impl Catalog {
                     path: path_text,
                     status: ImportStatus::Unreadable,
                 });
+                after_file();
                 continue;
             }
             if let Some((id, prior_digest, prior_length)) = prior {
@@ -344,6 +355,7 @@ impl Catalog {
                         path: path_text,
                         status: ImportStatus::Conflict,
                     });
+                    after_file();
                     continue;
                 }
                 self.connection
@@ -352,6 +364,7 @@ impl Catalog {
                     path: path_text,
                     status: ImportStatus::Unchanged,
                 });
+                after_file();
                 continue;
             }
             let extension = path
@@ -372,6 +385,7 @@ impl Catalog {
                             path: path_text,
                             status,
                         });
+                        after_file();
                         continue;
                     }
                 };
@@ -382,6 +396,7 @@ impl Catalog {
                         path: path_text,
                         status: ImportStatus::Unreadable,
                     });
+                    after_file();
                     continue;
                 }
                 let path_hash: [u8; 32] = sha2::Sha256::digest(path_text.as_bytes()).into();
@@ -395,6 +410,7 @@ impl Catalog {
                     path: path_text,
                     status: ImportStatus::Imported,
                 });
+                after_file();
                 continue;
             }
             let Some((padding_offsets, supported)) = wav_container_padding_offsets(&path) else {
@@ -402,6 +418,7 @@ impl Catalog {
                     path: path_text,
                     status: ImportStatus::Malformed,
                 });
+                after_file();
                 continue;
             };
             if !supported {
@@ -409,6 +426,7 @@ impl Catalog {
                     path: path_text,
                     status: ImportStatus::Unsupported,
                 });
+                after_file();
                 continue;
             }
             let source = match PaddingStrippingReader::open(&path, padding_offsets) {
@@ -418,6 +436,7 @@ impl Catalog {
                         path: path_text,
                         status: ImportStatus::Unreadable,
                     });
+                    after_file();
                     continue;
                 }
             };
@@ -428,6 +447,7 @@ impl Catalog {
                         path: path_text,
                         status: ImportStatus::Malformed,
                     });
+                    after_file();
                     continue;
                 }
             };
@@ -447,6 +467,7 @@ impl Catalog {
                     path: path_text,
                     status: ImportStatus::Malformed,
                 });
+                after_file();
                 continue;
             };
             if sample_count != expected_sample_count
@@ -458,6 +479,7 @@ impl Catalog {
                     path: path_text,
                     status: ImportStatus::Malformed,
                 });
+                after_file();
                 continue;
             }
             if !matches!(file_sha256(&path), Ok((current_digest, current_length)) if current_digest == digest && current_length == byte_length)
@@ -467,6 +489,7 @@ impl Catalog {
                     path: path_text,
                     status: ImportStatus::Unreadable,
                 });
+                after_file();
                 continue;
             }
             let duration =
@@ -493,6 +516,7 @@ impl Catalog {
                 path: path_text,
                 status: ImportStatus::Imported,
             });
+            after_file();
         }
         if cancel.load(Ordering::Relaxed) {
             report.complete = false;
@@ -2594,6 +2618,89 @@ mod tests {
         assert!(report.cancelled);
         assert!(report.outcomes.is_empty());
         assert!(catalog.list_tracks().unwrap().is_empty());
+        drop(catalog);
+        remove_database(&db);
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn mid_scan_cancellation_preserves_missing_state_and_retry_recovers() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        let root = database_path().with_extension("cancelled-retry");
+        std::fs::create_dir_all(&root).unwrap();
+        let first = root.join("a.wav");
+        let second = root.join("b.wav");
+        write_test_wav(&first, &[1, 2]);
+        write_test_wav(&second, &[3, 4]);
+        let first_original = std::fs::read(&first).unwrap();
+        let second_original = std::fs::read(&second).unwrap();
+        let db = database_path();
+        let mut catalog = Catalog::open(&db).unwrap();
+        catalog.import_wav_directory(&root).unwrap();
+        let second_id: i64 = catalog
+            .connection
+            .query_row(
+                "SELECT id FROM tracks WHERE path=?1",
+                [second.to_string_lossy().as_ref()],
+                |r| r.get(0),
+            )
+            .unwrap();
+        std::fs::remove_file(&second).unwrap();
+        catalog.import_wav_directory(&root).unwrap();
+        std::fs::write(&second, &second_original).unwrap();
+
+        let cancel = AtomicBool::new(false);
+        let report = catalog
+            .import_audio_directory_cancellable_with_hook(&root, &cancel, || {
+                cancel.store(true, Ordering::Relaxed);
+            })
+            .unwrap();
+        assert!(!report.complete);
+        assert!(report.cancelled);
+        assert_eq!(report.outcomes.len(), 1);
+        let missing: i64 = catalog
+            .connection
+            .query_row(
+                "SELECT missing FROM audio_facts WHERE track_id=?1",
+                [second_id],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(missing, 1);
+        drop(catalog);
+
+        let mut catalog = Catalog::open(&db).unwrap();
+        let retry = catalog.import_wav_directory(&root).unwrap();
+        assert!(retry.complete);
+        assert_eq!(retry.outcomes.len(), 2);
+        assert!(
+            retry
+                .outcomes
+                .iter()
+                .all(|outcome| outcome.status == ImportStatus::Unchanged)
+        );
+        let (first_digest, first_length) = file_sha256(&first).unwrap();
+        let (second_digest, second_length) = file_sha256(&second).unwrap();
+        let rows: Vec<(i64, Vec<u8>, i64, i64)> = {
+            let mut statement = catalog.connection.prepare("SELECT t.id,t.sha256,t.byte_length,f.missing FROM tracks t JOIN audio_facts f ON f.track_id=t.id ORDER BY t.path").unwrap();
+            statement
+                .query_map([], |row| {
+                    Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+                })
+                .unwrap()
+                .collect::<Result<_, _>>()
+                .unwrap()
+        };
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].1.as_slice(), first_digest);
+        assert_eq!(rows[0].2 as u64, first_length);
+        assert_eq!(rows[0].3, 0);
+        assert_eq!(rows[1].0, second_id);
+        assert_eq!(rows[1].1.as_slice(), second_digest);
+        assert_eq!(rows[1].2 as u64, second_length);
+        assert_eq!(rows[1].3, 0);
+        assert_eq!(std::fs::read(&first).unwrap(), first_original);
+        assert_eq!(std::fs::read(&second).unwrap(), second_original);
         drop(catalog);
         remove_database(&db);
         let _ = std::fs::remove_dir_all(root);
