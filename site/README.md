@@ -11,10 +11,10 @@ reviewed project status changes, and keep the teaser's short progress summary an
 date consistent. Canonical decisions remain in `idea.md`, `plan/MVP.md`, `plan/STATUS.md`
 and ADRs; the site is not a second decision record.
 
-Snapshot: 2026-10-25. M0 is verified complete. The provisional integrated library viewer is
-reviewed, but local M1, M2 and M3 acceptance remains open. Catalog closeout precedes importer
-closeout and fresh-GUI smoke. No production GUI, representative-scale or platform approval
-is claimed. Vendor interoperability and performance features remain later work.
+Snapshot: 2026-10-26. Bounded local M1, M2 and provisional M3 acceptance is complete and
+independently reviewed. See `plan/MVP.md` and `plan/STATUS.md` for evidence. Production GUI
+admission, accessibility/platform checks, vendor interoperability, and 500k/60fps qualification
+remain separate and unpassed.
 
 ## Local checks
 
@@ -32,7 +32,8 @@ bun run preview
 `.github/workflows/pages.yml` runs the site checks, builds `site/dist`, uploads that directory
 and deploys with the GitHub Pages environment. The repository must select **GitHub Actions**
 as its Pages source. A local build does not confirm live deployment; inspect the Actions run
-and read back the published URL after pushing. This task does not push or claim deployment.
+and read back the published URL after pushing. The latest recorded deployment attempt failed
+because Pages was not enabled/configured for Actions.
 
 ## Design and verification
 

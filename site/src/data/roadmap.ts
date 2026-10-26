@@ -25,10 +25,10 @@ export interface ProjectUpdate {
 const repo = 'https://github.com/Senci/oxidj';
 
 export const roadmapSnapshot = {
-  verifiedAt: '2026-10-25',
+  verifiedAt: '2026-10-26',
   currentSummary:
-    'The provisional library UI slice is committed and reviewed, but M1–M3 acceptance remains open. Closeout is queued in dependency order: M1 catalog, M2 import, then M3 persisted-UI smoke.',
-  currentFocus: 'M1 catalog acceptance closeout',
+    'Bounded local M1–M3 acceptance is complete and independently reviewed. Production GUI admission, vendor interoperability, and 500k/60fps qualification remain separate and unpassed.',
+  currentFocus: 'Bounded local-library contract complete',
   qualificationSummary:
     'The 500k-row / 60fps target is preserved for a later qualification workstream. It is deferred and unverified—not passed, and not a gate for the bounded M1–M3 local slice.',
   qualificationSource: `${repo}/blob/master/plan/MVP.md`,
@@ -49,34 +49,34 @@ export const milestones: readonly Milestone[] = [
   {
     id: 'M1',
     title: 'Persistent local catalog',
-    status: 'in-progress',
-    statusLabel: 'In progress',
+    status: 'complete',
+    statusLabel: 'Acceptance complete',
     goal: 'Store stable track identities and technical facts in a bounded, local SQLite catalog.',
     progress:
-      'Catalog, restart, backup and restore work is present. Full M1 acceptance and release evidence remain open.',
-    next: 'Audit remaining acceptance gaps, verify stable IDs and facts, then proceed to M2.',
+      'Independent review approved stable identities/facts, transactions and retries, migration rollback, backup/restore, and fresh-process fact reopen.',
+    next: 'M1 closed within the 10,000-track local scope; 500k qualification remains separate and unpassed.',
     source: { label: 'M1 acceptance', href: `${repo}/blob/master/plan/MVP.md` },
   },
   {
     id: 'M2',
     title: 'Reference-only file import',
-    status: 'in-progress',
-    statusLabel: 'In progress',
+    status: 'complete',
+    statusLabel: 'Acceptance complete',
     goal: 'Import local WAV, MP3 and FLAC references without moving or modifying source audio.',
     progress:
-      'Importer and format-specific code is in the library. Full matrix, error-path and source-immutability evidence remains part of acceptance.',
-    next: 'Finish importer acceptance on synthetic fixtures and record exact outcomes.',
+      'Independent review approved declared WAV/MP3/FLAC outcomes, failure/cancellation cases, source immutability, and an owner-authorized local MP3 smoke.',
+    next: 'M2 closed for reference-only import; embedded tags and Rekordbox/OneLibrary exchange remain out of scope.',
     source: { label: 'M2 acceptance', href: `${repo}/blob/master/plan/MVP.md` },
   },
   {
     id: 'M3',
     title: 'Usable library UI',
-    status: 'in-progress',
-    statusLabel: 'Acceptance open',
+    status: 'complete',
+    statusLabel: 'Provisional smoke complete',
     goal: 'Browse and search the persistent catalog through shared application handlers.',
     progress:
-      'The provisional integrated viewer and details query are committed and reviewed. M3 acceptance, including fresh-GUI import/reopen smoke, remains open; probe evidence is separate.',
-    next: 'After M1 and M2 closeout, verify import, fresh GUI reopen and interaction smoke.',
+      'Independent review approved synthetic import, fresh-GUI reopen without rescan, search, sort, selection/details, and empty/error/missing states. Evidence is in the standalone prototype report.',
+    next: 'Production framework admission and cross-platform accessibility remain separate, unpassed gates.',
     source: { label: 'M3 acceptance', href: `${repo}/blob/master/plan/MVP.md` },
   },
   {
@@ -122,6 +122,14 @@ export const milestones: readonly Milestone[] = [
 ];
 
 export const projectUpdates: readonly ProjectUpdate[] = [
+  {
+    date: '2026-10-26',
+    category: 'M1–M3 · acceptance',
+    title: 'Bounded local-library acceptance closed.',
+    detail:
+      'Independent reviews approved M1 catalog recovery, M2 reference-only import and private-sample smoke, and provisional M3 persisted-GUI smoke. Local `cargo xtask ci-full` and exact-head GitHub CI passed; production GUI, vendor interoperability, and 500k/60fps remain unpassed.',
+    source: { label: 'Acceptance closeout', href: `${repo}/blob/master/plan/MVP.md` },
+  },
   {
     date: '2026-10-25',
     category: 'M3 · interaction',
