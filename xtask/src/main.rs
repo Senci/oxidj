@@ -18,6 +18,8 @@ use std::path::PathBuf;
 use std::process::Command;
 
 #[cfg(test)]
+use oxidj_rekordbox as _;
+#[cfg(test)]
 use quick_xml as _;
 #[cfg(test)]
 use sha2 as _;

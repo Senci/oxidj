@@ -349,14 +349,29 @@ fn a1_fixture_bytes_match_frozen_provenance_and_goldens() {
     }
 
     let source = std::fs::read(fixture("F-02", "source.bin")).unwrap();
-    let (archive, visible) = check_f02(&source).unwrap();
+    let exported = oxidj_rekordbox::export_xml(&source).unwrap();
+    let (archive, visible) = check_f02(&exported).unwrap();
     assert_eq!(archive, read_json("F-02", "expected-archive.json"));
     assert_eq!(visible, read_json("F-02", "expected-visible.json"));
     assert_eq!(read_json("F-02", "operations.json"), json!([]));
     assert_eq!(read_json("F-02", "expected-report.json"), json!([]));
 
     let source = std::fs::read(fixture("F-07", "source.bin")).unwrap();
-    let (archive, visible) = check_f07(&source).unwrap();
+    let exported = oxidj_rekordbox::export_xml(&source).unwrap();
+    assert_eq!(exported, source);
+    let exported_root = root(&exported).unwrap();
+    let exported_track = validate_envelope(&exported_root, 1).unwrap()[0];
+    assert_eq!(
+        tempo_values(exported_track).unwrap(),
+        tempo_values(
+            root(&source).unwrap().children_named("COLLECTION")[0].children_named("TRACK")[0]
+        )
+        .unwrap()
+    );
+    let exported_mark = exported_track.children_named("POSITION_MARK")[0];
+    assert_eq!(exported_mark.attr("Num").unwrap(), "0");
+    assert!(!exported_mark.attributes.contains_key("End"));
+    let (archive, visible) = check_f07(&exported).unwrap();
     assert_eq!(archive, read_json("F-07", "expected-archive.json"));
     assert_eq!(visible, read_json("F-07", "expected-visible.json"));
     assert_eq!(
@@ -366,7 +381,8 @@ fn a1_fixture_bytes_match_frozen_provenance_and_goldens() {
     assert_eq!(read_json("F-07", "expected-report.json"), json!([]));
 
     let source = std::fs::read(fixture("F-10", "source.bin")).unwrap();
-    let (archive, visible) = check_f10(&source).unwrap();
+    let exported = oxidj_rekordbox::export_xml(&source).unwrap();
+    let (archive, visible) = check_f10(&exported).unwrap();
     assert_eq!(archive, read_json("F-10", "expected-archive.json"));
     assert_eq!(visible, read_json("F-10", "expected-visible.json"));
     assert_eq!(read_json("F-10", "operations.json"), json!([]));
@@ -400,12 +416,17 @@ fn f02_checker_rejects_reordered_membership_and_dangling_endpoint() {
 }
 
 #[test]
-fn f07_checker_rejects_changed_absolute_mark() {
+fn f07_checker_rejects_changed_absolute_mark_and_optionality_or_units() {
     let source = std::fs::read(fixture("F-07", "source.bin")).unwrap();
-    let changed = String::from_utf8(source)
-        .unwrap()
-        .replace("Start=\"5\"", "Start=\"5.5\"");
-    assert!(check_f07(changed.as_bytes()).is_err());
+    let text = String::from_utf8(source).unwrap();
+    for changed in [
+        text.replace("Start=\"5\"", "Start=\"5.5\""),
+        text.replace("Start=\"5\"", "Start=\"5000\""),
+        text.replace("Num=\"0\"", ""),
+        text.replace("Num=\"0\"", "Num=\"0\" End=\"5\""),
+    ] {
+        assert!(check_f07(changed.as_bytes()).is_err());
+    }
 }
 
 #[test]

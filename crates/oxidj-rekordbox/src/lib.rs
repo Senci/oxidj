@@ -1,4 +1,4 @@
-//! Read-only inspection of the documented synthetic Rekordbox XML subset.
+//! Read-only inspection and bounded no-edit export of the synthetic Rekordbox XML subset.
 use quick_xml::{Reader, events::Event};
 use std::{collections::HashSet, fs, path::Path};
 
@@ -314,9 +314,202 @@ pub fn parse(bytes: &[u8]) -> Result<Preview, Error> {
     Ok(out)
 }
 
+fn validate_export_element(
+    e: &quick_xml::events::BytesStart<'_>,
+    parent: Option<&str>,
+) -> Result<String, Error> {
+    let name = std::str::from_utf8(e.name().as_ref())
+        .map_err(|_| Error("non-UTF-8 element name".into()))?
+        .to_owned();
+    let allowed: &[&str] = match name.as_str() {
+        "DJ_PLAYLISTS" => &["Version"],
+        "PRODUCT" => &["Name", "Version", "Company"],
+        "COLLECTION" => &["Entries"],
+        "TRACK" if parent == Some("COLLECTION") => &["TrackID", "Name", "Location"],
+        "TRACK" => &["Key"],
+        "TEMPO" => &["Inizio", "Bpm", "Metro", "Battito"],
+        "POSITION_MARK" => &["Name", "Type", "Start", "Num", "End"],
+        "PLAYLISTS" => &[],
+        "NODE" => &["Type", "Name", "Count", "Entries", "KeyType"],
+        _ => return Err(Error(format!("unsupported export element {name}"))),
+    };
+    let mut seen = HashSet::new();
+    for a in e.attributes().with_checks(true) {
+        let a = a.map_err(|e| Error(e.to_string()))?;
+        let key = std::str::from_utf8(a.key.as_ref())
+            .map_err(|_| Error("non-UTF-8 attribute name".into()))?;
+        if !allowed.contains(&key) {
+            return Err(Error(format!("unsupported {name} attribute {key}")));
+        }
+        seen.insert(key.to_owned());
+    }
+    let required: &[&str] = match name.as_str() {
+        "DJ_PLAYLISTS" => &["Version"],
+        "PRODUCT" => &["Name", "Version", "Company"],
+        "COLLECTION" => &["Entries"],
+        "TRACK" if parent == Some("COLLECTION") => &["TrackID", "Name", "Location"],
+        "TRACK" => &["Key"],
+        "TEMPO" => &["Inizio", "Bpm", "Metro", "Battito"],
+        "POSITION_MARK" => &["Name", "Type", "Start", "Num"],
+        "NODE" => &["Type", "Name"],
+        _ => &[],
+    };
+    for key in required {
+        if !seen.contains(*key) {
+            return Err(Error(format!("{name} missing required attribute {key}")));
+        }
+    }
+    if name == "NODE" {
+        let node_type = optional(e, "Type")?.ok_or_else(|| Error("NODE missing Type".into()))?;
+        match node_type.as_str() {
+            "0" if seen.contains("Count") => {}
+            "1" if seen.contains("Entries") && seen.contains("KeyType") => {
+                if optional(e, "KeyType")?.as_deref() != Some("0") {
+                    return Err(Error("unsupported playlist KeyType".into()));
+                }
+            }
+            "0" => return Err(Error("folder NODE missing Count".into())),
+            "1" => return Err(Error("playlist NODE missing Entries or KeyType".into())),
+            _ => return Err(Error(format!("unsupported NODE Type={node_type}"))),
+        }
+    }
+    Ok(name)
+}
+
+fn valid_export_parent(stack: &[String], name: &str) -> bool {
+    match stack.last().map(String::as_str) {
+        None => name == "DJ_PLAYLISTS",
+        Some("DJ_PLAYLISTS") => ["PRODUCT", "COLLECTION", "PLAYLISTS"].contains(&name),
+        Some("COLLECTION") => name == "TRACK",
+        Some("PLAYLISTS") => name == "NODE",
+        Some("NODE") => ["NODE", "TRACK"].contains(&name),
+        Some("TRACK") if stack.iter().any(|p| p == "COLLECTION") => {
+            ["TEMPO", "POSITION_MARK"].contains(&name)
+        }
+        _ => false,
+    }
+}
+
+/// Validate and return unchanged bytes for the frozen synthetic A1 no-edit subset.
+pub fn export_xml(bytes: &[u8]) -> Result<Vec<u8>, Error> {
+    if std::str::from_utf8(bytes).is_err() {
+        return Err(Error("export requires UTF-8 XML".into()));
+    }
+    let preview = parse(bytes)?;
+    if !preview.unsupported.is_empty() {
+        return Err(Error(format!(
+            "unsupported export content: {}",
+            preview.unsupported.join(", ")
+        )));
+    }
+    let mut reader = Reader::from_reader(bytes);
+    reader.config_mut().trim_text(false);
+    reader.config_mut().check_end_names = true;
+    let mut buf = Vec::new();
+    let mut stack: Vec<String> = Vec::new();
+    let mut roots = 0usize;
+    let mut top_level = Vec::new();
+    loop {
+        match reader
+            .read_event_into(&mut buf)
+            .map_err(|e| Error(format!("malformed XML: {e}")))?
+        {
+            Event::Start(e) => {
+                let name = validate_export_element(&e, stack.last().map(String::as_str))?;
+                if name == "COLLECTION" {
+                    let declared = attr(&e, "Entries")?
+                        .parse::<usize>()
+                        .map_err(|_| Error("invalid COLLECTION Entries".into()))?;
+                    if declared != preview.tracks.len() {
+                        return Err(Error("COLLECTION Entries count mismatch".into()));
+                    }
+                }
+                if !valid_export_parent(&stack, &name) {
+                    return Err(Error(format!("invalid XML structure: {name}")));
+                }
+                if stack.is_empty() {
+                    roots += 1;
+                }
+                if stack.last().is_some_and(|p| p == "DJ_PLAYLISTS") {
+                    top_level.push(name.clone());
+                }
+                stack.push(name);
+            }
+            Event::Empty(e) => {
+                let name = validate_export_element(&e, stack.last().map(String::as_str))?;
+                if !valid_export_parent(&stack, &name) {
+                    return Err(Error(format!("invalid XML structure: {name}")));
+                }
+                if stack.is_empty() {
+                    roots += 1;
+                }
+                if stack.last().is_some_and(|p| p == "DJ_PLAYLISTS") {
+                    top_level.push(name);
+                }
+            }
+            Event::End(_) => {
+                stack
+                    .pop()
+                    .ok_or_else(|| Error("unexpected closing element".into()))?;
+            }
+            Event::Text(t) => {
+                if !t
+                    .decode()
+                    .map_err(|e| Error(e.to_string()))?
+                    .trim()
+                    .is_empty()
+                {
+                    return Err(Error("text content unsupported by export subset".into()));
+                }
+            }
+            Event::Decl(d) => {
+                let declaration = std::str::from_utf8(d.as_ref())
+                    .map_err(|_| Error("invalid XML declaration".into()))?;
+                if !declaration.contains("encoding=\"UTF-8\"")
+                    && !declaration.contains("encoding='UTF-8'")
+                {
+                    return Err(Error(
+                        "export requires an explicit UTF-8 XML declaration".into(),
+                    ));
+                }
+            }
+            Event::Eof => break,
+            _ => return Err(Error("unsupported XML construct in export subset".into())),
+        }
+        buf.clear();
+    }
+    if roots != 1 || !stack.is_empty() || top_level != ["PRODUCT", "COLLECTION", "PLAYLISTS"] {
+        return Err(Error(
+            "invalid XML document structure or required top-level ordering".into(),
+        ));
+    }
+    if preview.tracks.is_empty() {
+        return Err(Error(
+            "export requires at least one collection track".into(),
+        ));
+    }
+    Ok(bytes.to_vec())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn export_accepts_frozen_fixtures_byte_exact_and_rejects_unknown_attributes() {
+        let f02 = include_bytes!("../../../xtask/tests/fixtures/rekordbox-a1/F-02/source.bin");
+        let f07 = include_bytes!("../../../xtask/tests/fixtures/rekordbox-a1/F-07/source.bin");
+        let f10 = include_bytes!("../../../xtask/tests/fixtures/rekordbox-a1/F-10/source.bin");
+        for source in [f02.as_slice(), f07.as_slice(), f10.as_slice()] {
+            assert_eq!(export_xml(source).unwrap(), source);
+        }
+        let mutated = String::from_utf8(f02.to_vec())
+            .unwrap()
+            .replace("Name=\"A\"", "Name=\"A\" Extra=\"x\"");
+        assert!(export_xml(mutated.as_bytes()).is_err());
+        assert!(export_xml(b"<DJ_PLAYLISTS Version=\"1.0.0\"/>").is_err());
+    }
+
     #[test]
     fn rejects_invalid_required_numeric_values() {
         let invalid = b"<DJ_PLAYLISTS Version=\"1.0.0\"><COLLECTION><TRACK TrackID=\"1\" Name=\"T\" Location=\"x\"><TEMPO Inizio=\"0\" Bpm=\"fast\" Metro=\"4/4\" Battito=\"1\"/></TRACK></COLLECTION></DJ_PLAYLISTS>";

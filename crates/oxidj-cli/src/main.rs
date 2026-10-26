@@ -68,8 +68,17 @@ fn run(args: &[String]) -> i32 {
 }
 
 fn run_rekordbox(args: &[String]) -> i32 {
+    if args.len() == 5 && args[0] == "export" && args[1] == "--xml" && args[3] == "--output" {
+        return match oxidj_application::export_rekordbox_xml(&args[2], &args[4]) {
+            Ok(()) => OK,
+            Err(e) => {
+                eprintln!("error: {e}");
+                DOMAIN
+            }
+        };
+    }
     if args.len() != 3 || args[0] != "preview" || args[1] != "--xml" {
-        eprintln!("error: rekordbox preview requires --xml PATH");
+        eprintln!("error: expected rekordbox preview --xml PATH or export --xml IN --output NEW");
         return USAGE;
     }
     let Some(path) = args.get(2) else {
@@ -244,6 +253,10 @@ fn print_usage(to_stdout: bool) {
     let _ = writeln!(
         output,
         "  rekordbox preview --xml <path>   Read-only Rekordbox XML preview"
+    );
+    let _ = writeln!(
+        output,
+        "  rekordbox export --xml <input> --output <new-path>   Export bounded no-edit XML subset"
     );
     let _ = writeln!(
         output,
