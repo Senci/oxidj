@@ -2,7 +2,7 @@
 
 ## Current milestone
 
-**Bounded local M1–M3 — ACCEPTANCE COMPLETE (2026-10-26).** M1 catalog, M2 reference-only import, and provisional M3 persisted-library UI smoke are implemented, independently reviewed, and covered by the closeout evidence below and in `plan/MVP.md`. Current `master` passes `cargo xtask ci-full`; pushed commit `113210821d4dca1a95a69c7cec29d29bf4faa443` has successful GitHub CI. Re-run both gates after later edits before claiming a newer head is green. This does not pass production GUI admission, accessibility/platform, 500k/60fps, vendor interoperability, or ADR-005 gates.
+**Bounded local M1–M3 — ACCEPTANCE COMPLETE (2026-10-26).** M1 catalog, M2 reference-only import, and provisional M3 persisted-library UI smoke are implemented, independently reviewed, and covered by the closeout evidence below and in `plan/MVP.md`. `cargo xtask ci-full` passes on local `master` after the closeout and documentation updates; it includes `cargo xtask ci`. GitHub CI passed on previously pushed product head `113210821d4dca1a95a69c7cec29d29bf4faa443`. Later docs-only commit `d5e5083` remains local after GitHub server errors; push is optional backup under the owner's local-only workflow. This does not pass production GUI admission, accessibility/platform, 500k/60fps, vendor interoperability, or ADR-005 gates.
 
 ## Revised local M1–M3 contract (2026-10-23)
 
@@ -41,7 +41,7 @@ M0-08's handoff evidence was re-run verbatim on the integrated checkout:
 
 **M0:** none — M0-09 gates all pass.
 
-**M1–M3 local slice:** no bounded acceptance blocker remains; reviewed `master` passed `cargo xtask ci-full`, and GitHub CI passed on `113210821d4dca1a95a69c7cec29d29bf4faa443`. **Separate 500k qualification:** remains NOT READY and persistence admission for representative-scale qualification remains gated on full protocol/oracle/runner readiness. Preserve owner-approved WAL/FULL, workload, sampling, targets, recovery matrix and all historical measures exactly as unmeasured. Transaction/batch shape, bounded WAL admission `T`, executable oracle/harness, B1/B2 backup lifecycle/publication/isolation/restore, P0 fault cells, runner preflight, measured bytes/timings and ADR-005 schema semantics remain open for that separate qualification. Product local alpha media policy is reference-only under the revised contract; this does not revise qualification-only assets or retention. No benchmark, fault campaign, or 500k qualification has run.
+**M1–M3 local slice:** no bounded acceptance blocker remains; local `master` passes `cargo xtask ci-full`. Remote push is optional backup and is not a gate. **Separate 500k qualification:** remains NOT READY and persistence admission for representative-scale qualification remains gated on full protocol/oracle/runner readiness. Preserve owner-approved WAL/FULL, workload, sampling, targets, recovery matrix and all historical measures exactly as unmeasured. Transaction/batch shape, bounded WAL admission `T`, executable oracle/harness, B1/B2 backup lifecycle/publication/isolation/restore, P0 fault cells, runner preflight, measured bytes/timings and ADR-005 schema semantics remain open for that separate qualification. Product local alpha media policy is reference-only under the revised contract; this does not revise qualification-only assets or retention. No benchmark, fault campaign, or 500k qualification has run.
 ## Recent important decisions
 
 - **OxiDJ is MIT-licensed (ADR-009) — decided by the project owner.** `LICENSE` created; copyright holder Senad Ličina. This was not bookkeeping: it fired the conditional constraint in ADR-001, so **Slint is excluded at its free tier and egui/eframe becomes the framework to prototype**, and it excludes **Rubber Band** outright (already rejected independently — 208 lifetime downloads on its Rust bindings). Consequence now required: a **permissive-only dependency policy enforced as a build gate** — `cargo deny check licenses` with an allowlist (MIT, Apache-2.0, BSD-2/3-Clause, ISC, Unicode-DFS-2016, Zlib) and GPL/LGPL/AGPL/SSPL denied by default, wired into `M0-08`. An accidental copyleft dependency would silently change the licence of the distributed binary, so this is a gate rather than a convention. Noted but not acted on: Rust convention often duals `MIT OR Apache-2.0` (Apache adds a patent grant); trivially changeable now, needs contributor agreement later.
@@ -63,8 +63,8 @@ M0-08's handoff evidence was re-run verbatim on the integrated checkout:
 
 ## Next tasks
 
-1. **Finish release readback for latest documentation head:** run `cargo xtask ci-full`, commit to local `master`, push if available, and verify exact-head GitHub CI plus remote SHA. Product implementation and independent M1–M3 acceptance are complete.
-2. **Keep separate gates deferred:** production GUI framework/accessibility/platform admission, 500k/60fps qualification, OneLibrary/Rekordbox interoperability, and ADR-005 remain unpassed. Do not treat them as blockers to the bounded M1–M3 contract or start them without their own scoped objective and gates.
+1. **Bounded local M1–M3 contract — complete.** Implementation, private local sample smoke, provisional UI smoke, independent reviews, and local release gates are complete.
+2. **Keep separate gates deferred:** production GUI framework/accessibility/platform admission, 500k/60fps qualification, OneLibrary/Rekordbox interoperability, and ADR-005 remain unpassed. They need separate scoped objectives and gates.
 
 ## Local Tier-2 tool availability (audited)
 
