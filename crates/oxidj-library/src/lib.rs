@@ -240,9 +240,20 @@ impl Catalog {
         &mut self,
         root: impl AsRef<Path>,
     ) -> Result<ImportReport, CatalogError> {
+        self.import_audio_directory_cancellable(root, &std::sync::atomic::AtomicBool::new(false))
+    }
+
+    /// Cooperative cancellation is observed between files and before missing reconciliation.
+    pub fn import_audio_directory_cancellable(
+        &mut self,
+        root: impl AsRef<Path>,
+        cancel: &std::sync::atomic::AtomicBool,
+    ) -> Result<ImportReport, CatalogError> {
+        use std::sync::atomic::Ordering;
         let input_root = root.as_ref();
         let mut report = ImportReport {
             complete: true,
+            cancelled: false,
             outcomes: Vec::new(),
         };
         let mut component_path = if input_root.is_absolute() {
@@ -270,10 +281,16 @@ impl Catalog {
         paths.sort();
         let mut report = ImportReport {
             complete,
+            cancelled: false,
             outcomes: Vec::new(),
         };
         let mut seen = std::collections::HashSet::new();
         for path in paths {
+            if cancel.load(Ordering::Relaxed) {
+                report.complete = false;
+                report.cancelled = true;
+                break;
+            }
             let path_text = path.to_string_lossy().into_owned();
             seen.insert(path_text.clone());
             if !path.extension().is_some_and(|ext| {
@@ -477,7 +494,11 @@ impl Catalog {
                 status: ImportStatus::Imported,
             });
         }
-        if report.complete {
+        if cancel.load(Ordering::Relaxed) {
+            report.complete = false;
+            report.cancelled = true;
+        }
+        if report.complete && !report.cancelled {
             let missing_ids = {
                 let mut stmt = self
                     .connection
@@ -998,6 +1019,7 @@ pub struct FileOutcome {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ImportReport {
     pub complete: bool,
+    pub cancelled: bool,
     pub outcomes: Vec<FileOutcome>,
 }
 
@@ -2464,6 +2486,26 @@ mod tests {
             )
             .unwrap();
         assert_eq!(facts, (2.0 / 48_000.0, 48_000, 2, 16));
+        let imported = catalog.list_tracks().unwrap();
+        assert_eq!(imported.len(), 2);
+        let imported_wav = imported
+            .iter()
+            .find(|track| track.path.ends_with("nested/test.wav"))
+            .unwrap();
+        let (expected_digest, expected_length) = file_sha256(&wav).unwrap();
+        assert_eq!(imported_wav.id.as_u64(), 1);
+        assert_eq!(imported_wav.sha256, expected_digest);
+        assert_eq!(imported_wav.byte_length, expected_length);
+        assert_eq!(
+            catalog
+                .list_track_details()
+                .unwrap()
+                .iter()
+                .find(|detail| detail.track.id == imported_wav.id)
+                .unwrap()
+                .duration_seconds,
+            Some(2.0 / 48_000.0)
+        );
         assert_eq!(
             std::fs::read(&wav).unwrap(),
             original,
@@ -2514,6 +2556,27 @@ mod tests {
         drop(catalog);
         remove_database(&db);
         let _ = std::fs::remove_file(outside);
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn cancelled_scan_reports_incomplete_without_importing_or_reconciling() {
+        use std::sync::atomic::AtomicBool;
+        let root = database_path().with_extension("cancelled-scan");
+        std::fs::create_dir_all(&root).unwrap();
+        write_test_wav(&root.join("a.wav"), &[1, 2]);
+        let db = database_path();
+        let mut catalog = Catalog::open(&db).unwrap();
+        let cancel = AtomicBool::new(true);
+        let report = catalog
+            .import_audio_directory_cancellable(&root, &cancel)
+            .unwrap();
+        assert!(!report.complete);
+        assert!(report.cancelled);
+        assert!(report.outcomes.is_empty());
+        assert!(catalog.list_tracks().unwrap().is_empty());
+        drop(catalog);
+        remove_database(&db);
         let _ = std::fs::remove_dir_all(root);
     }
 
