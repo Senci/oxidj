@@ -1,0 +1,3 @@
+User-agent: *
+Allow: /oxidj/
+Sitemap: https://senci.github.io/oxidj/sitemap.xml

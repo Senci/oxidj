@@ -1,0 +1,329 @@
+/* Hallmark · v2.0.0 · theme: Tokyo night (by request) · genre: atmospheric · shape: product and documentation · hero: Banner · job: decide and learn · nav: shared index · footer: project colophon · signature: real library prototype · posture: restrained · surface: absolute black for dossier redaction only */
+/* Hallmark · pre-emit critique: preserve the dark system; replace repeated caveats with one status and precise evidence. */
+/* Hallmark · waive 59 · sections separated by rules · compact documentation requested by the owner. */
+/* Hallmark · waive 77 · timeline and CLI guide are documentation · compact text sections are intentional, not missing imagery. */
+/* Hallmark · waive 79 · compact Banner hero with status immediately below · no full-screen hero or fold filler. */
+/* Hallmark · waive 7b · redaction is explicitly black · the library dossier keeps the requested black redaction joke. */
+/* Hallmark · waive 26b · no disabled controls exist · the library dossier asylum button is always available. */
+@import url('./night.css');
+@font-face {
+  font-family: 'Epilogue';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/epilogue-400.ttf') format('truetype');
+}
+@font-face {
+  font-family: 'Epilogue';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('/fonts/epilogue-600.ttf') format('truetype');
+}
+@font-face {
+  font-family: 'Epilogue';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('/fonts/epilogue-700.ttf') format('truetype');
+}
+@font-face {
+  font-family: 'IBM Plex Mono';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/ibm-plex-mono-400.ttf') format('truetype');
+}
+:root {
+  --color-paper: #101016;
+  --color-muted: #aaa7bd;
+  --color-redaction: #000;
+}
+main > section,
+main > aside {
+  scroll-margin-top: var(--space-lg);
+}
+a,
+button {
+  min-height: 44px;
+  min-width: 44px;
+}
+a {
+  display: inline-flex;
+  align-items: center;
+}
+p a,
+li a {
+  overflow-wrap: anywhere;
+}
+button {
+  font-family: var(--font-body);
+  border: 0;
+  cursor: pointer;
+}
+.site-header {
+  padding-block: var(--space-md);
+}
+.site-header nav {
+  gap: var(--space-md);
+}
+.site-header nav a {
+  padding-inline: var(--space-xs);
+}
+.prototype {
+  min-width: 0;
+}
+.prototype img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border: 1px solid var(--color-rule);
+  border-radius: var(--radius);
+}
+figcaption {
+  color: var(--color-muted);
+  font-size: var(--text-sm);
+  margin-top: var(--space-sm);
+}
+.status-callout {
+  border-left: 3px solid var(--color-accent);
+  padding: var(--space-lg);
+  background: var(--color-paper-2);
+}
+.status-callout h2 {
+  font-size: var(--text-title);
+}
+.status-callout p {
+  max-width: 75ch;
+  margin-top: var(--space-sm);
+  color: var(--color-ink-2);
+}
+.status-callout p:last-child {
+  color: var(--color-muted);
+  font-size: var(--text-sm);
+}
+.content-section {
+  padding-block: var(--space-2xl);
+  border-bottom: 1px solid var(--color-rule);
+}
+.section-intro {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: var(--gap-columns);
+  margin-bottom: var(--space-lg);
+}
+.content-section p {
+  color: var(--color-ink-2);
+}
+.measure {
+  max-width: 75ch;
+}
+.source-link {
+  color: var(--color-secondary);
+  font-size: var(--text-sm);
+  margin-top: var(--space-xs);
+}
+.roadmap-preview {
+  list-style: none;
+  margin: var(--space-xl) 0 0;
+  padding: 0;
+}
+.roadmap-preview li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: var(--gap-columns);
+  padding-block: var(--space-md);
+  border-top: 1px solid var(--color-rule);
+}
+.roadmap-preview a {
+  color: var(--color-accent);
+  font-weight: 600;
+}
+.roadmap-preview span {
+  align-self: center;
+  color: var(--color-ink-2);
+}
+pre {
+  margin-block: var(--space-lg);
+  padding: var(--space-lg);
+  background: var(--color-paper-2);
+  border: 1px solid var(--color-rule);
+  border-radius: var(--radius);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: var(--text-sm);
+}
+code {
+  color: var(--color-secondary);
+}
+.site-footer {
+  padding-block: var(--space-xl);
+}
+.site-footer p {
+  color: var(--color-ink-2);
+  margin-top: var(--space-md);
+}
+.site-footer .snapshot {
+  font-size: var(--text-sm);
+  color: var(--color-muted);
+}
+.site-footer nav {
+  margin-top: var(--space-lg);
+}
+.roadmap-hero {
+  align-items: start;
+}
+.focus-note {
+  padding-top: var(--space-xs);
+}
+.focus-note h2 {
+  font-size: var(--text-title);
+}
+.focus-note p {
+  margin-top: var(--space-md);
+  color: var(--color-ink-2);
+}
+.section-summary {
+  max-width: 70ch;
+  margin-top: var(--space-lg);
+}
+.milestone-list {
+  list-style: none;
+  margin: var(--space-xl) 0 0;
+  padding: 0;
+}
+.milestone {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr);
+  gap: var(--gap-columns);
+  padding-block: var(--space-lg);
+  border-top: 1px solid var(--color-rule);
+  scroll-margin-top: var(--space-lg);
+}
+.milestone-code {
+  color: var(--color-accent);
+  font-weight: 600;
+  padding-top: var(--space-2xs);
+}
+.milestone article p {
+  max-width: 75ch;
+}
+.milestone .status-label {
+  color: var(--color-muted);
+  font-size: var(--text-sm);
+  margin-block: var(--space-xs);
+}
+.milestone-in-progress {
+  border-top-color: var(--color-secondary);
+}
+.later ul {
+  padding-left: var(--space-lg);
+  max-width: 75ch;
+  margin-top: var(--space-lg);
+}
+.later li {
+  margin-top: var(--space-md);
+  color: var(--color-ink-2);
+}
+.later strong {
+  color: var(--color-ink);
+}
+.update-list {
+  list-style: none;
+  margin: var(--space-xl) 0 0;
+  padding: 0;
+}
+.update-list li {
+  display: grid;
+  grid-template-columns: 140px minmax(0, 1fr);
+  gap: var(--gap-columns);
+  padding-block: var(--space-lg);
+  border-top: 1px solid var(--color-rule);
+}
+.update-list time {
+  color: var(--color-muted);
+  font-size: var(--text-sm);
+  padding-top: var(--space-xs);
+}
+.update-list p {
+  max-width: 75ch;
+  margin-top: var(--space-xs);
+}
+.redacted-file {
+  align-self: center;
+  padding: var(--space-lg);
+  border: 1px solid var(--color-rule);
+}
+.redacted-file p {
+  color: var(--color-muted);
+}
+.redaction {
+  display: block;
+  height: 40px;
+  width: min(100%, 280px);
+  background: var(--color-redaction);
+  margin-block: var(--space-md);
+}
+.dossier-fields {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: var(--space-lg) var(--gap-columns);
+  margin: var(--space-xl) 0 0;
+}
+.dossier-fields dd {
+  margin: 0;
+  color: var(--color-ink-2);
+}
+.joke-log {
+  padding-left: var(--space-lg);
+  margin-top: var(--space-lg);
+}
+.joke-log li {
+  margin-top: var(--space-md);
+}
+#analysis-output,
+#asylum-output {
+  margin-top: var(--space-lg);
+  max-width: 75ch;
+}
+@media (max-width: 60rem) {
+  .section-intro,
+  .roadmap-preview li {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-sm);
+  }
+  .content-section {
+    padding-block: var(--space-xl);
+  }
+}
+@media (max-width: 40rem) {
+  .site-header {
+    align-items: start;
+  }
+  .site-header nav {
+    width: 100%;
+    gap: var(--space-xs);
+    justify-content: space-between;
+  }
+  .site-header nav a {
+    padding-inline: 0;
+  }
+  .hero {
+    padding-top: var(--space-lg);
+  }
+  .milestone {
+    grid-template-columns: 36px minmax(0, 1fr);
+    gap: var(--space-md);
+  }
+  .update-list li,
+  .dossier-fields {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-xs);
+  }
+  .dossier-fields dd {
+    margin-bottom: var(--space-md);
+  }
+  pre {
+    padding: var(--space-md);
+  }
+}

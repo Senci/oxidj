@@ -1,19 +1,13 @@
-# Photograph provenance
+# Public image provenance
 
-`vinyl-detail.webp` is a cropped, reduced-saturation detail of **Vinyl record on turntable
-close-up** by **Bru-nO** on Pixabay (image 4808792), downloaded for this site on 2026-10-26.
+- `library-prototype.png` is an unchanged copy of the existing repository screenshot
+  `prototypes/oxidj-library-ui/evidence/selected-track-details.png` (800x600).
+  The viewer contains a generated `fixture.flac`, not a personal music collection.
+  The screenshot is explicitly captioned **Prototype**, not a production UI claim.
+- `social.png` is a 1200x630 capture of the actual home hero, using the same locally
+  hosted fonts, palette and prototype image. Recreate it with
+  `scripts/generate-social.mjs` while the development server runs on port 5176.
+  It is website artwork, rather than an additional app screenshot.
 
-- Source: <https://pixabay.com/photos/vinyl-plate-vinyl-record-record-4808792/>
-- Download: <https://cdn.pixabay.com/photo/2020/01/31/19/26/vinyl-4808792_1280.jpg>
-- Licence summary: <https://pixabay.com/service/license-summary/>
-- Full terms: <https://pixabay.com/service/terms/>
-
-This asset is under the **Pixabay Content License, not the site's MIT code licence**.
-The source page identifies it as free for use under that licence. The photo is used as a
-subordinate layer in this composed website, not offered as a standalone stock download.
-The original's visible cartridge branding is outside the crop. No endorsement, OxiDJ
-playback support or photograph of the OxiDJ application is implied.
-
-Transformation: top 1280×320 crop from the 1280×853 original, reduced saturation/brightness,
-WebP quality 82. The original is not shipped. Both pages credit the author and link the
-source and licence in their footers.
+Both images are project material under the repository's MIT licence. The former
+Pixabay turntable crop has been removed from the public build; it is no longer used.

@@ -1,8 +1,4 @@
 import { initApp } from './ui/app';
-import './styles/style.css';
-
-const app = document.getElementById('app');
-if (app === null) {
-  throw new Error('Root element #app not found');
-}
+const app = document.getElementById('main');
+if (app === null) throw new Error('Root element #main not found');
 initApp(app);

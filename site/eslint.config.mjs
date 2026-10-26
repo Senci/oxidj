@@ -3,7 +3,7 @@ import eslintConfigPrettier from 'eslint-config-prettier';
 
 export default tseslint.config(
   {
-    ignores: ['dist/', 'node_modules/', 'coverage/', '*.config.mjs'],
+    ignores: ['dist/', 'node_modules/', 'coverage/', '.hallmark/final/', '*.config.mjs'],
   },
   ...tseslint.configs.strict,
   eslintConfigPrettier,

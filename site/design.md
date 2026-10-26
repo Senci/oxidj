@@ -1,24 +1,31 @@
-# OxiDJ active Pages design
+# OxiDJ public Pages design
 
-Scope: `index.html` and `roadmap.html`. The archived `dossier.html` retains its design.
+Scope: home, roadmap, dossier and styled 404. Preserve the owner-directed dark system.
 
-- Owner-directed Tokyo-night dark system, not a dealt catalog theme.
-- Shared palette, type, spacing and motion tokens: `src/styles/night.css`.
-- Purple owns primary actions and reviewed milestone outlines; cyan owns reference
-  paths, source links and focus. No multicolour gradients, glows or decorative dots.
-- Epilogue is display/body; IBM Plex Mono only carries actual CLI code.
-- One capped, centred container; compact Banner heroes. The teaser is diagram-led;
-  the roadmap is an evidence index, not a marketing feature grid.
-- Headlines are one colour and one weight. Labels use sentence case, no tracking.
-- Body/details are 16px; source labels 14px; ancillary snapshot captions at least 12px.
-- The teaser's diagram depicts the actual reference-only system, with a reflowed HTML
-  list at phone widths. No fabricated GUI or private library material.
-- The roadmap is statically rendered from typed source. Keep all evidence and scope
-  caveats; never equate provisional local UI smoke with production GUI admission.
-- One cropped, locally hosted Pixabay image is subordinate to the diagrams. Credits
-  and separate licence remain visible. No text is superimposed on the photograph.
-- Only the photo layer moves, by a small scroll-linked transform on supported desktops.
-  Reduced motion, mobile and unsupported browsers remain static; no hidden content.
-- Keyboard focus is immediate and visible, with a skip link on both pages.
-- Documented density exceptions: compact inter-section spacing (59); the roadmap's
-  small status summary band (77) and long-document item headings (78).
+- Epilogue body/display and IBM Plex Mono for real CLI code, self-hosted with OFL files.
+- Near-black `#101016`, lilac primary actions and cyan links/focus. Palette and font
+  families live in root tokens; `night.css` supplies foundations, `public.css` compositions.
+- One capped centred container, compact Banner heroes, immediate keyboard focus and
+  44px minimum interactive targets. Essential text is available without JavaScript.
+- The home hero uses the existing synthetic-library screenshot, captioned Prototype.
+  It is a provisional viewer, not a promise of the production interface.
+- One shared build-time Status callout per public content page, with working local
+  features, pre-release maturity and unfinished GUI/accessibility/compatibility/scale work.
+- `src/data/roadmap.ts` owns focus and snapshot date. Shared header/footer and metadata
+  render through `src/logic/siteMarkup.ts`. The dossier has the same chrome and facts.
+- Stable `#m0` through `#m7` anchors. M0-M4 are compact timeline rows; M5-M7 share Later.
+  Recent progress is a short change log with exact source files/sections or commits.
+- Public prose avoids internal gate terminology and distinguishes Rekordbox XML from
+  OneLibrary. Unverified compatibility is never presented as shipped functionality.
+- The dossier keeps a deliberately black redaction bar and a local-only interactive joke.
+  It is linked only in the footer as Classified file (just for fun).
+- No stock photography, invented product screens, metrics, or testimonials. No external
+  font calls or new runtime dependencies. Motion stays optional with reduced-motion support.
+
+## Documented Hallmark exceptions
+
+Compact ruled documentation spacing (59), text-led timeline/CLI sections (77), compact
+Banner rather than full-screen fold filling (79), explicitly requested absolute-black
+redaction (7b), and the always-available joke button with no disabled state (26b).
+The CLI section deliberately keeps runnable commands beside their prerequisites; its
+word-density note is recorded, rather than claiming an 80-word marketing-screen budget.

@@ -1,6 +1,7 @@
 node_modules/
 dist/
 coverage/
+.hallmark/final/
 *.log
 LICENSE
 bun.lock

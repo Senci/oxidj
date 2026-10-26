@@ -1,43 +1,54 @@
 import assert from 'node:assert/strict';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-
-// A static server cannot repair missing entries or root-relative project assets.
 const root = new URL('../dist/', import.meta.url);
-const origin = new URL('https://pages.example/oxidj/');
-const entries = ['index.html', 'roadmap.html', 'dossier.html'];
+const origin = new URL('https://senci.github.io/oxidj/');
+const entries = ['index.html', 'roadmap.html', 'dossier.html', '404.html'];
 let checked = 0;
+function verifyReference(reference, from) {
+  const url = new URL(reference, new URL(from, origin));
+  if (url.origin !== origin.origin) return;
+  assert.ok(url.pathname.startsWith('/oxidj/'), `${from}: escaped project base: ${reference}`);
+  const relative = url.pathname.slice('/oxidj/'.length) || 'index.html';
+  const target = new URL(relative, root);
+  assert.ok(existsSync(target), `${from}: missing ${fileURLToPath(target)}`);
+  if (url.hash && relative.endsWith('.html'))
+    assert.ok(
+      readFileSync(target, 'utf8').includes(`id="${decodeURIComponent(url.hash.slice(1))}"`),
+      `${from}: missing anchor ${reference}`,
+    );
+  checked++;
+}
 for (const entry of entries) {
   const html = readFileSync(new URL(entry, root), 'utf8');
   assert.match(html, /<html\s+lang="en"/);
   assert.match(html, /<title>[^<]+<\/title>/);
-  for (const [, reference] of html.matchAll(/(?:src|href)="([^"]+)"/g)) {
-    const url = new URL(reference, new URL(entry, origin));
-    if (url.origin !== origin.origin) continue;
-    assert.ok(url.pathname.startsWith('/oxidj/'), `${entry}: escaped project base: ${reference}`);
-    const relative = url.pathname.slice('/oxidj/'.length) || 'index.html';
-    const target = new URL(relative, root);
-    assert.ok(existsSync(target), `${entry}: missing ${fileURLToPath(target)}`);
-    if (url.hash && relative.endsWith('.html')) {
-      const targetHtml = readFileSync(target, 'utf8');
-      assert.ok(
-        targetHtml.includes(`id="${decodeURIComponent(url.hash.slice(1))}"`),
-        `${entry}: missing anchor ${reference}`,
-      );
-    }
-    checked++;
-  }
+  assert.doesNotMatch(html, /<!-- (site|roadmap):|fonts\.googleapis|fonts\.gstatic/);
+  for (const [, reference] of html.matchAll(/(?:src|href)="([^"]+)"/g))
+    verifyReference(reference, entry);
+  for (const tag of ['og:title', 'og:description', 'og:image', 'og:url', 'twitter:card'])
+    assert.ok(html.includes(tag), `${entry}: missing ${tag}`);
+  assert.match(html, /rel="canonical"/);
+  if (entry !== '404.html') assert.equal((html.match(/class="status-callout"/g) ?? []).length, 1);
 }
-const teaser = readFileSync(new URL('index.html', root), 'utf8');
-assert.match(teaser, /href="\.\/roadmap\.html"/);
-assert.match(teaser, /href="\.\/dossier\.html"/);
-assert.doesNotMatch(teaser, /<script\b/); // Essential teaser content is script-independent.
+for (const css of readdirSync(new URL('assets/', root)).filter((file) => file.endsWith('.css'))) {
+  for (const [, reference] of readFileSync(new URL(`assets/${css}`, root), 'utf8').matchAll(
+    /url\(["']?([^)'"\s]+)["']?\)/g,
+  ))
+    verifyReference(reference, `assets/${css}`);
+}
+const home = readFileSync(new URL('index.html', root), 'utf8');
+assert.doesNotMatch(home, /<script\b/);
+for (const command of ['init', 'import', 'list'])
+  assert.ok(home.includes(`catalog ${command} --db`));
 const roadmap = readFileSync(new URL('roadmap.html', root), 'utf8');
-assert.doesNotMatch(roadmap, /<!-- roadmap:/);
-assert.equal((roadmap.match(/class="milestone milestone-/g) ?? []).length, 8);
-assert.match(roadmap, /Bounded local M1–M3 acceptance is complete/);
-assert.match(roadmap, /Production GUI admission/);
-assert.match(roadmap, /assets\/roadmap-[^" ]+\.css/);
+for (let i = 0; i <= 7; i++) assert.ok(roadmap.includes(`id="m${i}"`));
+assert.equal((roadmap.match(/class="milestone milestone-/g) ?? []).length, 5);
+for (const file of ['robots.txt', 'sitemap.xml', 'images/social.png'])
+  assert.ok(existsSync(new URL(file, root)));
+const social = readFileSync(new URL('images/social.png', root));
+assert.equal(social.readUInt32BE(16), 1200);
+assert.equal(social.readUInt32BE(20), 630);
 console.log(
-  `Pages build verified: ${entries.length} entries, ${checked} local references under /oxidj/, script-free teaser.`,
+  `Pages build verified: ${entries.length} entries, ${checked} local references under /oxidj/, static copy and metadata, eight anchors, self-hosted fonts, 1200x630 social image.`,
 );

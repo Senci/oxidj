@@ -1,14 +1,15 @@
 import { defineConfig } from 'vite';
 import { fileURLToPath } from 'node:url';
+import { basename } from 'node:path';
 import { renderRoadmap } from './src/logic/roadmapMarkup';
-
+import { renderSite } from './src/logic/siteMarkup';
 export default defineConfig({
   base: './',
   plugins: [
     {
-      name: 'static-roadmap',
+      name: 'static-public-pages',
       transformIndexHtml(html, context) {
-        return context.filename.endsWith('/roadmap.html') ? renderRoadmap(html) : html;
+        return renderSite(renderRoadmap(html), basename(context.filename));
       },
     },
   ],
@@ -17,9 +18,10 @@ export default defineConfig({
     sourcemap: false,
     rollupOptions: {
       input: {
-        teaser: fileURLToPath(new URL('./index.html', import.meta.url)),
+        home: fileURLToPath(new URL('./index.html', import.meta.url)),
         roadmap: fileURLToPath(new URL('./roadmap.html', import.meta.url)),
         dossier: fileURLToPath(new URL('./dossier.html', import.meta.url)),
+        missing: fileURLToPath(new URL('./404.html', import.meta.url)),
       },
     },
   },

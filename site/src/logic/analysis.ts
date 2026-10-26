@@ -12,7 +12,7 @@ export const DEFAULT_OBSERVATION = 'OBSERVATION PENDING. THE ARCHIVE LISTENS.';
 export function getLiveObservation(event: string): string {
   switch (event) {
     case 'mousemove':
-      return 'CURSOR DETECTED — ANALYZING…';
+      return 'Cursor detected. Analyzing.';
     case 'keydown':
       return 'SUBJECT IS HESITATING';
     case 'click':

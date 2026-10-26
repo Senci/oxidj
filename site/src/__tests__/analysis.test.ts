@@ -4,7 +4,7 @@ import { DEFAULT_OBSERVATION, getLiveObservation } from '../logic/analysis';
 
 describe('getLiveObservation', () => {
   it('returns a cursor-detected observation for mousemove', () => {
-    expect(getLiveObservation('mousemove')).toBe('CURSOR DETECTED — ANALYZING…');
+    expect(getLiveObservation('mousemove')).toBe('Cursor detected. Analyzing.');
   });
 
   it('returns a hesitation observation for keydown', () => {

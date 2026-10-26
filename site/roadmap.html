@@ -1,156 +1,55 @@
 <!doctype html>
-<html lang="en" data-theme="dark">
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
     <meta name="color-scheme" content="dark" />
     <meta name="theme-color" content="#101016" />
-    <meta
-      name="description"
-      content="OxiDJ project timeline: goals, current progress, decisions and the roadmap."
-    />
-    <title>OxiDJ | Project roadmap</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Epilogue:wght@400;600;700&family=IBM+Plex+Mono:wght@400&display=swap"
-      rel="stylesheet"
-    />
-    <link rel="stylesheet" href="./src/styles/roadmap.css" />
+    <!-- site:head -->
+    <link rel="stylesheet" href="./src/styles/public.css" />
   </head>
-  <body class="roadmap-page">
-    <a class="skip-link" href="#main">Skip to roadmap</a>
-    <header class="site-header">
-      <a class="wordmark" href="./" aria-label="OxiDJ home"
-        ><span class="wordmark-mark" aria-hidden="true">/</span><span>OxiDJ</span></a
-      >
-      <nav aria-label="Main navigation">
-        <a href="#roadmap">Roadmap</a>
-        <a href="#updates">Updates</a>
-        <a href="#goals">Goals</a>
-        <a class="nav-secondary" href="./dossier.html">Project dossier</a>
-      </nav>
-    </header>
-    <main id="main">
-      <section class="hero" aria-labelledby="page-title">
+  <body>
+    <!-- site:header -->
+    <main id="main" class="container">
+      <section class="hero roadmap-hero" aria-labelledby="title">
         <div class="hero-copy">
-          <h1 id="page-title">The road to a trustworthy library.</h1>
-          <p class="hero-intro">
-            Shipped work, active development and later qualification, kept distinct.
-          </p>
-          <div class="actions"><a class="button" href="#roadmap">Explore the roadmap</a></div>
+          <h1 id="title">The road to a trustworthy library.</h1>
+          <p class="lead">Local files first. Careful exchange next. Decks come later.</p>
         </div>
-        <aside class="current-card" aria-labelledby="current-heading">
-          <h2 id="current-heading">M4 XML groundwork in progress.</h2>
-          <p>
-            Bounded XML fixtures, preview and subset export are implemented; full vendor
-            compatibility remains unpassed.
-          </p>
-          <figure class="contract-diagram" aria-labelledby="contract-caption">
-            <ol class="flow-art">
-              <li><span>M1</span><strong>Catalog</strong><small>Reviewed</small></li>
-              <li><span>M2</span><strong>Import</strong><small>Reviewed</small></li>
-              <li><span>M3</span><strong>Viewer</strong><small>Provisional smoke</small></li>
-            </ol>
-            <figcaption id="contract-caption">
-              Bounded local acceptance, not production qualification.
-            </figcaption>
-          </figure>
-          <p id="current-summary"><!-- roadmap:currentSummary --></p>
-          <dl class="current-meta">
-            <dt>Current focus</dt>
-            <dd id="current-focus"><!-- roadmap:currentFocus --></dd>
-            <dt>Snapshot</dt>
-            <dd id="snapshot-date"><!-- roadmap:verifiedAt --></dd>
-          </dl>
-        </aside>
+        <div class="focus-note">
+          <h2><!-- site:focus --></h2>
+          <p><!-- roadmap:currentSummary --></p>
+          <a class="source-link" href="#m4">Read the current milestone</a>
+        </div>
       </section>
-      <div class="signal-row" role="region" aria-label="Project status summary">
-        <div>
-          <span>Local-library track</span
-          ><strong
-            ><a href="https://github.com/Senci/oxidj/blob/master/plan/MVP.md"
-              >M1, M2 and provisional M3 complete</a
-            ></strong
-          >
-        </div>
-        <div>
-          <span>Production GUI and interoperability</span><strong>Separate, unpassed gates</strong>
-        </div>
-        <div><span>Later qualification</span><strong>500k tracks / 60fps deferred</strong></div>
-      </div>
-      <section id="roadmap" class="content-section" aria-labelledby="roadmap-heading">
-        <div class="section-heading">
-          <h2 id="roadmap-heading">Milestones</h2>
-          <p>
-            Local-library delivery comes first. Interoperability and performance qualification stay
-            distinct.
-          </p>
-        </div>
-        <ol id="milestone-list" class="milestone-list" aria-label="OxiDJ milestone timeline">
+      <!-- site:status -->
+      <section id="roadmap" class="content-section" aria-labelledby="milestones-title">
+        <h2 id="milestones-title">Milestones</h2>
+        <p class="section-summary">
+          M0 to M3 cover the local-library foundation. M4 starts the exchange work. These are stages
+          of development, rather than release dates.
+        </p>
+        <ol class="milestone-list">
           <!-- roadmap:milestones -->
         </ol>
       </section>
-      <section
-        id="updates"
-        class="content-section updates-section"
-        aria-labelledby="updates-heading"
-      >
-        <div class="section-heading">
-          <h2 id="updates-heading">Recent progress</h2>
-          <p>
-            Not every milestone is done. Each entry links to the plan or reviewed work behind it.
-          </p>
-        </div>
-        <ol id="update-list" class="update-list" aria-label="Recent project updates">
+      <section class="content-section later" aria-labelledby="later-title">
+        <h2 id="later-title">Later</h2>
+        <ul>
+          <!-- roadmap:later -->
+        </ul>
+        <a class="source-link" href="https://github.com/Senci/oxidj/blob/master/idea.md#mvp"
+          >The wider product objective</a
+        >
+      </section>
+      <section id="updates" class="content-section" aria-labelledby="updates-title">
+        <h2 id="updates-title">Recent progress</h2>
+        <ol class="update-list">
           <!-- roadmap:updates -->
         </ol>
       </section>
-      <section id="goals" class="goals-panel" aria-labelledby="goals-heading">
-        <div class="goals-lead">
-          <h2 id="goals-heading">Build trust before decks.</h2>
-          <div class="photo-strip" aria-hidden="true">
-            <img
-              class="parallax-photo"
-              src="./images/vinyl-detail.webp"
-              width="1280"
-              height="320"
-              alt=""
-              loading="lazy"
-            />
-          </div>
-        </div>
-        <ul id="goal-list" class="goal-list">
-          <!-- roadmap:goals -->
-        </ul>
-      </section>
-      <section class="qualification-panel" aria-labelledby="qualification-heading">
-        <div>
-          <h2 id="qualification-heading">Representative-scale qualification stays later.</h2>
-          <p id="qualification-summary"><!-- roadmap:qualificationSummary --></p>
-        </div>
-        <a
-          class="text-link"
-          id="qualification-source"
-          href="https://github.com/Senci/oxidj/blob/master/plan/MVP.md"
-          >Read the qualification plan</a
-        >
-      </section>
     </main>
-    <footer class="site-footer">
-      <a class="wordmark" href="./" aria-label="OxiDJ home">OxiDJ</a>
-      <p>Maintained with the project roadmap. No performance pass implied.</p>
-      <a id="repo-link" href="https://github.com/Senci/oxidj">Source on GitHub</a>
-      <small data-credits
-        >Vinyl detail:
-        <a href="https://pixabay.com/photos/vinyl-plate-vinyl-record-record-4808792/"
-          >Bru-nO on Pixabay</a
-        >, cropped and toned, under the
-        <a href="https://pixabay.com/service/license-summary/">Pixabay Content License</a>. Site
-        code: MIT.</small
-      >
-    </footer>
-    <script type="module" src="./src/roadmap.ts"></script>
+    <!-- site:footer -->
   </body>
 </html>
