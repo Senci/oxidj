@@ -76,8 +76,17 @@ fn parse(source: &[u8]) -> Result<Element, String> {
                     return Err("multiple XML root elements".to_owned());
                 }
             }
-            Event::End(_) => {
+            Event::End(end) => {
                 let element = stack.pop().ok_or("unexpected closing element")?;
+                let open_name = element.name.as_bytes();
+                let close_name = end.name();
+                if close_name.as_ref() != open_name {
+                    return Err(format!(
+                        "closing element {} does not match open element {}",
+                        String::from_utf8_lossy(end.name().as_ref()),
+                        element.name
+                    ));
+                }
                 if let Some(parent) = stack.last_mut() {
                     parent.children.push(element);
                 } else if root.replace(element).is_some() {
@@ -362,6 +371,15 @@ fn a1_fixture_bytes_match_frozen_provenance_and_goldens() {
     assert_eq!(visible, read_json("F-10", "expected-visible.json"));
     assert_eq!(read_json("F-10", "operations.json"), json!([]));
     assert_eq!(read_json("F-10", "expected-report.json"), json!([]));
+}
+
+#[test]
+fn parser_rejects_mismatched_closing_tag() {
+    let source = std::fs::read(fixture("F-02", "source.bin")).unwrap();
+    let malformed = String::from_utf8(source)
+        .unwrap()
+        .replacen("</COLLECTION>", "</WRONG>", 1);
+    assert!(parse(malformed.as_bytes()).is_err());
 }
 
 #[test]
