@@ -68,6 +68,51 @@ fn run(args: &[String]) -> i32 {
 }
 
 fn run_rekordbox(args: &[String]) -> i32 {
+    if args.len() == 3 && args[0] == "export-plan" && args[1] == "--xml" {
+        return match oxidj_application::preflight_rekordbox_xml(&args[2]) {
+            Ok(plan) => {
+                let decision = match plan.decision {
+                    oxidj_application::ExportDecision::AllowExport => "ALLOW_EXPORT",
+                };
+                println!("Decision: {decision}");
+                println!("Selected units:");
+                for track in plan.selected_tracks {
+                    println!("Track\t{}\t{}\t{}", track.id, track.name, track.location);
+                    for tempo in track.tempos {
+                        println!(
+                            "TEMPO\t{}\t{}\t{}\t{}\t{}",
+                            track.id, tempo.start_seconds, tempo.bpm, tempo.meter, tempo.beat
+                        );
+                    }
+                    for mark in track.marks {
+                        println!(
+                            "POSITION_MARK\t{}\t{}\t{}\t{}\t{}\t{:?}",
+                            track.id,
+                            mark.name,
+                            mark.kind,
+                            mark.start_seconds,
+                            mark.number,
+                            mark.end_seconds
+                        );
+                    }
+                }
+                for playlist in plan.selected_playlists {
+                    println!(
+                        "Playlist\t{}\t{}",
+                        playlist.path.join("/"),
+                        playlist.tracks.join(",")
+                    );
+                }
+                println!("Withheld units: {}", plan.withheld_units.len());
+                println!("Loss report: {:?}", plan.loss_report);
+                OK
+            }
+            Err(error) => {
+                eprintln!("error: export preflight rejected input: {error}");
+                DOMAIN
+            }
+        };
+    }
     if args.len() == 5 && args[0] == "export" && args[1] == "--xml" && args[3] == "--output" {
         return match oxidj_application::export_rekordbox_xml(&args[2], &args[4]) {
             Ok(()) => OK,
@@ -78,7 +123,9 @@ fn run_rekordbox(args: &[String]) -> i32 {
         };
     }
     if args.len() != 3 || args[0] != "preview" || args[1] != "--xml" {
-        eprintln!("error: expected rekordbox preview --xml PATH or export --xml IN --output NEW");
+        eprintln!(
+            "error: expected rekordbox preview --xml PATH, export-plan --xml PATH, or export --xml IN --output NEW"
+        );
         return USAGE;
     }
     let Some(path) = args.get(2) else {
@@ -253,6 +300,10 @@ fn print_usage(to_stdout: bool) {
     let _ = writeln!(
         output,
         "  rekordbox preview --xml <path>   Read-only Rekordbox XML preview"
+    );
+    let _ = writeln!(
+        output,
+        "  rekordbox export-plan --xml <path>   Read-only bounded export preflight"
     );
     let _ = writeln!(
         output,

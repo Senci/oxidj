@@ -10,7 +10,8 @@ M0 is verified complete. The named `local-catalog-alpha-v1` dependency exception
 
 - `oxidj-core` — a domain `TrackId` type that reserves `0`. Unit, integration, and doctests pass under the gate (docs/testing.md).
 - `oxidj-library` — local SQLite catalog, versioned schema, reference-record handlers, operation-ID replay protection, and a 10,000-track cap.
-- `oxidj-cli` — `track-id <n>`, `catalog init --db <path>`, and deterministic `catalog list --db <path>`.
+- `oxidj-cli` — catalog commands, read-only Rekordbox XML preview and export preflight, plus bounded no-edit XML export.
+- `oxidj-rekordbox` — isolated adapter for a strict Rekordbox XML subset, tested against synthetic A1 fixtures; preflight rejects unsupported input and never writes.
 - `xtask` — a repo-owned quality gate: `cargo xtask ci` (Tier 1 per-handoff gate) and `cargo xtask ci-full` (Tier 1 + tests + licence gate, used by CI).
 - Six accepted ADRs (GUI, persistence, metadata, crate boundaries, audio, licence) and the architecture baseline (docs/adr/index.md, docs/architecture.md).
 
@@ -19,7 +20,7 @@ M0 is verified complete. The named `local-catalog-alpha-v1` dependency exception
 - M1: bounded implementation candidate is under independent review; backup/restore, migration-failure, transaction-failure and complete M1 evidence remain open. Vendor DJ metadata schema remains proposed and unaccepted (ADR-005). Persistence dependencies for representative-scale qualification remain gated on the separate 500k-track route (ADR-002).
 - M2: filesystem import (plan/MVP.md).
 - M3: usable library UI — prototype direction only (egui/eframe, ADR-001), not committed to production.
-- M4: OneLibrary/Rekordbox interoperability — requires empirical validation of undocumented formats (interoperability.md §Fixture D).
+- M4: complete Rekordbox/OneLibrary interoperability remains unqualified. The current XML preview, preflight, and no-edit exporter cover a bounded subset only; no vendor application acceptance or undocumented-format compatibility is claimed (interoperability.md §Fixture D).
 - M4+: realtime DJ functionality — decks, mixing, effects, stems, streaming, broad controller support (idea.md §Priorities/MVP).
 
 The first major product proof — the MVP (idea.md) — is library-first: import a real DJ library, manage it safely in OxiDJ, export it again, and continue using compatible DJ software/hardware without unexpected metadata loss.

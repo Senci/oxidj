@@ -37,6 +37,18 @@ pub struct Preview {
     pub playlists: Vec<Playlist>,
     pub unsupported: Vec<String>,
 }
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExportDecision {
+    AllowExport,
+}
+#[derive(Debug, Clone, PartialEq)]
+pub struct ExportPreflight {
+    pub decision: ExportDecision,
+    pub selected_tracks: Vec<Track>,
+    pub selected_playlists: Vec<Playlist>,
+    pub withheld_units: Vec<String>,
+    pub loss_report: Vec<String>,
+}
 #[derive(Debug)]
 pub struct Error(pub String);
 impl std::fmt::Display for Error {
@@ -390,8 +402,8 @@ fn valid_export_parent(stack: &[String], name: &str) -> bool {
     }
 }
 
-/// Validate and return unchanged bytes for the frozen synthetic A1 no-edit subset.
-pub fn export_xml(bytes: &[u8]) -> Result<Vec<u8>, Error> {
+/// Validate the frozen no-edit XML subset without writing or modifying data.
+pub fn preflight_export(bytes: &[u8]) -> Result<ExportPreflight, Error> {
     if std::str::from_utf8(bytes).is_err() {
         return Err(Error("export requires UTF-8 XML".into()));
     }
@@ -541,6 +553,18 @@ pub fn export_xml(bytes: &[u8]) -> Result<Vec<u8>, Error> {
             "export requires at least one collection track".into(),
         ));
     }
+    Ok(ExportPreflight {
+        decision: ExportDecision::AllowExport,
+        selected_tracks: preview.tracks,
+        selected_playlists: preview.playlists,
+        withheld_units: Vec::new(),
+        loss_report: Vec::new(),
+    })
+}
+
+/// Validate and return unchanged bytes for the frozen synthetic A1 no-edit subset.
+pub fn export_xml(bytes: &[u8]) -> Result<Vec<u8>, Error> {
+    preflight_export(bytes)?;
     Ok(bytes.to_vec())
 }
 
@@ -555,7 +579,30 @@ mod tests {
         let f10 = include_bytes!("../../../xtask/tests/fixtures/rekordbox-a1/F-10/source.bin");
         for source in [f02.as_slice(), f07.as_slice(), f10.as_slice()] {
             assert_eq!(export_xml(source).unwrap(), source);
+            let preflight = preflight_export(source).unwrap();
+            assert_eq!(preflight.decision, ExportDecision::AllowExport);
+            assert!(preflight.withheld_units.is_empty());
+            assert!(preflight.loss_report.is_empty());
         }
+        let f10_plan = preflight_export(f10).unwrap();
+        assert_eq!(f10_plan.selected_tracks.len(), 1);
+        assert_eq!(
+            f10_plan.selected_tracks[0]
+                .tempos
+                .iter()
+                .map(|tempo| (
+                    tempo.start_seconds.as_str(),
+                    tempo.bpm.as_str(),
+                    tempo.meter.as_str(),
+                    tempo.beat.as_str()
+                ))
+                .collect::<Vec<_>>(),
+            [
+                ("0", "120", "4/4", "1"),
+                ("8", "128", "4/4", "1"),
+                ("16", "132", "7/8", "3")
+            ]
+        );
         let f02_text = String::from_utf8(f02.to_vec()).unwrap();
         let bad_folder_count = f02_text.replacen("Count=\"2\"", "Count=\"3\"", 1);
         assert_ne!(

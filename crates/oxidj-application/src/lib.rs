@@ -2,11 +2,17 @@
 
 use std::path::Path;
 
-pub use oxidj_rekordbox::{Error as RekordboxError, Preview};
+pub use oxidj_rekordbox::{Error as RekordboxError, ExportDecision, ExportPreflight, Preview};
 
 /// Read-only preview handler; parsing and vendor-specific semantics stay in the adapter.
 pub fn preview_rekordbox_xml(path: impl AsRef<Path>) -> Result<Preview, RekordboxError> {
     oxidj_rekordbox::parse_file(path)
+}
+
+/// Read-only eligibility plan for the bounded no-edit Rekordbox XML exporter.
+pub fn preflight_rekordbox_xml(path: impl AsRef<Path>) -> Result<ExportPreflight, RekordboxError> {
+    let bytes = std::fs::read(path).map_err(|error| RekordboxError(error.to_string()))?;
+    oxidj_rekordbox::preflight_export(&bytes)
 }
 
 /// Safely export the bounded no-edit XML subset without replacing any file.
