@@ -255,10 +255,10 @@ fn position_mark_edit_changes_only_start_and_preserves_optional_end() {
         env!("CARGO_MANIFEST_DIR")
     );
     let source = fs::read_to_string(&fixture).unwrap().replace(
-        "Type=\"0\" Start=\"5\" Num=\"0\"",
-        "Type=\"4\" Start=\"5\" End=\"10\" Num=\"0\"",
+        "Type=\"0\" Start=\"5\" Num=\"0\"/>",
+        "Type=\"0\" Start=\"5\" Num=\"0\"/>\n      <POSITION_MARK Name=\"Range\" Type=\"4\" Start=\"10\" End=\"20\" Num=\"1\"/>",
     );
-    assert!(source.contains("Type=\"4\" Start=\"5\" End=\"10\" Num=\"0\""));
+    assert!(source.contains("Type=\"4\" Start=\"10\" End=\"20\" Num=\"1\""));
     let input = temporary_path("position-edit-input");
     let output = temporary_path("position-edit-output");
     fs::write(&input, &source).unwrap();
@@ -274,11 +274,11 @@ fn position_mark_edit_changes_only_start_and_preserves_optional_end() {
             "--track-id",
             "700",
             "--mark-index",
-            "0",
+            "1",
             "--expected-start",
-            "5",
+            "10",
             "--start",
-            "6",
+            "11",
         ])
         .output()
         .expect("run CLI");
@@ -290,8 +290,8 @@ fn position_mark_edit_changes_only_start_and_preserves_optional_end() {
         String::from_utf8_lossy(&result.stderr)
     );
     let expected = source.replace(
-        "Type=\"4\" Start=\"5\" End=\"10\" Num=\"0\"",
-        "Type=\"4\" Start=\"6\" End=\"10\" Num=\"0\"",
+        "Type=\"4\" Start=\"10\" End=\"20\" Num=\"1\"",
+        "Type=\"4\" Start=\"11\" End=\"20\" Num=\"1\"",
     );
     assert_eq!(fs::read_to_string(&output).unwrap(), expected);
     assert_eq!(fs::read_to_string(&input).unwrap(), source);

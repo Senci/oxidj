@@ -1,4 +1,4 @@
-//! Read-only inspection and bounded no-edit export of the synthetic Rekordbox XML subset.
+//! Inspection and bounded byte-preserving edits for a Rekordbox XML subset.
 use quick_xml::{Reader, events::Event};
 use std::{collections::HashSet, fs, path::Path};
 
@@ -799,12 +799,19 @@ pub fn prepare_position_mark_edit(
         )));
     }
     validate_decimal("new position mark Start", &request.new_start_seconds, false)?;
-    if let Some(end) = &mark.end_seconds
-        && request.new_start_seconds.parse::<f64>().unwrap() >= end.parse::<f64>().unwrap()
-    {
-        return Err(Error(
-            "edited position mark Start must be before End".into(),
-        ));
+    if let Some(end) = &mark.end_seconds {
+        let new_start = request
+            .new_start_seconds
+            .parse::<f64>()
+            .map_err(|_| Error("invalid new position mark Start".into()))?;
+        let end = end
+            .parse::<f64>()
+            .map_err(|_| Error("invalid position mark End".into()))?;
+        if new_start >= end {
+            return Err(Error(
+                "edited position mark Start must be before End".into(),
+            ));
+        }
     }
 
     let range = position_mark_start_range(bytes, request)?;
