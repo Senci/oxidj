@@ -969,12 +969,14 @@ fn publish_new_file(temporary: &Path, destination: &Path) -> std::io::Result<()>
 }
 
 #[cfg(test)]
-static PUBLICATION_TEST_BARRIERS: std::sync::Mutex<
-    Option<(
-        std::sync::Arc<std::sync::Barrier>,
-        std::sync::Arc<std::sync::Barrier>,
-    )>,
-> = std::sync::Mutex::new(None);
+std::thread_local! {
+    static PUBLICATION_TEST_BARRIERS: std::cell::RefCell<
+        Option<(
+            std::sync::Arc<std::sync::Barrier>,
+            std::sync::Arc<std::sync::Barrier>,
+        )>,
+    > = const { std::cell::RefCell::new(None) };
+}
 
 #[cfg(test)]
 static PUBLICATION_TEST_TEMP: std::sync::Mutex<Option<std::path::PathBuf>> =
@@ -982,9 +984,9 @@ static PUBLICATION_TEST_TEMP: std::sync::Mutex<Option<std::path::PathBuf>> =
 
 #[cfg(test)]
 fn wait_at_publication_test_barrier(temporary: &Path) {
-    *PUBLICATION_TEST_TEMP.lock().unwrap() = Some(temporary.to_path_buf());
-    let barriers = PUBLICATION_TEST_BARRIERS.lock().unwrap().clone();
+    let barriers = PUBLICATION_TEST_BARRIERS.with(|barriers| barriers.borrow().clone());
     if let Some((arrived, release)) = barriers {
+        *PUBLICATION_TEST_TEMP.lock().unwrap() = Some(temporary.to_path_buf());
         arrived.wait();
         release.wait();
     }
@@ -1962,7 +1964,9 @@ mod tests {
         }
         let arrived = std::sync::Arc::new(std::sync::Barrier::new(2));
         let release = std::sync::Arc::new(std::sync::Barrier::new(2));
-        *PUBLICATION_TEST_BARRIERS.lock().unwrap() = Some((arrived.clone(), release.clone()));
+        PUBLICATION_TEST_BARRIERS.with(|barriers| {
+            *barriers.borrow_mut() = Some((arrived.clone(), release.clone()));
+        });
         let competitor_destination = destination.clone();
         let competitor_unrelated = unrelated.clone();
         let competitor = std::thread::spawn(move || {
@@ -1984,7 +1988,7 @@ mod tests {
             Catalog::restore_from(&backup_path, &destination)
         };
         competitor.join().unwrap();
-        *PUBLICATION_TEST_BARRIERS.lock().unwrap() = None;
+        PUBLICATION_TEST_BARRIERS.with(|barriers| *barriers.borrow_mut() = None);
         let temporary = PUBLICATION_TEST_TEMP.lock().unwrap().take().unwrap();
         let mut temporary_clean = !temporary.exists();
         for suffix in ["-wal", "-shm", "-journal"] {
