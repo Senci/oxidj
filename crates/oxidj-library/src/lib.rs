@@ -2291,6 +2291,80 @@ mod tests {
         writer.finalize().unwrap();
     }
 
+    fn write_declared_wav(path: &Path, bits_per_sample: u16, sample_format: hound::SampleFormat) {
+        let bytes_per_sample = usize::from(bits_per_sample / 8);
+        let data_length = 4 * bytes_per_sample;
+        let mut wav = Vec::with_capacity(44 + data_length);
+        wav.extend_from_slice(b"RIFF");
+        wav.extend_from_slice(&((36 + data_length) as u32).to_le_bytes());
+        wav.extend_from_slice(b"WAVEfmt ");
+        wav.extend_from_slice(&16_u32.to_le_bytes());
+        let format_tag = match sample_format {
+            hound::SampleFormat::Int => 1_u16,
+            hound::SampleFormat::Float => 3_u16,
+        };
+        wav.extend_from_slice(&format_tag.to_le_bytes());
+        wav.extend_from_slice(&2_u16.to_le_bytes());
+        wav.extend_from_slice(&48_000_u32.to_le_bytes());
+        wav.extend_from_slice(&(48_000_u32 * 2 * bytes_per_sample as u32).to_le_bytes());
+        wav.extend_from_slice(&(2_u16 * bytes_per_sample as u16).to_le_bytes());
+        wav.extend_from_slice(&bits_per_sample.to_le_bytes());
+        wav.extend_from_slice(b"data");
+        wav.extend_from_slice(&(data_length as u32).to_le_bytes());
+        wav.resize(44 + data_length, 0);
+        std::fs::write(path, wav).unwrap();
+    }
+
+    #[test]
+    fn wav_declared_encoding_matrix_imports_exact_identity_digest_and_facts() {
+        let root = database_path().with_extension("wav-encoding-matrix");
+        std::fs::create_dir_all(&root).unwrap();
+        let encodings = [
+            ("float32.wav", 32, hound::SampleFormat::Float),
+            ("pcm16.wav", 16, hound::SampleFormat::Int),
+            ("pcm24.wav", 24, hound::SampleFormat::Int),
+            ("pcm32.wav", 32, hound::SampleFormat::Int),
+            ("pcm8.wav", 8, hound::SampleFormat::Int),
+        ];
+        for (name, bits, format) in encodings {
+            write_declared_wav(&root.join(name), bits, format);
+        }
+        let db = database_path();
+        let mut catalog = Catalog::open(&db).unwrap();
+        let report = catalog.import_audio_directory(&root).unwrap();
+        assert!(report.complete);
+        assert!(
+            report
+                .outcomes
+                .iter()
+                .all(|outcome| outcome.status == ImportStatus::Imported),
+            "{report:?}"
+        );
+        assert_eq!(report.outcomes.len(), encodings.len());
+        let tracks = catalog.list_tracks().unwrap();
+        assert_eq!(tracks.len(), encodings.len());
+        for (index, (name, bits, _)) in encodings.into_iter().enumerate() {
+            let path = root.join(name);
+            let track = tracks
+                .iter()
+                .find(|track| track.path.ends_with(name))
+                .unwrap();
+            let (digest, length) = file_sha256(&path).unwrap();
+            assert_eq!(track.id.as_u64(), index as u64 + 1);
+            assert_eq!(track.sha256, digest);
+            assert_eq!(track.byte_length, length);
+            let facts: (f64, i64, i64, i64) = catalog.connection.query_row(
+                "SELECT duration_seconds,sample_rate,channels,bit_depth FROM audio_facts WHERE track_id=?1",
+                [track.id.as_u64() as i64],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            ).unwrap();
+            assert_eq!(facts, (2.0 / 48_000.0, 48_000, 2, i64::from(bits)));
+        }
+        drop(catalog);
+        remove_database(&db);
+        let _ = std::fs::remove_dir_all(root);
+    }
+
     #[test]
     fn wav_container_validator_rejects_bad_riff_extent_and_accepts_exact_extent() {
         let root = database_path().with_extension("riff-test");
