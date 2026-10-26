@@ -2,7 +2,17 @@
 
 ## Current milestone
 
-**Bounded local M1–M3 — ACCEPTANCE COMPLETE (2026-10-26).** M1 catalog, M2 reference-only import, and provisional M3 persisted-library UI smoke are implemented, independently reviewed, and covered by the closeout evidence below and in `plan/MVP.md`. `cargo xtask ci-full` passes on local `master` after the closeout and documentation updates; it includes `cargo xtask ci`. GitHub CI passed on previously pushed product head `113210821d4dca1a95a69c7cec29d29bf4faa443`. Later docs-only commit `d5e5083` remains local after GitHub server errors; push is optional backup under the owner's local-only workflow. This does not pass production GUI admission, accessibility/platform, 500k/60fps, vendor interoperability, or ADR-005 gates.
+**Bounded local M1–M3 — ACCEPTANCE COMPLETE (2026-10-26).** M1 catalog, M2 reference-only import, and provisional M3 persisted-library UI smoke are implemented, independently reviewed, and covered by the closeout evidence below and in `plan/MVP.md`. `cargo xtask ci-full` passes on local `master` after the closeout and documentation updates; it includes `cargo xtask ci`. GitHub CI passed on product closeout head `113210821d4dca1a95a69c7cec29d29bf4faa443`; the closeout and subsequent bounded M4 commits are now present on remote `master` (verified at `f50d0b0`). Push remains optional backup for product work under the owner's local-only workflow; this Pages status correction has separate publication authorization. This does not pass production GUI admission, accessibility/platform, 500k/60fps, vendor interoperability, or ADR-005 gates.
+
+### M4 — IN PROGRESS (verified on master, 2026-10-26)
+
+Bounded Rekordbox XML groundwork is implemented and independently reviewed:
+
+- **A1 synthetic XML relationship fixtures:** frozen F-02/F-07/F-10 artifacts and independent semantic checks (`eb3700d`, `da4b39a`; `xtask/tests/rekordbox_xml_a1.rs`). These passing synthetic tests do not pass A1 qualification.
+- **Read-only Rekordbox XML preview:** adapter and CLI inspection with visible unsupported-content warnings, without catalog or source mutation (`405c4ce`, `248c783`, `c4649c6`; `crates/oxidj-rekordbox` and CLI integration tests).
+- **Bounded fail-closed subset export:** no-edit, source-to-new-file XML export with no-overwrite publication, independent semantic checks, and rejection of unsupported content or inconsistent declared playlist counts (`065b744`, `3a961b9`).
+
+This is implemented XML-subset groundwork, not full Rekordbox application or OneLibrary compatibility. Vendor-application/hardware round-trip acceptance remains unpassed. ADR-005 remains **Proposed**, promotion **UNPASSED**; A1–A3/C1–C6 qualification remains **OPEN / NOT QUALIFYING**. Production GUI admission/accessibility/platform and 500k/60fps qualification remain separate and unpassed. M1–M3 bounded acceptance stays complete.
 
 ## Revised local M1–M3 contract (2026-10-23)
 
@@ -64,7 +74,8 @@ M0-08's handoff evidence was re-run verbatim on the integrated checkout:
 ## Next tasks
 
 1. **Bounded local M1–M3 contract — complete.** Implementation, private local sample smoke, provisional UI smoke, independent reviews, and local release gates are complete.
-2. **Keep separate gates deferred:** production GUI framework/accessibility/platform admission, 500k/60fps qualification, OneLibrary/Rekordbox interoperability, and ADR-005 remain unpassed. They need separate scoped objectives and gates.
+2. **M4 — in progress:** A1 synthetic XML fixtures, read-only preview and bounded fail-closed, no-edit subset export are implemented; see the verified commits above. Full Rekordbox app/OneLibrary compatibility, ADR-005 promotion and A1–A3/C1–C6 qualification remain unpassed.
+3. **Keep separate gates deferred:** production GUI framework/accessibility/platform admission and 500k/60fps qualification remain unpassed. Bounded XML-subset implementation does not satisfy these or the broader interoperability/schema gates.
 
 ## Local Tier-2 tool availability (audited)
 
