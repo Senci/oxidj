@@ -1,0 +1,34 @@
+{
+  "cues": [
+    {
+      "id": "c0",
+      "kind": "HotCue",
+      "index": 0,
+      "start_usec": 10000000,
+      "label": "Intro",
+      "color": [
+        255,
+        0,
+        0
+      ],
+      "flags": 0
+    },
+    {
+      "id": "c1",
+      "kind": "Loop",
+      "start_usec": 15000000,
+      "end_usec": 25000000,
+      "label": "Loop 1",
+      "flags": 0
+    },
+    {
+      "id": "c2",
+      "kind": "HotCue",
+      "index": 1,
+      "start_usec": 0,
+      "label": "Zero",
+      "flags": 0
+    }
+  ],
+  "report": []
+}

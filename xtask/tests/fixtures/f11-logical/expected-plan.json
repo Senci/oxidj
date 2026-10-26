@@ -1,0 +1,17 @@
+{
+  "contract_version": "logical-v1",
+  "case_id": "F-11",
+  "target_format": "mixxx-cueinfo-logical",
+  "export_policy": "safe-v1",
+  "decision_phase": "pre-write",
+  "outcome": "ALLOW_EXPORT",
+  "selected_units": [
+    "c0",
+    "c1",
+    "c2"
+  ],
+  "withheld_units": [],
+  "report": [],
+  "target_write": "permitted-but-not-performed-by-fixture-harness",
+  "no_write_expected": false
+}

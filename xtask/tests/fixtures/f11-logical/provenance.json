@@ -1,0 +1,42 @@
+{
+  "source_path": "source.bin",
+  "source_length_bytes": 337,
+  "source_sha256": "c26adda0482e5a3c090d7880442315d31dcb4209a4c89a99160f7756e7a7d169",
+  "source_format": "logical-only canonical JSON; not vendor bytes",
+  "logical_classification": "synthetic Mixxx CueInfo DTO semantics; not Mixxx library transport",
+  "source_version": "logical-v1",
+  "checker": "xtask/tests/f11_logical.rs",
+  "checker_version": "f11-logical-checker-v1",
+  "artifacts": {
+    "case.json": {
+      "path": "case.json",
+      "length_bytes": 408,
+      "sha256": "53c9a95fd2393a1539b9d702132f5cb8c8bf0ce72406f258711d76eab84357f1"
+    },
+    "operations.json": {
+      "path": "operations.json",
+      "length_bytes": 3,
+      "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570"
+    },
+    "expected-archive.json": {
+      "path": "expected-archive.json",
+      "length_bytes": 1327,
+      "sha256": "dfcc390d636dd152fbcbaf95037f99acc1959191ea3f99c5c1a118315aebb23e"
+    },
+    "expected-visible.json": {
+      "path": "expected-visible.json",
+      "length_bytes": 528,
+      "sha256": "46e702e9b57108de1f00259d261009078e1c637dd6347d5ba76a7aa51df083b1"
+    },
+    "expected-plan.json": {
+      "path": "expected-plan.json",
+      "length_bytes": 390,
+      "sha256": "c410eb22a411e09ea591fa220593813ea5f797dd1aec4d7de4d1b6fd0bf54b37"
+    },
+    "expected-report.json": {
+      "path": "expected-report.json",
+      "length_bytes": 3,
+      "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570"
+    }
+  }
+}

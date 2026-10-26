@@ -322,13 +322,18 @@ A1 and application acceptance remain NOT DEMONSTRATED.
 
 Logical Mixxx DTO c0 HotCue/index0/start10000000/label `Intro`/red with absent end;
 c1 Loop/start15000000/end25000000/label `Loop 1`, index/color absent. Flags0.
-No operation: preserve exact optionality and range, report `[]`. Reset variants
-add c2 point start0 (valid zero) and c3 with absent start/end (unresolved position,
-not zero). Archive preserves all distinctions; unresolved c3 is not represented
-as a valid positioned cue. Export behavior for absent-start real Mixxx DTO remains
-A2 rather than a fabricated valid position. The c3 absent-start export-plan/report
-subcase is explicitly deferred until its logical target outcome is separately
-specified; it is not part of the executable fixture set. Loop endpoint inclusivity unclaimed.
+No operation: preserve exact optionality and range, report `[]`. Reset c2 point
+start0 with absent end (valid zero). Archive preserves all distinctions; zero is
+not treated as absent. Unresolved c3 with absent start/end is **deferred**: its
+logical export-plan/report outcome is not specified, it is not in the executable
+fixture set, and it is not represented as a valid positioned cue. Real Mixxx DTO
+transport and absent-position policy remain A2. Loop endpoint inclusivity unclaimed.
+
+The executable logical-only fixture is `xtask/tests/fixtures/f11-logical/` with
+frozen source/archive/visible/plan/report/provenance bytes. Its separate checker
+and disposable mutation controls are in `xtask/tests/f11_logical.rs`; they prove
+only the specified logical contract, not a Mixxx library transport or application.
+
 
 ### F-12: Deterministic hotcue overflow and transport loss
 
@@ -402,7 +407,7 @@ those controls or restores and defines no product media/retention policy.
 | F-08 / F-08b | Synthetic encoding retention / unsafe edit withholding | NOT DEMONSTRATED |
 | F-09 | Independent post-edit/loss-aware checker and controls | NOT DEMONSTRATED |
 | F-10 | Ordered variable tempo/meter preservation | PASS — synthetic A1 checker/tests |
-| F-11 | Point/range/optional-end distinctions | NOT DEMONSTRATED |
+| F-11 | Point/range/optional-end distinctions | PASS — logical-only fixture/checker and mutation controls; A2 NOT DEMONSTRATED |
 | F-12 | 40 archived, 38 visible, exact two-entry loss report | NOT DEMONSTRATED |
 | B1/B2 | Atomic test-only reference transition and boundary snapshots | NOT DEMONSTRATED |
 
