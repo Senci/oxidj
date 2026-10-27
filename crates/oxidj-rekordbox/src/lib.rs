@@ -488,6 +488,23 @@ pub struct PreparedTrackPlayCountEdit {
     pub change: TrackPlayCountEditChange,
 }
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TrackAverageBpmEditRequest {
+    pub track_id: String,
+    pub expected_old_average_bpm: String,
+    pub new_average_bpm: String,
+}
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TrackAverageBpmEditChange {
+    pub track_id: String,
+    pub old_average_bpm: String,
+    pub new_average_bpm: String,
+}
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PreparedTrackAverageBpmEdit {
+    pub bytes: Vec<u8>,
+    pub change: TrackAverageBpmEditChange,
+}
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TrackDateAddedEditChange {
     pub track_id: String,
     pub old_date_added: String,
@@ -3440,6 +3457,72 @@ pub fn prepare_track_play_count_edit(
             track_id: request.track_id.clone(),
             old_play_count: old.to_owned(),
             new_play_count: request.new_play_count.clone(),
+        },
+    })
+}
+
+/// Prepare one exact-old-value guarded raw Track AverageBpm edit (no numeric conversion).
+pub fn prepare_track_average_bpm_edit(
+    bytes: &[u8],
+    request: &TrackAverageBpmEditRequest,
+) -> Result<PreparedTrackAverageBpmEdit, Error> {
+    let before = preflight_export(bytes)?;
+    let matches: Vec<_> = before
+        .selected_tracks
+        .iter()
+        .filter(|t| t.id == request.track_id)
+        .collect();
+    let track = match matches.as_slice() {
+        [] => return Err(Error(format!("unknown TrackID {}", request.track_id))),
+        [track] => *track,
+        _ => return Err(Error(format!("duplicate TrackID {}", request.track_id))),
+    };
+    let old = track
+        .average_bpm
+        .as_deref()
+        .ok_or_else(|| Error("track AverageBpm missing".into()))?;
+    if old != request.expected_old_average_bpm {
+        return Err(Error("track AverageBpm changed".into()));
+    }
+    if !request.new_average_bpm.chars().all(
+        |c| matches!(c as u32, 9 | 10 | 13 | 0x20..=0xD7FF | 0xE000..=0xFFFD | 0x10000..=0x10FFFF),
+    ) {
+        return Err(Error("new AverageBpm contains invalid XML 1.0 text".into()));
+    }
+    let range = track_attribute_range(
+        bytes,
+        &request.track_id,
+        "AverageBpm",
+        &request.expected_old_average_bpm,
+    )?;
+    let escaped = request
+        .new_average_bpm
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&apos;")
+        .replace('\t', "&#9;")
+        .replace('\n', "&#10;")
+        .replace('\r', "&#13;");
+    let mut output = bytes.to_vec();
+    output.splice(range, escaped.bytes());
+    let after = preflight_export(&output)?;
+    let mut expected = before.selected_tracks.clone();
+    expected
+        .iter_mut()
+        .find(|t| t.id == request.track_id)
+        .unwrap()
+        .average_bpm = Some(request.new_average_bpm.clone());
+    if after.selected_tracks != expected {
+        return Err(Error("track AverageBpm edit verification failed".into()));
+    }
+    Ok(PreparedTrackAverageBpmEdit {
+        bytes: output,
+        change: TrackAverageBpmEditChange {
+            track_id: request.track_id.clone(),
+            old_average_bpm: old.to_owned(),
+            new_average_bpm: request.new_average_bpm.clone(),
         },
     })
 }

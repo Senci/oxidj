@@ -12,15 +12,16 @@ pub use oxidj_rekordbox::{
     PreparedPlaylistReorder, PreparedPositionMarkEdit, PreparedPositionMarkEndEdit,
     PreparedPositionMarkNameEdit, PreparedTempoBeatEdit, PreparedTempoEdit, PreparedTempoMeterEdit,
     PreparedTempoStartEdit, PreparedTrackAlbumEdit, PreparedTrackArtistEdit,
-    PreparedTrackColourEdit, PreparedTrackCommentsEdit, PreparedTrackComposerEdit,
-    PreparedTrackDateAddedEdit, PreparedTrackDateModifiedEdit, PreparedTrackDelete,
-    PreparedTrackGenreEdit, PreparedTrackGroupingEdit, PreparedTrackKindEdit,
+    PreparedTrackAverageBpmEdit, PreparedTrackColourEdit, PreparedTrackCommentsEdit,
+    PreparedTrackComposerEdit, PreparedTrackDateAddedEdit, PreparedTrackDateModifiedEdit,
+    PreparedTrackDelete, PreparedTrackGenreEdit, PreparedTrackGroupingEdit, PreparedTrackKindEdit,
     PreparedTrackLabelEdit, PreparedTrackLastPlayedEdit, PreparedTrackMixEdit,
     PreparedTrackNameEdit, PreparedTrackPlayCountEdit, PreparedTrackRatingEdit,
     PreparedTrackRemixerEdit, PreparedTrackYearEdit, Preview, TempoBeatEditChange,
     TempoBeatEditRequest, TempoEditChange, TempoEditRequest, TempoMeterEditChange,
     TempoMeterEditRequest, TempoStartEditChange, TempoStartEditRequest, TrackAlbumEditChange,
-    TrackAlbumEditRequest, TrackArtistEditChange, TrackArtistEditRequest, TrackColourEditChange,
+    TrackAlbumEditRequest, TrackArtistEditChange, TrackArtistEditRequest,
+    TrackAverageBpmEditChange, TrackAverageBpmEditRequest, TrackColourEditChange,
     TrackColourEditRequest, TrackCommentsEditChange, TrackCommentsEditRequest,
     TrackComposerEditChange, TrackComposerEditRequest, TrackDateAddedEditChange,
     TrackDateAddedEditRequest, TrackDateModifiedEditChange, TrackDateModifiedEditRequest,
@@ -213,6 +214,17 @@ pub fn export_rekordbox_track_play_count_edit(
 ) -> Result<TrackPlayCountEditChange, RekordboxError> {
     let (source, output) = read_new_export_source(input, output)?;
     let prepared = oxidj_rekordbox::prepare_track_play_count_edit(&source, request)?;
+    publish_new_file(&output, &prepared.bytes)?;
+    Ok(prepared.change)
+}
+
+pub fn export_rekordbox_track_average_bpm_edit(
+    input: impl AsRef<Path>,
+    output: impl AsRef<Path>,
+    request: &TrackAverageBpmEditRequest,
+) -> Result<TrackAverageBpmEditChange, RekordboxError> {
+    let (source, output) = read_new_export_source(input, output)?;
+    let prepared = oxidj_rekordbox::prepare_track_average_bpm_edit(&source, request)?;
     publish_new_file(&output, &prepared.bytes)?;
     Ok(prepared.change)
 }
