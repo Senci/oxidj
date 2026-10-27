@@ -150,6 +150,8 @@ contains one track corresponding to t1; it need not have the same ID or old path
 (b) different namespaces sharing ID 100, without confirmed reconciliation →
 `unconfirmed-identity`; (c) same path but different content → `path-content-disagreement`.
 
+**Observed logical-only result (same-path/different-content conflict subcase):** `xtask/tests/fixtures/f01-same-path-logical/` freezes r1/r2 at the exact same path with distinct literal namespaces and external IDs and different synthetic content witnesses. No merge occurs: r1 remains current and r2 unresolved; safe-v1 export is blocked with `IDENTITY_CONFLICT`, reason `path-content-disagreement`. `xtask/tests/f01_same_path_logical.rs` independently checks source, operations, archive, visible, plan, report, provenance and exact artifact set; mutation controls reject path/content drift, merge, missing candidate and report/plan changes. This subcase is logical-only PASS; other F-01 conflicts, Mixxx A2 and ADR-005 promotion remain NOT DEMONSTRATED/OPEN.
+
 **Observed logical-only result (unconfirmed cross-namespace identity subcase):**
 `xtask/tests/fixtures/f01-unconfirmed-logical/` freezes distinct literal source
 namespaces with shared external ID 100 and the exact same synthetic content witness.
