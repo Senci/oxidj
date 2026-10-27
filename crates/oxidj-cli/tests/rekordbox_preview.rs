@@ -4,7 +4,7 @@ use oxidj_library as _;
 use std::{fs, process::Command, time::SystemTime};
 
 #[test]
-fn preview_and_export_plan_report_track_date_added_states_and_export_preserves_source_bytes() {
+fn preview_and_export_plan_report_track_raw_date_states_and_export_preserves_source_bytes() {
     let source = fs::read(format!(
         "{}/../../xtask/tests/fixtures/rekordbox-a1/F-02/source.bin",
         env!("CARGO_MANIFEST_DIR")
@@ -14,15 +14,15 @@ fn preview_and_export_plan_report_track_date_added_states_and_export_preserves_s
         .unwrap()
         .replace(
             "TrackID=\"100\" Name=\"A\"",
-            "TrackID=\"100\" Name=\"A\" DateAdded=\"2024-02-03\"",
+            "TrackID=\"100\" Name=\"A\" DateAdded=\"2024-02-03\" DateModified=\"2024-02-04\"",
         )
         .replace(
             "TrackID=\"200\" Name=\"B\"",
-            "TrackID=\"200\" Name=\"B\" DateAdded=\"\"",
+            "TrackID=\"200\" Name=\"B\" DateAdded=\"\" DateModified=\"\"",
         )
         .into_bytes();
-    let input = temporary_path("date-added-input");
-    let output = temporary_path("date-added-output");
+    let input = temporary_path("raw-dates-input");
+    let output = temporary_path("raw-dates-output");
     fs::write(&input, &source).unwrap();
     for args in [
         vec!["rekordbox", "preview", "--xml", input.to_str().unwrap()],
@@ -43,9 +43,14 @@ fn preview_and_export_plan_report_track_date_added_states_and_export_preserves_s
         let first = lines.iter().find(|line| line.contains("100\tA\t")).unwrap();
         let second = lines.iter().find(|line| line.contains("200\tB\t")).unwrap();
         let third = lines.iter().find(|line| line.contains("300\tC\t")).unwrap();
-        assert!(first.contains("Some(\"2024-02-03\")"));
-        assert!(second.contains("Some(\"\")"));
-        assert!(third.contains("None"));
+        for (row, added, modified) in [
+            (first, "Some(\"2024-02-03\")", "Some(\"2024-02-04\")"),
+            (second, "Some(\"\")", "Some(\"\")"),
+            (third, "None", "None"),
+        ] {
+            assert_eq!(row.split('\t').rev().nth(1), Some(added), "{row}");
+            assert_eq!(row.split('\t').next_back(), Some(modified), "{row}");
+        }
     }
     let result = Command::new(env!("CARGO_BIN_EXE_oxidj-cli"))
         .args([
@@ -182,7 +187,7 @@ fn preview_and_export_plan_report_track_year_states_and_export_preserves_source_
                 })
                 .unwrap_or_else(|| panic!("missing TrackID {track_id} row in:\\n{stdout}"));
             assert_eq!(
-                row.split('\t').rev().nth(4),
+                row.split('\t').rev().nth(5),
                 Some(expected_track_number),
                 "{row}"
             );
@@ -192,7 +197,7 @@ fn preview_and_export_plan_report_track_year_states_and_export_preserves_source_
                 _ => "None",
             };
             assert_eq!(
-                row.split('\t').rev().nth(2),
+                row.split('\t').rev().nth(3),
                 Some(match track_id {
                     "100" => "Some(\"-2147483648\")",
                     "200" => "Some(\"\")",
@@ -201,12 +206,12 @@ fn preview_and_export_plan_report_track_year_states_and_export_preserves_source_
                 "{row}"
             );
             assert_eq!(
-                row.split('\t').rev().nth(3),
+                row.split('\t').rev().nth(4),
                 Some(expected_total_time),
                 "{row}"
             );
             assert_eq!(
-                row.split('\t').rev().nth(1),
+                row.split('\t').rev().nth(2),
                 Some(match track_id {
                     "100" => "Some(\"48000.0\")",
                     "200" => "Some(\"\")",
@@ -371,7 +376,7 @@ fn export_plan_shows_ordered_f10_units_without_writing() {
         concat!(
             "Decision: ALLOW_EXPORT\n",
             "Selected units:\n",
-            "Track\t1000\tVariable tempo\tNone\tNone\tNone\tNone\tNone\tNone\tNone\tNone\tNone\tNone\tfile://localhost/music/variable.flac\tNone\tNone\tNone\tNone\tNone\tNone\tNone\tNone\tNone\n",
+            "Track\t1000\tVariable tempo\tNone\tNone\tNone\tNone\tNone\tNone\tNone\tNone\tNone\tNone\tfile://localhost/music/variable.flac\tNone\tNone\tNone\tNone\tNone\tNone\tNone\tNone\tNone\tNone\n",
             "TEMPO\t1000\t0\t120\t4/4\t1\n",
             "TEMPO\t1000\t8\t128\t4/4\t1\n",
             "TEMPO\t1000\t16\t132\t7/8\t3\n",
