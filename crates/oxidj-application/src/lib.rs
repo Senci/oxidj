@@ -10,9 +10,10 @@ pub use oxidj_rekordbox::{
     PositionMarkEndEditChange, PositionMarkEndEditRequest, PositionMarkNameEditChange,
     PositionMarkNameEditRequest, PreparedFolderRename, PreparedPlaylistRename,
     PreparedPlaylistReorder, PreparedPositionMarkEdit, PreparedPositionMarkEndEdit,
-    PreparedPositionMarkNameEdit, PreparedTempoEdit, PreparedTempoStartEdit, PreparedTrackDelete,
-    PreparedTrackNameEdit, Preview, TempoEditChange, TempoEditRequest, TempoStartEditChange,
-    TempoStartEditRequest, TrackDeleteRequest, TrackNameEditChange, TrackNameEditRequest,
+    PreparedPositionMarkNameEdit, PreparedTempoBeatEdit, PreparedTempoEdit, PreparedTempoStartEdit,
+    PreparedTrackDelete, PreparedTrackNameEdit, Preview, TempoBeatEditChange, TempoBeatEditRequest,
+    TempoEditChange, TempoEditRequest, TempoStartEditChange, TempoStartEditRequest,
+    TrackDeleteRequest, TrackNameEditChange, TrackNameEditRequest,
 };
 
 /// Read-only preview handler; parsing and vendor-specific semantics stay in the adapter.
@@ -206,6 +207,27 @@ pub fn export_rekordbox_tempo_start_edit(
 ) -> Result<TempoStartEditChange, RekordboxError> {
     let (source, output) = read_new_export_source(input, output)?;
     let prepared = oxidj_rekordbox::prepare_tempo_start_edit(&source, request)?;
+    publish_new_file(&output, &prepared.bytes)?;
+    Ok(prepared.change)
+}
+
+/// Prepare one guarded tempo-point Battito edit without writing any file.
+pub fn prepare_rekordbox_tempo_beat_edit(
+    input: impl AsRef<Path>,
+    request: &TempoBeatEditRequest,
+) -> Result<PreparedTempoBeatEdit, RekordboxError> {
+    let bytes = std::fs::read(input).map_err(|error| RekordboxError(error.to_string()))?;
+    oxidj_rekordbox::prepare_tempo_beat_edit(&bytes, request)
+}
+
+/// Export one guarded tempo-point Battito edit to a new file.
+pub fn export_rekordbox_tempo_beat_edit(
+    input: impl AsRef<Path>,
+    output: impl AsRef<Path>,
+    request: &TempoBeatEditRequest,
+) -> Result<TempoBeatEditChange, RekordboxError> {
+    let (source, output) = read_new_export_source(input, output)?;
+    let prepared = oxidj_rekordbox::prepare_tempo_beat_edit(&source, request)?;
     publish_new_file(&output, &prepared.bytes)?;
     Ok(prepared.change)
 }

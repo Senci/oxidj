@@ -166,6 +166,26 @@ pub struct TempoStartEditRequest {
     pub expected_old_start_seconds: String,
     pub new_start_seconds: String,
 }
+/// One optimistic, ordinal-scoped tempo-point Battito edit request.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TempoBeatEditRequest {
+    pub track_id: String,
+    pub tempo_index: usize,
+    pub expected_old_beat: String,
+    pub new_beat: String,
+}
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TempoBeatEditChange {
+    pub track_id: String,
+    pub tempo_index: usize,
+    pub old_beat: String,
+    pub new_beat: String,
+}
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PreparedTempoBeatEdit {
+    pub bytes: Vec<u8>,
+    pub change: TempoBeatEditChange,
+}
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TempoStartEditChange {
     pub track_id: String,
@@ -2018,16 +2038,19 @@ fn tempo_bpm_range(
     })
 }
 
-fn tempo_start_range(
+fn tempo_attribute_range(
     bytes: &[u8],
-    request: &TempoStartEditRequest,
+    expected_track_id: &str,
+    expected_tempo_index: usize,
+    key: &str,
+    expected: &str,
 ) -> Result<std::ops::Range<usize>, Error> {
     let mut reader = Reader::from_reader(bytes);
     reader.config_mut().check_end_names = true;
     let mut buf = Vec::new();
     let mut stack: Vec<String> = Vec::new();
-    let mut track_id: Option<String> = None;
-    let mut tempo_index = 0usize;
+    let mut current_track_id: Option<String> = None;
+    let mut current_tempo_index = 0usize;
     let mut value_range = None;
     loop {
         let event_start = reader.buffer_position() as usize;
@@ -2038,39 +2061,40 @@ fn tempo_start_range(
             Event::Start(element) => {
                 let name = String::from_utf8_lossy(element.name().as_ref()).into_owned();
                 if name == "TRACK" && stack.last().is_some_and(|parent| parent == "COLLECTION") {
-                    track_id = Some(attr(&element, "TrackID")?);
-                    tempo_index = 0;
-                } else if name == "TEMPO" && track_id.as_deref() == Some(&request.track_id) {
-                    if tempo_index == request.tempo_index {
-                        value_range = Some(attribute_value_range(
+                    current_track_id = Some(attr(&element, "TrackID")?);
+                    current_tempo_index = 0;
+                } else if name == "TEMPO" && current_track_id.as_deref() == Some(expected_track_id)
+                {
+                    if current_tempo_index == expected_tempo_index {
+                        value_range = Some(tempo_attribute_value_range(
                             &element,
                             event_start,
-                            "Inizio",
-                            &request.expected_old_start_seconds,
+                            key,
+                            expected,
                         )?);
                     }
-                    tempo_index += 1;
+                    current_tempo_index += 1;
                 }
                 stack.push(name);
             }
             Event::Empty(element) => {
                 let name = String::from_utf8_lossy(element.name().as_ref()).into_owned();
-                if name == "TEMPO" && track_id.as_deref() == Some(&request.track_id) {
-                    if tempo_index == request.tempo_index {
-                        value_range = Some(attribute_value_range(
+                if name == "TEMPO" && current_track_id.as_deref() == Some(expected_track_id) {
+                    if current_tempo_index == expected_tempo_index {
+                        value_range = Some(tempo_attribute_value_range(
                             &element,
                             event_start,
-                            "Inizio",
-                            &request.expected_old_start_seconds,
+                            key,
+                            expected,
                         )?);
                     }
-                    tempo_index += 1;
+                    current_tempo_index += 1;
                 }
             }
             Event::End(element) => {
                 let name = String::from_utf8_lossy(element.name().as_ref()).into_owned();
                 if name == "TRACK" && stack.last().is_some_and(|parent| parent == "TRACK") {
-                    track_id = None;
+                    current_track_id = None;
                 }
                 stack.pop();
             }
@@ -2081,10 +2105,61 @@ fn tempo_start_range(
     }
     value_range.ok_or_else(|| {
         Error(format!(
-            "no tempo point {} for TrackID {}",
-            request.tempo_index, request.track_id
+            "no tempo point {expected_tempo_index} for TrackID {expected_track_id}"
         ))
     })
+}
+
+fn tempo_attribute_value_range(
+    element: &quick_xml::events::BytesStart<'_>,
+    event_start: usize,
+    key: &str,
+    expected: &str,
+) -> Result<std::ops::Range<usize>, Error> {
+    for attribute in element.attributes().with_checks(true) {
+        let attribute = attribute.map_err(|error| Error(error.to_string()))?;
+        if attribute.key.as_ref() == key.as_bytes() {
+            let actual = attribute
+                .decoded_and_normalized_value(quick_xml::XmlVersion::Explicit1_0, element.decoder())
+                .map_err(|error| Error(error.to_string()))?;
+            if actual != expected {
+                return Err(Error(format!(
+                    "tempo {key} changed: expected {expected}, found {actual}"
+                )));
+            }
+            let event_bytes = element.as_ref();
+            let value_offset = attribute.value.as_ptr() as usize - event_bytes.as_ptr() as usize;
+            let start = event_start + 1 + value_offset;
+            return Ok(start..start + attribute.value.len());
+        }
+    }
+    Err(Error(format!("TEMPO missing {key} attribute")))
+}
+
+fn tempo_start_range(
+    bytes: &[u8],
+    request: &TempoStartEditRequest,
+) -> Result<std::ops::Range<usize>, Error> {
+    tempo_attribute_range(
+        bytes,
+        &request.track_id,
+        request.tempo_index,
+        "Inizio",
+        &request.expected_old_start_seconds,
+    )
+}
+
+fn tempo_beat_range(
+    bytes: &[u8],
+    request: &TempoBeatEditRequest,
+) -> Result<std::ops::Range<usize>, Error> {
+    tempo_attribute_range(
+        bytes,
+        &request.track_id,
+        request.tempo_index,
+        "Battito",
+        &request.expected_old_beat,
+    )
 }
 
 fn position_mark_start_range(
@@ -2622,6 +2697,58 @@ pub fn prepare_tempo_start_edit(
     })
 }
 
+/// Prepare a single tempo-point Battito edit while preserving every other source byte.
+pub fn prepare_tempo_beat_edit(
+    bytes: &[u8],
+    request: &TempoBeatEditRequest,
+) -> Result<PreparedTempoBeatEdit, Error> {
+    let source = preflight_export(bytes)?;
+    let track = source
+        .selected_tracks
+        .iter()
+        .find(|track| track.id == request.track_id)
+        .ok_or_else(|| Error(format!("unknown TrackID {}", request.track_id)))?;
+    let tempo = track.tempos.get(request.tempo_index).ok_or_else(|| {
+        Error(format!(
+            "no tempo point {} for TrackID {}",
+            request.tempo_index, request.track_id
+        ))
+    })?;
+    if tempo.beat != request.expected_old_beat {
+        return Err(Error(format!(
+            "tempo Battito changed: expected {}, found {}",
+            request.expected_old_beat, tempo.beat
+        )));
+    }
+    request
+        .new_beat
+        .parse::<u32>()
+        .map_err(|_| Error(format!("invalid tempo Battito {}", request.new_beat)))?;
+    let range = tempo_beat_range(bytes, request)?;
+    let mut output = bytes.to_vec();
+    output.splice(range, request.new_beat.bytes());
+    let verified = preflight_export(&output)?;
+    let mut expected_track = track.clone();
+    expected_track.tempos[request.tempo_index].beat = request.new_beat.clone();
+    let actual_track = verified
+        .selected_tracks
+        .iter()
+        .find(|track| track.id == request.track_id)
+        .ok_or_else(|| Error("edited track missing after validation".into()))?;
+    if actual_track != &expected_track {
+        return Err(Error("edited tempo Battito verification failed".into()));
+    }
+    Ok(PreparedTempoBeatEdit {
+        bytes: output,
+        change: TempoBeatEditChange {
+            track_id: request.track_id.clone(),
+            tempo_index: request.tempo_index,
+            old_beat: request.expected_old_beat.clone(),
+            new_beat: request.new_beat.clone(),
+        },
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2848,6 +2975,48 @@ mod tests {
             ..request
         };
         assert!(prepare_playlist_member_insert(source, &unknown).is_err());
+    }
+
+    #[test]
+    fn guarded_tempo_beat_edit_changes_only_selected_battito_and_rejects_invalid_requests() {
+        let source = include_bytes!("../../../xtask/tests/fixtures/rekordbox-a1/F-07/source.bin");
+        let request = TempoBeatEditRequest {
+            track_id: "700".into(),
+            tempo_index: 0,
+            expected_old_beat: "1".into(),
+            new_beat: "2".into(),
+        };
+        let result = prepare_tempo_beat_edit(source, &request).unwrap();
+        let expected = String::from_utf8(source.to_vec()).unwrap().replacen(
+            "Battito=\"1\"",
+            "Battito=\"2\"",
+            1,
+        );
+        assert_eq!(result.bytes, expected.as_bytes());
+        let after = preflight_export(&result.bytes).unwrap();
+        assert_eq!(after.selected_tracks[0].tempos[0].beat, "2");
+        assert_eq!(after.selected_tracks[0].tempos[1].beat, "1");
+
+        for invalid in [
+            TempoBeatEditRequest {
+                expected_old_beat: "9".into(),
+                ..request.clone()
+            },
+            TempoBeatEditRequest {
+                tempo_index: 9,
+                ..request.clone()
+            },
+            TempoBeatEditRequest {
+                new_beat: "1.5".into(),
+                ..request.clone()
+            },
+            TempoBeatEditRequest {
+                track_id: "999".into(),
+                ..request
+            },
+        ] {
+            assert!(prepare_tempo_beat_edit(source, &invalid).is_err());
+        }
     }
 
     #[test]
