@@ -1711,6 +1711,62 @@ fn playlist_rename_exports_one_guarded_name_and_rejects_unsafe_cases() {
 }
 
 #[test]
+fn track_colour_edit_escapes_xml_and_rejects_stale_guard_without_writing() {
+    let fixture = format!(
+        "{}/../../xtask/tests/fixtures/rekordbox-a1/F-02/source.bin",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let source = String::from_utf8(fs::read(fixture).unwrap())
+        .unwrap()
+        .replacen(
+            "TrackID=\"100\" Name=\"A\"",
+            "TrackID=\"100\" Name=\"A\" Colour=\"old &amp; colour\"",
+            1,
+        )
+        .into_bytes();
+    let input = temporary_path("track-colour-input");
+    let output = temporary_path("track-colour-output");
+    fs::write(&input, &source).unwrap();
+    let invoke = |expected: &str, colour: &str, target: &std::path::Path| {
+        Command::new(env!("CARGO_BIN_EXE_oxidj-cli"))
+            .args([
+                "rekordbox",
+                "edit-track-colour",
+                "--xml",
+                input.to_str().unwrap(),
+                "--output",
+                target.to_str().unwrap(),
+                "--track-id",
+                "100",
+                "--expected-colour",
+                expected,
+                "--colour",
+                colour,
+            ])
+            .output()
+            .unwrap()
+    };
+    let success = invoke("old & colour", "A\tB\nC\rD & <x>", &output);
+    assert_eq!(success.status.code(), Some(0), "{:?}", success.stderr);
+    let encoded = "Colour=\"A&#9;B&#10;C&#13;D &amp; &lt;x&gt;\"";
+    let expected = String::from_utf8(source.clone()).unwrap().replacen(
+        "Colour=\"old &amp; colour\"",
+        encoded,
+        1,
+    );
+    assert_eq!(fs::read(&output).unwrap(), expected.as_bytes());
+    assert_eq!(fs::read(&input).unwrap(), source);
+
+    let stale_output = temporary_path("track-colour-stale");
+    let stale = invoke("stale", "replacement", &stale_output);
+    assert_ne!(stale.status.code(), Some(0), "stale guard accepted");
+    assert!(!stale_output.exists(), "stale guard created output");
+    assert_eq!(fs::read(&input).unwrap(), source);
+    let _ = fs::remove_file(input);
+    let _ = fs::remove_file(output);
+}
+
+#[test]
 fn track_name_edit_exports_one_guarded_name_and_rejects_stale_or_existing_output() {
     let fixture = format!(
         "{}/../../xtask/tests/fixtures/rekordbox-a1/F-02/source.bin",

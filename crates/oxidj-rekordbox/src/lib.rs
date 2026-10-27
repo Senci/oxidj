@@ -414,6 +414,23 @@ pub struct PreparedTrackRatingEdit {
     pub change: TrackRatingEditChange,
 }
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TrackColourEditRequest {
+    pub track_id: String,
+    pub expected_old_colour: String,
+    pub new_colour: String,
+}
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TrackColourEditChange {
+    pub track_id: String,
+    pub old_colour: String,
+    pub new_colour: String,
+}
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PreparedTrackColourEdit {
+    pub bytes: Vec<u8>,
+    pub change: TrackColourEditChange,
+}
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TrackComposerEditChange {
     pub track_id: String,
     pub old_composer: String,
@@ -2645,6 +2662,67 @@ pub fn prepare_track_rating_edit(
     })
 }
 
+/// Prepare one exact-old-value guarded raw Track Colour edit.
+pub fn prepare_track_colour_edit(
+    bytes: &[u8],
+    request: &TrackColourEditRequest,
+) -> Result<PreparedTrackColourEdit, Error> {
+    let before = preflight_export(bytes)?;
+    let track = before
+        .selected_tracks
+        .iter()
+        .find(|t| t.id == request.track_id)
+        .ok_or_else(|| Error(format!("unknown TrackID {}", request.track_id)))?;
+    let old = track
+        .colour
+        .as_deref()
+        .ok_or_else(|| Error("track Colour missing".into()))?;
+    if old != request.expected_old_colour {
+        return Err(Error("track Colour changed".into()));
+    }
+    if !request.new_colour.chars().all(
+        |c| matches!(c as u32, 9 | 10 | 13 | 0x20..=0xD7FF | 0xE000..=0xFFFD | 0x10000..=0x10FFFF),
+    ) {
+        return Err(Error("new Colour contains invalid XML 1.0 text".into()));
+    }
+    let range = track_attribute_range(
+        bytes,
+        &request.track_id,
+        "Colour",
+        &request.expected_old_colour,
+    )?;
+    let escaped = request
+        .new_colour
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&apos;")
+        .replace('\t', "&#9;")
+        .replace('\n', "&#10;")
+        .replace('\r', "&#13;");
+    let mut output = bytes.to_vec();
+    output.splice(range, escaped.bytes());
+    let after = preflight_export(&output)?;
+    let mut expected = before.selected_tracks.clone();
+    expected
+        .iter_mut()
+        .find(|t| t.id == request.track_id)
+        .unwrap()
+        .colour = Some(request.new_colour.clone());
+    if after.selected_tracks != expected {
+        return Err(Error("track Colour edit verification failed".into()));
+    }
+    Ok(PreparedTrackColourEdit {
+        bytes: output,
+        change: TrackColourEditChange {
+            track_id: request.track_id.clone(),
+            old_colour: old.to_owned(),
+            new_colour: request.new_colour.clone(),
+        },
+    })
+}
+
 /// Prepare one exact-old-value guarded Track Composer edit.
 pub fn prepare_track_composer_edit(
     bytes: &[u8],
@@ -4145,6 +4223,48 @@ mod tests {
         invalid.new_rating = "bad\u{1}".into();
         assert!(prepare_track_rating_edit(&xml, &invalid).is_err());
         assert!(prepare_track_rating_edit(b"<broken", &invalid).is_err());
+    }
+
+    #[test]
+    fn guarded_raw_colour_edit_rejects_stale_missing_invalid_and_malformed() {
+        let base = include_bytes!("../../../xtask/tests/fixtures/rekordbox-a1/F-02/source.bin");
+        let xml = String::from_utf8(base.to_vec())
+            .unwrap()
+            .replacen(
+                "TrackID=\"100\" Name=\"A\"",
+                "TrackID=\"100\" Colour=\"-1\" Name=\"A\"",
+                1,
+            )
+            .into_bytes();
+        let req = TrackColourEditRequest {
+            track_id: "100".into(),
+            expected_old_colour: "-1".into(),
+            new_colour: "A & <x>".into(),
+        };
+        let result = prepare_track_colour_edit(&xml, &req).unwrap();
+        assert!(
+            String::from_utf8_lossy(&result.bytes)
+                .contains("Colour=\"A &amp; &lt;x&gt;\" Name=\"A\"")
+        );
+        assert!(result.bytes.windows(6).any(|w| w == b"<TRACK"));
+        let mut stale = req.clone();
+        stale.expected_old_colour = "old".into();
+        assert!(prepare_track_colour_edit(&xml, &stale).is_err());
+        assert!(
+            prepare_track_colour_edit(
+                &xml,
+                &TrackColourEditRequest {
+                    track_id: "200".into(),
+                    expected_old_colour: "".into(),
+                    new_colour: "1".into()
+                }
+            )
+            .is_err()
+        );
+        let mut invalid = req;
+        invalid.new_colour = "bad\u{1}".into();
+        assert!(prepare_track_colour_edit(&xml, &invalid).is_err());
+        assert!(prepare_track_colour_edit(b"<broken", &invalid).is_err());
     }
 
     #[test]

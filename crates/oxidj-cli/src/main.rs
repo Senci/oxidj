@@ -575,6 +575,43 @@ fn run_rekordbox(args: &[String]) -> i32 {
     }
     if args
         .first()
+        .is_some_and(|action| action == "edit-track-colour")
+    {
+        if args.len() != 11
+            || args[1] != "--xml"
+            || args[3] != "--output"
+            || args[5] != "--track-id"
+            || args[7] != "--expected-colour"
+            || args[9] != "--colour"
+        {
+            eprintln!(
+                "error: expected rekordbox edit-track-colour --xml IN --output NEW --track-id ID --expected-colour OLD --colour NEW"
+            );
+            return USAGE;
+        }
+        let request = oxidj_application::TrackColourEditRequest {
+            track_id: args[6].clone(),
+            expected_old_colour: args[8].clone(),
+            new_colour: args[10].clone(),
+        };
+        return match oxidj_application::export_rekordbox_track_colour_edit(
+            &args[2], &args[4], &request,
+        ) {
+            Ok(change) => {
+                println!(
+                    "Changed raw Colour for track[{}]: {:?} to {:?}",
+                    change.track_id, change.old_colour, change.new_colour
+                );
+                OK
+            }
+            Err(error) => {
+                eprintln!("error: track Colour edit rejected: {error}");
+                DOMAIN
+            }
+        };
+    }
+    if args
+        .first()
         .is_some_and(|action| action == "edit-track-composer")
     {
         if args.len() != 11
@@ -1578,7 +1615,7 @@ fn print_usage(to_stdout: bool) {
     );
     let _ = writeln!(
         output,
-        "  rekordbox edit-track-rating --xml <in> --output <new> --track-id <id> --expected-rating <old> --rating <new>   Export one guarded raw Rating edit"
+        "  rekordbox edit-track-rating --xml <in> --output <new> --track-id <id> --expected-rating <old> --rating <new>   Export one guarded raw Rating edit\n  rekordbox edit-track-colour --xml <in> --output <new> --track-id <id> --expected-colour <old> --colour <new>   Export one guarded raw Colour edit"
     );
     let _ = writeln!(
         output,
