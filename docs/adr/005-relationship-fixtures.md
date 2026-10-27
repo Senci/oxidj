@@ -289,9 +289,13 @@ retains the new observation as USER intent, marks the position unsafe for export
 and preserves all originals; encodings are not selectively rewritten. Synthetic
 export plan withholds whole r1 cue, visible cue set empty; report exactly
 `UNSUPPORTED_POSITION_EDIT`, r1/root, field `position`, cause e1 and details
-`{old_usec:10000000,new_usec:11000000}`. Real OneLibrary export remains blocked as
-F-05 until A3, not proven safe by this synthetic plan. Byte retention alone does
-not establish semantic compatibility or synchronization.
+`{old_usec:10000000,new_usec:11000000}`. Frozen logical-only artifacts and an
+independent archive/visible/plan/report/provenance checker are in
+`xtask/tests/fixtures/f08b-logical/` and `xtask/tests/f08b_logical.rs`; mutation
+controls reject changed reports, accidental visibility, and original-byte/value
+mutation. This is synthetic logical evidence only. Real OneLibrary export remains
+blocked as F-05 until A3; byte retention alone establishes neither semantic
+compatibility nor synchronization.
 
 ### F-09: Independent, post-edit and loss-aware oracle
 
@@ -421,7 +425,7 @@ those controls or restores and defines no product media/retention policy.
 | F-06b | Declared anchor loss, logical-only | PASS — synthetic OxiDJ-only declaration/deletion, exact safe-v1 withholding report, vendor-only re-import and mutation controls; A2 NOT DEMONSTRATED |
 | F-06 grouped | Absolute independence / declared anchor loss | PASS — F-06a and F-06b logical-only evidence only; A2 NOT QUALIFIED |
 | F-07 | XML tempo edit without false absolute-cue dependency | PASS — synthetic A1 checker/tests; no UI claim |
-| F-08 / F-08b | Synthetic encoding retention / unsafe edit withholding | F-08 PASS — logical-only frozen fixture/checker and mutation controls; F-08b NOT DEMONSTRATED; A3 NOT DEMONSTRATED |
+| F-08 / F-08b | Synthetic encoding retention / unsafe edit withholding | F-08 PASS — logical-only no-edit fixture/checker; F-08b PASS — logical-only position-edit archive/withholding fixture/checker and mutation controls; A3 NOT DEMONSTRATED |
 | F-09 | Independent post-edit/loss-aware checker and controls | NOT DEMONSTRATED |
 | F-10 | Ordered variable tempo/meter preservation | PASS — synthetic A1 checker/tests |
 | F-11 | Point/range/optional-end distinctions | PASS — logical-only fixture/checker and mutation controls; A2 NOT DEMONSTRATED |
