@@ -135,7 +135,7 @@ fn export_plan_shows_ordered_f10_units_without_writing() {
         concat!(
             "Decision: ALLOW_EXPORT\n",
             "Selected units:\n",
-            "Track\t1000\tVariable tempo\tNone\tNone\tNone\tNone\tNone\tNone\tNone\tNone\tfile://localhost/music/variable.flac\n",
+            "Track\t1000\tVariable tempo\tNone\tNone\tNone\tNone\tNone\tNone\tNone\tfile://localhost/music/variable.flac\n",
             "TEMPO\t1000\t0\t120\t4/4\t1\n",
             "TEMPO\t1000\t8\t128\t4/4\t1\n",
             "TEMPO\t1000\t16\t132\t7/8\t3\n",
