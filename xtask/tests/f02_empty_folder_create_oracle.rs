@@ -197,6 +197,17 @@ fn independently_decodes_empty_folder_creation_and_rejects_structural_mutations(
         ),
         {
             let folder = "      <NODE Type=\"0\" Name=\"Practice\" Count=\"0\"/>\n";
+            text.replacen(folder, "", 1)
+                .replacen("Name=\"Sets\" Count=\"3\"", "Name=\"Sets\" Count=\"2\"", 1)
+                .replacen("Name=\"ROOT\" Count=\"1\"", "Name=\"ROOT\" Count=\"2\"", 1)
+                .replacen(
+                    "</NODE>\n    </NODE>",
+                    "</NODE>\n      <NODE Type=\"0\" Name=\"Practice\" Count=\"0\"/>\n    </NODE>",
+                    1,
+                )
+        },
+        {
+            let folder = "      <NODE Type=\"0\" Name=\"Practice\" Count=\"0\"/>\n";
             text.replacen(folder, "", 1).replacen(
                 "<NODE Type=\"1\" Name=\"House\"",
                 &format!("{folder}<NODE Type=\"1\" Name=\"House\""),
