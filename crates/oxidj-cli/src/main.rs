@@ -2222,10 +2222,10 @@ fn run_rekordbox(args: &[String]) -> i32 {
                         x.start_seconds, x.bpm, x.meter, x.beat
                     );
                 }
-                for x in t.marks {
+                for (ordinal, x) in t.marks.into_iter().enumerate() {
                     println!(
-                        "  POSITION_MARK\t{}\t{}\t{}\t{}\t{:?}",
-                        x.name, x.kind, x.start_seconds, x.number, x.end_seconds
+                        "  POSITION_MARK\t{}\t{}\tType={}\tStart={}\tNum={}\tName={:?}\tEnd={:?}",
+                        t.id, ordinal, x.kind, x.start_seconds, x.number, x.name, x.end_seconds
                     );
                 }
             }

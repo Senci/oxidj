@@ -499,8 +499,57 @@ fn preview_prints_tracks_ordered_playlists_tempos_and_marks() {
         "700\tTempo cue independence\tNone\tNone\tNone\tNone\tNone\tNone\tNone\tNone\tNone\tNone\tfile://localhost/music/tempo.flac"
     ));
     assert!(stdout.contains("TEMPO\t10\t128\t4/4\t1"));
-    assert!(stdout.contains("POSITION_MARK\tIntro\t0\t5\t0\tNone"));
+    assert!(
+        stdout
+            .contains("  POSITION_MARK\t700\t0\tType=0\tStart=5\tNum=0\tName=\"Intro\"\tEnd=None")
+    );
     assert!(stdout.contains("Playlists:"));
+}
+
+#[test]
+fn preview_lists_raw_marks_with_track_local_ordinals_and_end_presence() {
+    let fixture = format!(
+        "{}/../../xtask/tests/fixtures/rekordbox-a1/F-07/source.bin",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let source = fs::read_to_string(fixture)
+        .unwrap()
+        .replace("<COLLECTION Entries=\"1\">", "<COLLECTION Entries=\"2\">")
+        .replace(
+            "<POSITION_MARK Name=\"Intro\" Type=\"0\" Start=\"5\" Num=\"0\"/>",
+            "<POSITION_MARK Name=\"Intro\" Type=\"0\" Start=\"5\" Num=\"0\"/>\n      <POSITION_MARK Name=\"\" Type=\"4\" Start=\"7\" Num=\"1\" End=\"0\"/>",
+        )
+        .replace(
+            "  </COLLECTION>",
+            "    <TRACK TrackID=\"701\" Name=\"Second\" Location=\"file://localhost/music/second.flac\">\n      <POSITION_MARK Name=\"Cue &amp; Two\" Type=\"0\" Start=\"8\" Num=\"2\"/>\n    </TRACK>\n  </COLLECTION>",
+        );
+    let input = temporary_path("raw-position-mark-preview");
+    fs::write(&input, source.as_bytes()).unwrap();
+    let result = Command::new(env!("CARGO_BIN_EXE_oxidj-cli"))
+        .args(["rekordbox", "preview", "--xml", input.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert_eq!(
+        result.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let stdout = String::from_utf8(result.stdout).unwrap();
+    let marks: Vec<_> = stdout
+        .lines()
+        .filter(|line| line.starts_with("  POSITION_MARK\t"))
+        .collect();
+    assert_eq!(
+        marks,
+        [
+            "  POSITION_MARK\t700\t0\tType=0\tStart=5\tNum=0\tName=\"Intro\"\tEnd=None",
+            "  POSITION_MARK\t700\t1\tType=4\tStart=7\tNum=1\tName=\"\"\tEnd=Some(\"0\")",
+            "  POSITION_MARK\t701\t0\tType=0\tStart=8\tNum=2\tName=\"Cue & Two\"\tEnd=None",
+        ]
+    );
+    assert_eq!(fs::read(&input).unwrap(), source.as_bytes());
+    let _ = fs::remove_file(input);
 }
 
 #[test]
