@@ -20,6 +20,7 @@ pub struct Track {
     pub year: Option<String>,
     pub size: Option<String>,
     pub disc_number: Option<String>,
+    pub track_number: Option<String>,
     pub location: String,
     pub tempos: Vec<Tempo>,
     pub marks: Vec<PositionMark>,
@@ -590,6 +591,7 @@ pub fn parse(bytes: &[u8]) -> Result<Preview, Error> {
                         year: optional(&e, "Year")?,
                         size: optional(&e, "Size")?,
                         disc_number: optional(&e, "DiscNumber")?,
+                        track_number: optional(&e, "TrackNumber")?,
                         location: attr(&e, "Location")?,
                         tempos: vec![],
                         marks: vec![],
@@ -682,6 +684,7 @@ pub fn parse(bytes: &[u8]) -> Result<Preview, Error> {
                         year: optional(&e, "Year")?,
                         size: optional(&e, "Size")?,
                         disc_number: optional(&e, "DiscNumber")?,
+                        track_number: optional(&e, "TrackNumber")?,
                         location: attr(&e, "Location")?,
                         tempos: vec![],
                         marks: vec![],
@@ -828,6 +831,7 @@ fn validate_export_element(
             "Year",
             "Size",
             "DiscNumber",
+            "TrackNumber",
             "Location",
         ],
         "TRACK" => &["Key"],
@@ -3810,6 +3814,37 @@ mod tests {
         );
         assert_eq!(plan.selected_tracks[1].size.as_deref(), Some(""));
         assert_eq!(plan.selected_tracks[2].size, None);
+        assert_eq!(export_xml(source).unwrap(), source);
+    }
+
+    #[test]
+    fn track_number_optional_metadata_preserves_present_empty_absent_and_export_bytes() {
+        let source = include_bytes!("../../../xtask/tests/fixtures/rekordbox-a1/F-02/source.bin");
+        let source = String::from_utf8(source.to_vec())
+            .unwrap()
+            .replace(
+                "TrackID=\"100\" Name=\"A\"",
+                "TrackID=\"100\" Name=\"A\" TrackNumber=\"-2147483648\"",
+            )
+            .replace(
+                "TrackID=\"200\" Name=\"B\"",
+                "TrackID=\"200\" Name=\"B\" TrackNumber=\"\"",
+            );
+        let source = source.as_bytes();
+        let preview = parse(source).unwrap();
+        assert_eq!(
+            preview.tracks[0].track_number.as_deref(),
+            Some("-2147483648")
+        );
+        assert_eq!(preview.tracks[1].track_number.as_deref(), Some(""));
+        assert_eq!(preview.tracks[2].track_number, None);
+        let plan = preflight_export(source).unwrap();
+        assert_eq!(
+            plan.selected_tracks[0].track_number.as_deref(),
+            Some("-2147483648")
+        );
+        assert_eq!(plan.selected_tracks[1].track_number.as_deref(), Some(""));
+        assert_eq!(plan.selected_tracks[2].track_number, None);
         assert_eq!(export_xml(source).unwrap(), source);
     }
 
