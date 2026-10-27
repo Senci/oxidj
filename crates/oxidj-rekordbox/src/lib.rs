@@ -67,6 +67,16 @@ pub struct PreparedPlaylistRename {
     pub bytes: Vec<u8>,
     pub change: PlaylistRenameChange,
 }
+/// Delete one collection record and all playlist memberships under an exact guard.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TrackDeleteRequest {
+    pub track_id: String,
+    pub expected_memberships: Vec<(usize, Vec<String>)>,
+}
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PreparedTrackDelete {
+    pub bytes: Vec<u8>,
+}
 /// Reorder an existing playlist after an exact ordinal/order optimistic guard.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PlaylistReorderRequest {
@@ -854,6 +864,220 @@ pub fn prepare_playlist_rename(
             new_name: request.new_name.clone(),
         },
     })
+}
+
+/// Prepare deletion of one collection track and all of its guarded playlist references.
+pub fn prepare_track_delete(
+    bytes: &[u8],
+    request: &TrackDeleteRequest,
+) -> Result<PreparedTrackDelete, Error> {
+    let before = preflight_export(bytes)?;
+    let track = before
+        .selected_tracks
+        .iter()
+        .filter(|t| t.id == request.track_id)
+        .count();
+    if track != 1 {
+        return Err(Error(
+            "target collection track missing or duplicated".into(),
+        ));
+    }
+    let actual_memberships: Vec<_> = before
+        .selected_playlists
+        .iter()
+        .enumerate()
+        .filter(|(_, p)| p.tracks.iter().any(|id| id == &request.track_id))
+        .map(|(i, p)| (i, p.tracks.clone()))
+        .collect();
+    if request.expected_memberships != actual_memberships
+        || actual_memberships.is_empty()
+        || actual_memberships
+            .iter()
+            .any(|(_, ids)| ids.iter().filter(|id| *id == &request.track_id).count() != 1)
+    {
+        return Err(Error(
+            "playlist membership guard is stale, incomplete, or duplicated".into(),
+        ));
+    }
+
+    let mut reader = Reader::from_reader(bytes);
+    reader.config_mut().check_end_names = true;
+    let mut buf = Vec::new();
+    let mut stack: Vec<String> = Vec::new();
+    let mut playlist_index = None;
+    let mut next_playlist = 0usize;
+    let mut collection_spans = Vec::new();
+    let mut membership_spans: Vec<(usize, std::ops::Range<usize>)> = Vec::new();
+    let mut playlist_tag_spans = Vec::new();
+    let mut collection_tag_span = None;
+    let mut target_open: Option<usize> = None;
+    loop {
+        let start = reader.buffer_position() as usize;
+        let event = reader
+            .read_event_into(&mut buf)
+            .map_err(|e| Error(format!("malformed XML: {e}")))?;
+        let eof = matches!(&event, Event::Eof);
+        let end = reader.buffer_position() as usize;
+        match event {
+            Event::Start(e) if e.name().as_ref() == b"COLLECTION" => {
+                collection_tag_span = Some(start..end);
+                stack.push("COLLECTION".into());
+            }
+            Event::Start(e) if e.name().as_ref() == b"NODE" => {
+                let ty = attr(&e, "Type")?;
+                if ty == "1" {
+                    playlist_index = Some(next_playlist);
+                    playlist_tag_spans.push((next_playlist, start..end));
+                    next_playlist += 1;
+                }
+                stack.push("NODE".into());
+            }
+            Event::Empty(e) if e.name().as_ref() == b"NODE" => {
+                if attr(&e, "Type")? == "1" {
+                    playlist_tag_spans.push((next_playlist, start..end));
+                    next_playlist += 1;
+                }
+            }
+            Event::Start(e)
+                if e.name().as_ref() == b"TRACK"
+                    && stack.iter().any(|p| p == "COLLECTION")
+                    && attr(&e, "TrackID")? == request.track_id =>
+            {
+                target_open = Some(start);
+                stack.push("TRACK".into());
+            }
+            Event::Empty(e)
+                if e.name().as_ref() == b"TRACK"
+                    && stack.iter().any(|p| p == "COLLECTION")
+                    && attr(&e, "TrackID")? == request.track_id =>
+            {
+                collection_spans.push(start..end)
+            }
+            Event::Empty(e)
+                if e.name().as_ref() == b"TRACK"
+                    && playlist_index.is_some()
+                    && attr(&e, "Key")? == request.track_id =>
+            {
+                membership_spans.push((playlist_index.unwrap(), start..end))
+            }
+            Event::End(e) => {
+                if e.name().as_ref() == b"TRACK"
+                    && let Some(open) = target_open.take()
+                {
+                    collection_spans.push(open..end);
+                }
+                if e.name().as_ref() == b"NODE" {
+                    playlist_index = None;
+                }
+                stack.pop();
+            }
+            Event::Start(e) => {
+                let name = std::str::from_utf8(e.name().as_ref())
+                    .map_err(|_| Error("invalid element name".into()))?
+                    .to_owned();
+                stack.push(name);
+            }
+            Event::Empty(_) | Event::Eof => {}
+            _ => {}
+        }
+        buf.clear();
+        if eof {
+            break;
+        }
+    }
+    if collection_spans.len() != 1
+        || membership_spans.len()
+            != actual_memberships
+                .iter()
+                .map(|(_, ids)| ids.iter().filter(|id| *id == &request.track_id).count())
+                .sum::<usize>()
+    {
+        return Err(Error(
+            "target references are missing, duplicated, or structurally ambiguous".into(),
+        ));
+    }
+    let collection_tag = collection_tag_span.ok_or_else(|| Error("COLLECTION missing".into()))?;
+    let mut edits: Vec<(std::ops::Range<usize>, Vec<u8>)> = Vec::new();
+    edits.extend(collection_spans.into_iter().map(|r| (r, Vec::new())));
+    edits.extend(membership_spans.into_iter().map(|(_, r)| (r, Vec::new())));
+    for (span, key) in std::iter::once((collection_tag, "Entries".to_owned())).chain(
+        playlist_tag_spans
+            .into_iter()
+            .filter(|(i, _)| actual_memberships.iter().any(|(j, _)| i == j))
+            .map(|(_, span)| (span, "Entries".to_owned())),
+    ) {
+        let current = bytes[span.clone()].to_vec();
+        let count = count_attribute_value_range(&current, &key)?;
+        let old = std::str::from_utf8(&current[count.clone()])
+            .map_err(|_| Error("invalid count".into()))?
+            .parse::<usize>()
+            .map_err(|_| Error("malformed entry count".into()))?;
+        let replacement = old
+            .checked_sub(1)
+            .ok_or_else(|| Error("entry count underflow".into()))?
+            .to_string()
+            .into_bytes();
+        edits.push((
+            span.start + count.start..span.start + count.end,
+            replacement,
+        ));
+    }
+    edits.sort_by_key(|(range, _)| std::cmp::Reverse(range.start));
+    let mut output = bytes.to_vec();
+    for (range, replacement) in edits {
+        output.splice(range, replacement);
+    }
+    let after = preflight_export(&output)?;
+    let mut expected_tracks = before.selected_tracks.clone();
+    expected_tracks.retain(|t| t.id != request.track_id);
+    let mut expected_playlists = before.selected_playlists.clone();
+    for (i, playlist) in expected_playlists.iter_mut().enumerate() {
+        if actual_memberships.iter().any(|(j, _)| *j == i) {
+            playlist.tracks.retain(|id| id != &request.track_id);
+        }
+    }
+    if after.selected_tracks != expected_tracks || after.selected_playlists != expected_playlists {
+        return Err(Error("track deletion semantic verification failed".into()));
+    }
+    Ok(PreparedTrackDelete { bytes: output })
+}
+
+fn count_attribute_value_range(tag: &[u8], key: &str) -> Result<std::ops::Range<usize>, Error> {
+    let needle = key.as_bytes();
+    let mut found = tag
+        .windows(needle.len())
+        .enumerate()
+        .filter(|(_, w)| *w == needle);
+    let (at, _) = found
+        .next()
+        .ok_or_else(|| Error(format!("{key} attribute missing")))?;
+    if found.next().is_some() {
+        return Err(Error(format!("duplicate {key} attribute")));
+    }
+    let mut i = at + needle.len();
+    while tag.get(i).is_some_and(u8::is_ascii_whitespace) {
+        i += 1;
+    }
+    if tag.get(i) != Some(&b'=') {
+        return Err(Error(format!("malformed {key} attribute")));
+    }
+    i += 1;
+    while tag.get(i).is_some_and(u8::is_ascii_whitespace) {
+        i += 1;
+    }
+    let quote = *tag
+        .get(i)
+        .ok_or_else(|| Error(format!("malformed {key} attribute")))?;
+    if quote != b'\'' && quote != b'"' {
+        return Err(Error(format!("malformed {key} attribute")));
+    }
+    let begin = i + 1;
+    let end = tag[begin..]
+        .iter()
+        .position(|b| *b == quote)
+        .map(|n| begin + n)
+        .ok_or_else(|| Error(format!("malformed {key} attribute")))?;
+    Ok(begin..end)
 }
 
 /// Prepare a byte-preserving reorder of playlist membership elements.
@@ -1887,6 +2111,116 @@ pub fn prepare_tempo_start_edit(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn guarded_track_delete_removes_collection_and_exact_shared_memberships() {
+        let source = include_bytes!("../../../xtask/tests/fixtures/rekordbox-a1/F-02/source.bin");
+        let request = TrackDeleteRequest {
+            track_id: "200".into(),
+            expected_memberships: vec![
+                (0, vec!["100".into(), "200".into(), "300".into()]),
+                (1, vec!["200".into(), "400".into()]),
+            ],
+        };
+        let prepared = prepare_track_delete(source, &request).unwrap();
+        let after = preflight_export(&prepared.bytes).unwrap();
+        assert_eq!(after.selected_tracks.len(), 3);
+        assert_eq!(after.selected_playlists[0].tracks, ["100", "300"]);
+        assert_eq!(after.selected_playlists[1].tracks, ["400"]);
+        assert_eq!(
+            after
+                .selected_tracks
+                .iter()
+                .map(|t| t.id.as_str())
+                .collect::<Vec<_>>(),
+            ["100", "300", "400"]
+        );
+        assert_eq!(
+            after
+                .selected_playlists
+                .iter()
+                .map(|p| p.tracks.len())
+                .collect::<Vec<_>>(),
+            [2, 1]
+        );
+        let expected_bytes = String::from_utf8(source.to_vec())
+            .unwrap()
+            .replace("<COLLECTION Entries=\"4\">", "<COLLECTION Entries=\"3\">")
+            .replace(
+                "<TRACK TrackID=\"200\" Name=\"B\" Location=\"file://localhost/music/b.flac\"/>",
+                "",
+            )
+            .replace(
+                "Name=\"House\" Entries=\"3\"",
+                "Name=\"House\" Entries=\"2\"",
+            )
+            .replace(
+                "Name=\"Techno\" Entries=\"2\"",
+                "Name=\"Techno\" Entries=\"1\"",
+            )
+            .replace("<TRACK Key=\"200\"/>", "");
+        assert_eq!(prepared.bytes, expected_bytes.as_bytes());
+        assert_eq!(
+            prepared.bytes.iter().filter(|b| **b == b'\n').count(),
+            source.iter().filter(|b| **b == b'\n').count()
+        );
+        for stale in [
+            TrackDeleteRequest {
+                expected_memberships: vec![(0, vec!["100".into(), "200".into(), "300".into()])],
+                ..request.clone()
+            },
+            TrackDeleteRequest {
+                expected_memberships: vec![
+                    (0, vec!["100".into(), "300".into()]),
+                    (1, vec!["200".into(), "400".into()]),
+                ],
+                ..request.clone()
+            },
+        ] {
+            assert!(prepare_track_delete(source, &stale).is_err());
+        }
+    }
+
+    #[test]
+    fn guarded_track_delete_rejects_bad_target_references_and_counts() {
+        let source = include_bytes!("../../../xtask/tests/fixtures/rekordbox-a1/F-02/source.bin");
+        let request = TrackDeleteRequest {
+            track_id: "200".into(),
+            expected_memberships: vec![
+                (0, vec!["100".into(), "200".into(), "300".into()]),
+                (1, vec!["200".into(), "400".into()]),
+            ],
+        };
+        let duplicate_membership = String::from_utf8(source.to_vec()).unwrap().replacen(
+            "<TRACK Key=\"200\"/>",
+            "<TRACK Key=\"200\"/><TRACK Key=\"200\"/>",
+            1,
+        );
+        let duplicate_guard = TrackDeleteRequest {
+            expected_memberships: vec![
+                (
+                    0,
+                    vec!["100".into(), "200".into(), "200".into(), "300".into()],
+                ),
+                (1, vec!["200".into(), "400".into()]),
+            ],
+            ..request.clone()
+        };
+        assert!(prepare_track_delete(duplicate_membership.as_bytes(), &duplicate_guard).is_err());
+        for bad in [
+            String::from_utf8(source.to_vec())
+                .unwrap()
+                .replace("Key=\"200\"", "Key=\"999\""),
+            String::from_utf8(source.to_vec())
+                .unwrap()
+                .replace("Key=\"200\"", "Key=\"200\" Key=\"200\""),
+            String::from_utf8(source.to_vec())
+                .unwrap()
+                .replace("Entries=\"4\"", "Entries=\"bad\""),
+        ] {
+            assert!(prepare_track_delete(bad.as_bytes(), &request).is_err());
+        }
+    }
 
     #[test]
     fn guarded_track_name_edit_changes_only_selected_attribute_and_checks_xml_text() {

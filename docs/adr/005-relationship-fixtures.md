@@ -209,6 +209,8 @@ output, unchanged Techno membership, four collection tracks and declared counts.
 Sol approved commits `812a414` and `a50001d`; `cargo xtask ci-full` passed.
 This remains synthetic-only; vendor application acceptance is NOT DEMONSTRATED.
 
+**Observed synthetic XML deletion:** F-02 TrackID 200 is deleted from the collection and both guarded memberships in House and Techno in one new-file export. The request requires exact old ordered memberships for every playlist containing the target; stale/incomplete guards and missing/duplicate target references are rejected. The adapter updates `COLLECTION Entries` and the affected playlist `NODE Entries` while retaining all unrelated source bytes. Focused adapter/CLI tests exercise export, refusal and source immutability; independent ElementTree decode observed collection `[100,300,400]`, House `[100,300]`, Techno `[400]`, and counts `3/2/1`. This is synthetic F-02 behavior only; Rekordbox application acceptance, ADR-005 promotion and qualification remain NOT DEMONSTRATED.
+
 ### F-03: Constant grid, cues and range unchanged
 
 Mixxx-derived **logical CueInfo DTO**, not a claimed Mixxx library transport.

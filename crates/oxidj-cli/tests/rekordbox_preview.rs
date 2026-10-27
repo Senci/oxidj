@@ -1105,6 +1105,69 @@ fn track_name_edit_exports_one_guarded_name_and_rejects_stale_or_existing_output
     let _ = fs::remove_file(output);
 }
 
+#[test]
+fn delete_track_cli_removes_shared_f02_track_with_exact_guard_and_new_output() {
+    let fixture = format!(
+        "{}/../../xtask/tests/fixtures/rekordbox-a1/F-02/source.bin",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let input = temporary_path("track-delete-input");
+    let output = temporary_path("track-delete-output");
+    let source = fs::read(&fixture).unwrap();
+    fs::write(&input, &source).unwrap();
+    let invoke = |guard: &str, target: &std::path::Path| {
+        Command::new(env!("CARGO_BIN_EXE_oxidj-cli"))
+            .args([
+                "rekordbox",
+                "delete-track",
+                "--xml",
+                input.to_str().unwrap(),
+                "--output",
+                target.to_str().unwrap(),
+                "--track-id",
+                "200",
+                "--expected-memberships",
+                guard,
+            ])
+            .output()
+            .unwrap()
+    };
+    let success = invoke("0:100,200,300;1:200,400", &output);
+    assert_eq!(
+        success.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&success.stderr)
+    );
+    let exported = fs::read_to_string(&output).unwrap();
+    assert!(exported.contains("<COLLECTION Entries=\"3\">"));
+    assert!(exported.contains("Name=\"House\" Entries=\"2\""));
+    assert!(exported.contains("Name=\"Techno\" Entries=\"1\""));
+    assert!(!exported.contains("TrackID=\"200\""));
+    assert!(!exported.contains("Key=\"200\""));
+    assert_eq!(fs::read(&input).unwrap(), source);
+    let existing = fs::read(&output).unwrap();
+    assert_ne!(
+        invoke("0:100,200,300;1:200,400", &output).status.code(),
+        Some(0)
+    );
+    assert_eq!(fs::read(&output).unwrap(), existing);
+    for (label, guard) in [
+        ("stale", "0:100,300;1:400"),
+        ("incomplete", "0:100,200,300"),
+    ] {
+        let rejected = temporary_path(&format!("track-delete-{label}"));
+        assert_ne!(invoke(guard, &rejected).status.code(), Some(0));
+        assert!(!rejected.exists());
+    }
+    assert_ne!(
+        invoke("0:100,200,300;1:200,400", &input).status.code(),
+        Some(0)
+    );
+    let _ = fs::remove_file(input);
+    let _ = fs::remove_file(output);
+}
+
 fn temporary_path(label: &str) -> std::path::PathBuf {
     let stamp = SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)

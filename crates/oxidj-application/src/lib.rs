@@ -9,9 +9,9 @@ pub use oxidj_rekordbox::{
     PositionMarkEndEditRequest, PositionMarkNameEditChange, PositionMarkNameEditRequest,
     PreparedFolderRename, PreparedPlaylistRename, PreparedPlaylistReorder,
     PreparedPositionMarkEdit, PreparedPositionMarkEndEdit, PreparedPositionMarkNameEdit,
-    PreparedTempoEdit, PreparedTempoStartEdit, PreparedTrackNameEdit, Preview, TempoEditChange,
-    TempoEditRequest, TempoStartEditChange, TempoStartEditRequest, TrackNameEditChange,
-    TrackNameEditRequest,
+    PreparedTempoEdit, PreparedTempoStartEdit, PreparedTrackDelete, PreparedTrackNameEdit, Preview,
+    TempoEditChange, TempoEditRequest, TempoStartEditChange, TempoStartEditRequest,
+    TrackDeleteRequest, TrackNameEditChange, TrackNameEditRequest,
 };
 
 /// Read-only preview handler; parsing and vendor-specific semantics stay in the adapter.
@@ -29,6 +29,17 @@ pub fn export_rekordbox_track_name_edit(
     let prepared = oxidj_rekordbox::prepare_track_name_edit(&source, request)?;
     publish_new_file(&output, &prepared.bytes)?;
     Ok(prepared.change)
+}
+
+/// Export one guarded collection track deletion and all its playlist memberships.
+pub fn export_rekordbox_track_delete(
+    input: impl AsRef<Path>,
+    output: impl AsRef<Path>,
+    request: &TrackDeleteRequest,
+) -> Result<(), RekordboxError> {
+    let (source, output) = read_new_export_source(input, output)?;
+    let prepared = oxidj_rekordbox::prepare_track_delete(&source, request)?;
+    publish_new_file(&output, &prepared.bytes)
 }
 
 /// Read-only eligibility plan for the bounded no-edit Rekordbox XML exporter.

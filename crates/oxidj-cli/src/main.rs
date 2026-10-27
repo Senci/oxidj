@@ -68,6 +68,53 @@ fn run(args: &[String]) -> i32 {
 }
 
 fn run_rekordbox(args: &[String]) -> i32 {
+    if args.first().is_some_and(|action| action == "delete-track") {
+        if args.len() != 9
+            || args[1] != "--xml"
+            || args[3] != "--output"
+            || args[5] != "--track-id"
+            || args[7] != "--expected-memberships"
+        {
+            eprintln!(
+                "error: expected rekordbox delete-track --xml IN --output NEW --track-id ID --expected-memberships INDEX:ID,ID;INDEX:ID,ID"
+            );
+            return USAGE;
+        }
+        let mut expected_memberships = Vec::new();
+        for part in args[8].split(';') {
+            let Some((index, ids)) = part.split_once(':') else {
+                eprintln!("error: malformed membership guard");
+                return USAGE;
+            };
+            let Ok(index) = index.parse::<usize>() else {
+                eprintln!("error: malformed playlist index in membership guard");
+                return USAGE;
+            };
+            if ids.is_empty() {
+                eprintln!("error: empty playlist membership guard");
+                return USAGE;
+            }
+            expected_memberships.push((index, ids.split(',').map(str::to_owned).collect()));
+        }
+        let request = oxidj_application::TrackDeleteRequest {
+            track_id: args[6].clone(),
+            expected_memberships,
+        };
+        return match oxidj_application::export_rekordbox_track_delete(&args[2], &args[4], &request)
+        {
+            Ok(()) => {
+                println!(
+                    "Deleted collection track {} and guarded playlist memberships",
+                    args[6]
+                );
+                OK
+            }
+            Err(error) => {
+                eprintln!("error: track deletion rejected: {error}");
+                DOMAIN
+            }
+        };
+    }
     if args
         .first()
         .is_some_and(|action| action == "edit-track-name")
@@ -707,6 +754,10 @@ fn print_usage(to_stdout: bool) {
     let _ = writeln!(
         output,
         "  rekordbox rename-playlist --xml <in> --output <new> --playlist-index <n> --expected-name <old> --name <new>   Export one guarded playlist rename"
+    );
+    let _ = writeln!(
+        output,
+        "  rekordbox delete-track --xml <in> --output <new> --track-id <id> --expected-memberships <index:IDs;...>   Delete a track and all guarded playlist memberships"
     );
     let _ = writeln!(
         output,
