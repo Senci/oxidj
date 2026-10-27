@@ -2,6 +2,10 @@
 
 ## Current milestone
 
+### Pre-alpha visual evidence archive (2026-10-27)
+
+`docs/milestones/pre-alpha-01/` contains two genuine synthetic M3 local-library UI screenshots (persisted-catalog startup and empty-library views), captured on the isolated Bot Screen on 2026-10-27. They document rendered UI states only and do not satisfy deferred production GUI, accessibility/platform, performance, interoperability, or ADR-005 gates.
+
 **Bounded local M1–M3 — ACCEPTANCE COMPLETE (2026-10-26).** M1 catalog, M2 reference-only import, and provisional M3 persisted-library UI smoke are implemented, independently reviewed, and covered by the closeout evidence below and in `plan/MVP.md`. `cargo xtask ci-full` passes on local `master` after the closeout and documentation updates; it includes `cargo xtask ci`. GitHub CI passed on product closeout head `113210821d4dca1a95a69c7cec29d29bf4faa443`. Pushed remote `master` is `3e2a682eefbaccbd94e6c41eb0806edbf5076e05`; exact-head GitHub CI run [`40413309811`](https://github.com/Senci/oxidj/actions/runs/40413309811) succeeded (`success`, push event). The push reported that required status check `cargo xtask ci-full` was bypassed because it was expected before the push; post-push success does not make this a checked merge. Push remains optional backup for product work under the owner's local-only workflow; this Pages status correction has separate publication authorization. This does not pass production GUI admission, accessibility/platform, 500k/60fps, vendor interoperability, or ADR-005 gates.
 
 ### M4 — IN PROGRESS (verified on master, 2026-10-27)

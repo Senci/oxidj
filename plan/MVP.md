@@ -15,6 +15,10 @@
 - Read-only preview also lists synthetic Type=0 folders in source order with stable zero-based ordinals, full paths, raw names and optional raw Counts, including duplicate names and paired/self-closing empty folders. Parser and CLI regressions cover these cases; Rekordbox/OneLibrary compatibility and ADR-005 qualification remain unproven.
 - M5 DJ metadata; M6 Analysis; M7 MVP interoperability proof — unchanged wider-product milestones.
 
+### Pre-alpha visual evidence archive (2026-10-27)
+
+`docs/milestones/pre-alpha-01/` preserves two genuine Bot Screen captures of the M3 local-library UI: a persisted synthetic-catalog startup view and an empty-library view, both captured 2026-10-27. The README records context and evidence limits. These images are visual evidence only; they do not pass production GUI admission, accessibility/platform, performance, interoperability, or ADR-005 qualification gates.
+
 ## Revised local M1–M3 acceptance contract v1 (2026-10-23)
 
 This dated, scoped amendment supersedes the historical M1–M3 acceptance criteria only for delivery of the bounded local-library product slice. It does not change `idea.md`'s wider vision or mark any historical test, scale target, qualification, or GUI gate as passed. The chosen path remains SQLite/WAL/FULL and egui/eframe, with existing ADR-001 qualification before production GUI admission. At amendment time, Hound `=3.5.1`, Claxon `=0.4.3`, and nanomp3 `=0.2.0` were conditional planning choices, not dependency admission. The coordinated M2 decoder policy has since been reviewed and integrated in `docs/adr/004-crate-boundaries.md` and `docs/layers-policy.md`; the executable layer gate enforces it. See the M2 closeout below. Production GUI admission, vendor interoperability, and representative-scale qualification remain separate gates.
