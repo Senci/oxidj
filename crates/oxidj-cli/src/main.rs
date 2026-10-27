@@ -326,7 +326,7 @@ fn run_rekordbox(args: &[String]) -> i32 {
             || args[9] != "--album"
         {
             eprintln!(
-                "error: expected rekordbox edit-track-tonality --xml <in> --output <new> --track-id <id> --expected-tonality <old> --tonality <new>   Export one guarded track Tonality edit\n  rekordbox edit-track-album --xml IN --output NEW --track-id ID --expected-album OLD --album NEW"
+                "error: expected rekordbox edit-track-album --xml IN --output NEW --track-id ID --expected-album OLD --album NEW"
             );
             return USAGE;
         }
