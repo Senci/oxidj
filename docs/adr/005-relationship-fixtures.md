@@ -229,6 +229,8 @@ report `[]`. Real OneLibrary export without qualified binding is blocked with
 `unqualified-wire-format`. Unknown kind meaning and empirical real-format
 passthrough stay NOT DEMONSTRATED (A3), even if the synthetic test later passes.
 
+**Observed logical-only result:** `xtask/tests/fixtures/f05-logical/` freezes the exact canonical source bytes/object, raw opaque bytes/comment/flags, unit-tagged position observations and `UNKNOWN(7)` projection, archive, byte-identical synthetic echo, empty report, separate real-target blocked plan/report and provenance. `xtask/tests/f05_logical.rs` independently checks the frozen contracts and artifact digests; mutation controls reject inferred Loop semantics, altered source bytes, and a missing blocked-report entry. This is synthetic logical evidence only; A3 remains unqualified.
+
 ### F-06: BeatMap deletion and explicit declared dependency
 
 Logical mapping of pinned Mixxx legacy BeatMap: b0 frame0, b1 frame120000,
@@ -422,7 +424,7 @@ those controls or restores and defines no product media/retention policy.
 | F-02 | XML child order, shared endpoints | PASS — synthetic A1 checker/tests; no application acceptance |
 | F-03 | Constant grid/cue/range preservation | PASS — logical-only fixture/checker and mutation controls; A2 NOT DEMONSTRATED |
 | F-04 | Revisioned edits, stale conflicts, analysis precedence | NOT DEMONSTRATED |
-| F-05 | Synthetic unknown-kind bytes; real vendor gap | NOT DEMONSTRATED |
+| F-05 | Synthetic unknown-kind bytes; real vendor gap | PASS — synthetic logical fixture/checker and mutation controls; A3 NOT DEMONSTRATED |
 | F-06a | Absolute cue independence, logical-only | PASS — synthetic logical fixture/checker and mutation controls; A2 NOT DEMONSTRATED |
 | F-06b | Declared anchor loss, logical-only | PASS — synthetic OxiDJ-only declaration/deletion, exact safe-v1 withholding report, vendor-only re-import and mutation controls; A2 NOT DEMONSTRATED |
 | F-06 grouped | Absolute independence / declared anchor loss | PASS — F-06a and F-06b logical-only evidence only; A2 NOT QUALIFIED |
