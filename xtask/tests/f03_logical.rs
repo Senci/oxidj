@@ -14,6 +14,49 @@ fn read(name: &str) -> Value {
 fn digest(b: &[u8]) -> String {
     format!("{:x}", Sha256::digest(b))
 }
+fn checker_identity_matches(identity: &Value, live_source: &[u8]) -> bool {
+    identity
+        == &json!({"path":"xtask/tests/f03_logical.rs","version":"f03-logical-checker-v1","sha256":digest(live_source)})
+}
+fn provenance_valid(prov: &Value, identity: &Value, live_source: &[u8]) -> bool {
+    if !checker_identity_matches(identity, live_source) || prov["checker_identity"] != *identity {
+        return false;
+    }
+    let names = [
+        "case.json",
+        "operations.json",
+        "expected-archive.json",
+        "expected-visible.json",
+        "expected-plan.json",
+        "expected-report.json",
+        "source.bin",
+        "checker-identity.json",
+    ];
+    let Some(artifacts) = prov["artifacts"].as_object() else {
+        return false;
+    };
+    let mut actual: Vec<_> = std::fs::read_dir(fixture("."))
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    actual.sort();
+    let mut expected: Vec<_> = names
+        .iter()
+        .map(|n| n.to_string())
+        .chain(["provenance.json".to_owned()])
+        .collect();
+    expected.sort();
+    actual == expected
+        && artifacts.len() == names.len()
+        && names.iter().all(|n| {
+            let Ok(bytes) = std::fs::read(fixture(n)) else {
+                return false;
+            };
+            artifacts[*n]["path"] == *n
+                && artifacts[*n]["length_bytes"] == bytes.len()
+                && artifacts[*n]["sha256"] == digest(&bytes)
+        })
+}
 // Hand-authored DTO contract oracle; deliberately independent of product import/projection code.
 fn check(src: &[u8], a: &Value, v: &Value, p: &Value, r: &Value) -> Result<(), &'static str> {
     let s: Value = serde_json::from_slice(src).map_err(|_| "source JSON")?;
@@ -66,6 +109,14 @@ fn check(src: &[u8], a: &Value, v: &Value, p: &Value, r: &Value) -> Result<(), &
 fn f03_artifacts_frozen_and_independently_equal() {
     let source = std::fs::read(fixture("source.bin")).unwrap();
     let provenance = read("provenance.json");
+    let identity: Value =
+        serde_json::from_slice(&std::fs::read(fixture("checker-identity.json")).unwrap()).unwrap();
+    let live_checker =
+        std::fs::read(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/f03_logical.rs"))
+            .unwrap();
+    assert!(checker_identity_matches(&identity, &live_checker));
+    assert_eq!(provenance["checker_identity"], identity);
+    assert!(provenance_valid(&provenance, &identity, &live_checker));
     assert_eq!(provenance["classification"], "logical-only-not-A2-evidence");
     assert_eq!(provenance["source_sha256"], digest(&source));
     assert_eq!(provenance["source_length_bytes"], source.len());
@@ -74,6 +125,28 @@ fn f03_artifacts_frozen_and_independently_equal() {
         assert_eq!(info["length_bytes"], b.len());
         assert_eq!(info["sha256"], digest(&b));
     }
+    for (key, value) in [
+        ("path", json!("xtask/tests/other.rs")),
+        ("version", json!("f03-logical-checker-v2")),
+        ("sha256", json!("wrong")),
+    ] {
+        let mut drift = identity.clone();
+        drift[key] = value;
+        assert!(!checker_identity_matches(&drift, &live_checker));
+    }
+    assert!(!checker_identity_matches(&identity, b"mutated checker"));
+    let mut drifted = provenance.clone();
+    drifted["checker_identity"]["version"] = json!("drift");
+    assert!(!provenance_valid(&drifted, &identity, &live_checker));
+    drifted = provenance.clone();
+    drifted["artifacts"]
+        .as_object_mut()
+        .unwrap()
+        .remove("checker-identity.json");
+    assert!(!provenance_valid(&drifted, &identity, &live_checker));
+    drifted = provenance.clone();
+    drifted["artifacts"]["unexpected.json"] = json!({});
+    assert!(!provenance_valid(&drifted, &identity, &live_checker));
     assert_eq!(read("case.json")["case_id"], "F-03");
     check(
         &source,
