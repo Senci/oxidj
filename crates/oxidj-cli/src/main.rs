@@ -1703,6 +1703,62 @@ fn run_rekordbox(args: &[String]) -> i32 {
             }
         };
     }
+    if args.first().is_some_and(|action| action == "delete-mark") {
+        if !(args.len() == 16 || args.len() == 17)
+            || args[1] != "--xml"
+            || args[3] != "--output"
+            || args[5] != "--track-id"
+            || args[7] != "--mark-index"
+            || args[9] != "--type"
+            || args[11] != "--start"
+            || args[13] != "--name"
+        {
+            eprintln!(
+                "error: expected rekordbox delete-mark --xml IN --output NEW --track-id ID --mark-index N --type RAW --start RAW --name RAW --end VALUE|--no-end"
+            );
+            return USAGE;
+        }
+        let Ok(mark_index) = args[8].parse::<usize>() else {
+            eprintln!("error: mark index must be a non-negative integer");
+            return USAGE;
+        };
+        let end = match args.get(15).map(String::as_str) {
+            Some("--end") if args.len() == 17 => Some(args[16].clone()),
+            Some("--no-end") if args.len() == 16 => None,
+            _ => {
+                eprintln!("error: specify --end VALUE or --no-end");
+                return USAGE;
+            }
+        };
+        let request = oxidj_application::PositionMarkDeleteRequest {
+            track_id: args[6].clone(),
+            mark_index,
+            expected_type: args[10].clone(),
+            expected_start: args[12].clone(),
+            expected_name: args[14].clone(),
+            expected_end: end,
+        };
+        return match oxidj_application::export_rekordbox_position_mark_delete(
+            &args[2], &args[4], &request,
+        ) {
+            Ok(change) => {
+                println!(
+                    "Deleted TrackID={} POSITION_MARK[{}] Type={} Start={} Name={:?} End={:?}",
+                    change.track_id,
+                    change.mark_index,
+                    change.deleted_type,
+                    change.deleted_start,
+                    change.deleted_name,
+                    change.deleted_end
+                );
+                OK
+            }
+            Err(error) => {
+                eprintln!("error: position mark delete rejected: {error}");
+                DOMAIN
+            }
+        };
+    }
     if args.first().is_some_and(|action| action == "edit-mark-end") {
         if args.len() != 13
             || args[1] != "--xml"
@@ -2428,6 +2484,10 @@ fn print_usage(to_stdout: bool) {
     let _ = writeln!(
         output,
         "  rekordbox edit-track-artist --xml <in> --output <new> --track-id <id> --expected-artist <old> --artist <new>   Export one guarded track Artist edit"
+    );
+    let _ = writeln!(
+        output,
+        "  rekordbox delete-mark --xml <in> --output <new> --track-id <id> --mark-index <n> --type <raw> --start <raw> --name <raw> (--end <raw>|--no-end)   Delete one guarded position mark"
     );
     let _ = writeln!(
         output,

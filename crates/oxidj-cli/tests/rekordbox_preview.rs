@@ -1049,6 +1049,83 @@ fn tempo_meter_edit_exports_one_guarded_raw_metro_change_without_other_mutation(
 }
 
 #[test]
+fn delete_mark_cli_removes_exactly_one_raw_guarded_mark_and_preserves_source() {
+    let fixture = format!(
+        "{}/../../xtask/tests/fixtures/rekordbox-a1/F-07/source.bin",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let source = fs::read(&fixture).unwrap();
+    let input = temporary_path("mark-delete-input");
+    let output = temporary_path("mark-delete-output");
+    fs::write(&input, &source).unwrap();
+    let result = Command::new(env!("CARGO_BIN_EXE_oxidj-cli"))
+        .args([
+            "rekordbox",
+            "delete-mark",
+            "--xml",
+            input.to_str().unwrap(),
+            "--output",
+            output.to_str().unwrap(),
+            "--track-id",
+            "700",
+            "--mark-index",
+            "0",
+            "--type",
+            "0",
+            "--start",
+            "5",
+            "--name",
+            "Intro",
+            "--no-end",
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(
+        result.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let edited = fs::read(&output).unwrap();
+    let expected = String::from_utf8(source.clone())
+        .unwrap()
+        .replace(
+            "<POSITION_MARK Name=\"Intro\" Type=\"0\" Start=\"5\" Num=\"0\"/>",
+            "",
+        )
+        .into_bytes();
+    assert_eq!(edited, expected);
+    assert_eq!(fs::read(&input).unwrap(), source);
+    let stale_output = temporary_path("mark-delete-stale-output");
+    let stale = Command::new(env!("CARGO_BIN_EXE_oxidj-cli"))
+        .args([
+            "rekordbox",
+            "delete-mark",
+            "--xml",
+            input.to_str().unwrap(),
+            "--output",
+            stale_output.to_str().unwrap(),
+            "--track-id",
+            "700",
+            "--mark-index",
+            "0",
+            "--type",
+            "stale",
+            "--start",
+            "5",
+            "--name",
+            "Intro",
+            "--no-end",
+        ])
+        .output()
+        .unwrap();
+    assert_ne!(stale.status.code(), Some(0));
+    assert!(!stale_output.exists());
+    let _ = fs::remove_file(input);
+    let _ = fs::remove_file(output);
+}
+
+#[test]
 fn edit_mark_name_escapes_xml_and_targets_ordinal_by_decoded_old_name() {
     let fixture = format!(
         "{}/../../xtask/tests/fixtures/rekordbox-a1/F-07/source.bin",

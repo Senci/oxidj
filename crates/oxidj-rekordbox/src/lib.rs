@@ -399,6 +399,30 @@ pub struct PreparedPositionMarkNameEdit {
     pub bytes: Vec<u8>,
     pub change: PositionMarkNameEditChange,
 }
+/// Exact raw-field guard for deleting one position mark by track-local ordinal.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PositionMarkDeleteRequest {
+    pub track_id: String,
+    pub mark_index: usize,
+    pub expected_type: String,
+    pub expected_start: String,
+    pub expected_name: String,
+    pub expected_end: Option<String>,
+}
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PositionMarkDeleteChange {
+    pub track_id: String,
+    pub mark_index: usize,
+    pub deleted_type: String,
+    pub deleted_start: String,
+    pub deleted_name: String,
+    pub deleted_end: Option<String>,
+}
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PreparedPositionMarkDelete {
+    pub bytes: Vec<u8>,
+    pub change: PositionMarkDeleteChange,
+}
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TrackNameEditRequest {
     pub track_id: String,
@@ -6389,6 +6413,151 @@ pub fn prepare_position_mark_name_edit(
     })
 }
 
+pub fn prepare_position_mark_delete(
+    bytes: &[u8],
+    request: &PositionMarkDeleteRequest,
+) -> Result<PreparedPositionMarkDelete, Error> {
+    let source = preflight_export(bytes)?;
+    let mut tracks = source
+        .selected_tracks
+        .iter()
+        .filter(|t| t.id == request.track_id);
+    let track = tracks
+        .next()
+        .ok_or_else(|| Error(format!("unknown TrackID {}", request.track_id)))?;
+    if tracks.next().is_some() {
+        return Err(Error(format!("duplicate TrackID {}", request.track_id)));
+    }
+    let mark = track
+        .marks
+        .get(request.mark_index)
+        .ok_or_else(|| Error("position mark missing".into()))?;
+    if mark.kind != request.expected_type
+        || mark.start_seconds != request.expected_start
+        || mark.name != request.expected_name
+        || mark.end_seconds != request.expected_end
+    {
+        return Err(Error("position mark guard changed".into()));
+    }
+    let mut reader = Reader::from_reader(bytes);
+    reader.config_mut().check_end_names = true;
+    let mut buf = Vec::new();
+    let mut stack: Vec<String> = Vec::new();
+    let mut tid: Option<String> = None;
+    let mut index = 0usize;
+    let mut range = None;
+    let mut removal_start = 0usize;
+    let mut remove_depth = None;
+    loop {
+        let start = reader.buffer_position() as usize;
+        let event = reader
+            .read_event_into(&mut buf)
+            .map_err(|e| Error(format!("malformed XML: {e}")))?;
+        let end = reader.buffer_position() as usize;
+        match event {
+            Event::Start(e) => {
+                let tag = String::from_utf8_lossy(e.name().as_ref()).into_owned();
+                if tag == "TRACK" && stack.last().is_some_and(|x| x == "COLLECTION") {
+                    tid = Some(attr(&e, "TrackID")?);
+                    index = 0;
+                } else if tag == "POSITION_MARK" && tid.as_deref() == Some(&request.track_id) {
+                    if index == request.mark_index {
+                        let actual = (
+                            attr(&e, "Type")?,
+                            attr(&e, "Start")?,
+                            attr(&e, "Name")?,
+                            optional(&e, "End")?,
+                        );
+                        if actual
+                            != (
+                                request.expected_type.clone(),
+                                request.expected_start.clone(),
+                                request.expected_name.clone(),
+                                request.expected_end.clone(),
+                            )
+                        {
+                            return Err(Error("position mark raw-field guard changed".into()));
+                        }
+                        removal_start = start;
+                        remove_depth = Some(stack.len());
+                    }
+                    index += 1;
+                }
+                stack.push(tag);
+            }
+            Event::Empty(e) => {
+                if e.name().as_ref() == b"POSITION_MARK"
+                    && tid.as_deref() == Some(&request.track_id)
+                {
+                    if index == request.mark_index {
+                        let actual = (
+                            attr(&e, "Type")?,
+                            attr(&e, "Start")?,
+                            attr(&e, "Name")?,
+                            optional(&e, "End")?,
+                        );
+                        if actual
+                            != (
+                                request.expected_type.clone(),
+                                request.expected_start.clone(),
+                                request.expected_name.clone(),
+                                request.expected_end.clone(),
+                            )
+                        {
+                            return Err(Error("position mark raw-field guard changed".into()));
+                        }
+                        range = Some(start..end);
+                    }
+                    index += 1;
+                }
+            }
+            Event::End(e) => {
+                if let Some(depth) = remove_depth
+                    && stack.len() == depth + 1
+                    && e.name().as_ref() == b"POSITION_MARK"
+                {
+                    range = Some(removal_start..end);
+                    remove_depth = None;
+                }
+                if e.name().as_ref() == b"TRACK" && stack.last().is_some_and(|x| x == "TRACK") {
+                    tid = None;
+                }
+                stack.pop();
+            }
+            Event::Eof => break,
+            _ => {}
+        }
+        buf.clear();
+    }
+    let range = range.ok_or_else(|| Error("position mark missing".into()))?;
+    let mut output = bytes.to_vec();
+    output.drain(range);
+    let verified = preflight_export(&output)?;
+    if verified
+        .selected_tracks
+        .iter()
+        .find(|t| t.id == request.track_id)
+        .is_none_or(|actual| {
+            let mut expected = track.clone();
+            expected.marks.remove(request.mark_index);
+            actual != &expected
+        })
+    {
+        return Err(Error("position mark deletion verification failed".into()));
+    }
+    Ok(PreparedPositionMarkDelete {
+        bytes: output,
+        change: PositionMarkDeleteChange {
+            track_id: request.track_id.clone(),
+            mark_index: request.mark_index,
+            deleted_type: request.expected_type.clone(),
+            deleted_start: request.expected_start.clone(),
+            deleted_name: request.expected_name.clone(),
+            deleted_end: request.expected_end.clone(),
+        },
+    })
+}
+
 fn bpm_attribute_range(
     element: &quick_xml::events::BytesStart<'_>,
     event_start: usize,
@@ -6639,6 +6808,43 @@ pub fn prepare_tempo_meter_edit(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn guarded_position_mark_delete_checks_raw_guard_optionality_and_preserves_other_data() {
+        let source = include_bytes!("../../../xtask/tests/fixtures/rekordbox-a1/F-07/source.bin");
+        let request = PositionMarkDeleteRequest {
+            track_id: "700".into(),
+            mark_index: 0,
+            expected_type: "0".into(),
+            expected_start: "5".into(),
+            expected_name: "Intro".into(),
+            expected_end: None,
+        };
+        let prepared = prepare_position_mark_delete(source, &request).unwrap();
+        assert!(!String::from_utf8_lossy(&prepared.bytes).contains("POSITION_MARK"));
+        let before = preflight_export(source).unwrap();
+        let after = preflight_export(&prepared.bytes).unwrap();
+        let mut expected = before.selected_tracks[0].clone();
+        expected.marks.remove(0);
+        assert_eq!(after.selected_tracks[0], expected);
+        assert_eq!(after.selected_playlists, before.selected_playlists);
+        let with_end = String::from_utf8(source.to_vec()).unwrap().replace(
+            "Start=\"5\" Num=\"0\"/>",
+            "Start=\"5\" Num=\"0\" End=\"0\"/>",
+        );
+        let mut with_end_request = request.clone();
+        with_end_request.expected_end = Some("0".into());
+        assert!(prepare_position_mark_delete(with_end.as_bytes(), &with_end_request).is_ok());
+        with_end_request.expected_end = None;
+        assert!(prepare_position_mark_delete(with_end.as_bytes(), &with_end_request).is_err());
+        let mut stale = request.clone();
+        stale.expected_type = "00".into();
+        assert!(prepare_position_mark_delete(source, &stale).is_err());
+        let mut missing = request.clone();
+        missing.mark_index = 9;
+        assert!(prepare_position_mark_delete(source, &missing).is_err());
+        assert!(prepare_position_mark_delete(b"<bad", &request).is_err());
+    }
 
     #[test]
     fn guarded_folder_create_adds_escaped_child_and_preserves_other_semantics() {

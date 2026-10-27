@@ -8,10 +8,11 @@ pub use oxidj_rekordbox::{
     PlaylistClearRequest, PlaylistCreateRequest, PlaylistDeleteRequest,
     PlaylistMemberAppendRequest, PlaylistMemberDeleteRequest, PlaylistMemberInsertRequest,
     PlaylistMoveRequest, PlaylistRenameChange, PlaylistRenameRequest, PlaylistReorderRequest,
-    PositionMarkEditChange, PositionMarkEditRequest, PositionMarkEndEditChange,
-    PositionMarkEndEditRequest, PositionMarkNameEditChange, PositionMarkNameEditRequest,
-    PreparedFolderDelete, PreparedFolderMove, PreparedFolderRename, PreparedPlaylistDelete,
-    PreparedPlaylistMove, PreparedPlaylistRename, PreparedPlaylistReorder,
+    PositionMarkDeleteChange, PositionMarkDeleteRequest, PositionMarkEditChange,
+    PositionMarkEditRequest, PositionMarkEndEditChange, PositionMarkEndEditRequest,
+    PositionMarkNameEditChange, PositionMarkNameEditRequest, PreparedFolderDelete,
+    PreparedFolderMove, PreparedFolderRename, PreparedPlaylistDelete, PreparedPlaylistMove,
+    PreparedPlaylistRename, PreparedPlaylistReorder, PreparedPositionMarkDelete,
     PreparedPositionMarkEdit, PreparedPositionMarkEndEdit, PreparedPositionMarkNameEdit,
     PreparedSiblingFolderReorder, PreparedSiblingPlaylistReorder, PreparedTempoBeatEdit,
     PreparedTempoEdit, PreparedTempoMeterEdit, PreparedTempoStartEdit, PreparedTrackAlbumEdit,
@@ -580,6 +581,18 @@ pub fn export_rekordbox_position_mark_end_edit(
 ) -> Result<PositionMarkEndEditChange, RekordboxError> {
     let (source, output) = read_new_export_source(input, output)?;
     let prepared = oxidj_rekordbox::prepare_position_mark_end_edit(&source, request)?;
+    publish_new_file(&output, &prepared.bytes)?;
+    Ok(prepared.change)
+}
+
+/// Export deletion of exactly one guarded position mark to a new file.
+pub fn export_rekordbox_position_mark_delete(
+    input: impl AsRef<Path>,
+    output: impl AsRef<Path>,
+    request: &PositionMarkDeleteRequest,
+) -> Result<PositionMarkDeleteChange, RekordboxError> {
+    let (source, output) = read_new_export_source(input, output)?;
+    let prepared = oxidj_rekordbox::prepare_position_mark_delete(&source, request)?;
     publish_new_file(&output, &prepared.bytes)?;
     Ok(prepared.change)
 }
