@@ -22,6 +22,7 @@ pub struct Track {
     pub disc_number: Option<String>,
     pub track_number: Option<String>,
     pub total_time: Option<String>,
+    pub bit_rate: Option<String>,
     pub location: String,
     pub tempos: Vec<Tempo>,
     pub marks: Vec<PositionMark>,
@@ -594,6 +595,7 @@ pub fn parse(bytes: &[u8]) -> Result<Preview, Error> {
                         disc_number: optional(&e, "DiscNumber")?,
                         track_number: optional(&e, "TrackNumber")?,
                         total_time: optional(&e, "TotalTime")?,
+                        bit_rate: optional(&e, "BitRate")?,
                         location: attr(&e, "Location")?,
                         tempos: vec![],
                         marks: vec![],
@@ -688,6 +690,7 @@ pub fn parse(bytes: &[u8]) -> Result<Preview, Error> {
                         disc_number: optional(&e, "DiscNumber")?,
                         track_number: optional(&e, "TrackNumber")?,
                         total_time: optional(&e, "TotalTime")?,
+                        bit_rate: optional(&e, "BitRate")?,
                         location: attr(&e, "Location")?,
                         tempos: vec![],
                         marks: vec![],
@@ -836,6 +839,7 @@ fn validate_export_element(
             "DiscNumber",
             "TrackNumber",
             "TotalTime",
+            "BitRate",
             "Location",
         ],
         "TRACK" => &["Key"],
@@ -3828,11 +3832,11 @@ mod tests {
             .unwrap()
             .replace(
                 "TrackID=\"100\" Name=\"A\"",
-                "TrackID=\"100\" Name=\"A\" TrackNumber=\"-2147483648\" TotalTime=\"3.141592653589793\"",
+                "TrackID=\"100\" Name=\"A\" TrackNumber=\"-2147483648\" TotalTime=\"3.141592653589793\" BitRate=\"-2147483648\"",
             )
             .replace(
                 "TrackID=\"200\" Name=\"B\"",
-                "TrackID=\"200\" Name=\"B\" TrackNumber=\"\" TotalTime=\"\"",
+                "TrackID=\"200\" Name=\"B\" TrackNumber=\"\" TotalTime=\"\" BitRate=\"\"",
             );
         let source = source.as_bytes();
         let preview = parse(source).unwrap();
@@ -3848,6 +3852,9 @@ mod tests {
         );
         assert_eq!(preview.tracks[1].total_time.as_deref(), Some(""));
         assert_eq!(preview.tracks[2].total_time, None);
+        assert_eq!(preview.tracks[0].bit_rate.as_deref(), Some("-2147483648"));
+        assert_eq!(preview.tracks[1].bit_rate.as_deref(), Some(""));
+        assert_eq!(preview.tracks[2].bit_rate, None);
         let plan = preflight_export(source).unwrap();
         assert_eq!(
             plan.selected_tracks[0].track_number.as_deref(),
@@ -3861,6 +3868,12 @@ mod tests {
         );
         assert_eq!(plan.selected_tracks[1].total_time.as_deref(), Some(""));
         assert_eq!(plan.selected_tracks[2].total_time, None);
+        assert_eq!(
+            plan.selected_tracks[0].bit_rate.as_deref(),
+            Some("-2147483648")
+        );
+        assert_eq!(plan.selected_tracks[1].bit_rate.as_deref(), Some(""));
+        assert_eq!(plan.selected_tracks[2].bit_rate, None);
         assert_eq!(export_xml(source).unwrap(), source);
     }
 
