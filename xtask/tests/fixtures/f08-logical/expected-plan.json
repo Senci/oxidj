@@ -1,0 +1,1 @@
+{"case_id":"F-08","contract_version":"logical-v1","decision_phase":"pre-write","export_policy":"safe-v1","no_write_expected":false,"outcome":"ALLOW_EXPORT","report":[],"selected_units":["r1"],"target_format":"onelibrary-synthetic","target_write":"permitted-but-not-performed-by-fixture-harness","withheld_units":[]}

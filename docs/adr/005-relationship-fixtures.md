@@ -275,6 +275,13 @@ observations, **not validated conversions**. Kind0 is retained raw; no range
 semantics inferred from outUsec. No edit: byte-identical synthetic echo, report `[]`.
 The inUsec/outUsec projection is a labeled observation, not vendor authority.
 
+**Observed logical-only result:** `xtask/tests/fixtures/f08-logical/` freezes the
+canonical F-05-derived source object, all ten alternate integer observations,
+archive raw-byte witness, visible object, no-edit plan/report and provenance.
+`xtask/tests/f08_logical.rs` independently checks the frozen values and hashes;
+mutation controls reject changed opaque bytes and invented conversion/kind
+semantics. This is synthetic logical evidence only; A3 remains unqualified.
+
 F-08b: e1 sets the observed inUsec10000000→11000000 at revision0. Revision1
 retains the new observation as USER intent, marks the position unsafe for export,
 and preserves all originals; encodings are not selectively rewritten. Synthetic
@@ -412,7 +419,7 @@ those controls or restores and defines no product media/retention policy.
 | F-06b | Declared anchor loss, logical-only | PASS — synthetic OxiDJ-only declaration/deletion, exact safe-v1 withholding report, vendor-only re-import and mutation controls; A2 NOT DEMONSTRATED |
 | F-06 grouped | Absolute independence / declared anchor loss | PASS — F-06a and F-06b logical-only evidence only; A2 NOT QUALIFIED |
 | F-07 | XML tempo edit without false absolute-cue dependency | PASS — synthetic A1 checker/tests; no UI claim |
-| F-08 / F-08b | Synthetic encoding retention / unsafe edit withholding | NOT DEMONSTRATED |
+| F-08 / F-08b | Synthetic encoding retention / unsafe edit withholding | F-08 PASS — logical-only frozen fixture/checker and mutation controls; F-08b NOT DEMONSTRATED; A3 NOT DEMONSTRATED |
 | F-09 | Independent post-edit/loss-aware checker and controls | NOT DEMONSTRATED |
 | F-10 | Ordered variable tempo/meter preservation | PASS — synthetic A1 checker/tests |
 | F-11 | Point/range/optional-end distinctions | PASS — logical-only fixture/checker and mutation controls; A2 NOT DEMONSTRATED |
