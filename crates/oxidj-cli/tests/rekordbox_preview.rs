@@ -404,7 +404,7 @@ fn preview_prints_tracks_ordered_playlists_tempos_and_marks() {
     assert_eq!(out.status.code(), Some(0));
     let stdout = String::from_utf8(out.stdout).unwrap();
     assert!(stdout.contains(
-        "700\tTempo cue independence\tNone\tNone\tNone\tNone\tNone\tfile://localhost/music/tempo.flac"
+        "700\tTempo cue independence\tNone\tNone\tNone\tNone\tNone\tNone\tfile://localhost/music/tempo.flac"
     ));
     assert!(stdout.contains("TEMPO\t10\t128\t4/4\t1"));
     assert!(stdout.contains("POSITION_MARK\tIntro\t0\t5\t0\tNone"));
@@ -2068,6 +2068,48 @@ fn track_genre_edit_exports_one_guarded_value_and_rejects_without_mutation() {
 }
 
 #[test]
+fn preview_reports_raw_track_label_states_and_preserves_source_bytes() {
+    let fixture = format!(
+        "{}/../../xtask/tests/fixtures/rekordbox-a1/F-02/source.bin",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let base = fs::read(fixture).unwrap();
+    let source = String::from_utf8(base)
+        .unwrap()
+        .replacen(
+            "TrackID=\"100\" Name=\"A\"",
+            "TrackID=\"100\" Name=\"A\" Label=\"raw &amp; label\"",
+            1,
+        )
+        .replace(
+            "TrackID=\"200\" Name=\"B\"",
+            "TrackID=\"200\" Name=\"B\" Label=\"\"",
+        );
+    let input = temporary_path("label-preview");
+    fs::write(&input, source.as_bytes()).unwrap();
+    let preview = Command::new(env!("CARGO_BIN_EXE_oxidj-cli"))
+        .args(["rekordbox", "preview", "--xml", input.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert_eq!(preview.status.code(), Some(0));
+    let text = String::from_utf8_lossy(&preview.stdout);
+    let track_row = |id: &str| {
+        text.lines()
+            .find(|line| line.starts_with(&format!("{id}\t")))
+            .unwrap()
+            .split('\t')
+            .nth(6)
+            .unwrap()
+            .to_owned()
+    };
+    assert_eq!(track_row("100"), "Some(\"raw & label\")");
+    assert_eq!(track_row("200"), "Some(\"\")");
+    assert_eq!(track_row("300"), "None");
+    assert_eq!(fs::read(&input).unwrap(), source.as_bytes());
+    let _ = fs::remove_file(input);
+}
+
+#[test]
 fn track_label_edit_exports_one_guarded_value_and_rejects_without_mutation() {
     let fixture = format!(
         "{}/../../xtask/tests/fixtures/rekordbox-a1/F-02/source.bin",
@@ -2727,7 +2769,7 @@ fn preview_reports_raw_track_tonality_states_and_preserves_source_bytes() {
     );
     assert!(preview_text.contains("Some(\"\")"), "{preview_text}");
     assert!(
-        preview_text.contains("200\tB\tNone\tNone\tNone\tNone\tSome(\"\")"),
+        preview_text.contains("200\tB\tNone\tNone\tNone\tNone\tNone\tSome(\"\")"),
         "{preview_text}"
     );
     assert!(
