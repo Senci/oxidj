@@ -5,9 +5,9 @@ use std::path::Path;
 pub use oxidj_rekordbox::{
     Error as RekordboxError, ExportDecision, ExportPreflight, FolderCreateRequest,
     FolderDeleteRequest, FolderRenameChange, FolderRenameRequest, PlaylistClearRequest,
-    PlaylistDeleteRequest, PlaylistMemberAppendRequest, PlaylistMemberDeleteRequest,
-    PlaylistMemberInsertRequest, PlaylistRenameChange, PlaylistRenameRequest,
-    PlaylistReorderRequest, PositionMarkEditChange, PositionMarkEditRequest,
+    PlaylistCreateRequest, PlaylistDeleteRequest, PlaylistMemberAppendRequest,
+    PlaylistMemberDeleteRequest, PlaylistMemberInsertRequest, PlaylistRenameChange,
+    PlaylistRenameRequest, PlaylistReorderRequest, PositionMarkEditChange, PositionMarkEditRequest,
     PositionMarkEndEditChange, PositionMarkEndEditRequest, PositionMarkNameEditChange,
     PositionMarkNameEditRequest, PreparedFolderDelete, PreparedFolderRename,
     PreparedPlaylistDelete, PreparedPlaylistRename, PreparedPlaylistReorder,
@@ -465,6 +465,17 @@ pub fn export_rekordbox_folder_create(
 ) -> Result<(), RekordboxError> {
     let (source, output) = read_new_export_source(input, output)?;
     let prepared = oxidj_rekordbox::prepare_folder_create(&source, request)?;
+    publish_new_file(&output, &prepared.bytes)
+}
+
+/// Export one guarded empty child playlist to a new, non-overwriting file.
+pub fn export_rekordbox_playlist_create(
+    input: impl AsRef<Path>,
+    output: impl AsRef<Path>,
+    request: &PlaylistCreateRequest,
+) -> Result<(), RekordboxError> {
+    let (source, output) = read_new_export_source(input, output)?;
+    let prepared = oxidj_rekordbox::prepare_playlist_create(&source, request)?;
     publish_new_file(&output, &prepared.bytes)
 }
 

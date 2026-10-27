@@ -1611,6 +1611,48 @@ fn folder_create_cli_exports_escaped_child_and_refuses_collision_without_output(
 }
 
 #[test]
+fn playlist_create_cli_exports_escaped_child_and_refuses_collision_without_output() {
+    let fixture = format!(
+        "{}/../../xtask/tests/fixtures/rekordbox-a1/F-02/source.bin",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let source = fs::read(&fixture).unwrap();
+    let input = temporary_path("playlist-create-input");
+    let output = temporary_path("playlist-create-output");
+    fs::write(&input, &source).unwrap();
+    let invoke = |target: &std::path::Path, name: &str| {
+        Command::new(env!("CARGO_BIN_EXE_oxidj-cli"))
+            .args([
+                "rekordbox",
+                "create-playlist",
+                "--xml",
+                input.to_str().unwrap(),
+                "--output",
+                target.to_str().unwrap(),
+                "--parent-index",
+                "0",
+                "--expected-name",
+                "Sets",
+                "--name",
+                name,
+            ])
+            .output()
+            .unwrap()
+    };
+    let created = invoke(&output, "R&B <late>");
+    assert_eq!(created.status.code(), Some(0), "{:?}", created.stderr);
+    let exported = fs::read_to_string(&output).unwrap();
+    assert!(exported.contains("Name=\"Sets\" Count=\"3\""));
+    assert!(exported.contains("Name=\"R&amp;B &lt;late&gt;\" KeyType=\"0\" Entries=\"0\""));
+    assert_eq!(fs::read(&input).unwrap(), source);
+    let rejected = temporary_path("playlist-create-collision");
+    assert_ne!(invoke(&rejected, "House").status.code(), Some(0));
+    assert!(!rejected.exists());
+    let _ = fs::remove_file(input);
+    let _ = fs::remove_file(output);
+}
+
+#[test]
 fn empty_folder_delete_cli_is_guarded_and_preserves_input() {
     let fixture = format!(
         "{}/../../xtask/tests/fixtures/rekordbox-a1/F-02/source.bin",
