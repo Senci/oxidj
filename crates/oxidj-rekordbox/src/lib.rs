@@ -454,6 +454,23 @@ pub struct PreparedTrackDateModifiedEdit {
     pub change: TrackDateModifiedEditChange,
 }
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TrackLastPlayedEditRequest {
+    pub track_id: String,
+    pub expected_old_last_played: String,
+    pub new_last_played: String,
+}
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TrackLastPlayedEditChange {
+    pub track_id: String,
+    pub old_last_played: String,
+    pub new_last_played: String,
+}
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PreparedTrackLastPlayedEdit {
+    pub bytes: Vec<u8>,
+    pub change: TrackLastPlayedEditChange,
+}
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TrackDateAddedEditChange {
     pub track_id: String,
     pub old_date_added: String,
@@ -3274,6 +3291,72 @@ pub fn prepare_track_date_modified_edit(
             track_id: request.track_id.clone(),
             old_date_modified: old_date_modified.to_owned(),
             new_date_modified: request.new_date_modified.clone(),
+        },
+    })
+}
+
+/// Prepare one exact-old-value guarded raw Track LastPlayed edit (no numeric conversion).
+pub fn prepare_track_last_played_edit(
+    bytes: &[u8],
+    request: &TrackLastPlayedEditRequest,
+) -> Result<PreparedTrackLastPlayedEdit, Error> {
+    let before = preflight_export(bytes)?;
+    let matches: Vec<_> = before
+        .selected_tracks
+        .iter()
+        .filter(|t| t.id == request.track_id)
+        .collect();
+    let track = match matches.as_slice() {
+        [] => return Err(Error(format!("unknown TrackID {}", request.track_id))),
+        [track] => *track,
+        _ => return Err(Error(format!("duplicate TrackID {}", request.track_id))),
+    };
+    let old_last_played = track
+        .last_played
+        .as_deref()
+        .ok_or_else(|| Error("track LastPlayed missing".into()))?;
+    if old_last_played != request.expected_old_last_played {
+        return Err(Error("track LastPlayed changed".into()));
+    }
+    if !request.new_last_played.chars().all(
+        |c| matches!(c as u32, 9 | 10 | 13 | 0x20..=0xD7FF | 0xE000..=0xFFFD | 0x10000..=0x10FFFF),
+    ) {
+        return Err(Error("new LastPlayed contains invalid XML 1.0 text".into()));
+    }
+    let range = track_attribute_range(
+        bytes,
+        &request.track_id,
+        "LastPlayed",
+        &request.expected_old_last_played,
+    )?;
+    let escaped = request
+        .new_last_played
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&apos;")
+        .replace('\t', "&#9;")
+        .replace('\n', "&#10;")
+        .replace('\r', "&#13;");
+    let mut output = bytes.to_vec();
+    output.splice(range, escaped.bytes());
+    let after = preflight_export(&output)?;
+    let mut expected = before.selected_tracks.clone();
+    expected
+        .iter_mut()
+        .find(|t| t.id == request.track_id)
+        .unwrap()
+        .last_played = Some(request.new_last_played.clone());
+    if after.selected_tracks != expected {
+        return Err(Error("track LastPlayed edit verification failed".into()));
+    }
+    Ok(PreparedTrackLastPlayedEdit {
+        bytes: output,
+        change: TrackLastPlayedEditChange {
+            track_id: request.track_id.clone(),
+            old_last_played: old_last_played.to_owned(),
+            new_last_played: request.new_last_played.clone(),
         },
     })
 }
@@ -6163,6 +6246,68 @@ mod tests {
             );
         }
         assert!(prepare_track_date_modified_edit(b"<bad", &request).is_err());
+    }
+
+    #[test]
+    fn guarded_track_last_played_edit_preserves_raw_value_and_rejects_stale_absent_invalid() {
+        let base = include_bytes!("../../../xtask/tests/fixtures/rekordbox-a1/F-02/source.bin");
+        let source = String::from_utf8(base.to_vec()).unwrap().replacen(
+            "TrackID=\"100\" Name=\"A\"",
+            "TrackID=\"100\" Name=\"A\" LastPlayed=\"20&amp;24\"",
+            1,
+        );
+        let source = source.replacen(
+            "TrackID=\"200\" Name=\"B\"",
+            "TrackID=\"200\" Name=\"B\" LastPlayed=\"\"",
+            1,
+        );
+
+        let request = TrackLastPlayedEditRequest {
+            track_id: "100".into(),
+            expected_old_last_played: "20&24".into(),
+            new_last_played: "raw & <last_played>\t\n".into(),
+        };
+        let edited = prepare_track_last_played_edit(source.as_bytes(), &request).unwrap();
+        assert!(
+            String::from_utf8(edited.bytes.clone())
+                .unwrap()
+                .contains("LastPlayed=\"raw &amp; &lt;last_played&gt;&#9;&#10;\"")
+        );
+        assert_eq!(
+            parse(&edited.bytes).unwrap().tracks[0]
+                .last_played
+                .as_deref(),
+            Some("raw & <last_played>\t\n")
+        );
+        assert_eq!(
+            parse(source.as_bytes()).unwrap().tracks[1]
+                .last_played
+                .as_deref(),
+            Some("")
+        );
+        assert_eq!(
+            parse(source.as_bytes()).unwrap().tracks[2].last_played,
+            None
+        );
+        for (id, old, new) in [
+            ("100", "stale", "x"),
+            ("300", "", "x"),
+            ("999", "x", "y"),
+            ("100", "20&24", "bad\u{1}"),
+        ] {
+            assert!(
+                prepare_track_last_played_edit(
+                    source.as_bytes(),
+                    &TrackLastPlayedEditRequest {
+                        track_id: id.into(),
+                        expected_old_last_played: old.into(),
+                        new_last_played: new.into()
+                    }
+                )
+                .is_err()
+            );
+        }
+        assert!(prepare_track_last_played_edit(b"<bad", &request).is_err());
     }
 
     #[test]

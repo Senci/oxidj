@@ -15,17 +15,18 @@ pub use oxidj_rekordbox::{
     PreparedTrackColourEdit, PreparedTrackCommentsEdit, PreparedTrackComposerEdit,
     PreparedTrackDateAddedEdit, PreparedTrackDateModifiedEdit, PreparedTrackDelete,
     PreparedTrackGenreEdit, PreparedTrackGroupingEdit, PreparedTrackKindEdit,
-    PreparedTrackLabelEdit, PreparedTrackMixEdit, PreparedTrackNameEdit, PreparedTrackRatingEdit,
-    PreparedTrackRemixerEdit, PreparedTrackYearEdit, Preview, TempoBeatEditChange,
-    TempoBeatEditRequest, TempoEditChange, TempoEditRequest, TempoMeterEditChange,
-    TempoMeterEditRequest, TempoStartEditChange, TempoStartEditRequest, TrackAlbumEditChange,
-    TrackAlbumEditRequest, TrackArtistEditChange, TrackArtistEditRequest, TrackColourEditChange,
-    TrackColourEditRequest, TrackCommentsEditChange, TrackCommentsEditRequest,
-    TrackComposerEditChange, TrackComposerEditRequest, TrackDateAddedEditChange,
-    TrackDateAddedEditRequest, TrackDateModifiedEditChange, TrackDateModifiedEditRequest,
-    TrackDeleteRequest, TrackGenreEditChange, TrackGenreEditRequest, TrackGroupingEditChange,
-    TrackGroupingEditRequest, TrackKindEditChange, TrackKindEditRequest, TrackLabelEditChange,
-    TrackLabelEditRequest, TrackMixEditChange, TrackMixEditRequest, TrackNameEditChange,
+    PreparedTrackLabelEdit, PreparedTrackLastPlayedEdit, PreparedTrackMixEdit,
+    PreparedTrackNameEdit, PreparedTrackRatingEdit, PreparedTrackRemixerEdit,
+    PreparedTrackYearEdit, Preview, TempoBeatEditChange, TempoBeatEditRequest, TempoEditChange,
+    TempoEditRequest, TempoMeterEditChange, TempoMeterEditRequest, TempoStartEditChange,
+    TempoStartEditRequest, TrackAlbumEditChange, TrackAlbumEditRequest, TrackArtistEditChange,
+    TrackArtistEditRequest, TrackColourEditChange, TrackColourEditRequest, TrackCommentsEditChange,
+    TrackCommentsEditRequest, TrackComposerEditChange, TrackComposerEditRequest,
+    TrackDateAddedEditChange, TrackDateAddedEditRequest, TrackDateModifiedEditChange,
+    TrackDateModifiedEditRequest, TrackDeleteRequest, TrackGenreEditChange, TrackGenreEditRequest,
+    TrackGroupingEditChange, TrackGroupingEditRequest, TrackKindEditChange, TrackKindEditRequest,
+    TrackLabelEditChange, TrackLabelEditRequest, TrackLastPlayedEditChange,
+    TrackLastPlayedEditRequest, TrackMixEditChange, TrackMixEditRequest, TrackNameEditChange,
     TrackNameEditRequest, TrackRatingEditChange, TrackRatingEditRequest, TrackRemixerEditChange,
     TrackRemixerEditRequest, TrackTonalityEditChange, TrackTonalityEditRequest,
     TrackYearEditChange, TrackYearEditRequest,
@@ -200,6 +201,17 @@ pub fn export_rekordbox_track_date_modified_edit(
 ) -> Result<TrackDateModifiedEditChange, RekordboxError> {
     let (source, output) = read_new_export_source(input, output)?;
     let prepared = oxidj_rekordbox::prepare_track_date_modified_edit(&source, request)?;
+    publish_new_file(&output, &prepared.bytes)?;
+    Ok(prepared.change)
+}
+
+pub fn export_rekordbox_track_last_played_edit(
+    input: impl AsRef<Path>,
+    output: impl AsRef<Path>,
+    request: &TrackLastPlayedEditRequest,
+) -> Result<TrackLastPlayedEditChange, RekordboxError> {
+    let (source, output) = read_new_export_source(input, output)?;
+    let prepared = oxidj_rekordbox::prepare_track_last_played_edit(&source, request)?;
     publish_new_file(&output, &prepared.bytes)?;
     Ok(prepared.change)
 }

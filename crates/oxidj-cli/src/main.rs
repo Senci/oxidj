@@ -834,6 +834,43 @@ fn run_rekordbox(args: &[String]) -> i32 {
     }
     if args
         .first()
+        .is_some_and(|action| action == "edit-track-last-played")
+    {
+        if args.len() != 11
+            || args[1] != "--xml"
+            || args[3] != "--output"
+            || args[5] != "--track-id"
+            || args[7] != "--expected-last-played"
+            || args[9] != "--last-played"
+        {
+            eprintln!(
+                "error: expected rekordbox edit-track-last-played --xml IN --output NEW --track-id ID --expected-last-played OLD --last-played NEW"
+            );
+            return USAGE;
+        }
+        let request = oxidj_application::TrackLastPlayedEditRequest {
+            track_id: args[6].clone(),
+            expected_old_last_played: args[8].clone(),
+            new_last_played: args[10].clone(),
+        };
+        return match oxidj_application::export_rekordbox_track_last_played_edit(
+            &args[2], &args[4], &request,
+        ) {
+            Ok(change) => {
+                println!(
+                    "Changed raw LastPlayed for track[{}]: {:?} to {:?}",
+                    change.track_id, change.old_last_played, change.new_last_played
+                );
+                OK
+            }
+            Err(error) => {
+                eprintln!("error: track LastPlayed edit rejected: {error}");
+                DOMAIN
+            }
+        };
+    }
+    if args
+        .first()
         .is_some_and(|action| action == "edit-track-year")
     {
         if args.len() != 11
