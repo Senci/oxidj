@@ -172,6 +172,9 @@ fn f03_mutation_controls_reject_index_end_collapse_and_grid() {
     x["cues"][0]["start_usec"] = json!(10);
     cases.push(x);
     let mut x: Value = serde_json::from_slice(&source).unwrap();
+    x["cues"][0]["start_usec"] = json!(10000);
+    cases.push(x);
+    let mut x: Value = serde_json::from_slice(&source).unwrap();
     x["cues"][0]["end_usec"] = json!(10000000);
     cases.push(x);
     let mut x: Value = serde_json::from_slice(&source).unwrap();

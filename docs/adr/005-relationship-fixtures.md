@@ -238,9 +238,10 @@ Real Mixxx transport/DB fidelity remains A2, not implied by DTO equality.
 **Observed logical-only result:** `xtask/tests/fixtures/f03-logical/` freezes canonical
 source bytes, case, operations, archive, visible, plan, report and provenance;
 `xtask/tests/f03_logical.rs` independently checks the literal contract and rejects
-index-zero loss, a microsecond/second unit swap, fabricated point end, collapsed
-loop range and changed grid. The unit-swap control adds F-09.1 evidence for this
-synthetic F-03 checker only; global F-09 and Mixxx A2 remain NOT DEMONSTRATED.
+index-zero loss, seconds or milliseconds substituted for microseconds, fabricated
+point end, collapsed loop range and changed grid. These unit-swap controls add
+F-09.1 evidence for this synthetic F-03 checker only; global F-09 and Mixxx A2
+remain NOT DEMONSTRATED.
 This is not A2 evidence or a real Mixxx transport claim.
 
 ### F-04: Edits, composition, conflicts and analysis precedence
