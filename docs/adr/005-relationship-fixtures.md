@@ -449,7 +449,7 @@ those controls or restores and defines no product media/retention policy.
 
 | Case | Required specification behavior | Observed result |
 |---|---|---|
-| F-01 | Explicit reconciliation/conflicts, archive vs current location | Same-content relocation success PASS; same-namespace/source-ID content-conflict and unconfirmed cross-namespace identity subcases PASS — logical-only fixtures/checkers; remaining conflict subcases NOT DEMONSTRATED; A2 NOT DEMONSTRATED |
+| F-01 | Explicit reconciliation/conflicts, archive vs current location | Same-content relocation success PASS; same-namespace/source-ID content conflict, unconfirmed cross-namespace identity, same-path/different-content conflict, and metadata-source disagreement PASS — logical-only fixtures/checkers; other conflict cases and A2 NOT DEMONSTRATED |
 | F-02 | XML child order, shared endpoints | PASS — synthetic A1 checker/tests; no application acceptance |
 | F-03 | Constant grid/cue/range preservation | PASS — logical-only fixture/checker and mutation controls; A2 NOT DEMONSTRATED |
 | F-04 | Revisioned edits, stale conflicts, analysis precedence | NOT DEMONSTRATED |
