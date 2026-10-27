@@ -209,6 +209,8 @@ output, unchanged Techno membership, four collection tracks and declared counts.
 Sol approved commits `812a414` and `a50001d`; `cargo xtask ci-full` passed.
 This remains synthetic-only; vendor application acceptance is NOT DEMONSTRATED.
 
+**Observed synthetic XML playlist-member removal (F-02):** TrackID 200 was removed only from House after guarding playlist ordinal 0 and its exact ordered membership `[100,200,300]`. The collection remains `[100,200,300,400]`; House becomes `[100,300]`; Techno remains `[200,400]`; direct counts are `4/2/2`. An independent Python ElementTree decode of the exported file confirmed those values and the source file remained byte-identical. This is synthetic behavior only; it does not demonstrate Rekordbox application acceptance, ADR-005 promotion, or qualification.
+
 **Observed synthetic XML deletion:** F-02 TrackID 200 is deleted from the collection and both guarded memberships in House and Techno in one new-file export. The request requires exact old ordered memberships for every playlist containing the target; stale/incomplete guards and missing/duplicate target references are rejected. The adapter updates `COLLECTION Entries` and the affected playlist `NODE Entries` while retaining all unrelated source bytes. Focused adapter/CLI tests exercise export, refusal and source immutability; independent ElementTree decode observed collection `[100,300,400]`, House `[100,300]`, Techno `[400]`, and counts `3/2/1`. This is synthetic F-02 behavior only; Rekordbox application acceptance, ADR-005 promotion and qualification remain NOT DEMONSTRATED.
 
 ### F-03: Constant grid, cues and range unchanged

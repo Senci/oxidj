@@ -77,6 +77,17 @@ pub struct TrackDeleteRequest {
 pub struct PreparedTrackDelete {
     pub bytes: Vec<u8>,
 }
+/// Remove one playlist reference while retaining its collection track.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PlaylistMemberDeleteRequest {
+    pub playlist_index: usize,
+    pub expected_order: Vec<String>,
+    pub track_id: String,
+}
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PreparedPlaylistMemberDelete {
+    pub bytes: Vec<u8>,
+}
 /// Reorder an existing playlist after an exact ordinal/order optimistic guard.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PlaylistReorderRequest {
@@ -1078,6 +1089,122 @@ fn count_attribute_value_range(tag: &[u8], key: &str) -> Result<std::ops::Range<
         .map(|n| begin + n)
         .ok_or_else(|| Error(format!("malformed {key} attribute")))?;
     Ok(begin..end)
+}
+
+/// Prepare removal of one guarded playlist reference without deleting its collection track.
+pub fn prepare_playlist_member_delete(
+    bytes: &[u8],
+    request: &PlaylistMemberDeleteRequest,
+) -> Result<PreparedPlaylistMemberDelete, Error> {
+    let before = preflight_export(bytes)?;
+    let playlist = before
+        .selected_playlists
+        .get(request.playlist_index)
+        .ok_or_else(|| Error("playlist ordinal is stale".into()))?;
+    if playlist.tracks != request.expected_order {
+        return Err(Error("playlist order changed".into()));
+    }
+    if playlist
+        .tracks
+        .iter()
+        .filter(|id| *id == &request.track_id)
+        .count()
+        != 1
+    {
+        return Err(Error(
+            "selected playlist membership missing or ambiguous".into(),
+        ));
+    }
+    let mut reader = Reader::from_reader(bytes);
+    reader.config_mut().check_end_names = true;
+    let mut buf = Vec::new();
+    let mut node_stack = Vec::<Option<usize>>::new();
+    let mut playlist_no = 0usize;
+    let mut target = false;
+    let mut member = None;
+    let mut node_tag = None;
+    loop {
+        let start = reader.buffer_position() as usize;
+        let event = reader
+            .read_event_into(&mut buf)
+            .map_err(|e| Error(format!("malformed XML: {e}")))?;
+        let end = reader.buffer_position() as usize;
+        match event {
+            Event::Start(e) if e.name().as_ref() == b"NODE" => {
+                let ty = attr(&e, "Type")?;
+                if ty == "1" {
+                    target = playlist_no == request.playlist_index;
+                    playlist_no += 1;
+                }
+                node_stack.push(target.then_some(start));
+                if target && ty == "1" {
+                    node_tag = Some(start..end);
+                }
+            }
+            Event::Empty(e) if e.name().as_ref() == b"NODE" => {
+                if attr(&e, "Type")? == "1" {
+                    if playlist_no == request.playlist_index {
+                        target = true;
+                        node_tag = Some(start..end);
+                    }
+                    playlist_no += 1;
+                }
+                if target && attr(&e, "Type")? == "1" {
+                    node_stack.push(None);
+                }
+            }
+            Event::Empty(e)
+                if e.name().as_ref() == b"TRACK"
+                    && target
+                    && attr(&e, "Key")? == request.track_id =>
+            {
+                if member.replace(start..end).is_some() {
+                    return Err(Error("membership is ambiguous".into()));
+                }
+            }
+            Event::End(e) if e.name().as_ref() == b"NODE" => {
+                node_stack.pop();
+                if node_stack.is_empty() {
+                    target = false;
+                }
+            }
+            Event::Eof => break,
+            _ => {}
+        }
+        buf.clear();
+    }
+    let member = member.ok_or_else(|| Error("membership location missing".into()))?;
+    let tag = node_tag.ok_or_else(|| Error("playlist node missing".into()))?;
+    let count = count_attribute_value_range(&bytes[tag.clone()], "Entries")?;
+    let old = std::str::from_utf8(&bytes[tag.start + count.start..tag.start + count.end])
+        .map_err(|_| Error("invalid Entries".into()))?
+        .parse::<usize>()
+        .map_err(|_| Error("malformed Entries".into()))?;
+    let new = old
+        .checked_sub(1)
+        .ok_or_else(|| Error("Entries underflow".into()))?
+        .to_string();
+    let mut edits = vec![
+        (
+            tag.start + count.start..tag.start + count.end,
+            new.into_bytes(),
+        ),
+        (member, Vec::new()),
+    ];
+    edits.sort_by_key(|(range, _)| std::cmp::Reverse(range.start));
+    let mut output = bytes.to_vec();
+    for (range, replacement) in edits {
+        output.splice(range, replacement);
+    }
+    let after = preflight_export(&output)?;
+    let mut expected = before.selected_playlists.clone();
+    expected[request.playlist_index]
+        .tracks
+        .retain(|id| id != &request.track_id);
+    if after.selected_tracks != before.selected_tracks || after.selected_playlists != expected {
+        return Err(Error("playlist member removal verification failed".into()));
+    }
+    Ok(PreparedPlaylistMemberDelete { bytes: output })
 }
 
 /// Prepare a byte-preserving reorder of playlist membership elements.
@@ -2111,6 +2238,50 @@ pub fn prepare_tempo_start_edit(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn guarded_playlist_member_delete_keeps_collection_and_other_playlist() {
+        let source = include_bytes!("../../../xtask/tests/fixtures/rekordbox-a1/F-02/source.bin");
+        let request = PlaylistMemberDeleteRequest {
+            playlist_index: 0,
+            expected_order: vec!["100".into(), "200".into(), "300".into()],
+            track_id: "200".into(),
+        };
+        let result = prepare_playlist_member_delete(source, &request).unwrap();
+        let after = preflight_export(&result.bytes).unwrap();
+        assert_eq!(
+            after
+                .selected_tracks
+                .iter()
+                .map(|t| t.id.as_str())
+                .collect::<Vec<_>>(),
+            ["100", "200", "300", "400"]
+        );
+        assert_eq!(after.selected_playlists[0].tracks, ["100", "300"]);
+        assert_eq!(after.selected_playlists[1].tracks, ["200", "400"]);
+        assert!(
+            result
+                .bytes
+                .windows(b"Name=\"House\" Entries=\"2\"".len())
+                .any(|w| w == b"Name=\"House\" Entries=\"2\"")
+        );
+        assert!(
+            result
+                .bytes
+                .windows(b"Name=\"Techno\" Entries=\"2\"".len())
+                .any(|w| w == b"Name=\"Techno\" Entries=\"2\"")
+        );
+        assert!(
+            prepare_playlist_member_delete(
+                source,
+                &PlaylistMemberDeleteRequest {
+                    expected_order: vec!["100".into(), "300".into()],
+                    ..request
+                }
+            )
+            .is_err()
+        );
+    }
 
     #[test]
     fn guarded_track_delete_removes_collection_and_exact_shared_memberships() {

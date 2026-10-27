@@ -68,6 +68,44 @@ fn run(args: &[String]) -> i32 {
 }
 
 fn run_rekordbox(args: &[String]) -> i32 {
+    if args
+        .first()
+        .is_some_and(|action| action == "remove-playlist-member")
+    {
+        if args.len() != 11
+            || args[1] != "--xml"
+            || args[3] != "--output"
+            || args[5] != "--playlist-index"
+            || args[7] != "--expected-order"
+            || args[9] != "--track-id"
+        {
+            eprintln!(
+                "error: expected rekordbox remove-playlist-member --xml IN --output NEW --playlist-index N --expected-order ID,ID --track-id ID"
+            );
+            return USAGE;
+        }
+        let Ok(playlist_index) = args[6].parse::<usize>() else {
+            eprintln!("error: malformed playlist index");
+            return USAGE;
+        };
+        let request = oxidj_application::PlaylistMemberDeleteRequest {
+            playlist_index,
+            expected_order: args[8].split(',').map(str::to_owned).collect(),
+            track_id: args[10].clone(),
+        };
+        return match oxidj_application::export_rekordbox_playlist_member_delete(
+            &args[2], &args[4], &request,
+        ) {
+            Ok(()) => {
+                println!("Removed playlist reference {}", args[10]);
+                OK
+            }
+            Err(error) => {
+                eprintln!("error: playlist member removal rejected: {error}");
+                DOMAIN
+            }
+        };
+    }
     if args.first().is_some_and(|action| action == "delete-track") {
         if args.len() != 9
             || args[1] != "--xml"
