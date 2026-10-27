@@ -168,6 +168,19 @@ pub struct PlaylistReorderRequest {
 pub struct PreparedPlaylistReorder {
     pub bytes: Vec<u8>,
 }
+/// Reorder direct Type=1 children of a guarded non-root Type=0 folder.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SiblingPlaylistReorderRequest {
+    pub parent_index: usize,
+    pub expected_parent_name: String,
+    pub expected_order: Vec<String>,
+    pub new_order: Vec<String>,
+}
+#[derive(Debug, Clone, PartialEq, Eq)]
+/// Prepared XML bytes for a guarded sibling-playlist reorder.
+pub struct PreparedSiblingPlaylistReorder {
+    pub bytes: Vec<u8>,
+}
 /// One optimistic, ordinal-scoped rename of a non-root Type=0 folder.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FolderRenameRequest {
@@ -2466,6 +2479,172 @@ pub fn prepare_playlist_reorder(
         return Err(Error("playlist reorder verification failed".into()));
     }
     Ok(PreparedPlaylistReorder { bytes: output })
+}
+
+/// Prepare a guarded reorder of direct playlists within one non-root folder.
+pub fn prepare_sibling_playlist_reorder(
+    bytes: &[u8],
+    request: &SiblingPlaylistReorderRequest,
+) -> Result<PreparedSiblingPlaylistReorder, Error> {
+    let before = preflight_export(bytes)?;
+    let mut reader = Reader::from_reader(bytes);
+    reader.config_mut().check_end_names = true;
+    let mut buf = Vec::new();
+    let mut stack: Vec<(String, String, usize)> = Vec::new();
+    let mut folder_ordinal = 0usize;
+    let mut selected_depth = None;
+    let mut selected_parent_closed = false;
+    let mut playlists: Vec<(String, std::ops::Range<usize>)> = Vec::new();
+    loop {
+        let start = reader.buffer_position() as usize;
+        let event = reader
+            .read_event_into(&mut buf)
+            .map_err(|e| Error(format!("malformed XML: {e}")))?;
+        let end = reader.buffer_position() as usize;
+        match event {
+            Event::Start(e) if e.name().as_ref() == b"NODE" => {
+                let ty = attr(&e, "Type")?;
+                let name = attr(&e, "Name")?;
+                if ty == "0" && !stack.is_empty() {
+                    if folder_ordinal == request.parent_index {
+                        if name != request.expected_parent_name {
+                            return Err(Error("parent folder Name changed".into()));
+                        }
+                        if stack
+                            .last()
+                            .is_none_or(|(parent_ty, _, _)| parent_ty != "0")
+                        {
+                            return Err(Error(
+                                "parent folder is root or not nested under folder".into(),
+                            ));
+                        }
+                        selected_depth = Some(stack.len());
+                    }
+                    folder_ordinal += 1;
+                }
+                stack.push((ty, name, start));
+            }
+            Event::Empty(e) if e.name().as_ref() == b"NODE" => {
+                let ty = attr(&e, "Type")?;
+                let name = attr(&e, "Name")?;
+                if ty == "0" && !stack.is_empty() {
+                    if folder_ordinal == request.parent_index {
+                        return Err(Error("selected parent folder is empty node".into()));
+                    }
+                    folder_ordinal += 1;
+                }
+                if ty == "1" && selected_depth.is_some_and(|depth| stack.len() == depth + 1) {
+                    playlists.push((name, start..end));
+                }
+            }
+            Event::End(e) if e.name().as_ref() == b"NODE" => {
+                let (ty, name, node_start) = stack
+                    .pop()
+                    .ok_or_else(|| Error("unexpected closing NODE".into()))?;
+                if ty == "1" && selected_depth.is_some_and(|depth| stack.len() == depth + 1) {
+                    playlists.push((name, node_start..end));
+                }
+                if ty == "0" && selected_depth == Some(stack.len()) {
+                    selected_parent_closed = true;
+                    selected_depth = None;
+                }
+            }
+            Event::Eof => break,
+            _ => {}
+        }
+        buf.clear();
+    }
+    if !selected_parent_closed {
+        return Err(Error(format!(
+            "no paired non-root folder at ordinal {}",
+            request.parent_index
+        )));
+    }
+    let current: Vec<_> = playlists.iter().map(|(name, _)| name.clone()).collect();
+    let unique: HashSet<_> = current.iter().collect();
+    if unique.len() != current.len() {
+        return Err(Error("ambiguous duplicate direct playlist Names".into()));
+    }
+    if current != request.expected_order {
+        return Err(Error("direct playlist order changed".into()));
+    }
+    let desired: HashSet<_> = request.new_order.iter().collect();
+    if request.new_order.len() != current.len()
+        || desired.len() != request.new_order.len()
+        || desired != unique
+    {
+        return Err(Error(
+            "new order must be a unique permutation of direct playlist Names".into(),
+        ));
+    }
+    let mut output = bytes.to_vec();
+    for (index, (_, slot)) in playlists.iter().enumerate().rev() {
+        let name = &request.new_order[index];
+        let source = playlists
+            .iter()
+            .find(|(candidate, _)| candidate == name)
+            .unwrap();
+        output.splice(slot.clone(), bytes[source.1.clone()].iter().copied());
+    }
+    let after = preflight_export(&output)?;
+    if after.selected_tracks != before.selected_tracks {
+        return Err(Error("sibling playlist reorder changed tracks".into()));
+    }
+    let mut verify = Reader::from_reader(output.as_slice());
+    verify.config_mut().check_end_names = true;
+    let mut vbuf = Vec::new();
+    let mut vstack: Vec<(String, String)> = Vec::new();
+    let mut ordinal = 0usize;
+    let mut depth = None;
+    let mut observed = Vec::new();
+    loop {
+        match verify
+            .read_event_into(&mut vbuf)
+            .map_err(|e| Error(format!("malformed XML: {e}")))?
+        {
+            Event::Start(e) if e.name().as_ref() == b"NODE" => {
+                let ty = attr(&e, "Type")?;
+                let name = attr(&e, "Name")?;
+                if ty == "0" && !vstack.is_empty() {
+                    if ordinal == request.parent_index {
+                        depth = Some(vstack.len());
+                    }
+                    ordinal += 1;
+                }
+                if ty == "1" && depth.is_some_and(|d| vstack.len() == d + 1) {
+                    observed.push(name.clone());
+                }
+                vstack.push((ty, name));
+            }
+            Event::Empty(e) if e.name().as_ref() == b"NODE" => {
+                let ty = attr(&e, "Type")?;
+                if ty == "0" && !vstack.is_empty() {
+                    if ordinal == request.parent_index {
+                        depth = Some(vstack.len());
+                    }
+                    ordinal += 1;
+                }
+                if ty == "1" && depth.is_some_and(|d| vstack.len() == d + 1) {
+                    observed.push(attr(&e, "Name")?);
+                }
+            }
+            Event::End(e) if e.name().as_ref() == b"NODE" => {
+                let (ty, _) = vstack
+                    .pop()
+                    .ok_or_else(|| Error("unexpected closing NODE".into()))?;
+                if ty == "0" && depth == Some(vstack.len()) {
+                    depth = None;
+                }
+            }
+            Event::Eof => break,
+            _ => {}
+        }
+        vbuf.clear();
+    }
+    if observed != request.new_order {
+        return Err(Error("sibling playlist reorder verification failed".into()));
+    }
+    Ok(PreparedSiblingPlaylistReorder { bytes: output })
 }
 
 /// Prepare one guarded non-root folder rename, preserving every other source byte.
@@ -7563,6 +7742,77 @@ mod tests {
             };
             assert!(prepare_playlist_reorder(source, &invalid).is_err());
         }
+    }
+
+    #[test]
+    fn guarded_sibling_playlist_reorder_preserves_interleaved_folder_and_memberships() {
+        let fixture = include_bytes!("../../../xtask/tests/fixtures/rekordbox-a1/F-02/source.bin");
+        let source = String::from_utf8(fixture.to_vec()).unwrap()
+            .replace("Name=\"ROOT\" Count=\"1\"", "Name=\"ROOT\" Count=\"2\"")
+            .replace("Name=\"Sets\" Count=\"2\"", "Name=\"Sets\" Count=\"3\"")
+            .replace("        <NODE Type=\"1\" Name=\"Techno\"", "        <NODE Type=\"0\" Name=\"KeepSlot\" Count=\"0\"/>\n        <NODE Type=\"1\" Name=\"Techno\"")
+            .replace("    </NODE>\n  </PLAYLISTS>", "      <NODE Type=\"0\" Name=\"Other\" Count=\"1\"><NODE Type=\"1\" Name=\"Elsewhere\" Entries=\"0\" KeyType=\"0\"/></NODE>\n    </NODE>\n  </PLAYLISTS>");
+        let original = source.clone();
+        let request = SiblingPlaylistReorderRequest {
+            parent_index: 0,
+            expected_parent_name: "Sets".into(),
+            expected_order: vec!["House".into(), "Techno".into()],
+            new_order: vec!["Techno".into(), "House".into()],
+        };
+        let result = prepare_sibling_playlist_reorder(source.as_bytes(), &request).unwrap();
+        assert_eq!(source, original);
+        let output = String::from_utf8(result.bytes.clone()).unwrap();
+        assert!(output.contains("<NODE Type=\"0\" Name=\"KeepSlot\" Count=\"0\"/>"));
+        let parsed = preflight_export(&result.bytes).unwrap();
+        assert_eq!(
+            parsed.selected_tracks,
+            preflight_export(source.as_bytes()).unwrap().selected_tracks
+        );
+        assert_eq!(
+            parsed
+                .selected_playlists
+                .iter()
+                .map(|p| p.name.as_str())
+                .collect::<Vec<_>>(),
+            ["Techno", "House", "Elsewhere"]
+        );
+        assert_eq!(parsed.selected_playlists[0].tracks, vec!["200", "400"]);
+        assert_eq!(
+            parsed.selected_playlists[1].tracks,
+            vec!["100", "200", "300"]
+        );
+
+        let stale = SiblingPlaylistReorderRequest {
+            expected_order: vec!["Techno".into(), "House".into()],
+            ..request.clone()
+        };
+        assert!(prepare_sibling_playlist_reorder(source.as_bytes(), &stale).is_err());
+        let duplicate = SiblingPlaylistReorderRequest {
+            new_order: vec!["House".into(), "House".into()],
+            ..request.clone()
+        };
+        assert!(prepare_sibling_playlist_reorder(source.as_bytes(), &duplicate).is_err());
+        let duplicate_names = source.replace("Name=\"Techno\"", "Name=\"House\"");
+        let ambiguous = SiblingPlaylistReorderRequest {
+            expected_order: vec!["House".into(), "House".into()],
+            new_order: vec!["House".into(), "House".into()],
+            ..request.clone()
+        };
+        assert!(prepare_sibling_playlist_reorder(duplicate_names.as_bytes(), &ambiguous).is_err());
+        for invalid in [
+            SiblingPlaylistReorderRequest {
+                parent_index: 99,
+                ..request.clone()
+            },
+            SiblingPlaylistReorderRequest {
+                parent_index: 0,
+                expected_parent_name: "ROOT".into(),
+                ..request.clone()
+            },
+        ] {
+            assert!(prepare_sibling_playlist_reorder(source.as_bytes(), &invalid).is_err());
+        }
+        assert!(prepare_sibling_playlist_reorder(b"<bad", &request).is_err());
     }
 
     #[test]

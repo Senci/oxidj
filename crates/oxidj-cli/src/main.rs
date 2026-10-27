@@ -1471,6 +1471,46 @@ fn run_rekordbox(args: &[String]) -> i32 {
     }
     if args
         .first()
+        .is_some_and(|action| action == "reorder-sibling-playlists")
+    {
+        if args.len() != 13
+            || args[1] != "--xml"
+            || args[3] != "--output"
+            || args[5] != "--parent-index"
+            || args[7] != "--expected-name"
+            || args[9] != "--expected-order"
+            || args[11] != "--order"
+        {
+            eprintln!(
+                "error: expected rekordbox reorder-sibling-playlists --xml IN --output NEW --parent-index N --expected-name NAME --expected-order NAME,NAME --order NAME,NAME"
+            );
+            return USAGE;
+        }
+        let Ok(parent_index) = args[6].parse::<usize>() else {
+            eprintln!("error: parent index must be a non-negative integer");
+            return USAGE;
+        };
+        let request = oxidj_application::SiblingPlaylistReorderRequest {
+            parent_index,
+            expected_parent_name: args[8].clone(),
+            expected_order: args[10].split(',').map(str::to_owned).collect(),
+            new_order: args[12].split(',').map(str::to_owned).collect(),
+        };
+        return match oxidj_application::export_rekordbox_sibling_playlist_reorder(
+            &args[2], &args[4], &request,
+        ) {
+            Ok(()) => {
+                println!("Reordered direct playlists under folder[{}]", parent_index);
+                OK
+            }
+            Err(error) => {
+                eprintln!("error: sibling playlist reorder rejected: {error}");
+                DOMAIN
+            }
+        };
+    }
+    if args
+        .first()
         .is_some_and(|action| action == "rename-playlist")
     {
         if args.len() != 11
@@ -2151,6 +2191,10 @@ fn print_usage(to_stdout: bool) {
     let _ = writeln!(
         output,
         "  rekordbox rename-playlist --xml <in> --output <new> --playlist-index <n> --expected-name <old> --name <new>   Export one guarded playlist rename"
+    );
+    let _ = writeln!(
+        output,
+        "  rekordbox reorder-sibling-playlists --xml <in> --output <new> --parent-index <n> --expected-name <name> --expected-order <names> --order <names>   Reorder direct playlists in one folder"
     );
     let _ = writeln!(
         output,

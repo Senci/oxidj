@@ -1653,6 +1653,49 @@ fn playlist_create_cli_exports_escaped_child_and_refuses_collision_without_outpu
 }
 
 #[test]
+fn sibling_playlist_reorder_cli_exports_new_order_and_preserves_input() {
+    let fixture = format!(
+        "{}/../../xtask/tests/fixtures/rekordbox-a1/F-02/source.bin",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let source = fs::read(&fixture).unwrap();
+    let input = temporary_path("sibling-reorder-input");
+    let output = temporary_path("sibling-reorder-output");
+    fs::write(&input, &source).unwrap();
+    let invoke = |target: &std::path::Path, order: &str| {
+        Command::new(env!("CARGO_BIN_EXE_oxidj-cli"))
+            .args([
+                "rekordbox",
+                "reorder-sibling-playlists",
+                "--xml",
+                input.to_str().unwrap(),
+                "--output",
+                target.to_str().unwrap(),
+                "--parent-index",
+                "0",
+                "--expected-name",
+                "Sets",
+                "--expected-order",
+                "House,Techno",
+                "--order",
+                order,
+            ])
+            .output()
+            .unwrap()
+    };
+    let created = invoke(&output, "Techno,House");
+    assert_eq!(created.status.code(), Some(0), "{:?}", created.stderr);
+    let exported = fs::read_to_string(&output).unwrap();
+    assert!(exported.find("Name=\"Techno\"").unwrap() < exported.find("Name=\"House\"").unwrap());
+    assert_eq!(fs::read(&input).unwrap(), source);
+    let rejected = temporary_path("sibling-reorder-stale");
+    assert_ne!(invoke(&rejected, "House,House").status.code(), Some(0));
+    assert!(!rejected.exists());
+    let _ = fs::remove_file(input);
+    let _ = fs::remove_file(output);
+}
+
+#[test]
 fn empty_folder_delete_cli_is_guarded_and_preserves_input() {
     let fixture = format!(
         "{}/../../xtask/tests/fixtures/rekordbox-a1/F-02/source.bin",

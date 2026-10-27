@@ -12,16 +12,17 @@ pub use oxidj_rekordbox::{
     PositionMarkNameEditRequest, PreparedFolderDelete, PreparedFolderRename,
     PreparedPlaylistDelete, PreparedPlaylistRename, PreparedPlaylistReorder,
     PreparedPositionMarkEdit, PreparedPositionMarkEndEdit, PreparedPositionMarkNameEdit,
-    PreparedTempoBeatEdit, PreparedTempoEdit, PreparedTempoMeterEdit, PreparedTempoStartEdit,
-    PreparedTrackAlbumEdit, PreparedTrackArtistEdit, PreparedTrackAverageBpmEdit,
-    PreparedTrackBitRateEdit, PreparedTrackColourEdit, PreparedTrackCommentsEdit,
-    PreparedTrackComposerEdit, PreparedTrackDateAddedEdit, PreparedTrackDateModifiedEdit,
-    PreparedTrackDelete, PreparedTrackDiscNumberEdit, PreparedTrackGenreEdit,
-    PreparedTrackGroupingEdit, PreparedTrackKindEdit, PreparedTrackLabelEdit,
-    PreparedTrackLastPlayedEdit, PreparedTrackMixEdit, PreparedTrackNameEdit,
-    PreparedTrackNumberEdit, PreparedTrackPlayCountEdit, PreparedTrackRatingEdit,
-    PreparedTrackRemixerEdit, PreparedTrackSampleRateEdit, PreparedTrackSizeEdit,
-    PreparedTrackTotalTimeEdit, PreparedTrackYearEdit, Preview, TempoBeatEditChange,
+    PreparedSiblingPlaylistReorder, PreparedTempoBeatEdit, PreparedTempoEdit,
+    PreparedTempoMeterEdit, PreparedTempoStartEdit, PreparedTrackAlbumEdit,
+    PreparedTrackArtistEdit, PreparedTrackAverageBpmEdit, PreparedTrackBitRateEdit,
+    PreparedTrackColourEdit, PreparedTrackCommentsEdit, PreparedTrackComposerEdit,
+    PreparedTrackDateAddedEdit, PreparedTrackDateModifiedEdit, PreparedTrackDelete,
+    PreparedTrackDiscNumberEdit, PreparedTrackGenreEdit, PreparedTrackGroupingEdit,
+    PreparedTrackKindEdit, PreparedTrackLabelEdit, PreparedTrackLastPlayedEdit,
+    PreparedTrackMixEdit, PreparedTrackNameEdit, PreparedTrackNumberEdit,
+    PreparedTrackPlayCountEdit, PreparedTrackRatingEdit, PreparedTrackRemixerEdit,
+    PreparedTrackSampleRateEdit, PreparedTrackSizeEdit, PreparedTrackTotalTimeEdit,
+    PreparedTrackYearEdit, Preview, SiblingPlaylistReorderRequest, TempoBeatEditChange,
     TempoBeatEditRequest, TempoEditChange, TempoEditRequest, TempoMeterEditChange,
     TempoMeterEditRequest, TempoStartEditChange, TempoStartEditRequest, TrackAlbumEditChange,
     TrackAlbumEditRequest, TrackArtistEditChange, TrackArtistEditRequest,
@@ -443,6 +444,26 @@ pub fn export_rekordbox_playlist_reorder(
     let (source, output) = read_new_export_source(input, output)?;
     let prepared = oxidj_rekordbox::prepare_playlist_reorder(&source, request)?;
     publish_new_file(&output, &prepared.bytes)
+}
+
+/// Export a guarded sibling-playlist reorder to a new, non-overwriting file.
+pub fn export_rekordbox_sibling_playlist_reorder(
+    input: impl AsRef<Path>,
+    output: impl AsRef<Path>,
+    request: &SiblingPlaylistReorderRequest,
+) -> Result<(), RekordboxError> {
+    let (source, output) = read_new_export_source(input, output)?;
+    let prepared = oxidj_rekordbox::prepare_sibling_playlist_reorder(&source, request)?;
+    publish_new_file(&output, &prepared.bytes)
+}
+
+/// Prepare a guarded sibling-playlist reorder without writing a file.
+pub fn prepare_rekordbox_sibling_playlist_reorder(
+    input: impl AsRef<Path>,
+    request: &SiblingPlaylistReorderRequest,
+) -> Result<PreparedSiblingPlaylistReorder, RekordboxError> {
+    let source = std::fs::read(input).map_err(|error| RekordboxError(error.to_string()))?;
+    oxidj_rekordbox::prepare_sibling_playlist_reorder(&source, request)
 }
 
 /// Export one guarded folder rename to a new, non-overwriting file.
