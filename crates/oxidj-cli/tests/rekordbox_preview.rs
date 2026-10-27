@@ -77,11 +77,11 @@ fn preview_and_export_plan_report_track_year_states_and_export_preserves_source_
         .unwrap()
         .replace(
             "TrackID=\"100\" Name=\"A\"",
-            "TrackID=\"100\" Name=\"A\" Year=\"2024\"",
+            "TrackID=\"100\" Name=\"A\" Year=\"2024\" Size=\"9223372036854775807\"",
         )
         .replace(
             "TrackID=\"200\" Name=\"B\"",
-            "TrackID=\"200\" Name=\"B\" Year=\"\"",
+            "TrackID=\"200\" Name=\"B\" Year=\"\" Size=\"\"",
         )
         .into_bytes();
     let input = temporary_path("year-input");
@@ -104,6 +104,7 @@ fn preview_and_export_plan_report_track_year_states_and_export_preserves_source_
         let stdout = String::from_utf8(result.stdout).unwrap();
         assert!(stdout.contains("Some(\"2024\")"));
         assert!(stdout.contains("Some(\"\")"));
+        assert!(stdout.contains("Some(\"9223372036854775807\")"));
     }
     let result = Command::new(env!("CARGO_BIN_EXE_oxidj-cli"))
         .args([
@@ -260,7 +261,7 @@ fn export_plan_shows_ordered_f10_units_without_writing() {
         concat!(
             "Decision: ALLOW_EXPORT\n",
             "Selected units:\n",
-            "Track\t1000\tVariable tempo\tNone\tNone\tNone\tNone\tNone\tNone\tNone\tNone\tNone\tNone\tfile://localhost/music/variable.flac\tNone\tNone\n",
+            "Track\t1000\tVariable tempo\tNone\tNone\tNone\tNone\tNone\tNone\tNone\tNone\tNone\tNone\tfile://localhost/music/variable.flac\tNone\tNone\tNone\n",
             "TEMPO\t1000\t0\t120\t4/4\t1\n",
             "TEMPO\t1000\t8\t128\t4/4\t1\n",
             "TEMPO\t1000\t16\t132\t7/8\t3\n",

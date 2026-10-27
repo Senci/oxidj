@@ -18,6 +18,7 @@ pub struct Track {
     pub tonality: Option<String>,
     pub kind: Option<String>,
     pub year: Option<String>,
+    pub size: Option<String>,
     pub location: String,
     pub tempos: Vec<Tempo>,
     pub marks: Vec<PositionMark>,
@@ -586,6 +587,7 @@ pub fn parse(bytes: &[u8]) -> Result<Preview, Error> {
                         tonality: optional(&e, "Tonality")?,
                         kind: optional(&e, "Kind")?,
                         year: optional(&e, "Year")?,
+                        size: optional(&e, "Size")?,
                         location: attr(&e, "Location")?,
                         tempos: vec![],
                         marks: vec![],
@@ -676,6 +678,7 @@ pub fn parse(bytes: &[u8]) -> Result<Preview, Error> {
                         tonality: optional(&e, "Tonality")?,
                         kind: optional(&e, "Kind")?,
                         year: optional(&e, "Year")?,
+                        size: optional(&e, "Size")?,
                         location: attr(&e, "Location")?,
                         tempos: vec![],
                         marks: vec![],
@@ -807,7 +810,7 @@ fn validate_export_element(
         "COLLECTION" => &["Entries"],
         "TRACK" if parent == Some("COLLECTION") => &[
             "TrackID", "Name", "Artist", "Comments", "Album", "Genre", "Label", "Composer",
-            "Grouping", "Remixer", "Mix", "Tonality", "Kind", "Year", "Location",
+            "Grouping", "Remixer", "Mix", "Tonality", "Kind", "Year", "Size", "Location",
         ],
         "TRACK" => &["Key"],
         "TEMPO" => &["Inizio", "Bpm", "Metro", "Battito"],
@@ -3758,6 +3761,37 @@ mod tests {
         assert_eq!(plan.selected_tracks[0].year.as_deref(), Some("2024"));
         assert_eq!(plan.selected_tracks[1].year.as_deref(), Some(""));
         assert_eq!(plan.selected_tracks[2].year, None);
+        assert_eq!(export_xml(source).unwrap(), source);
+    }
+
+    #[test]
+    fn size_optional_metadata_preserves_present_empty_absent_and_export_bytes() {
+        let source = include_bytes!("../../../xtask/tests/fixtures/rekordbox-a1/F-02/source.bin");
+        let source = String::from_utf8(source.to_vec())
+            .unwrap()
+            .replace(
+                "TrackID=\"100\" Name=\"A\"",
+                "TrackID=\"100\" Name=\"A\" Size=\"9223372036854775807\"",
+            )
+            .replace(
+                "TrackID=\"200\" Name=\"B\"",
+                "TrackID=\"200\" Name=\"B\" Size=\"\"",
+            );
+        let source = source.as_bytes();
+        let preview = parse(source).unwrap();
+        assert_eq!(
+            preview.tracks[0].size.as_deref(),
+            Some("9223372036854775807")
+        );
+        assert_eq!(preview.tracks[1].size.as_deref(), Some(""));
+        assert_eq!(preview.tracks[2].size, None);
+        let plan = preflight_export(source).unwrap();
+        assert_eq!(
+            plan.selected_tracks[0].size.as_deref(),
+            Some("9223372036854775807")
+        );
+        assert_eq!(plan.selected_tracks[1].size.as_deref(), Some(""));
+        assert_eq!(plan.selected_tracks[2].size, None);
         assert_eq!(export_xml(source).unwrap(), source);
     }
 
