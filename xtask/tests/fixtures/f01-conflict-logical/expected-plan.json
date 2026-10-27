@@ -1,0 +1,1 @@
+{"export_policy":"safe-v1","no_write_expected":true,"outcome":"BLOCK_EXPORT","report":[{"action":"BLOCK_EXPORT","cause_operation_id":null,"code":"IDENTITY_CONFLICT","details":{"reason":"source-id-content-disagreement"},"element_id":null,"field":"identity","record_id":"r2"}],"selected_units":[],"withheld_units":["r2"]}

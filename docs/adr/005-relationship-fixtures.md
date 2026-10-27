@@ -144,7 +144,8 @@ contains one track corresponding to t1; it need not have the same ID or old path
 
 **Observed logical-only result (same-content relocation success subcase only):** `xtask/tests/fixtures/f01-relocation-logical/` freezes canonical source bytes with the exact shared synthetic content witness, both immutable source assertions, operation history, archive, visible location/grid/cue, safe-v1 plan/report, vendor-only re-import and provenance. `xtask/tests/f01_relocation_logical.rs` independently checks reconciliation at revision 0, source selection at revision 1, final revision 2, exact artifact digests and the one-track re-import; mutation controls reject changed history/revision/current location, cue movement, re-import count and report changes. Only this logical success subcase is PASS. F-01 conflict subcases remain NOT DEMONSTRATED; no Mixxx transport, A2, collision, near-duplicate or URI claim is made.
 
-Reset conflict subcases: (a) same namespace/ID 100 but different content bytes
+**Observed logical-only result (same-namespace/source-ID content-conflict subcase):** `xtask/tests/fixtures/f01-conflict-logical/` freezes synthetic A at r1 and candidate B at r2 with namespace and external ID `100`, differing exact content witness `oxidj-f01-different-v1\n`, unchanged original A, retained r2 candidate, blocked safe-v1 export and exact `IDENTITY_CONFLICT` report. `xtask/tests/f01_conflict_logical.rs` independently checks source, operations, archive, visible, plan, report, provenance and exact artifact set; mutation controls reject merge, source mutation, missing candidate and report/plan changes. This subcase is logical-only PASS; other F-01 conflicts, Mixxx A2 and ADR-005 promotion remain NOT DEMONSTRATED/OPEN.
+
 `oxidj-f01-different-v1\n` → reason `source-id-content-disagreement`;
 (b) different namespaces sharing ID 100, without confirmed reconciliation →
 `unconfirmed-identity`; (c) same path but different content → `path-content-disagreement`.
@@ -422,7 +423,7 @@ those controls or restores and defines no product media/retention policy.
 
 | Case | Required specification behavior | Observed result |
 |---|---|---|
-| F-01 | Explicit reconciliation/conflicts, archive vs current location | Same-content relocation success subcase PASS — logical-only fixture/checker; conflict subcases NOT DEMONSTRATED; A2 NOT DEMONSTRATED |
+| F-01 | Explicit reconciliation/conflicts, archive vs current location | Same-content relocation success PASS; same-namespace/source-ID content-conflict subcase PASS — logical-only fixture/checker; remaining conflict subcases NOT DEMONSTRATED; A2 NOT DEMONSTRATED |
 | F-02 | XML child order, shared endpoints | PASS — synthetic A1 checker/tests; no application acceptance |
 | F-03 | Constant grid/cue/range preservation | PASS — logical-only fixture/checker and mutation controls; A2 NOT DEMONSTRATED |
 | F-04 | Revisioned edits, stale conflicts, analysis precedence | NOT DEMONSTRATED |
