@@ -18,11 +18,11 @@ pub use oxidj_rekordbox::{
     PreparedTrackGenreEdit, PreparedTrackGroupingEdit, PreparedTrackKindEdit,
     PreparedTrackLabelEdit, PreparedTrackLastPlayedEdit, PreparedTrackMixEdit,
     PreparedTrackNameEdit, PreparedTrackNumberEdit, PreparedTrackPlayCountEdit,
-    PreparedTrackRatingEdit, PreparedTrackRemixerEdit, PreparedTrackSizeEdit,
-    PreparedTrackTotalTimeEdit, PreparedTrackYearEdit, Preview, TempoBeatEditChange,
-    TempoBeatEditRequest, TempoEditChange, TempoEditRequest, TempoMeterEditChange,
-    TempoMeterEditRequest, TempoStartEditChange, TempoStartEditRequest, TrackAlbumEditChange,
-    TrackAlbumEditRequest, TrackArtistEditChange, TrackArtistEditRequest,
+    PreparedTrackRatingEdit, PreparedTrackRemixerEdit, PreparedTrackSampleRateEdit,
+    PreparedTrackSizeEdit, PreparedTrackTotalTimeEdit, PreparedTrackYearEdit, Preview,
+    TempoBeatEditChange, TempoBeatEditRequest, TempoEditChange, TempoEditRequest,
+    TempoMeterEditChange, TempoMeterEditRequest, TempoStartEditChange, TempoStartEditRequest,
+    TrackAlbumEditChange, TrackAlbumEditRequest, TrackArtistEditChange, TrackArtistEditRequest,
     TrackAverageBpmEditChange, TrackAverageBpmEditRequest, TrackBitRateEditChange,
     TrackBitRateEditRequest, TrackColourEditChange, TrackColourEditRequest,
     TrackCommentsEditChange, TrackCommentsEditRequest, TrackComposerEditChange,
@@ -34,9 +34,10 @@ pub use oxidj_rekordbox::{
     TrackLastPlayedEditRequest, TrackMixEditChange, TrackMixEditRequest, TrackNameEditChange,
     TrackNameEditRequest, TrackNumberEditChange, TrackNumberEditRequest, TrackPlayCountEditChange,
     TrackPlayCountEditRequest, TrackRatingEditChange, TrackRatingEditRequest,
-    TrackRemixerEditChange, TrackRemixerEditRequest, TrackSizeEditChange, TrackSizeEditRequest,
-    TrackTonalityEditChange, TrackTonalityEditRequest, TrackTotalTimeEditChange,
-    TrackTotalTimeEditRequest, TrackYearEditChange, TrackYearEditRequest,
+    TrackRemixerEditChange, TrackRemixerEditRequest, TrackSampleRateEditChange,
+    TrackSampleRateEditRequest, TrackSizeEditChange, TrackSizeEditRequest, TrackTonalityEditChange,
+    TrackTonalityEditRequest, TrackTotalTimeEditChange, TrackTotalTimeEditRequest,
+    TrackYearEditChange, TrackYearEditRequest,
 };
 
 /// Read-only preview handler; parsing and vendor-specific semantics stay in the adapter.
@@ -285,6 +286,17 @@ pub fn export_rekordbox_track_bit_rate_edit(
 ) -> Result<TrackBitRateEditChange, RekordboxError> {
     let (source, output) = read_new_export_source(input, output)?;
     let prepared = oxidj_rekordbox::prepare_track_bit_rate_edit(&source, request)?;
+    publish_new_file(&output, &prepared.bytes)?;
+    Ok(prepared.change)
+}
+
+pub fn export_rekordbox_track_sample_rate_edit(
+    input: impl AsRef<Path>,
+    output: impl AsRef<Path>,
+    request: &TrackSampleRateEditRequest,
+) -> Result<TrackSampleRateEditChange, RekordboxError> {
+    let (source, output) = read_new_export_source(input, output)?;
+    let prepared = oxidj_rekordbox::prepare_track_sample_rate_edit(&source, request)?;
     publish_new_file(&output, &prepared.bytes)?;
     Ok(prepared.change)
 }

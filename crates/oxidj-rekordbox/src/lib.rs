@@ -579,6 +579,23 @@ pub struct PreparedTrackBitRateEdit {
     pub change: TrackBitRateEditChange,
 }
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TrackSampleRateEditRequest {
+    pub track_id: String,
+    pub expected_old_sample_rate: String,
+    pub new_sample_rate: String,
+}
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TrackSampleRateEditChange {
+    pub track_id: String,
+    pub old_sample_rate: String,
+    pub new_sample_rate: String,
+}
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PreparedTrackSampleRateEdit {
+    pub bytes: Vec<u8>,
+    pub change: TrackSampleRateEditChange,
+}
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TrackAverageBpmEditChange {
     pub track_id: String,
     pub old_average_bpm: String,
@@ -3934,6 +3951,72 @@ pub fn prepare_track_bit_rate_edit(
             track_id: request.track_id.clone(),
             old_bit_rate: old.to_owned(),
             new_bit_rate: request.new_bit_rate.clone(),
+        },
+    })
+}
+
+/// Prepare one exact-old-value guarded raw Track SampleRate edit (no numeric conversion).
+pub fn prepare_track_sample_rate_edit(
+    bytes: &[u8],
+    request: &TrackSampleRateEditRequest,
+) -> Result<PreparedTrackSampleRateEdit, Error> {
+    let before = preflight_export(bytes)?;
+    let matches: Vec<_> = before
+        .selected_tracks
+        .iter()
+        .filter(|t| t.id == request.track_id)
+        .collect();
+    let track = match matches.as_slice() {
+        [] => return Err(Error(format!("unknown TrackID {}", request.track_id))),
+        [track] => *track,
+        _ => return Err(Error(format!("duplicate TrackID {}", request.track_id))),
+    };
+    let old = track
+        .sample_rate
+        .as_deref()
+        .ok_or_else(|| Error("track SampleRate missing".into()))?;
+    if old != request.expected_old_sample_rate {
+        return Err(Error("track SampleRate changed".into()));
+    }
+    if !request.new_sample_rate.chars().all(
+        |c| matches!(c as u32, 9 | 10 | 13 | 0x20..=0xD7FF | 0xE000..=0xFFFD | 0x10000..=0x10FFFF),
+    ) {
+        return Err(Error("new SampleRate contains invalid XML 1.0 text".into()));
+    }
+    let range = track_attribute_range(
+        bytes,
+        &request.track_id,
+        "SampleRate",
+        &request.expected_old_sample_rate,
+    )?;
+    let escaped = request
+        .new_sample_rate
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&apos;")
+        .replace('\t', "&#9;")
+        .replace('\n', "&#10;")
+        .replace('\r', "&#13;");
+    let mut output = bytes.to_vec();
+    output.splice(range, escaped.bytes());
+    let after = preflight_export(&output)?;
+    let mut expected = before.selected_tracks.clone();
+    expected
+        .iter_mut()
+        .find(|t| t.id == request.track_id)
+        .unwrap()
+        .sample_rate = Some(request.new_sample_rate.clone());
+    if after.selected_tracks != expected {
+        return Err(Error("track SampleRate edit verification failed".into()));
+    }
+    Ok(PreparedTrackSampleRateEdit {
+        bytes: output,
+        change: TrackSampleRateEditChange {
+            track_id: request.track_id.clone(),
+            old_sample_rate: old.to_owned(),
+            new_sample_rate: request.new_sample_rate.clone(),
         },
     })
 }
