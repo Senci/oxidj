@@ -431,6 +431,23 @@ pub struct PreparedTrackColourEdit {
     pub change: TrackColourEditChange,
 }
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TrackDateAddedEditRequest {
+    pub track_id: String,
+    pub expected_old_date_added: String,
+    pub new_date_added: String,
+}
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TrackDateAddedEditChange {
+    pub track_id: String,
+    pub old_date_added: String,
+    pub new_date_added: String,
+}
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PreparedTrackDateAddedEdit {
+    pub bytes: Vec<u8>,
+    pub change: TrackDateAddedEditChange,
+}
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TrackComposerEditChange {
     pub track_id: String,
     pub old_composer: String,
@@ -3106,6 +3123,72 @@ pub fn prepare_track_year_edit(
             track_id: request.track_id.clone(),
             old_year: old_year.to_owned(),
             new_year: request.new_year.clone(),
+        },
+    })
+}
+
+/// Prepare one exact-old-value guarded raw Track DateAdded edit (no numeric conversion).
+pub fn prepare_track_date_added_edit(
+    bytes: &[u8],
+    request: &TrackDateAddedEditRequest,
+) -> Result<PreparedTrackDateAddedEdit, Error> {
+    let before = preflight_export(bytes)?;
+    let matches: Vec<_> = before
+        .selected_tracks
+        .iter()
+        .filter(|t| t.id == request.track_id)
+        .collect();
+    let track = match matches.as_slice() {
+        [] => return Err(Error(format!("unknown TrackID {}", request.track_id))),
+        [track] => *track,
+        _ => return Err(Error(format!("duplicate TrackID {}", request.track_id))),
+    };
+    let old_date_added = track
+        .date_added
+        .as_deref()
+        .ok_or_else(|| Error("track DateAdded missing".into()))?;
+    if old_date_added != request.expected_old_date_added {
+        return Err(Error("track DateAdded changed".into()));
+    }
+    if !request.new_date_added.chars().all(
+        |c| matches!(c as u32, 9 | 10 | 13 | 0x20..=0xD7FF | 0xE000..=0xFFFD | 0x10000..=0x10FFFF),
+    ) {
+        return Err(Error("new DateAdded contains invalid XML 1.0 text".into()));
+    }
+    let range = track_attribute_range(
+        bytes,
+        &request.track_id,
+        "DateAdded",
+        &request.expected_old_date_added,
+    )?;
+    let escaped = request
+        .new_date_added
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&apos;")
+        .replace('\t', "&#9;")
+        .replace('\n', "&#10;")
+        .replace('\r', "&#13;");
+    let mut output = bytes.to_vec();
+    output.splice(range, escaped.bytes());
+    let after = preflight_export(&output)?;
+    let mut expected = before.selected_tracks.clone();
+    expected
+        .iter_mut()
+        .find(|t| t.id == request.track_id)
+        .unwrap()
+        .date_added = Some(request.new_date_added.clone());
+    if after.selected_tracks != expected {
+        return Err(Error("track DateAdded edit verification failed".into()));
+    }
+    Ok(PreparedTrackDateAddedEdit {
+        bytes: output,
+        change: TrackDateAddedEditChange {
+            track_id: request.track_id.clone(),
+            old_date_added: old_date_added.to_owned(),
+            new_date_added: request.new_date_added.clone(),
         },
     })
 }
@@ -5874,6 +5957,65 @@ mod tests {
             );
         }
         assert!(prepare_track_year_edit(b"<bad", &request).is_err());
+    }
+
+    #[test]
+    fn guarded_track_date_added_edit_preserves_raw_value_and_rejects_stale_absent_invalid() {
+        let base = include_bytes!("../../../xtask/tests/fixtures/rekordbox-a1/F-02/source.bin");
+        let source = String::from_utf8(base.to_vec()).unwrap().replacen(
+            "TrackID=\"100\" Name=\"A\"",
+            "TrackID=\"100\" Name=\"A\" DateAdded=\"20&amp;24\"",
+            1,
+        );
+        let source = source.replacen(
+            "TrackID=\"200\" Name=\"B\"",
+            "TrackID=\"200\" Name=\"B\" DateAdded=\"\"",
+            1,
+        );
+
+        let request = TrackDateAddedEditRequest {
+            track_id: "100".into(),
+            expected_old_date_added: "20&24".into(),
+            new_date_added: "raw & <date_added>\t\n".into(),
+        };
+        let edited = prepare_track_date_added_edit(source.as_bytes(), &request).unwrap();
+        assert!(
+            String::from_utf8(edited.bytes.clone())
+                .unwrap()
+                .contains("DateAdded=\"raw &amp; &lt;date_added&gt;&#9;&#10;\"")
+        );
+        assert_eq!(
+            parse(&edited.bytes).unwrap().tracks[0]
+                .date_added
+                .as_deref(),
+            Some("raw & <date_added>\t\n")
+        );
+        assert_eq!(
+            parse(source.as_bytes()).unwrap().tracks[1]
+                .date_added
+                .as_deref(),
+            Some("")
+        );
+        assert_eq!(parse(source.as_bytes()).unwrap().tracks[2].date_added, None);
+        for (id, old, new) in [
+            ("100", "stale", "x"),
+            ("300", "", "x"),
+            ("999", "x", "y"),
+            ("100", "20&24", "bad\u{1}"),
+        ] {
+            assert!(
+                prepare_track_date_added_edit(
+                    source.as_bytes(),
+                    &TrackDateAddedEditRequest {
+                        track_id: id.into(),
+                        expected_old_date_added: old.into(),
+                        new_date_added: new.into()
+                    }
+                )
+                .is_err()
+            );
+        }
+        assert!(prepare_track_date_added_edit(b"<bad", &request).is_err());
     }
 
     #[test]

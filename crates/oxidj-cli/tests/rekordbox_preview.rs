@@ -3637,3 +3637,59 @@ fn temporary_path(label: &str) -> std::path::PathBuf {
         std::process::id()
     ))
 }
+
+#[test]
+fn track_date_added_edit_escapes_xml_and_rejects_stale_guard_without_writing() {
+    let fixture = format!(
+        "{}/../../xtask/tests/fixtures/rekordbox-a1/F-02/source.bin",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let source = String::from_utf8(fs::read(fixture).unwrap())
+        .unwrap()
+        .replacen(
+            "TrackID=\"100\" Name=\"A\"",
+            "TrackID=\"100\" Name=\"A\" DateAdded=\"old &amp; date_added\"",
+            1,
+        )
+        .into_bytes();
+    let input = temporary_path("track-date-added-input");
+    let output = temporary_path("track-date-added-output");
+    fs::write(&input, &source).unwrap();
+    let invoke = |expected: &str, date_added: &str, target: &std::path::Path| {
+        Command::new(env!("CARGO_BIN_EXE_oxidj-cli"))
+            .args([
+                "rekordbox",
+                "edit-track-date-added",
+                "--xml",
+                input.to_str().unwrap(),
+                "--output",
+                target.to_str().unwrap(),
+                "--track-id",
+                "100",
+                "--expected-date-added",
+                expected,
+                "--date-added",
+                date_added,
+            ])
+            .output()
+            .unwrap()
+    };
+    let success = invoke("old & date_added", "A\tB\nC\rD & <x>", &output);
+    assert_eq!(success.status.code(), Some(0), "{:?}", success.stderr);
+    let encoded = "DateAdded=\"A&#9;B&#10;C&#13;D &amp; &lt;x&gt;\"";
+    let expected = String::from_utf8(source.clone()).unwrap().replacen(
+        "DateAdded=\"old &amp; date_added\"",
+        encoded,
+        1,
+    );
+    assert_eq!(fs::read(&output).unwrap(), expected.as_bytes());
+    assert_eq!(fs::read(&input).unwrap(), source);
+
+    let stale_output = temporary_path("track-date-added-stale");
+    let stale = invoke("stale", "replacement", &stale_output);
+    assert_ne!(stale.status.code(), Some(0), "stale guard accepted");
+    assert!(!stale_output.exists(), "stale guard created output");
+    assert_eq!(fs::read(&input).unwrap(), source);
+    let _ = fs::remove_file(input);
+    let _ = fs::remove_file(output);
+}
