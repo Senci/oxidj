@@ -14,6 +14,9 @@ fn read(n: &str) -> Value {
 fn hash(b: &[u8]) -> String {
     format!("{:x}", Sha256::digest(b))
 }
+fn provenance_matches(prov: &Value, expected: &Value) -> bool {
+    prov == expected
+}
 fn check(s: &Value, o: &Value, a: &Value, mid: &Value, v: &Value, p: &Value, r: &Value) -> bool {
     let grid =
         json!({"bpm":"128","first_beat_frame":96000,"sample_rate_hz":48000,"source":"ANALYZER"});
@@ -62,9 +65,23 @@ fn frozen_artifacts_and_literal_state() {
     let s: Value = serde_json::from_slice(&b).unwrap();
     assert_eq!(b, format!("{}\n", s).as_bytes());
     let prov = read("provenance.json");
-    assert_eq!(prov["classification"], "logical-only-not-A2-evidence");
-    assert_eq!(prov["checker"], "independent-literal-v1");
-    assert_eq!(prov["source_sha256"], hash(&b));
+    let mut artifact_map = serde_json::Map::new();
+    for n in names {
+        let x = std::fs::read(path(n)).unwrap();
+        artifact_map.insert(
+            n.to_string(),
+            json!({"length_bytes":x.len(),"path":n,"sha256":hash(&x)}),
+        );
+    }
+    let expected_provenance = json!({
+        "artifacts": artifact_map,
+        "checker": "independent-literal-v1",
+        "classification": "logical-only-not-A2-evidence",
+        "source_length_bytes": b.len(),
+        "source_sha256": hash(&b),
+        "source_version": "logical-v1"
+    });
+    assert!(provenance_matches(&prov, &expected_provenance));
     let mut actual: Vec<_> = std::fs::read_dir(path("."))
         .unwrap()
         .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
@@ -137,4 +154,14 @@ fn mutation_controls_reject_drift() {
     let mut m = mid.clone();
     m["grid"]["bpm"] = json!("129");
     assert!(!check(&s, &o, &a, &m, &v, &p, &r));
+
+    let mut provenance = read("provenance.json");
+    let mut expected = provenance.clone();
+    provenance["checker"] = json!("drifted-checker");
+    assert!(!provenance_matches(&provenance, &expected));
+    provenance = read("provenance.json");
+    expected = provenance.clone();
+    provenance["artifacts"]["unexpected.json"] =
+        json!({"path":"unexpected.json","length_bytes":0,"sha256":""});
+    assert!(!provenance_matches(&provenance, &expected));
 }
