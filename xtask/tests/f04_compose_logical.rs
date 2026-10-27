@@ -14,6 +14,46 @@ fn read(name: &str) -> Value {
 fn hash(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
 }
+fn checker_identity() -> Value {
+    serde_json::from_slice(&std::fs::read(path("checker-identity.json")).unwrap()).unwrap()
+}
+fn checker_identity_matches(identity: &Value, live_source: &[u8]) -> bool {
+    identity
+        == &json!({"path":"xtask/tests/f04_compose_logical.rs","version":"f04-compose-checker-v1","sha256":hash(live_source)})
+}
+fn provenance_valid(prov: &Value, names: &[&str]) -> bool {
+    if prov["classification"] != "logical-only-not-A2-evidence"
+        || prov["checker"] != "independent-literal-v1"
+    {
+        return false;
+    }
+    let Ok(identity_bytes) = std::fs::read(path("checker-identity.json")) else {
+        return false;
+    };
+    let Ok(identity) = serde_json::from_slice::<Value>(&identity_bytes) else {
+        return false;
+    };
+    let Ok(live_source) = std::fs::read(
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/f04_compose_logical.rs"),
+    ) else {
+        return false;
+    };
+    if !checker_identity_matches(&identity, &live_source) || prov["checker_identity"] != identity {
+        return false;
+    }
+    let Some(artifacts) = prov["artifacts"].as_object() else {
+        return false;
+    };
+    artifacts.len() == names.len()
+        && names.iter().all(|name| {
+            let Ok(bytes) = std::fs::read(path(name)) else {
+                return false;
+            };
+            artifacts[*name]["path"] == *name
+                && artifacts[*name]["length_bytes"] == bytes.len()
+                && artifacts[*name]["sha256"] == hash(&bytes)
+        })
+}
 // Independent literal contract: intentionally does not call product import/edit/export code.
 fn check(
     src: &[u8],
@@ -103,12 +143,30 @@ fn frozen_artifacts_and_literal_contract() {
         "expected-plan.json",
         "expected-report.json",
         "source.bin",
+        "checker-identity.json",
     ];
     let source = std::fs::read(path("source.bin")).unwrap();
     let prov = read("provenance.json");
-    assert_eq!(prov["classification"], "logical-only-not-A2-evidence");
-    assert_eq!(prov["source_sha256"], hash(&source));
-    assert_eq!(prov["source_length_bytes"], source.len());
+    let identity = checker_identity();
+    let live_source = std::fs::read(
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/f04_compose_logical.rs"),
+    )
+    .unwrap();
+    assert!(checker_identity_matches(&identity, &live_source));
+    for (key, value) in [
+        ("path", json!("xtask/tests/other.rs")),
+        ("version", json!("f04-compose-checker-v2")),
+        ("sha256", json!("wrong-digest")),
+    ] {
+        let mut drift = identity.clone();
+        drift[key] = value;
+        assert!(!checker_identity_matches(&drift, &live_source));
+    }
+    assert!(!checker_identity_matches(
+        &identity,
+        b"mutated checker source"
+    ));
+    assert!(provenance_valid(&prov, &names));
     let artifacts = prov["artifacts"].as_object().unwrap();
     assert_eq!(artifacts.len(), names.len());
     let mut actual: Vec<_> = std::fs::read_dir(path("."))
@@ -120,6 +178,15 @@ fn frozen_artifacts_and_literal_contract() {
     expected.push("provenance.json".to_owned());
     expected.sort();
     assert_eq!(actual, expected, "fixture artifact set");
+    let mut drifted = prov.clone();
+    drifted["artifacts"]
+        .as_object_mut()
+        .unwrap()
+        .remove("checker-identity.json");
+    assert!(!provenance_valid(&drifted, &names));
+    drifted = prov.clone();
+    drifted["checker_identity"]["version"] = json!("drift");
+    assert!(!provenance_valid(&drifted, &names));
     for n in names {
         let b = std::fs::read(path(n)).unwrap();
         let i = &artifacts[n];
