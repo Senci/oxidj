@@ -15,7 +15,9 @@ fn preview_prints_tracks_ordered_playlists_tempos_and_marks() {
         .expect("run CLI");
     assert_eq!(out.status.code(), Some(0));
     let stdout = String::from_utf8(out.stdout).unwrap();
-    assert!(stdout.contains("700\tTempo cue independence\tfile://localhost/music/tempo.flac"));
+    assert!(
+        stdout.contains("700\tTempo cue independence\tNone\tfile://localhost/music/tempo.flac")
+    );
     assert!(stdout.contains("TEMPO\t10\t128\t4/4\t1"));
     assert!(stdout.contains("POSITION_MARK\tIntro\t0\t5\t0\tNone"));
     assert!(stdout.contains("Playlists:"));
@@ -133,7 +135,7 @@ fn export_plan_shows_ordered_f10_units_without_writing() {
         concat!(
             "Decision: ALLOW_EXPORT\n",
             "Selected units:\n",
-            "Track\t1000\tVariable tempo\tfile://localhost/music/variable.flac\n",
+            "Track\t1000\tVariable tempo\tNone\tfile://localhost/music/variable.flac\n",
             "TEMPO\t1000\t0\t120\t4/4\t1\n",
             "TEMPO\t1000\t8\t128\t4/4\t1\n",
             "TEMPO\t1000\t16\t132\t7/8\t3\n",
@@ -1294,6 +1296,94 @@ fn track_name_edit_exports_one_guarded_name_and_rejects_stale_or_existing_output
         expected,
         "existing destination changed"
     );
+    assert_eq!(fs::read(&input).unwrap(), source);
+
+    let _ = fs::remove_file(input);
+    let _ = fs::remove_file(output);
+}
+
+#[test]
+fn track_artist_edit_exports_only_artist_and_preserves_absence_and_source() {
+    let fixture = format!(
+        "{}/../../xtask/tests/fixtures/rekordbox-a1/F-02/source.bin",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let source =
+        String::from_utf8(fs::read(&fixture).expect("read synthetic F-02 fixture")).unwrap();
+    let source = source.replacen(
+        "TrackID=\"100\" Name=\"A\"",
+        "TrackID=\"100\" Name=\"A\" Artist=\"DJ &amp; Co\"",
+        1,
+    );
+    let source = source.into_bytes();
+    let input = temporary_path("track-artist-input");
+    let output = temporary_path("track-artist-output");
+    fs::write(&input, &source).expect("write synthetic input");
+    let invoke = |track_id: &str, expected: &str, artist: &str, target: &std::path::Path| {
+        Command::new(env!("CARGO_BIN_EXE_oxidj-cli"))
+            .args([
+                "rekordbox",
+                "edit-track-artist",
+                "--xml",
+                input.to_str().unwrap(),
+                "--output",
+                target.to_str().unwrap(),
+                "--track-id",
+                track_id,
+                "--expected-artist",
+                expected,
+                "--artist",
+                artist,
+            ])
+            .output()
+            .expect("run track-artist CLI")
+    };
+
+    let success = invoke("100", "DJ & Co", "New & Artist", &output);
+    assert_eq!(
+        success.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&success.stderr)
+    );
+    let expected = String::from_utf8(source.clone())
+        .unwrap()
+        .replacen("Artist=\"DJ &amp; Co\"", "Artist=\"New &amp; Artist\"", 1)
+        .into_bytes();
+    assert_eq!(fs::read(&output).unwrap(), expected);
+    assert_eq!(fs::read(&input).unwrap(), source);
+
+    for (label, id, old, new) in [
+        ("stale", "100", "stale", "Next"),
+        ("absent", "200", "", "New Artist"),
+        ("unknown", "999", "Nobody", "New Artist"),
+    ] {
+        let rejected = temporary_path(&format!("track-artist-{label}"));
+        assert_ne!(invoke(id, old, new, &rejected).status.code(), Some(0));
+        assert!(!rejected.exists(), "{label} request published output");
+    }
+
+    let duplicate = String::from_utf8(source.clone())
+        .unwrap()
+        .replacen("TrackID=\"200\"", "TrackID=\"100\"", 1)
+        .into_bytes();
+    fs::write(&input, &duplicate).unwrap();
+    let duplicate_output = temporary_path("track-artist-duplicate");
+    assert_ne!(
+        invoke("100", "DJ & Co", "Next", &duplicate_output)
+            .status
+            .code(),
+        Some(0),
+        "duplicate target accepted"
+    );
+    assert!(!duplicate_output.exists());
+    fs::write(&input, &source).unwrap();
+
+    let rejected_existing = invoke("100", "DJ & Co", "Next", &output);
+    assert_ne!(rejected_existing.status.code(), Some(0));
+    assert_eq!(fs::read(&output).unwrap(), expected);
+    let rejected_same_path = invoke("100", "DJ & Co", "Next", &input);
+    assert_ne!(rejected_same_path.status.code(), Some(0));
     assert_eq!(fs::read(&input).unwrap(), source);
 
     let _ = fs::remove_file(input);

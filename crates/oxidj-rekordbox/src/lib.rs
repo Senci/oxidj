@@ -6,6 +6,7 @@ use std::{collections::HashSet, fs, path::Path};
 pub struct Track {
     pub id: String,
     pub name: String,
+    pub artist: Option<String>,
     pub location: String,
     pub tempos: Vec<Tempo>,
     pub marks: Vec<PositionMark>,
@@ -286,6 +287,23 @@ pub struct TrackNameEditChange {
     pub new_name: String,
 }
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TrackArtistEditRequest {
+    pub track_id: String,
+    pub expected_old_artist: String,
+    pub new_artist: String,
+}
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TrackArtistEditChange {
+    pub track_id: String,
+    pub old_artist: String,
+    pub new_artist: String,
+}
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PreparedTrackArtistEdit {
+    pub bytes: Vec<u8>,
+    pub change: TrackArtistEditChange,
+}
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PreparedTrackNameEdit {
     pub bytes: Vec<u8>,
     pub change: TrackNameEditChange,
@@ -390,6 +408,7 @@ pub fn parse(bytes: &[u8]) -> Result<Preview, Error> {
                     current = Some(Track {
                         id,
                         name: attr(&e, "Name")?,
+                        artist: optional(&e, "Artist")?,
                         location: attr(&e, "Location")?,
                         tempos: vec![],
                         marks: vec![],
@@ -468,6 +487,7 @@ pub fn parse(bytes: &[u8]) -> Result<Preview, Error> {
                     out.tracks.push(Track {
                         id,
                         name: attr(&e, "Name")?,
+                        artist: optional(&e, "Artist")?,
                         location: attr(&e, "Location")?,
                         tempos: vec![],
                         marks: vec![],
@@ -597,7 +617,7 @@ fn validate_export_element(
         "DJ_PLAYLISTS" => &["Version"],
         "PRODUCT" => &["Name", "Version", "Company"],
         "COLLECTION" => &["Entries"],
-        "TRACK" if parent == Some("COLLECTION") => &["TrackID", "Name", "Location"],
+        "TRACK" if parent == Some("COLLECTION") => &["TrackID", "Name", "Artist", "Location"],
         "TRACK" => &["Key"],
         "TEMPO" => &["Inizio", "Bpm", "Metro", "Battito"],
         "POSITION_MARK" => &["Name", "Type", "Start", "Num", "End"],
@@ -1898,9 +1918,10 @@ pub fn export_xml(bytes: &[u8]) -> Result<Vec<u8>, Error> {
     Ok(bytes.to_vec())
 }
 
-fn track_name_range(
+fn track_attribute_range(
     bytes: &[u8],
     id: &str,
+    attribute: &str,
     expected: &str,
 ) -> Result<std::ops::Range<usize>, Error> {
     let mut reader = Reader::from_reader(bytes);
@@ -1918,7 +1939,7 @@ fn track_name_range(
                     && stack.last().is_some_and(|p| p == "COLLECTION") =>
             {
                 if attr(&e, "TrackID")? == id {
-                    result = Some(attribute_value_range(&e, start, "Name", expected)?);
+                    result = Some(attribute_value_range(&e, start, attribute, expected)?);
                 }
                 stack.push("TRACK".into());
             }
@@ -1927,7 +1948,7 @@ fn track_name_range(
                     && stack.last().is_some_and(|p| p == "COLLECTION") =>
             {
                 if attr(&e, "TrackID")? == id {
-                    result = Some(attribute_value_range(&e, start, "Name", expected)?);
+                    result = Some(attribute_value_range(&e, start, attribute, expected)?);
                 }
             }
             Event::Start(e) => stack.push(String::from_utf8_lossy(e.name().as_ref()).into_owned()),
@@ -1939,7 +1960,7 @@ fn track_name_range(
         }
         buf.clear();
     }
-    result.ok_or_else(|| Error("Track Name location missing".into()))
+    result.ok_or_else(|| Error(format!("Track {attribute} location missing")))
 }
 
 /// Prepare one exact-old-name guarded TrackID edit with byte-preserving XML output.
@@ -1961,7 +1982,8 @@ pub fn prepare_track_name_edit(
     ) {
         return Err(Error("new Name contains invalid XML 1.0 text".into()));
     }
-    let range = track_name_range(bytes, &request.track_id, &request.expected_old_name)?;
+    let range =
+        track_attribute_range(bytes, &request.track_id, "Name", &request.expected_old_name)?;
     let escaped = request
         .new_name
         .replace('&', "&amp;")
@@ -1987,6 +2009,69 @@ pub fn prepare_track_name_edit(
             track_id: request.track_id.clone(),
             old_name: request.expected_old_name.clone(),
             new_name: request.new_name.clone(),
+        },
+    })
+}
+
+/// Prepare one exact-old-value guarded Track Artist edit.
+pub fn prepare_track_artist_edit(
+    bytes: &[u8],
+    request: &TrackArtistEditRequest,
+) -> Result<PreparedTrackArtistEdit, Error> {
+    let before = preflight_export(bytes)?;
+    let matches: Vec<_> = before
+        .selected_tracks
+        .iter()
+        .filter(|t| t.id == request.track_id)
+        .collect();
+    let track = match matches.as_slice() {
+        [] => return Err(Error(format!("unknown TrackID {}", request.track_id))),
+        [track] => *track,
+        _ => return Err(Error(format!("duplicate TrackID {}", request.track_id))),
+    };
+    let old_artist = track
+        .artist
+        .as_deref()
+        .ok_or_else(|| Error("track Artist missing".into()))?;
+    if old_artist != request.expected_old_artist {
+        return Err(Error("track Artist changed".into()));
+    }
+    if !request.new_artist.chars().all(
+        |c| matches!(c as u32, 9 | 10 | 13 | 0x20..=0xD7FF | 0xE000..=0xFFFD | 0x10000..=0x10FFFF),
+    ) {
+        return Err(Error("new Artist contains invalid XML 1.0 text".into()));
+    }
+    let range = track_attribute_range(
+        bytes,
+        &request.track_id,
+        "Artist",
+        &request.expected_old_artist,
+    )?;
+    let escaped = request
+        .new_artist
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&apos;");
+    let mut output = bytes.to_vec();
+    output.splice(range, escaped.bytes());
+    let after = preflight_export(&output)?;
+    let mut expected = before.selected_tracks.clone();
+    expected
+        .iter_mut()
+        .find(|t| t.id == request.track_id)
+        .unwrap()
+        .artist = Some(request.new_artist.clone());
+    if after.selected_tracks != expected {
+        return Err(Error("track Artist edit verification failed".into()));
+    }
+    Ok(PreparedTrackArtistEdit {
+        bytes: output,
+        change: TrackArtistEditChange {
+            track_id: request.track_id.clone(),
+            old_artist: old_artist.to_owned(),
+            new_artist: request.new_artist.clone(),
         },
     })
 }
@@ -2336,7 +2421,7 @@ fn attribute_value_range(
                 .map_err(|error| Error(error.to_string()))?;
             if actual != expected {
                 return Err(Error(format!(
-                    "position mark {key} changed: expected {expected}, found {actual}"
+                    "attribute {key} changed: expected {expected}, found {actual}"
                 )));
             }
             let event_bytes = element.as_ref();
@@ -2345,7 +2430,7 @@ fn attribute_value_range(
             return Ok(start..start + attribute.value.len());
         }
     }
-    Err(Error(format!("POSITION_MARK missing {key} attribute")))
+    Err(Error(format!("element missing {key} attribute")))
 }
 
 /// Prepare one position mark Start edit while preserving every other source byte.
@@ -3290,6 +3375,49 @@ mod tests {
             ..request
         };
         assert!(prepare_track_name_edit(source, &invalid).is_err());
+    }
+
+    #[test]
+    fn guarded_track_artist_edit_preserves_optional_value_and_changes_only_target() {
+        let source = include_bytes!("../../../xtask/tests/fixtures/rekordbox-a1/F-02/source.bin");
+        let source = String::from_utf8(source.to_vec()).unwrap().replacen(
+            "TrackID=\"100\" Name=\"A\"",
+            "TrackID=\"100\" Name=\"A\" Artist=\"DJ &amp; Co\"",
+            1,
+        );
+        let parsed = parse(source.as_bytes()).unwrap();
+        assert_eq!(parsed.tracks[0].artist.as_deref(), Some("DJ & Co"));
+        assert_eq!(parsed.tracks[1].artist, None);
+
+        let request = TrackArtistEditRequest {
+            track_id: "100".into(),
+            expected_old_artist: "DJ & Co".into(),
+            new_artist: "New & Artist".into(),
+        };
+        let prepared = prepare_track_artist_edit(source.as_bytes(), &request).unwrap();
+        let expected = source.replacen("Artist=\"DJ &amp; Co\"", "Artist=\"New &amp; Artist\"", 1);
+        assert_eq!(prepared.bytes, expected.as_bytes());
+        assert_eq!(
+            parse(&prepared.bytes).unwrap().tracks[0].artist.as_deref(),
+            Some("New & Artist")
+        );
+
+        let absent = TrackArtistEditRequest {
+            track_id: "200".into(),
+            expected_old_artist: "".into(),
+            new_artist: "New Artist".into(),
+        };
+        assert!(prepare_track_artist_edit(source.as_bytes(), &absent).is_err());
+        let stale = TrackArtistEditRequest {
+            expected_old_artist: "stale".into(),
+            ..request.clone()
+        };
+        assert!(prepare_track_artist_edit(source.as_bytes(), &stale).is_err());
+        let invalid = TrackArtistEditRequest {
+            new_artist: "bad\u{1}".into(),
+            ..request
+        };
+        assert!(prepare_track_artist_edit(source.as_bytes(), &invalid).is_err());
     }
 
     #[test]
