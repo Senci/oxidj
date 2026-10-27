@@ -77,11 +77,11 @@ fn preview_and_export_plan_report_track_year_states_and_export_preserves_source_
         .unwrap()
         .replace(
             "TrackID=\"100\" Name=\"A\"",
-            "TrackID=\"100\" Name=\"A\" Year=\"2024\" Size=\"9223372036854775807\" DiscNumber=\"-2147483648\" TrackNumber=\"-2147483648\" TotalTime=\"3.141592653589793\" BitRate=\"-2147483648\"",
+            "TrackID=\"100\" Name=\"A\" Year=\"2024\" Size=\"9223372036854775807\" DiscNumber=\"-2147483648\" TrackNumber=\"-2147483648\" TotalTime=\"3.141592653589793\" BitRate=\"-2147483648\" SampleRate=\"48000.0\"",
         )
         .replace(
             "TrackID=\"200\" Name=\"B\"",
-            "TrackID=\"200\" Name=\"B\" Year=\"\" Size=\"\" DiscNumber=\"\" TrackNumber=\"\" TotalTime=\"\" BitRate=\"\"",
+            "TrackID=\"200\" Name=\"B\" Year=\"\" Size=\"\" DiscNumber=\"\" TrackNumber=\"\" TotalTime=\"\" BitRate=\"\" SampleRate=\"\"",
         )
         .into_bytes();
     let input = temporary_path("year-input");
@@ -115,7 +115,7 @@ fn preview_and_export_plan_report_track_year_states_and_export_preserves_source_
                 })
                 .unwrap_or_else(|| panic!("missing TrackID {track_id} row in:\\n{stdout}"));
             assert_eq!(
-                row.split('\t').rev().nth(2),
+                row.split('\t').rev().nth(3),
                 Some(expected_track_number),
                 "{row}"
             );
@@ -125,7 +125,7 @@ fn preview_and_export_plan_report_track_year_states_and_export_preserves_source_
                 _ => "None",
             };
             assert_eq!(
-                row.split('\t').next_back(),
+                row.split('\t').rev().nth(1),
                 Some(match track_id {
                     "100" => "Some(\"-2147483648\")",
                     "200" => "Some(\"\")",
@@ -134,8 +134,17 @@ fn preview_and_export_plan_report_track_year_states_and_export_preserves_source_
                 "{row}"
             );
             assert_eq!(
-                row.split('\t').rev().nth(1),
+                row.split('\t').rev().nth(2),
                 Some(expected_total_time),
+                "{row}"
+            );
+            assert_eq!(
+                row.split('\t').next_back(),
+                Some(match track_id {
+                    "100" => "Some(\"48000.0\")",
+                    "200" => "Some(\"\")",
+                    _ => "None",
+                }),
                 "{row}"
             );
         }
@@ -295,7 +304,7 @@ fn export_plan_shows_ordered_f10_units_without_writing() {
         concat!(
             "Decision: ALLOW_EXPORT\n",
             "Selected units:\n",
-            "Track\t1000\tVariable tempo\tNone\tNone\tNone\tNone\tNone\tNone\tNone\tNone\tNone\tNone\tfile://localhost/music/variable.flac\tNone\tNone\tNone\tNone\tNone\tNone\tNone\n",
+            "Track\t1000\tVariable tempo\tNone\tNone\tNone\tNone\tNone\tNone\tNone\tNone\tNone\tNone\tfile://localhost/music/variable.flac\tNone\tNone\tNone\tNone\tNone\tNone\tNone\tNone\n",
             "TEMPO\t1000\t0\t120\t4/4\t1\n",
             "TEMPO\t1000\t8\t128\t4/4\t1\n",
             "TEMPO\t1000\t16\t132\t7/8\t3\n",
