@@ -182,7 +182,7 @@ fn preview_and_export_plan_report_track_year_states_and_export_preserves_source_
                 })
                 .unwrap_or_else(|| panic!("missing TrackID {track_id} row in:\\n{stdout}"));
             assert_eq!(
-                row.split('\t').rev().nth(3),
+                row.split('\t').rev().nth(4),
                 Some(expected_track_number),
                 "{row}"
             );
@@ -192,7 +192,7 @@ fn preview_and_export_plan_report_track_year_states_and_export_preserves_source_
                 _ => "None",
             };
             assert_eq!(
-                row.split('\t').rev().nth(1),
+                row.split('\t').rev().nth(2),
                 Some(match track_id {
                     "100" => "Some(\"-2147483648\")",
                     "200" => "Some(\"\")",
@@ -201,12 +201,12 @@ fn preview_and_export_plan_report_track_year_states_and_export_preserves_source_
                 "{row}"
             );
             assert_eq!(
-                row.split('\t').rev().nth(2),
+                row.split('\t').rev().nth(3),
                 Some(expected_total_time),
                 "{row}"
             );
             assert_eq!(
-                row.split('\t').next_back(),
+                row.split('\t').rev().nth(1),
                 Some(match track_id {
                     "100" => "Some(\"48000.0\")",
                     "200" => "Some(\"\")",
@@ -371,7 +371,7 @@ fn export_plan_shows_ordered_f10_units_without_writing() {
         concat!(
             "Decision: ALLOW_EXPORT\n",
             "Selected units:\n",
-            "Track\t1000\tVariable tempo\tNone\tNone\tNone\tNone\tNone\tNone\tNone\tNone\tNone\tNone\tfile://localhost/music/variable.flac\tNone\tNone\tNone\tNone\tNone\tNone\tNone\tNone\n",
+            "Track\t1000\tVariable tempo\tNone\tNone\tNone\tNone\tNone\tNone\tNone\tNone\tNone\tNone\tfile://localhost/music/variable.flac\tNone\tNone\tNone\tNone\tNone\tNone\tNone\tNone\tNone\n",
             "TEMPO\t1000\t0\t120\t4/4\t1\n",
             "TEMPO\t1000\t8\t128\t4/4\t1\n",
             "TEMPO\t1000\t16\t132\t7/8\t3\n",
