@@ -721,6 +721,43 @@ fn run_rekordbox(args: &[String]) -> i32 {
             }
         };
     }
+    if args
+        .first()
+        .is_some_and(|action| action == "edit-track-kind")
+    {
+        if args.len() != 11
+            || args[1] != "--xml"
+            || args[3] != "--output"
+            || args[5] != "--track-id"
+            || args[7] != "--expected-kind"
+            || args[9] != "--kind"
+        {
+            eprintln!(
+                "error: expected rekordbox edit-track-kind --xml IN --output NEW --track-id ID --expected-kind OLD --kind NEW"
+            );
+            return USAGE;
+        }
+        let request = oxidj_application::TrackKindEditRequest {
+            track_id: args[6].clone(),
+            expected_old_kind: args[8].clone(),
+            new_kind: args[10].clone(),
+        };
+        return match oxidj_application::export_rekordbox_track_kind_edit(
+            &args[2], &args[4], &request,
+        ) {
+            Ok(change) => {
+                println!(
+                    "Changed Kind for track[{}]: {:?} to {:?}",
+                    change.track_id, change.old_kind, change.new_kind
+                );
+                OK
+            }
+            Err(error) => {
+                eprintln!("error: track Kind edit rejected: {error}");
+                DOMAIN
+            }
+        };
+    }
     if args.first().is_some_and(|action| action == "rename-folder") {
         if args.len() != 11
             || args[1] != "--xml"
@@ -1488,7 +1525,7 @@ fn print_usage(to_stdout: bool) {
     );
     let _ = writeln!(
         output,
-        "  rekordbox edit-track-name --xml <in> --output <new> --track-id <id> --expected-name <old> --name <new>   Export one guarded track Name edit\n  rekordbox edit-track-year --xml <in> --output <new> --track-id <id> --expected-year <old> --year <new>   Export one guarded raw track Year edit"
+        "  rekordbox edit-track-name --xml <in> --output <new> --track-id <id> --expected-name <old> --name <new>   Export one guarded track Name edit\n  rekordbox edit-track-year --xml <in> --output <new> --track-id <id> --expected-year <old> --year <new>   Export one guarded raw track Year edit\n  rekordbox edit-track-kind --xml <in> --output <new> --track-id <id> --expected-kind <old> --kind <new>   Export one guarded raw track Kind edit"
     );
     let _ = writeln!(
         output,
