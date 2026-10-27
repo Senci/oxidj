@@ -370,6 +370,8 @@ Fresh vendor-only re-import expects **38**, not40, cues and no recovered overflo
 history/report. Independent archive/report checks prove retention and disclosure.
 Real Mixxx target transport and application handling remain NOT DEMONSTRATED.
 
+**Observed logical-only result:** `xtask/tests/fixtures/f12-logical/` freezes the 40-cue source, archive, 38-cue visible output, exact two-entry capacity report, safe-v1 plan, provenance, and vendor-only re-import witness. `xtask/tests/f12_logical.rs` independently checks the contract and artifact digests; mutation controls reject archive truncation, visible renumbering, restored overflow cues, and missing/incorrect loss entries. Logical-only evidence; real Mixxx transport/application handling and A2 remain NOT DEMONSTRATED.
+
 ## 4. B1/B2 reference oracle (test-only, not a vendor fixture)
 
 Use ADR-005's exact `RG-ASSET-STUB` bindings and protocol §1 payload/manifest bytes.
@@ -429,7 +431,7 @@ those controls or restores and defines no product media/retention policy.
 | F-09 | Independent post-edit/loss-aware checker and controls | NOT DEMONSTRATED |
 | F-10 | Ordered variable tempo/meter preservation | PASS — synthetic A1 checker/tests |
 | F-11 | Point/range/optional-end distinctions | PASS — logical-only fixture/checker and mutation controls; A2 NOT DEMONSTRATED |
-| F-12 | 40 archived, 38 visible, exact two-entry loss report | NOT DEMONSTRATED |
+| F-12 | 40 archived, 38 visible, exact two-entry loss report | PASS — synthetic logical-only fixture/checker and mutation controls; A2 NOT DEMONSTRATED |
 | B1/B2 | Atomic test-only reference transition and boundary snapshots | NOT DEMONSTRATED |
 
 PASS means observed equality on every required surface and checker control, with
