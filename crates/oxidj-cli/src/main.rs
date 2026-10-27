@@ -70,6 +70,41 @@ fn run(args: &[String]) -> i32 {
 fn run_rekordbox(args: &[String]) -> i32 {
     if args
         .first()
+        .is_some_and(|action| action == "delete-empty-folder")
+    {
+        if args.len() != 9
+            || args[1] != "--xml"
+            || args[3] != "--output"
+            || args[5] != "--folder-index"
+            || args[7] != "--expected-name"
+        {
+            eprintln!(
+                "error: expected rekordbox delete-empty-folder --xml IN --output NEW --folder-index N --expected-name NAME"
+            );
+            return USAGE;
+        }
+        let Ok(folder_index) = args[6].parse::<usize>() else {
+            eprintln!("error: folder index must be a non-negative integer");
+            return USAGE;
+        };
+        let request = oxidj_application::FolderDeleteRequest {
+            folder_index,
+            expected_name: args[8].clone(),
+        };
+        return match oxidj_application::export_rekordbox_folder_delete(&args[2], &args[4], &request)
+        {
+            Ok(()) => {
+                println!("Deleted empty folder[{}]: {:?}", folder_index, args[8]);
+                OK
+            }
+            Err(error) => {
+                eprintln!("error: empty folder deletion rejected: {error}");
+                DOMAIN
+            }
+        };
+    }
+    if args
+        .first()
         .is_some_and(|action| action == "delete-playlist")
     {
         if args.len() != 11
@@ -2025,6 +2060,10 @@ fn print_usage(to_stdout: bool) {
     let _ = writeln!(
         output,
         "  rekordbox rename-folder --xml <in> --output <new> --folder-index <n> --expected-name <old> --name <new>   Export one guarded folder rename"
+    );
+    let _ = writeln!(
+        output,
+        "  rekordbox delete-empty-folder --xml <in> --output <new> --folder-index <n> --expected-name <name>   Delete one guarded empty non-root folder"
     );
     let _ = writeln!(
         output,

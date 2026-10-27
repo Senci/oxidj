@@ -186,6 +186,16 @@ pub struct PreparedFolderRename {
     pub bytes: Vec<u8>,
     pub change: FolderRenameChange,
 }
+/// Delete one guarded empty non-root Type=0 folder.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FolderDeleteRequest {
+    pub folder_index: usize,
+    pub expected_name: String,
+}
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PreparedFolderDelete {
+    pub bytes: Vec<u8>,
+}
 /// One optimistic, ordinal-scoped tempo edit request.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TempoEditRequest {
@@ -2576,6 +2586,137 @@ pub fn prepare_folder_rename(
             new_name: request.new_name.clone(),
         },
     })
+}
+
+/// Prepare deletion of one empty folder; only the immediate parent's Count changes.
+pub fn prepare_folder_delete(
+    bytes: &[u8],
+    request: &FolderDeleteRequest,
+) -> Result<PreparedFolderDelete, Error> {
+    let before = preflight_export(bytes)?;
+    let mut reader = Reader::from_reader(bytes);
+    reader.config_mut().check_end_names = true;
+    let mut buf = Vec::new();
+    let mut stack: Vec<(String, Option<std::ops::Range<usize>>, usize)> = Vec::new();
+    let mut ordinal = 0usize;
+    let mut target_depth = None;
+    let mut target_range = None;
+    let mut parent_range = None;
+    let mut parent_value = None;
+    loop {
+        let start = reader.buffer_position() as usize;
+        let ev = reader
+            .read_event_into(&mut buf)
+            .map_err(|e| Error(format!("malformed XML: {e}")))?;
+        let end = reader.buffer_position() as usize;
+        match ev {
+            Event::Start(e) if e.name().as_ref() == b"NODE" => {
+                let ty = attr(&e, "Type")?;
+                let raw = attr(&e, if ty == "0" { "Count" } else { "Entries" })?;
+                let value = raw
+                    .parse::<usize>()
+                    .map_err(|_| Error("invalid NODE Count/Entries".into()))?;
+                if ty == "0" && !stack.is_empty() {
+                    if ordinal == request.folder_index {
+                        if attr(&e, "Name")? != request.expected_name {
+                            return Err(Error("folder Name changed".into()));
+                        }
+                        if value != 0 {
+                            return Err(Error("folder Count is not zero".into()));
+                        }
+                        let (pty, range, count) = stack.last().unwrap();
+                        if pty != "0" {
+                            return Err(Error("folder has no parent folder NODE".into()));
+                        }
+                        if *count == 0 {
+                            return Err(Error("parent folder NODE Count is zero".into()));
+                        }
+                        parent_range = range.clone();
+                        parent_value = Some(count - 1);
+                        target_depth = Some(stack.len() + 1);
+                        target_range = Some(start..end);
+                    }
+                    ordinal += 1;
+                }
+                let count_range = if ty == "0" {
+                    Some(attribute_value_range(&e, start, "Count", &raw)?)
+                } else {
+                    None
+                };
+                stack.push((ty, count_range, value));
+            }
+            Event::Empty(e) if e.name().as_ref() == b"NODE" && attr(&e, "Type")? == "0" => {
+                let raw = attr(&e, "Count")?;
+                let count = raw
+                    .parse::<usize>()
+                    .map_err(|_| Error("invalid NODE Count".into()))?;
+                if !stack.is_empty() {
+                    if ordinal == request.folder_index {
+                        if attr(&e, "Name")? != request.expected_name {
+                            return Err(Error("folder Name changed".into()));
+                        }
+                        if count != 0 {
+                            return Err(Error("folder Count is not zero".into()));
+                        }
+                        let (ty, range, pcount) = stack.last().unwrap();
+                        if ty != "0" {
+                            return Err(Error("folder has no parent folder NODE".into()));
+                        }
+                        if *pcount == 0 {
+                            return Err(Error("parent folder NODE Count is zero".into()));
+                        }
+                        parent_range = range.clone();
+                        parent_value = Some(pcount - 1);
+                        target_range = Some(start..end);
+                    }
+                    ordinal += 1;
+                }
+            }
+            Event::End(e) if e.name().as_ref() == b"NODE" => {
+                if target_depth == Some(stack.len()) {
+                    if target_range.as_ref().is_none_or(|r| r.end != start) {
+                        return Err(Error("folder NODE has child elements".into()));
+                    }
+                    target_range.as_mut().unwrap().end = end;
+                    target_depth = None;
+                }
+                stack
+                    .pop()
+                    .ok_or_else(|| Error("unexpected closing NODE".into()))?;
+            }
+            Event::Eof => break,
+            _ => {}
+        }
+        buf.clear();
+    }
+    let target = target_range.ok_or_else(|| {
+        Error(format!(
+            "no non-root folder at ordinal {}",
+            request.folder_index
+        ))
+    })?;
+    if target_depth.is_some() {
+        return Err(Error("malformed folder NODE".into()));
+    }
+    let mut output = bytes.to_vec();
+    let count_range =
+        parent_range.ok_or_else(|| Error("parent folder Count location missing".into()))?;
+    let count = parent_value.ok_or_else(|| Error("parent folder Count missing".into()))?;
+    let mut replacements = vec![
+        (target, Vec::new()),
+        (count_range, count.to_string().into_bytes()),
+    ];
+    replacements.sort_by_key(|(r, _)| std::cmp::Reverse(r.start));
+    for (range, replacement) in replacements {
+        output.splice(range, replacement);
+    }
+    let after = preflight_export(&output)?;
+    if after.selected_tracks != before.selected_tracks
+        || after.selected_playlists != before.selected_playlists
+    {
+        return Err(Error("folder deletion semantic verification failed".into()));
+    }
+    Ok(PreparedFolderDelete { bytes: output })
 }
 
 /// Validate and return unchanged bytes for the frozen synthetic A1 no-edit subset.
@@ -5155,6 +5296,64 @@ pub fn prepare_tempo_meter_edit(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn guarded_empty_folder_delete_preserves_other_semantics_and_source() {
+        let fixture = include_bytes!("../../../xtask/tests/fixtures/rekordbox-a1/F-02/source.bin");
+        for node in [
+            "<NODE Type=\"0\" Name=\"Empty\" Count=\"0\"/>",
+            "<NODE Type=\"0\" Name=\"Empty\" Count=\"0\"></NODE>",
+        ] {
+            let source = String::from_utf8(fixture.to_vec())
+                .unwrap()
+                .replace("Name=\"Sets\" Count=\"2\"", "Name=\"Sets\" Count=\"3\"")
+                .replace(
+                    "      </NODE>\n    </NODE>",
+                    &format!("        {node}\n      </NODE>\n    </NODE>"),
+                );
+            let bytes = source.as_bytes();
+            let before = preflight_export(bytes).unwrap();
+            let result = prepare_folder_delete(
+                bytes,
+                &FolderDeleteRequest {
+                    folder_index: 1,
+                    expected_name: "Empty".into(),
+                },
+            )
+            .unwrap();
+            assert_eq!(bytes, source.as_bytes());
+            let output = String::from_utf8(result.bytes).unwrap();
+            assert!(output.contains("Name=\"Sets\" Count=\"2\""));
+            assert!(!output.contains("Name=\"Empty\""));
+            let after = preflight_export(output.as_bytes()).unwrap();
+            assert_eq!(after.selected_tracks, before.selected_tracks);
+            assert_eq!(after.selected_playlists, before.selected_playlists);
+        }
+    }
+
+    #[test]
+    fn guarded_empty_folder_delete_rejects_root_nonempty_stale_and_bad_counts() {
+        let fixture = include_bytes!("../../../xtask/tests/fixtures/rekordbox-a1/F-02/source.bin");
+        let req = |folder_index, expected_name: &str| FolderDeleteRequest {
+            folder_index,
+            expected_name: expected_name.into(),
+        };
+        assert!(prepare_folder_delete(fixture, &req(0, "ROOT")).is_err());
+        assert!(prepare_folder_delete(fixture, &req(0, "stale")).is_err());
+        assert!(prepare_folder_delete(fixture, &req(99, "Empty")).is_err());
+        let nonempty = String::from_utf8(fixture.to_vec()).unwrap()
+            .replace("Name=\"Sets\" Count=\"2\"", "Name=\"Sets\" Count=\"3\"")
+            .replace("      </NODE>\n    </NODE>", "        <NODE Type=\"0\" Name=\"Nope\" Count=\"1\"><NODE Type=\"1\" Name=\"x\" Entries=\"0\" KeyType=\"0\"/></NODE>\n      </NODE>\n    </NODE>");
+        assert!(prepare_folder_delete(nonempty.as_bytes(), &req(1, "Nope")).is_err());
+        let bad_parent = String::from_utf8(fixture.to_vec())
+            .unwrap()
+            .replace("Name=\"Sets\" Count=\"2\"", "Name=\"Sets\" Count=\"0\"")
+            .replace(
+                "      </NODE>\n    </NODE>",
+                "        <NODE Type=\"0\" Name=\"Empty\" Count=\"0\"/>\n      </NODE>\n    </NODE>",
+            );
+        assert!(prepare_folder_delete(bad_parent.as_bytes(), &req(1, "Empty")).is_err());
+    }
 
     #[test]
     fn raw_position_mark_end_optionality_survives_both_track_parser_paths_and_export() {

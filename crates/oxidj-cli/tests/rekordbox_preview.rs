@@ -1569,6 +1569,55 @@ fn tempo_edit_rejects_stale_missing_and_invalid_changes_without_writes() {
 }
 
 #[test]
+fn empty_folder_delete_cli_is_guarded_and_preserves_input() {
+    let fixture = format!(
+        "{}/../../xtask/tests/fixtures/rekordbox-a1/F-02/source.bin",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let source = String::from_utf8(fs::read(&fixture).unwrap())
+        .unwrap()
+        .replace("Name=\"Sets\" Count=\"2\"", "Name=\"Sets\" Count=\"3\"")
+        .replace(
+            "      </NODE>\n    </NODE>",
+            "        <NODE Type=\"0\" Name=\"Empty\" Count=\"0\"/>\n      </NODE>\n    </NODE>",
+        );
+    let input = temporary_path("empty-folder-delete-input");
+    let output = temporary_path("empty-folder-delete-output");
+    fs::write(&input, &source).unwrap();
+    let invoke = |index: &str, name: &str, target: &std::path::Path| {
+        Command::new(env!("CARGO_BIN_EXE_oxidj-cli"))
+            .args([
+                "rekordbox",
+                "delete-empty-folder",
+                "--xml",
+                input.to_str().unwrap(),
+                "--output",
+                target.to_str().unwrap(),
+                "--folder-index",
+                index,
+                "--expected-name",
+                name,
+            ])
+            .output()
+            .unwrap()
+    };
+    let success = invoke("1", "Empty", &output);
+    assert_eq!(success.status.code(), Some(0), "{:?}", success.stderr);
+    let exported = fs::read_to_string(&output).unwrap();
+    assert!(exported.contains("Name=\"Sets\" Count=\"2\""));
+    assert!(!exported.contains("Name=\"Empty\""));
+    assert_eq!(fs::read_to_string(&input).unwrap(), source);
+    let stale = temporary_path("empty-folder-delete-stale");
+    assert_ne!(invoke("1", "stale", &stale).status.code(), Some(0));
+    assert!(!stale.exists());
+    let nonempty = temporary_path("empty-folder-delete-nonempty");
+    assert_ne!(invoke("0", "Sets", &nonempty).status.code(), Some(0));
+    assert!(!nonempty.exists());
+    let _ = fs::remove_file(input);
+    let _ = fs::remove_file(output);
+}
+
+#[test]
 fn folder_rename_exports_one_guarded_name_and_rejects_unsafe_cases() {
     let fixture = format!(
         "{}/../../xtask/tests/fixtures/rekordbox-a1/F-02/source.bin",
