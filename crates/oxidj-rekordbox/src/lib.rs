@@ -3777,6 +3777,32 @@ mod tests {
     use super::*;
 
     #[test]
+    fn raw_position_mark_end_optionality_survives_both_track_parser_paths_and_export() {
+        let fixture = include_bytes!("../../../xtask/tests/fixtures/rekordbox-a1/F-02/source.bin");
+        let source = String::from_utf8(fixture.to_vec())
+            .unwrap()
+            .replace(
+                "<TRACK TrackID=\"100\" Name=\"A\" Location=\"file://localhost/music/a.flac\"/>",
+                "<TRACK TrackID=\"100\" Name=\"A\" Location=\"file://localhost/music/a.flac\">\n      <POSITION_MARK Name=\"zero\" Type=\"0\" Start=\"0\" Num=\"0\" End=\"0\"/>\n    </TRACK>",
+            )
+            .replace(
+                "<TRACK TrackID=\"200\" Name=\"B\" Location=\"file://localhost/music/b.flac\"/>",
+                "<TRACK TrackID=\"200\" Name=\"B\" Location=\"file://localhost/music/b.flac\">\n      <POSITION_MARK Name=\"absent\" Type=\"0\" Start=\"0\" Num=\"0\"/>\n    </TRACK>",
+            );
+        let bytes = source.as_bytes();
+        let parsed = parse(bytes).unwrap();
+        assert_eq!(parsed.tracks[0].marks[0].end_seconds.as_deref(), Some("0"));
+        assert_eq!(parsed.tracks[1].marks[0].end_seconds, None);
+        let plan = preflight_export(bytes).unwrap();
+        assert_eq!(
+            plan.selected_tracks[0].marks[0].end_seconds.as_deref(),
+            Some("0")
+        );
+        assert_eq!(plan.selected_tracks[1].marks[0].end_seconds, None);
+        assert_eq!(export_xml(bytes).unwrap(), bytes);
+    }
+
+    #[test]
     fn raw_optional_dates_and_play_count_preserve_present_empty_absent_and_export_bytes() {
         let source = include_bytes!("../../../xtask/tests/fixtures/rekordbox-a1/F-02/source.bin");
         let source = String::from_utf8(source.to_vec())
