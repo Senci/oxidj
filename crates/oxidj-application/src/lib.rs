@@ -13,20 +13,22 @@ pub use oxidj_rekordbox::{
     PreparedPositionMarkNameEdit, PreparedTempoBeatEdit, PreparedTempoEdit, PreparedTempoMeterEdit,
     PreparedTempoStartEdit, PreparedTrackAlbumEdit, PreparedTrackArtistEdit,
     PreparedTrackColourEdit, PreparedTrackCommentsEdit, PreparedTrackComposerEdit,
-    PreparedTrackDateAddedEdit, PreparedTrackDelete, PreparedTrackGenreEdit,
-    PreparedTrackGroupingEdit, PreparedTrackKindEdit, PreparedTrackLabelEdit, PreparedTrackMixEdit,
-    PreparedTrackNameEdit, PreparedTrackRatingEdit, PreparedTrackRemixerEdit,
-    PreparedTrackYearEdit, Preview, TempoBeatEditChange, TempoBeatEditRequest, TempoEditChange,
-    TempoEditRequest, TempoMeterEditChange, TempoMeterEditRequest, TempoStartEditChange,
-    TempoStartEditRequest, TrackAlbumEditChange, TrackAlbumEditRequest, TrackArtistEditChange,
-    TrackArtistEditRequest, TrackColourEditChange, TrackColourEditRequest, TrackCommentsEditChange,
-    TrackCommentsEditRequest, TrackComposerEditChange, TrackComposerEditRequest,
-    TrackDateAddedEditChange, TrackDateAddedEditRequest, TrackDeleteRequest, TrackGenreEditChange,
-    TrackGenreEditRequest, TrackGroupingEditChange, TrackGroupingEditRequest, TrackKindEditChange,
-    TrackKindEditRequest, TrackLabelEditChange, TrackLabelEditRequest, TrackMixEditChange,
-    TrackMixEditRequest, TrackNameEditChange, TrackNameEditRequest, TrackRatingEditChange,
-    TrackRatingEditRequest, TrackRemixerEditChange, TrackRemixerEditRequest,
-    TrackTonalityEditChange, TrackTonalityEditRequest, TrackYearEditChange, TrackYearEditRequest,
+    PreparedTrackDateAddedEdit, PreparedTrackDateModifiedEdit, PreparedTrackDelete,
+    PreparedTrackGenreEdit, PreparedTrackGroupingEdit, PreparedTrackKindEdit,
+    PreparedTrackLabelEdit, PreparedTrackMixEdit, PreparedTrackNameEdit, PreparedTrackRatingEdit,
+    PreparedTrackRemixerEdit, PreparedTrackYearEdit, Preview, TempoBeatEditChange,
+    TempoBeatEditRequest, TempoEditChange, TempoEditRequest, TempoMeterEditChange,
+    TempoMeterEditRequest, TempoStartEditChange, TempoStartEditRequest, TrackAlbumEditChange,
+    TrackAlbumEditRequest, TrackArtistEditChange, TrackArtistEditRequest, TrackColourEditChange,
+    TrackColourEditRequest, TrackCommentsEditChange, TrackCommentsEditRequest,
+    TrackComposerEditChange, TrackComposerEditRequest, TrackDateAddedEditChange,
+    TrackDateAddedEditRequest, TrackDateModifiedEditChange, TrackDateModifiedEditRequest,
+    TrackDeleteRequest, TrackGenreEditChange, TrackGenreEditRequest, TrackGroupingEditChange,
+    TrackGroupingEditRequest, TrackKindEditChange, TrackKindEditRequest, TrackLabelEditChange,
+    TrackLabelEditRequest, TrackMixEditChange, TrackMixEditRequest, TrackNameEditChange,
+    TrackNameEditRequest, TrackRatingEditChange, TrackRatingEditRequest, TrackRemixerEditChange,
+    TrackRemixerEditRequest, TrackTonalityEditChange, TrackTonalityEditRequest,
+    TrackYearEditChange, TrackYearEditRequest,
 };
 
 /// Read-only preview handler; parsing and vendor-specific semantics stay in the adapter.
@@ -186,6 +188,18 @@ pub fn export_rekordbox_track_date_added_edit(
 ) -> Result<TrackDateAddedEditChange, RekordboxError> {
     let (source, output) = read_new_export_source(input, output)?;
     let prepared = oxidj_rekordbox::prepare_track_date_added_edit(&source, request)?;
+    publish_new_file(&output, &prepared.bytes)?;
+    Ok(prepared.change)
+}
+
+/// Export one guarded raw Track DateModified edit to a new, non-overwriting file.
+pub fn export_rekordbox_track_date_modified_edit(
+    input: impl AsRef<Path>,
+    output: impl AsRef<Path>,
+    request: &TrackDateModifiedEditRequest,
+) -> Result<TrackDateModifiedEditChange, RekordboxError> {
+    let (source, output) = read_new_export_source(input, output)?;
+    let prepared = oxidj_rekordbox::prepare_track_date_modified_edit(&source, request)?;
     publish_new_file(&output, &prepared.bytes)?;
     Ok(prepared.change)
 }

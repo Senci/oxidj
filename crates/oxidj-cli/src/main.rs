@@ -797,6 +797,43 @@ fn run_rekordbox(args: &[String]) -> i32 {
     }
     if args
         .first()
+        .is_some_and(|action| action == "edit-track-date-modified")
+    {
+        if args.len() != 11
+            || args[1] != "--xml"
+            || args[3] != "--output"
+            || args[5] != "--track-id"
+            || args[7] != "--expected-date-modified"
+            || args[9] != "--date-modified"
+        {
+            eprintln!(
+                "error: expected rekordbox edit-track-date-modified --xml IN --output NEW --track-id ID --expected-date-modified OLD --date-modified NEW"
+            );
+            return USAGE;
+        }
+        let request = oxidj_application::TrackDateModifiedEditRequest {
+            track_id: args[6].clone(),
+            expected_old_date_modified: args[8].clone(),
+            new_date_modified: args[10].clone(),
+        };
+        return match oxidj_application::export_rekordbox_track_date_modified_edit(
+            &args[2], &args[4], &request,
+        ) {
+            Ok(change) => {
+                println!(
+                    "Changed raw DateModified for track[{}]: {:?} to {:?}",
+                    change.track_id, change.old_date_modified, change.new_date_modified
+                );
+                OK
+            }
+            Err(error) => {
+                eprintln!("error: track DateModified edit rejected: {error}");
+                DOMAIN
+            }
+        };
+    }
+    if args
+        .first()
         .is_some_and(|action| action == "edit-track-year")
     {
         if args.len() != 11
@@ -1636,7 +1673,7 @@ fn print_usage(to_stdout: bool) {
     );
     let _ = writeln!(
         output,
-        "  rekordbox edit-track-name --xml <in> --output <new> --track-id <id> --expected-name <old> --name <new>   Export one guarded track Name edit\n  rekordbox edit-track-date-added --xml <in> --output <new> --track-id <id> --expected-date-added <old> --date-added <new>   Export one guarded raw DateAdded edit\n  rekordbox edit-track-year --xml <in> --output <new> --track-id <id> --expected-year <old> --year <new>   Export one guarded raw track Year edit\n  rekordbox edit-track-kind --xml <in> --output <new> --track-id <id> --expected-kind <old> --kind <new>   Export one guarded raw track Kind edit"
+        "  rekordbox edit-track-name --xml <in> --output <new> --track-id <id> --expected-name <old> --name <new>   Export one guarded track Name edit\n  rekordbox edit-track-date-added --xml <in> --output <new> --track-id <id> --expected-date-added <old> --date-added <new>   Export one guarded raw DateAdded edit\n  rekordbox edit-track-date-modified --xml <in> --output <new> --track-id <id> --expected-date-modified <old> --date-modified <new>   Export one guarded raw DateModified edit\n  rekordbox edit-track-year --xml <in> --output <new> --track-id <id> --expected-year <old> --year <new>   Export one guarded raw track Year edit\n  rekordbox edit-track-kind --xml <in> --output <new> --track-id <id> --expected-kind <old> --kind <new>   Export one guarded raw track Kind edit"
     );
     let _ = writeln!(
         output,
