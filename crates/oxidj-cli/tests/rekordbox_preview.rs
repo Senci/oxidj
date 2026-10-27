@@ -1267,6 +1267,63 @@ fn append_playlist_member_cli_adds_existing_track_and_rejects_stale_guard() {
     let _ = fs::remove_file(output);
 }
 
+#[test]
+fn append_playlist_member_cli_expands_empty_self_closing_playlist() {
+    let fixture = format!(
+        "{}/../../xtask/tests/fixtures/rekordbox-a1/F-02/source.bin",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let input = temporary_path("empty-member-append-input");
+    let output = temporary_path("empty-member-append-output");
+    let source = fs::read_to_string(fixture)
+        .unwrap()
+        .replace(
+            "<NODE Type=\"1\" Name=\"Techno\" Entries=\"2\" KeyType=\"0\">\n          <TRACK Key=\"200\"/>\n          <TRACK Key=\"400\"/>\n        </NODE>",
+            "<NODE Type=\"1\" Name=\"Techno\" Entries=\"0\" KeyType=\"0\"/>",
+        )
+        .into_bytes();
+    fs::write(&input, &source).unwrap();
+    let invoke = |target: &std::path::Path, expected_order: &str| {
+        Command::new(env!("CARGO_BIN_EXE_oxidj-cli"))
+            .args([
+                "rekordbox",
+                "append-playlist-member",
+                "--xml",
+                input.to_str().unwrap(),
+                "--output",
+                target.to_str().unwrap(),
+                "--playlist-index",
+                "1",
+                "--expected-order",
+                expected_order,
+                "--track-id",
+                "100",
+            ])
+            .output()
+            .unwrap()
+    };
+    let result = invoke(&output, "");
+    assert_eq!(
+        result.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let exported = fs::read_to_string(&output).unwrap();
+    assert!(exported.contains("<COLLECTION Entries=\"4\">"));
+    assert!(exported.contains("Name=\"House\" Entries=\"3\""));
+    assert!(exported.contains("Name=\"Techno\" Entries=\"1\""));
+    assert!(exported.contains(
+        "<NODE Type=\"1\" Name=\"Techno\" Entries=\"1\" KeyType=\"0\"><TRACK Key=\"100\"/></NODE>"
+    ));
+    assert_eq!(fs::read(&input).unwrap(), source);
+    let stale = temporary_path("empty-member-append-stale");
+    assert_ne!(invoke(&stale, "100").status.code(), Some(0));
+    assert!(!stale.exists());
+    let _ = fs::remove_file(input);
+    let _ = fs::remove_file(output);
+}
+
 fn temporary_path(label: &str) -> std::path::PathBuf {
     let stamp = SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)

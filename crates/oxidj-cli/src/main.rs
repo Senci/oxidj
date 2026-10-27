@@ -90,7 +90,11 @@ fn run_rekordbox(args: &[String]) -> i32 {
         };
         let request = oxidj_application::PlaylistMemberAppendRequest {
             playlist_index,
-            expected_order: args[8].split(',').map(str::to_owned).collect(),
+            expected_order: if args[8].is_empty() {
+                vec![]
+            } else {
+                args[8].split(',').map(str::to_owned).collect()
+            },
             track_id: args[10].clone(),
         };
         return match oxidj_application::export_rekordbox_playlist_member_append(

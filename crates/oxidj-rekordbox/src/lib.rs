@@ -2518,6 +2518,53 @@ mod tests {
     }
 
     #[test]
+    fn guarded_playlist_member_append_expands_an_empty_self_closing_playlist() {
+        let fixture = include_bytes!("../../../xtask/tests/fixtures/rekordbox-a1/F-02/source.bin");
+        let source = String::from_utf8(fixture.to_vec())
+            .unwrap()
+            .replace(
+                "<NODE Type=\"1\" Name=\"Techno\" Entries=\"2\" KeyType=\"0\">\n          <TRACK Key=\"200\"/>\n          <TRACK Key=\"400\"/>\n        </NODE>",
+                "<NODE Type=\"1\" Name=\"Techno\" Entries=\"0\" KeyType=\"0\"/>",
+            )
+            .into_bytes();
+        let request = PlaylistMemberAppendRequest {
+            playlist_index: 1,
+            expected_order: vec![],
+            track_id: "100".into(),
+        };
+        let result = prepare_playlist_member_append(&source, &request).unwrap();
+        let after = preflight_export(&result.bytes).unwrap();
+        assert_eq!(
+            after.selected_tracks,
+            preflight_export(&source).unwrap().selected_tracks
+        );
+        assert_eq!(after.selected_playlists[0].tracks, ["100", "200", "300"]);
+        assert_eq!(after.selected_playlists[1].tracks, ["100"]);
+        assert!(
+            result
+                .bytes
+                .windows(b"Name=\"Techno\" Entries=\"1\"".len())
+                .any(|w| w == b"Name=\"Techno\" Entries=\"1\"")
+        );
+        assert!(
+            result
+                .bytes
+                .windows(b"<TRACK Key=\"100\"/></NODE>".len())
+                .any(|w| w == b"<TRACK Key=\"100\"/></NODE>")
+        );
+        assert_eq!(
+            source,
+            String::from_utf8(fixture.to_vec())
+                .unwrap()
+                .replace(
+                    "<NODE Type=\"1\" Name=\"Techno\" Entries=\"2\" KeyType=\"0\">\n          <TRACK Key=\"200\"/>\n          <TRACK Key=\"400\"/>\n        </NODE>",
+                    "<NODE Type=\"1\" Name=\"Techno\" Entries=\"0\" KeyType=\"0\"/>",
+                )
+                .as_bytes()
+        );
+    }
+
+    #[test]
     fn guarded_track_delete_removes_collection_and_exact_shared_memberships() {
         let source = include_bytes!("../../../xtask/tests/fixtures/rekordbox-a1/F-02/source.bin");
         let request = TrackDeleteRequest {
