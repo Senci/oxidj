@@ -1353,6 +1353,23 @@ fn track_artist_edit_exports_only_artist_and_preserves_absence_and_source() {
     assert_eq!(fs::read(&output).unwrap(), expected);
     assert_eq!(fs::read(&input).unwrap(), source);
 
+    let whitespace_output = temporary_path("track-artist-whitespace");
+    let whitespace = invoke("100", "DJ & Co", "A\tB\nC\rD", &whitespace_output);
+    assert_eq!(
+        whitespace.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&whitespace.stderr)
+    );
+    let whitespace_bytes = fs::read(&whitespace_output).unwrap();
+    assert!(
+        String::from_utf8(whitespace_bytes)
+            .unwrap()
+            .contains("Artist=\"A&#9;B&#10;C&#13;D\"")
+    );
+    assert_eq!(fs::read(&input).unwrap(), source);
+    let _ = fs::remove_file(whitespace_output);
+
     for (label, id, old, new) in [
         ("stale", "100", "stale", "Next"),
         ("absent", "200", "", "New Artist"),

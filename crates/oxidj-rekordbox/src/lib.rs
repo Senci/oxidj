@@ -2053,7 +2053,10 @@ pub fn prepare_track_artist_edit(
         .replace('<', "&lt;")
         .replace('>', "&gt;")
         .replace('"', "&quot;")
-        .replace('\'', "&apos;");
+        .replace('\'', "&apos;")
+        .replace('\t', "&#9;")
+        .replace('\n', "&#10;")
+        .replace('\r', "&#13;");
     let mut output = bytes.to_vec();
     output.splice(range, escaped.bytes());
     let after = preflight_export(&output)?;
@@ -3400,6 +3403,22 @@ mod tests {
         assert_eq!(
             parse(&prepared.bytes).unwrap().tracks[0].artist.as_deref(),
             Some("New & Artist")
+        );
+
+        let whitespace = TrackArtistEditRequest {
+            expected_old_artist: "New & Artist".into(),
+            new_artist: "A\tB\nC\rD".into(),
+            ..request.clone()
+        };
+        let prepared = prepare_track_artist_edit(&prepared.bytes, &whitespace).unwrap();
+        assert!(
+            String::from_utf8(prepared.bytes.clone())
+                .unwrap()
+                .contains("Artist=\"A&#9;B&#10;C&#13;D\"")
+        );
+        assert_eq!(
+            parse(&prepared.bytes).unwrap().tracks[0].artist.as_deref(),
+            Some("A\tB\nC\rD")
         );
 
         let absent = TrackArtistEditRequest {
