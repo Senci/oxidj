@@ -221,6 +221,8 @@ An additional in-memory F-02 case appends TrackID 100 to an empty self-closing T
 
 **Observed synthetic XML playlist-member insertion (F-02):** TrackID 100 was inserted at zero-based position 1 in Techno after guarding `[200,400]`, yielding `[200,100,400]`. House and collection remain unchanged; only Techno membership and its `Entries` count change. Adapter/CLI tests reject stale order, an out-of-range position, already-present and unknown targets. This remains synthetic XML-only behavior; Rekordbox app/hardware acceptance and qualification are NOT DEMONSTRATED.
 
+**Observed synthetic XML empty-folder deletion (F-02):** A non-root Type=0 folder was selected by ordinal and exact Name; deletion required `Count=0` and no child elements, and decremented only the immediate parent folder's `Count`. Adapter tests cover paired and self-closing empty nodes plus root, nonempty, stale, out-of-range, and bad-count refusal; a CLI test confirms new-file export and unchanged source bytes. Sol approved commit `02588b3` and independently passed `cargo xtask ci-full`. This bounded XML behavior does not demonstrate Rekordbox/OneLibrary compatibility, ADR-005 promotion, or qualification.
+
 ### F-03: Constant grid, cues and range unchanged
 
 Mixxx-derived **logical CueInfo DTO**, not a claimed Mixxx library transport.
