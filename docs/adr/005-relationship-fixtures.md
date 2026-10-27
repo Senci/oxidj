@@ -245,6 +245,8 @@ An additional in-memory F-02 case appends TrackID 100 to an empty self-closing T
 
 **Observed F-09 post-edit independent evidence for one synthetic F-02 empty-folder creation:** frozen source `xtask/tests/fixtures/f02-empty-folder-create/source.xml` passes through the existing guarded create adapter; `xtask/tests/f02_empty_folder_create_oracle.rs` decodes output with test-only `quick-xml`, not the production importer. It verifies the new `Practice` folder under `ROOT/Sets`, empty with Count=0, selected-parent Count increment, unchanged prior playlist order/memberships and collection, and source-byte immutability. Parent Count, new-folder name/Count, child-order, and membership mutations are rejected. One synthetic case only: global F-09 remains **NOT DEMONSTRATED**, with no Rekordbox/OneLibrary compatibility claim or ADR-005 qualification.
 
+**Observed F-09 post-edit independent evidence for one synthetic F-02 folder rename:** frozen `xtask/tests/fixtures/f02-folder-rename/source.xml` passes through the existing guarded rename adapter; `xtask/tests/f02_folder_rename_oracle.rs` decodes output with test-only `quick-xml`, not the production importer. Only the selected folder Name/path changes; descendants, playlist paths/order/memberships, sibling order, Counts, collection tracks/locations and source bytes remain exact. Wrong-folder/name, descendant/path, child-order, membership and Count mutations are rejected. This is one synthetic case only: global F-09 remains **NOT DEMONSTRATED**, and vendor compatibility/ADR-005 qualification remain unclaimed.
+
 ### F-03: Constant grid, cues and range unchanged
 
 Mixxx-derived **logical CueInfo DTO**, not a claimed Mixxx library transport.
