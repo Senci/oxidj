@@ -51,6 +51,13 @@ pub struct PositionMark {
     pub end_seconds: Option<String>,
 }
 #[derive(Debug, Clone, PartialEq)]
+pub struct Folder {
+    pub ordinal: usize,
+    pub path: Vec<String>,
+    pub name: String,
+    pub count: Option<String>,
+}
+#[derive(Debug, Clone, PartialEq)]
 pub struct Playlist {
     pub path: Vec<String>,
     pub name: String,
@@ -59,6 +66,7 @@ pub struct Playlist {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Preview {
     pub tracks: Vec<Track>,
+    pub folders: Vec<Folder>,
     pub playlists: Vec<Playlist>,
     pub unsupported: Vec<String>,
 }
@@ -939,6 +947,7 @@ pub fn parse(bytes: &[u8]) -> Result<Preview, Error> {
     let mut stack: Vec<String> = Vec::new();
     let mut out = Preview {
         tracks: vec![],
+        folders: vec![],
         playlists: vec![],
         unsupported: vec![],
     };
@@ -1011,6 +1020,16 @@ pub fn parse(bytes: &[u8]) -> Result<Preview, Error> {
                             tracks: vec![],
                         });
                     } else if ty == "0" {
+                        out.folders.push(Folder {
+                            ordinal: out.folders.len(),
+                            path: names
+                                .iter()
+                                .cloned()
+                                .chain(std::iter::once(n.clone()))
+                                .collect(),
+                            name: n.clone(),
+                            count: optional(&e, "Count")?,
+                        });
                         names.push(n);
                     } else {
                         out.unsupported.push(format!("NODE Type={ty}"));
@@ -1135,6 +1154,16 @@ pub fn parse(bytes: &[u8]) -> Result<Preview, Error> {
                             tracks: vec![],
                         });
                     } else if ty == "0" {
+                        out.folders.push(Folder {
+                            ordinal: out.folders.len(),
+                            path: names
+                                .iter()
+                                .cloned()
+                                .chain(std::iter::once(n.clone()))
+                                .collect(),
+                            name: n.clone(),
+                            count: optional(&e, "Count")?,
+                        });
                         if names.is_empty() {
                             names.push(n);
                         }
@@ -6808,6 +6837,53 @@ pub fn prepare_tempo_meter_edit(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn preview_preserves_folder_order_paths_raw_counts_and_empty_nodes() {
+        let source = include_bytes!("../../../xtask/tests/fixtures/rekordbox-a1/F-02/source.bin");
+        let source = String::from_utf8(source.to_vec())
+            .unwrap()
+            .replace(
+                "<NODE Type=\"0\" Name=\"Sets\" Count=\"2\">",
+                "<NODE Type=\"0\" Name=\"Sets\" Count=\"5\">\n        <NODE Type=\"0\" Name=\"Empty\" Count=\"0\"/>\n        <NODE Type=\"0\" Name=\"Empty\" Count=\"0\"/>\n        <NODE Type=\"0\" Name=\"Paired\" Count=\"0\"></NODE>",
+            );
+        let preview = parse(source.as_bytes()).unwrap();
+        assert_eq!(
+            preview.folders,
+            [
+                Folder {
+                    ordinal: 0,
+                    path: vec!["ROOT".into()],
+                    name: "ROOT".into(),
+                    count: Some("1".into()),
+                },
+                Folder {
+                    ordinal: 1,
+                    path: vec!["ROOT".into(), "Sets".into()],
+                    name: "Sets".into(),
+                    count: Some("5".into()),
+                },
+                Folder {
+                    ordinal: 2,
+                    path: vec!["ROOT".into(), "Sets".into(), "Empty".into()],
+                    name: "Empty".into(),
+                    count: Some("0".into()),
+                },
+                Folder {
+                    ordinal: 3,
+                    path: vec!["ROOT".into(), "Sets".into(), "Empty".into()],
+                    name: "Empty".into(),
+                    count: Some("0".into()),
+                },
+                Folder {
+                    ordinal: 4,
+                    path: vec!["ROOT".into(), "Sets".into(), "Paired".into()],
+                    name: "Paired".into(),
+                    count: Some("0".into()),
+                },
+            ]
+        );
+    }
 
     #[test]
     fn guarded_position_mark_delete_checks_raw_guard_optionality_and_preserves_other_data() {

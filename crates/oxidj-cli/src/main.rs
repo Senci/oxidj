@@ -2229,6 +2229,13 @@ fn run_rekordbox(args: &[String]) -> i32 {
                     );
                 }
             }
+            println!("Folders:");
+            for folder in p.folders {
+                println!(
+                    "Folder\t{}\tPath={:?}\tName={:?}\tCount={:?}",
+                    folder.ordinal, folder.path, folder.name, folder.count
+                );
+            }
             println!("Playlists:");
             for p in p.playlists {
                 println!("{}\t{}", p.path.join("/"), p.tracks.join(","));

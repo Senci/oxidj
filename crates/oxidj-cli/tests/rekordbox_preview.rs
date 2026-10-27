@@ -4,6 +4,51 @@ use oxidj_library as _;
 use std::{fs, process::Command, time::SystemTime};
 
 #[test]
+fn preview_lists_nested_duplicate_and_empty_folders_in_source_order() {
+    let source = fs::read(format!(
+        "{}/../../xtask/tests/fixtures/rekordbox-a1/F-02/source.bin",
+        env!("CARGO_MANIFEST_DIR")
+    ))
+    .unwrap();
+    let source = String::from_utf8(source)
+        .unwrap()
+        .replace(
+            "<NODE Type=\"0\" Name=\"Sets\" Count=\"2\">",
+            "<NODE Type=\"0\" Name=\"Sets\" Count=\"5\">\n        <NODE Type=\"0\" Name=\"Empty\" Count=\"0\"/>\n        <NODE Type=\"0\" Name=\"Empty\" Count=\"0\"/>\n        <NODE Type=\"0\" Name=\"Paired\" Count=\"0\"></NODE>",
+        )
+        .into_bytes();
+    let input = temporary_path("folder-preview");
+    fs::write(&input, &source).unwrap();
+    let result = Command::new(env!("CARGO_BIN_EXE_oxidj-cli"))
+        .args(["rekordbox", "preview", "--xml", input.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert_eq!(
+        result.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let stdout = String::from_utf8(result.stdout).unwrap();
+    let folders: Vec<_> = stdout
+        .lines()
+        .filter(|line| line.starts_with("Folder\t"))
+        .collect();
+    assert_eq!(
+        folders,
+        [
+            "Folder\t0\tPath=[\"ROOT\"]\tName=\"ROOT\"\tCount=Some(\"1\")",
+            "Folder\t1\tPath=[\"ROOT\", \"Sets\"]\tName=\"Sets\"\tCount=Some(\"5\")",
+            "Folder\t2\tPath=[\"ROOT\", \"Sets\", \"Empty\"]\tName=\"Empty\"\tCount=Some(\"0\")",
+            "Folder\t3\tPath=[\"ROOT\", \"Sets\", \"Empty\"]\tName=\"Empty\"\tCount=Some(\"0\")",
+            "Folder\t4\tPath=[\"ROOT\", \"Sets\", \"Paired\"]\tName=\"Paired\"\tCount=Some(\"0\")",
+        ]
+    );
+    assert_eq!(fs::read(&input).unwrap(), source);
+    let _ = fs::remove_file(input);
+}
+
+#[test]
 fn preview_reports_raw_composer_states_without_changing_source_bytes() {
     let source = fs::read(format!(
         "{}/../../xtask/tests/fixtures/rekordbox-a1/F-02/source.bin",
