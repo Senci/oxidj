@@ -17,7 +17,7 @@
 
 ### Pre-alpha visual evidence archive (2026-10-27)
 
-`docs/milestones/pre-alpha-01/` preserves two genuine Bot Screen captures of the M3 local-library UI: a persisted synthetic-catalog startup view and an empty-library view, both captured 2026-10-27. The README records context and evidence limits. These images are visual evidence only; they do not pass production GUI admission, accessibility/platform, performance, interoperability, or ADR-005 qualification gates.
+`docs/milestones/pre-alpha-01/` preserves four genuine captures across two milestones: M3 local-library persisted-catalog startup and empty-library views (2026-10-27), plus ADR-001 isolated GUI-probe Home/End boundary readbacks (2026-10-25). The README records capture contexts and evidence limits. Images use only the repository's synthetic audio fixture or deterministic synthetic probe labels; they are visual records, not production GUI admission, accessibility/platform, performance, interoperability, or ADR-005 qualification evidence.
 
 ## Revised local M1–M3 acceptance contract v1 (2026-10-23)
 
