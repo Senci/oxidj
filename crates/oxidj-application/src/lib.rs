@@ -18,23 +18,24 @@ pub use oxidj_rekordbox::{
     PreparedTrackGroupingEdit, PreparedTrackKindEdit, PreparedTrackLabelEdit,
     PreparedTrackLastPlayedEdit, PreparedTrackMixEdit, PreparedTrackNameEdit,
     PreparedTrackNumberEdit, PreparedTrackPlayCountEdit, PreparedTrackRatingEdit,
-    PreparedTrackRemixerEdit, PreparedTrackSizeEdit, PreparedTrackYearEdit, Preview,
-    TempoBeatEditChange, TempoBeatEditRequest, TempoEditChange, TempoEditRequest,
-    TempoMeterEditChange, TempoMeterEditRequest, TempoStartEditChange, TempoStartEditRequest,
-    TrackAlbumEditChange, TrackAlbumEditRequest, TrackArtistEditChange, TrackArtistEditRequest,
-    TrackAverageBpmEditChange, TrackAverageBpmEditRequest, TrackColourEditChange,
-    TrackColourEditRequest, TrackCommentsEditChange, TrackCommentsEditRequest,
-    TrackComposerEditChange, TrackComposerEditRequest, TrackDateAddedEditChange,
-    TrackDateAddedEditRequest, TrackDateModifiedEditChange, TrackDateModifiedEditRequest,
-    TrackDeleteRequest, TrackDiscNumberEditChange, TrackDiscNumberEditRequest,
-    TrackGenreEditChange, TrackGenreEditRequest, TrackGroupingEditChange, TrackGroupingEditRequest,
-    TrackKindEditChange, TrackKindEditRequest, TrackLabelEditChange, TrackLabelEditRequest,
-    TrackLastPlayedEditChange, TrackLastPlayedEditRequest, TrackMixEditChange, TrackMixEditRequest,
-    TrackNameEditChange, TrackNameEditRequest, TrackNumberEditChange, TrackNumberEditRequest,
-    TrackPlayCountEditChange, TrackPlayCountEditRequest, TrackRatingEditChange,
-    TrackRatingEditRequest, TrackRemixerEditChange, TrackRemixerEditRequest, TrackSizeEditChange,
-    TrackSizeEditRequest, TrackTonalityEditChange, TrackTonalityEditRequest, TrackYearEditChange,
-    TrackYearEditRequest,
+    PreparedTrackRemixerEdit, PreparedTrackSizeEdit, PreparedTrackTotalTimeEdit,
+    PreparedTrackYearEdit, Preview, TempoBeatEditChange, TempoBeatEditRequest, TempoEditChange,
+    TempoEditRequest, TempoMeterEditChange, TempoMeterEditRequest, TempoStartEditChange,
+    TempoStartEditRequest, TrackAlbumEditChange, TrackAlbumEditRequest, TrackArtistEditChange,
+    TrackArtistEditRequest, TrackAverageBpmEditChange, TrackAverageBpmEditRequest,
+    TrackColourEditChange, TrackColourEditRequest, TrackCommentsEditChange,
+    TrackCommentsEditRequest, TrackComposerEditChange, TrackComposerEditRequest,
+    TrackDateAddedEditChange, TrackDateAddedEditRequest, TrackDateModifiedEditChange,
+    TrackDateModifiedEditRequest, TrackDeleteRequest, TrackDiscNumberEditChange,
+    TrackDiscNumberEditRequest, TrackGenreEditChange, TrackGenreEditRequest,
+    TrackGroupingEditChange, TrackGroupingEditRequest, TrackKindEditChange, TrackKindEditRequest,
+    TrackLabelEditChange, TrackLabelEditRequest, TrackLastPlayedEditChange,
+    TrackLastPlayedEditRequest, TrackMixEditChange, TrackMixEditRequest, TrackNameEditChange,
+    TrackNameEditRequest, TrackNumberEditChange, TrackNumberEditRequest, TrackPlayCountEditChange,
+    TrackPlayCountEditRequest, TrackRatingEditChange, TrackRatingEditRequest,
+    TrackRemixerEditChange, TrackRemixerEditRequest, TrackSizeEditChange, TrackSizeEditRequest,
+    TrackTonalityEditChange, TrackTonalityEditRequest, TrackTotalTimeEditChange,
+    TrackTotalTimeEditRequest, TrackYearEditChange, TrackYearEditRequest,
 };
 
 /// Read-only preview handler; parsing and vendor-specific semantics stay in the adapter.
@@ -261,6 +262,17 @@ pub fn export_rekordbox_track_size_edit(
 ) -> Result<TrackSizeEditChange, RekordboxError> {
     let (source, output) = read_new_export_source(input, output)?;
     let prepared = oxidj_rekordbox::prepare_track_size_edit(&source, request)?;
+    publish_new_file(&output, &prepared.bytes)?;
+    Ok(prepared.change)
+}
+
+pub fn export_rekordbox_track_total_time_edit(
+    input: impl AsRef<Path>,
+    output: impl AsRef<Path>,
+    request: &TrackTotalTimeEditRequest,
+) -> Result<TrackTotalTimeEditChange, RekordboxError> {
+    let (source, output) = read_new_export_source(input, output)?;
+    let prepared = oxidj_rekordbox::prepare_track_total_time_edit(&source, request)?;
     publish_new_file(&output, &prepared.bytes)?;
     Ok(prepared.change)
 }

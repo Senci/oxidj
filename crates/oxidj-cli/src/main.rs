@@ -1019,6 +1019,43 @@ fn run_rekordbox(args: &[String]) -> i32 {
     }
     if args
         .first()
+        .is_some_and(|action| action == "edit-track-total-time")
+    {
+        if args.len() != 11
+            || args[1] != "--xml"
+            || args[3] != "--output"
+            || args[5] != "--track-id"
+            || args[7] != "--expected-total-time"
+            || args[9] != "--total-time"
+        {
+            eprintln!(
+                "error: expected rekordbox edit-track-total-time --xml IN --output NEW --track-id ID --expected-total-time OLD --total-time NEW"
+            );
+            return USAGE;
+        }
+        let request = oxidj_application::TrackTotalTimeEditRequest {
+            track_id: args[6].clone(),
+            expected_old_total_time: args[8].clone(),
+            new_total_time: args[10].clone(),
+        };
+        return match oxidj_application::export_rekordbox_track_total_time_edit(
+            &args[2], &args[4], &request,
+        ) {
+            Ok(change) => {
+                println!(
+                    "Changed raw TotalTime for track[{}]: {:?} to {:?}",
+                    change.track_id, change.old_total_time, change.new_total_time
+                );
+                OK
+            }
+            Err(error) => {
+                eprintln!("error: track TotalTime edit rejected: {error}");
+                DOMAIN
+            }
+        };
+    }
+    if args
+        .first()
         .is_some_and(|action| action == "edit-track-last-played")
     {
         if args.len() != 11
@@ -1911,7 +1948,7 @@ fn print_usage(to_stdout: bool) {
     );
     let _ = writeln!(
         output,
-        "  rekordbox edit-track-rating --xml <in> --output <new> --track-id <id> --expected-rating <old> --rating <new>   Export one guarded raw Rating edit\n  rekordbox edit-track-colour --xml <in> --output <new> --track-id <id> --expected-colour <old> --colour <new>   Export one guarded raw Colour edit\n  rekordbox edit-track-average-bpm --xml <in> --output <new> --track-id <id> --expected-average-bpm <old> --average-bpm <new>   Export one guarded raw AverageBpm edit\n  rekordbox edit-track-disc-number --xml <in> --output <new> --track-id <id> --expected-disc-number <old> --disc-number <new>   Export one guarded raw DiscNumber edit\n  rekordbox edit-track-number --xml <in> --output <new> --track-id <id> --expected-track-number <old> --track-number <new>   Export one guarded raw TrackNumber edit\n  rekordbox edit-track-size --xml <in> --output <new> --track-id <id> --expected-size <old> --size <new>   Export one guarded raw Size edit"
+        "  rekordbox edit-track-rating --xml <in> --output <new> --track-id <id> --expected-rating <old> --rating <new>   Export one guarded raw Rating edit\n  rekordbox edit-track-colour --xml <in> --output <new> --track-id <id> --expected-colour <old> --colour <new>   Export one guarded raw Colour edit\n  rekordbox edit-track-average-bpm --xml <in> --output <new> --track-id <id> --expected-average-bpm <old> --average-bpm <new>   Export one guarded raw AverageBpm edit\n  rekordbox edit-track-disc-number --xml <in> --output <new> --track-id <id> --expected-disc-number <old> --disc-number <new>   Export one guarded raw DiscNumber edit\n  rekordbox edit-track-number --xml <in> --output <new> --track-id <id> --expected-track-number <old> --track-number <new>   Export one guarded raw TrackNumber edit\n  rekordbox edit-track-size --xml <in> --output <new> --track-id <id> --expected-size <old> --size <new>   Export one guarded raw Size edit\n  rekordbox edit-track-total-time --xml <in> --output <new> --track-id <id> --expected-total-time <old> --total-time <new>   Export one guarded raw TotalTime edit"
     );
     let _ = writeln!(
         output,
