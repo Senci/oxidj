@@ -409,7 +409,8 @@ those controls or restores and defines no product media/retention policy.
 | F-04 | Revisioned edits, stale conflicts, analysis precedence | NOT DEMONSTRATED |
 | F-05 | Synthetic unknown-kind bytes; real vendor gap | NOT DEMONSTRATED |
 | F-06a | Absolute cue independence, logical-only | PASS — synthetic logical fixture/checker and mutation controls; A2 NOT DEMONSTRATED |
-| F-06 / F-06b grouped | Absolute independence / declared anchor loss | OPEN — F-06a logical-only PASS; F-06b NOT DEMONSTRATED |
+| F-06b | Declared anchor loss, logical-only | PASS — synthetic OxiDJ-only declaration/deletion, exact safe-v1 withholding report, vendor-only re-import and mutation controls; A2 NOT DEMONSTRATED |
+| F-06 grouped | Absolute independence / declared anchor loss | PASS — F-06a and F-06b logical-only evidence only; A2 NOT QUALIFIED |
 | F-07 | XML tempo edit without false absolute-cue dependency | PASS — synthetic A1 checker/tests; no UI claim |
 | F-08 / F-08b | Synthetic encoding retention / unsafe edit withholding | NOT DEMONSTRATED |
 | F-09 | Independent post-edit/loss-aware checker and controls | NOT DEMONSTRATED |

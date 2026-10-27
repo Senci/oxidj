@@ -1,0 +1,1 @@
+[{"operation_id":"e1","record_id":"r-grid","target_id":"b1","expected_revision":0,"old_value":{"id":"b1","frame":120000,"enabled":true,"source":"ANALYZER"},"new_value":null,"result":"accepted"}]

@@ -1,0 +1,1 @@
+{"beats":[{"id":"b0","frame":0,"enabled":true,"source":"ANALYZER"},{"id":"b2","frame":240000,"enabled":true,"source":"ANALYZER"}],"cues":[],"report":[{"code":"MISSING_ANCHOR","target_format":"mixxx-cueinfo-logical","record_id":"r-cues","element_id":"c0","field":"anchor","cause_operation_id":"e1","action":"WITHHOLD","details":{"anchor_element_id":"b1"}}]}
