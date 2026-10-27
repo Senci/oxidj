@@ -102,6 +102,17 @@ pub struct TrackDeleteRequest {
 pub struct PreparedTrackDelete {
     pub bytes: Vec<u8>,
 }
+/// Delete one playlist node after guarding its ordinal, name and ordered members.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PlaylistDeleteRequest {
+    pub playlist_index: usize,
+    pub expected_name: String,
+    pub expected_order: Vec<String>,
+}
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PreparedPlaylistDelete {
+    pub bytes: Vec<u8>,
+}
 /// Remove one playlist reference while retaining its collection track.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PlaylistMemberDeleteRequest {
@@ -1479,6 +1490,150 @@ pub fn prepare_playlist_rename(
             new_name: request.new_name.clone(),
         },
     })
+}
+
+/// Prepare deletion of exactly one guarded Type=1 playlist NODE.
+pub fn prepare_playlist_delete(
+    bytes: &[u8],
+    request: &PlaylistDeleteRequest,
+) -> Result<PreparedPlaylistDelete, Error> {
+    let before = preflight_export(bytes)?;
+    let playlist = before
+        .selected_playlists
+        .get(request.playlist_index)
+        .ok_or_else(|| Error("playlist ordinal is stale".into()))?;
+    if playlist.name != request.expected_name {
+        return Err(Error("playlist Name changed".into()));
+    }
+    if playlist.tracks != request.expected_order {
+        return Err(Error("playlist ordered members changed".into()));
+    }
+    if before
+        .selected_playlists
+        .iter()
+        .filter(|candidate| {
+            candidate.name == request.expected_name && candidate.tracks == request.expected_order
+        })
+        .count()
+        != 1
+    {
+        return Err(Error("playlist deletion guard is ambiguous".into()));
+    }
+    let mut reader = Reader::from_reader(bytes);
+    reader.config_mut().check_end_names = true;
+    let mut buf = Vec::new();
+    let mut ordinal = 0usize;
+    let mut nodes: Vec<(String, Option<std::ops::Range<usize>>, usize)> = Vec::new();
+    let mut target_depth = None;
+    let mut target_range = None;
+    let mut parent_count_range = None;
+    let mut parent_count = None;
+    loop {
+        let start = reader.buffer_position() as usize;
+        let ev = reader
+            .read_event_into(&mut buf)
+            .map_err(|e| Error(format!("malformed XML: {e}")))?;
+        let end = reader.buffer_position() as usize;
+        match ev {
+            Event::Start(e) if e.name().as_ref() == b"NODE" => {
+                let ty = attr(&e, "Type")?;
+                let count_field = if ty == "0" { "Count" } else { "Entries" };
+                let raw_count = attr(&e, count_field)?;
+                let declared_count = raw_count
+                    .parse::<usize>()
+                    .map_err(|_| Error(format!("invalid NODE {count_field}")))?;
+                if ty == "1" {
+                    if ordinal == request.playlist_index {
+                        if attr(&e, "Name")? != request.expected_name {
+                            return Err(Error("playlist Name changed".into()));
+                        }
+                        let Some((_, count_range, folder_count)) =
+                            nodes.last().filter(|(parent_ty, _, _)| parent_ty == "0")
+                        else {
+                            return Err(Error("playlist has no parent folder NODE".into()));
+                        };
+                        if *folder_count == 0 {
+                            return Err(Error("parent folder NODE Count is zero".into()));
+                        }
+                        parent_count_range = count_range.clone();
+                        parent_count = Some(folder_count - 1);
+                        target_depth = Some(nodes.len() + 1);
+                        target_range = Some(start..end);
+                    }
+                    ordinal += 1;
+                }
+                let count_range = if ty == "0" {
+                    Some(attribute_value_range(&e, start, count_field, &raw_count)?)
+                } else {
+                    None
+                };
+                nodes.push((ty, count_range, declared_count));
+            }
+            Event::Empty(e) if e.name().as_ref() == b"NODE" => {
+                let ty = attr(&e, "Type")?;
+                if ty == "1" {
+                    if ordinal == request.playlist_index {
+                        if attr(&e, "Name")? != request.expected_name {
+                            return Err(Error("playlist Name changed".into()));
+                        }
+                        let Some((_, count_range, folder_count)) =
+                            nodes.last().filter(|(parent_ty, _, _)| parent_ty == "0")
+                        else {
+                            return Err(Error("playlist has no parent folder NODE".into()));
+                        };
+                        if *folder_count == 0 {
+                            return Err(Error("parent folder NODE Count is zero".into()));
+                        }
+                        parent_count_range = count_range.clone();
+                        parent_count = Some(folder_count - 1);
+                        target_range = Some(start..end);
+                    }
+                    ordinal += 1;
+                }
+            }
+            Event::End(e) if e.name().as_ref() == b"NODE" => {
+                if target_depth == Some(nodes.len()) {
+                    let r = target_range
+                        .as_mut()
+                        .ok_or_else(|| Error("playlist NODE range missing".into()))?;
+                    r.end = end;
+                    target_depth = None;
+                }
+                nodes
+                    .pop()
+                    .ok_or_else(|| Error("unexpected closing NODE".into()))?;
+            }
+            Event::Eof => break,
+            _ => {}
+        }
+        buf.clear();
+    }
+    let target_range =
+        target_range.ok_or_else(|| Error("playlist NODE location missing".into()))?;
+    if target_depth.is_some() {
+        return Err(Error("malformed playlist NODE".into()));
+    }
+    let mut output = bytes.to_vec();
+    let parent_count_range =
+        parent_count_range.ok_or_else(|| Error("playlist parent Count location missing".into()))?;
+    let parent_count = parent_count.ok_or_else(|| Error("playlist parent Count missing".into()))?;
+    let mut replacements = vec![
+        (target_range, Vec::new()),
+        (parent_count_range, parent_count.to_string().into_bytes()),
+    ];
+    replacements.sort_by_key(|(range, _)| std::cmp::Reverse(range.start));
+    for (range, replacement) in replacements {
+        output.splice(range, replacement);
+    }
+    let after = preflight_export(&output)?;
+    let mut expected = before.selected_playlists.clone();
+    expected.remove(request.playlist_index);
+    if after.selected_playlists != expected || after.selected_tracks != before.selected_tracks {
+        return Err(Error(
+            "playlist deletion semantic verification failed".into(),
+        ));
+    }
+    Ok(PreparedPlaylistDelete { bytes: output })
 }
 
 /// Prepare deletion of one collection track and all of its guarded playlist references.
@@ -5411,6 +5566,117 @@ mod tests {
         assert_eq!(plan.selected_tracks[1].disc_number.as_deref(), Some(""));
         assert_eq!(plan.selected_tracks[2].disc_number, None);
         assert_eq!(export_xml(source).unwrap(), source);
+    }
+
+    #[test]
+    fn guarded_playlist_delete_removes_exact_node_and_preserves_collection() {
+        let source = include_bytes!("../../../xtask/tests/fixtures/rekordbox-a1/F-02/source.bin");
+        let request = PlaylistDeleteRequest {
+            playlist_index: 0,
+            expected_name: "House".into(),
+            expected_order: vec!["100".into(), "200".into(), "300".into()],
+        };
+        let prepared = prepare_playlist_delete(source, &request).unwrap();
+        assert_eq!(
+            preflight_export(source).unwrap().selected_playlists.len(),
+            2
+        );
+        let after = preflight_export(&prepared.bytes).unwrap();
+        assert_eq!(after.selected_playlists.len(), 1);
+        assert_eq!(after.selected_playlists[0].name, "Techno");
+        assert_eq!(after.selected_tracks.len(), 4);
+        assert_eq!(
+            source,
+            include_bytes!("../../../xtask/tests/fixtures/rekordbox-a1/F-02/source.bin")
+        );
+        assert!(
+            prepare_playlist_delete(
+                source,
+                &PlaylistDeleteRequest {
+                    expected_name: "stale".into(),
+                    ..request
+                }
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn guarded_playlist_delete_handles_duplicate_names_and_refuses_duplicate_guards() {
+        let source = include_bytes!("../../../xtask/tests/fixtures/rekordbox-a1/F-02/source.bin");
+        let duplicate_name = String::from_utf8(source.to_vec())
+            .unwrap()
+            .replace("Name=\"Techno\"", "Name=\"House\"")
+            .into_bytes();
+        let request = PlaylistDeleteRequest {
+            playlist_index: 1,
+            expected_name: "House".into(),
+            expected_order: vec!["200".into(), "400".into()],
+        };
+        let prepared = prepare_playlist_delete(&duplicate_name, &request).unwrap();
+        let after = preflight_export(&prepared.bytes).unwrap();
+        assert_eq!(after.selected_playlists.len(), 1);
+        assert_eq!(after.selected_playlists[0].tracks, ["100", "200", "300"]);
+        assert!(
+            String::from_utf8(prepared.bytes)
+                .unwrap()
+                .contains("<NODE Type=\"0\" Name=\"Sets\" Count=\"1\">")
+        );
+
+        let ambiguous = duplicate_name
+            .windows(b"Key=\"400\"".len())
+            .position(|window| window == b"Key=\"400\"")
+            .map(|start| {
+                let mut bytes = duplicate_name.clone();
+                bytes.splice(
+                    start..start + b"Key=\"400\"".len(),
+                    b"Key=\"300\"".iter().copied(),
+                );
+                bytes
+            })
+            .unwrap();
+        assert!(prepare_playlist_delete(&ambiguous, &request).is_err());
+    }
+
+    #[test]
+    fn guarded_playlist_delete_handles_empty_self_closing_playlist() {
+        let source = include_bytes!("../../../xtask/tests/fixtures/rekordbox-a1/F-02/source.bin");
+        let empty = String::from_utf8(source.to_vec())
+            .unwrap()
+            .replace(
+                "<NODE Type=\"1\" Name=\"Techno\" Entries=\"2\" KeyType=\"0\">\n          <TRACK Key=\"200\"/>\n          <TRACK Key=\"400\"/>\n        </NODE>",
+                "<NODE Type=\"1\" Name=\"Techno\" Entries=\"0\" KeyType=\"0\"/>",
+            )
+            .into_bytes();
+        let prepared = prepare_playlist_delete(
+            &empty,
+            &PlaylistDeleteRequest {
+                playlist_index: 1,
+                expected_name: "Techno".into(),
+                expected_order: vec![],
+            },
+        )
+        .unwrap();
+        let after = preflight_export(&prepared.bytes).unwrap();
+        assert_eq!(after.selected_playlists.len(), 1);
+        assert_eq!(after.selected_tracks.len(), 4);
+        assert!(
+            String::from_utf8(prepared.bytes)
+                .unwrap()
+                .contains("<NODE Type=\"0\" Name=\"Sets\" Count=\"1\">")
+        );
+    }
+
+    #[test]
+    fn guarded_playlist_delete_refuses_malformed_xml_and_non_playlist_ordinal() {
+        let source = include_bytes!("../../../xtask/tests/fixtures/rekordbox-a1/F-02/source.bin");
+        let request = PlaylistDeleteRequest {
+            playlist_index: 2,
+            expected_name: "Sets".into(),
+            expected_order: vec![],
+        };
+        assert!(prepare_playlist_delete(source, &request).is_err());
+        assert!(prepare_playlist_delete(b"<DJ_PLAYLISTS>", &request).is_err());
     }
 
     #[test]

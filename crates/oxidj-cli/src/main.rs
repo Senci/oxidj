@@ -70,6 +70,48 @@ fn run(args: &[String]) -> i32 {
 fn run_rekordbox(args: &[String]) -> i32 {
     if args
         .first()
+        .is_some_and(|action| action == "delete-playlist")
+    {
+        if args.len() != 11
+            || args[1] != "--xml"
+            || args[3] != "--output"
+            || args[5] != "--playlist-index"
+            || args[7] != "--expected-name"
+            || args[9] != "--expected-order"
+        {
+            eprintln!(
+                "error: expected rekordbox delete-playlist --xml IN --output NEW --playlist-index N --expected-name NAME --expected-order ID,ID"
+            );
+            return USAGE;
+        }
+        let Ok(playlist_index) = args[6].parse::<usize>() else {
+            eprintln!("error: malformed playlist index");
+            return USAGE;
+        };
+        let request = oxidj_application::PlaylistDeleteRequest {
+            playlist_index,
+            expected_name: args[8].clone(),
+            expected_order: if args[10].is_empty() {
+                vec![]
+            } else {
+                args[10].split(',').map(str::to_owned).collect()
+            },
+        };
+        return match oxidj_application::export_rekordbox_playlist_delete(
+            &args[2], &args[4], &request,
+        ) {
+            Ok(()) => {
+                println!("Deleted playlist {}", args[8]);
+                OK
+            }
+            Err(error) => {
+                eprintln!("error: playlist deletion rejected: {error}");
+                DOMAIN
+            }
+        };
+    }
+    if args
+        .first()
         .is_some_and(|action| action == "insert-playlist-member")
     {
         if args.len() != 13
@@ -1987,6 +2029,10 @@ fn print_usage(to_stdout: bool) {
     let _ = writeln!(
         output,
         "  rekordbox rename-playlist --xml <in> --output <new> --playlist-index <n> --expected-name <old> --name <new>   Export one guarded playlist rename"
+    );
+    let _ = writeln!(
+        output,
+        "  rekordbox delete-playlist --xml <in> --output <new> --playlist-index <n> --expected-name <old> --expected-order <IDs>   Delete one guarded playlist NODE"
     );
     let _ = writeln!(
         output,

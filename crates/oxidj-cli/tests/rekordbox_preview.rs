@@ -3423,6 +3423,99 @@ fn clear_playlist_cli_retains_collection_and_other_playlist() {
 }
 
 #[test]
+fn delete_playlist_cli_guards_ordinal_and_preserves_source() {
+    let fixture = format!(
+        "{}/../../xtask/tests/fixtures/rekordbox-a1/F-02/source.bin",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let input = temporary_path("playlist-delete-input");
+    let output = temporary_path("playlist-delete-output");
+    let source = fs::read_to_string(fixture)
+        .unwrap()
+        .replace("Name=\"Techno\"", "Name=\"House\"")
+        .into_bytes();
+    fs::write(&input, &source).unwrap();
+    let invoke = |target: &std::path::Path, index: &str, name: &str, order: &str| {
+        Command::new(env!("CARGO_BIN_EXE_oxidj-cli"))
+            .args([
+                "rekordbox",
+                "delete-playlist",
+                "--xml",
+                input.to_str().unwrap(),
+                "--output",
+                target.to_str().unwrap(),
+                "--playlist-index",
+                index,
+                "--expected-name",
+                name,
+                "--expected-order",
+                order,
+            ])
+            .output()
+            .unwrap()
+    };
+    let result = invoke(&output, "1", "House", "200,400");
+    assert_eq!(
+        result.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let exported = fs::read_to_string(&output).unwrap();
+    assert!(exported.contains("<COLLECTION Entries=\"4\">"));
+    assert!(exported.contains("<NODE Type=\"0\" Name=\"Sets\" Count=\"1\">"));
+    assert!(exported.contains("Name=\"House\" Entries=\"3\""));
+    assert!(!exported.contains("<NODE Type=\"1\" Name=\"House\" Entries=\"2\""));
+    assert_eq!(fs::read(&input).unwrap(), source);
+    let stale = temporary_path("playlist-delete-stale");
+    assert_ne!(invoke(&stale, "1", "House", "200").status.code(), Some(0));
+    assert!(!stale.exists());
+
+    let empty_input = temporary_path("playlist-delete-empty-input");
+    let empty_output = temporary_path("playlist-delete-empty-output");
+    let empty_source = String::from_utf8(source)
+        .unwrap()
+        .replace(
+            "<NODE Type=\"1\" Name=\"House\" Entries=\"2\" KeyType=\"0\">\n          <TRACK Key=\"200\"/>\n          <TRACK Key=\"400\"/>\n        </NODE>",
+            "<NODE Type=\"1\" Name=\"House\" Entries=\"0\" KeyType=\"0\"/>",
+        )
+        .into_bytes();
+    fs::write(&empty_input, &empty_source).unwrap();
+    let empty_result = Command::new(env!("CARGO_BIN_EXE_oxidj-cli"))
+        .args([
+            "rekordbox",
+            "delete-playlist",
+            "--xml",
+            empty_input.to_str().unwrap(),
+            "--output",
+            empty_output.to_str().unwrap(),
+            "--playlist-index",
+            "1",
+            "--expected-name",
+            "House",
+            "--expected-order",
+            "",
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(
+        empty_result.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&empty_result.stderr)
+    );
+    let empty_export = fs::read_to_string(&empty_output).unwrap();
+    assert!(empty_export.contains("Name=\"House\" Entries=\"3\""));
+    assert!(!empty_export.contains("<NODE Type=\"1\" Name=\"House\" Entries=\"0\""));
+    assert!(empty_export.contains("<NODE Type=\"0\" Name=\"Sets\" Count=\"1\">"));
+    assert_eq!(fs::read(&empty_input).unwrap(), empty_source);
+    let _ = fs::remove_file(input);
+    let _ = fs::remove_file(output);
+    let _ = fs::remove_file(empty_input);
+    let _ = fs::remove_file(empty_output);
+}
+
+#[test]
 fn insert_playlist_member_cli_targets_guarded_zero_based_position() {
     let fixture = format!(
         "{}/../../xtask/tests/fixtures/rekordbox-a1/F-02/source.bin",
