@@ -1033,6 +1033,78 @@ fn playlist_rename_exports_one_guarded_name_and_rejects_unsafe_cases() {
     let _ = fs::remove_file(output);
 }
 
+#[test]
+fn track_name_edit_exports_one_guarded_name_and_rejects_stale_or_existing_output() {
+    let fixture = format!(
+        "{}/../../xtask/tests/fixtures/rekordbox-a1/F-02/source.bin",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let source = fs::read(&fixture).expect("read synthetic F-02 fixture");
+    let input = temporary_path("track-name-input");
+    let output = temporary_path("track-name-output");
+    fs::write(&input, &source).expect("write synthetic input");
+    let invoke = |expected: &str, target: &std::path::Path| {
+        Command::new(env!("CARGO_BIN_EXE_oxidj-cli"))
+            .args([
+                "rekordbox",
+                "edit-track-name",
+                "--xml",
+                input.to_str().unwrap(),
+                "--output",
+                target.to_str().unwrap(),
+                "--track-id",
+                "100",
+                "--expected-name",
+                expected,
+                "--name",
+                "Renamed track",
+            ])
+            .output()
+            .expect("run track-name CLI")
+    };
+
+    let success = invoke("A", &output);
+    assert_eq!(
+        success.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&success.stderr)
+    );
+    assert!(String::from_utf8_lossy(&success.stdout).contains("Renamed track"));
+    let mut expected = source.clone();
+    let from = b"TrackID=\"100\" Name=\"A\"";
+    let at = expected
+        .windows(from.len())
+        .position(|w| w == from)
+        .expect("target Track Name");
+    expected.splice(
+        at..at + from.len(),
+        b"TrackID=\"100\" Name=\"Renamed track\"".iter().copied(),
+    );
+    assert_eq!(fs::read(&output).unwrap(), expected);
+    assert_eq!(fs::read(&input).unwrap(), source);
+
+    let stale_output = temporary_path("track-name-stale");
+    let stale = invoke("stale", &stale_output);
+    assert_ne!(stale.status.code(), Some(0), "stale guard accepted");
+    assert!(!stale_output.exists(), "stale guard created output");
+    let rejected_existing = invoke("A", &output);
+    assert_ne!(
+        rejected_existing.status.code(),
+        Some(0),
+        "existing destination accepted"
+    );
+    assert_eq!(
+        fs::read(&output).unwrap(),
+        expected,
+        "existing destination changed"
+    );
+    assert_eq!(fs::read(&input).unwrap(), source);
+
+    let _ = fs::remove_file(input);
+    let _ = fs::remove_file(output);
+}
+
 fn temporary_path(label: &str) -> std::path::PathBuf {
     let stamp = SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)
