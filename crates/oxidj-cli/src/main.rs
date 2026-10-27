@@ -1227,7 +1227,7 @@ fn run_rekordbox(args: &[String]) -> i32 {
             println!("Tracks:");
             for t in p.tracks {
                 println!(
-                    "{}\t{}\t{:?}\t{:?}\t{:?}\t{:?}\t{:?}\t{:?}\t{:?}\t{:?}\t{:?}\t{}\t{:?}\t{:?}\t{:?}\t{:?}\t{:?}\t{:?}\t{:?}\t{:?}\t{:?}\t{:?}\t{:?}\t{:?}\t{:?}\t{:?}\t{:?}",
+                    "{}\t{}\t{:?}\t{:?}\t{:?}\t{:?}\t{:?}\t{:?}\t{:?}\t{:?}\t{:?}\t{:?}\t{}\t{:?}\t{:?}\t{:?}\t{:?}\t{:?}\t{:?}\t{:?}\t{:?}\t{:?}\t{:?}\t{:?}\t{:?}\t{:?}\t{:?}\t{:?}",
                     t.id,
                     t.name,
                     t.artist,
@@ -1239,6 +1239,7 @@ fn run_rekordbox(args: &[String]) -> i32 {
                     t.composer,
                     t.grouping,
                     t.remixer,
+                    t.mix,
                     t.location,
                     t.kind,
                     t.year,
