@@ -5,8 +5,8 @@ use std::path::Path;
 pub use oxidj_rekordbox::{
     Error as RekordboxError, ExportDecision, ExportPreflight, FolderRenameChange,
     FolderRenameRequest, PlaylistClearRequest, PlaylistMemberAppendRequest,
-    PlaylistMemberDeleteRequest, PlaylistRenameChange, PlaylistRenameRequest,
-    PlaylistReorderRequest, PositionMarkEditChange, PositionMarkEditRequest,
+    PlaylistMemberDeleteRequest, PlaylistMemberInsertRequest, PlaylistRenameChange,
+    PlaylistRenameRequest, PlaylistReorderRequest, PositionMarkEditChange, PositionMarkEditRequest,
     PositionMarkEndEditChange, PositionMarkEndEditRequest, PositionMarkNameEditChange,
     PositionMarkNameEditRequest, PreparedFolderRename, PreparedPlaylistRename,
     PreparedPlaylistReorder, PreparedPositionMarkEdit, PreparedPositionMarkEndEdit,
@@ -62,6 +62,17 @@ pub fn export_rekordbox_playlist_member_append(
 ) -> Result<(), RekordboxError> {
     let (source, output) = read_new_export_source(input, output)?;
     let prepared = oxidj_rekordbox::prepare_playlist_member_append(&source, request)?;
+    publish_new_file(&output, &prepared.bytes)
+}
+
+/// Export one guarded insertion of an existing collection track into a playlist.
+pub fn export_rekordbox_playlist_member_insert(
+    input: impl AsRef<Path>,
+    output: impl AsRef<Path>,
+    request: &PlaylistMemberInsertRequest,
+) -> Result<(), RekordboxError> {
+    let (source, output) = read_new_export_source(input, output)?;
+    let prepared = oxidj_rekordbox::prepare_playlist_member_insert(&source, request)?;
     publish_new_file(&output, &prepared.bytes)
 }
 

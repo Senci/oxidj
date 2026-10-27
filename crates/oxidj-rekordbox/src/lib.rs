@@ -109,6 +109,18 @@ pub struct PlaylistMemberAppendRequest {
 pub struct PreparedPlaylistMemberAppend {
     pub bytes: Vec<u8>,
 }
+/// Insert one absent collection track at a zero-based playlist position.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PlaylistMemberInsertRequest {
+    pub playlist_index: usize,
+    pub expected_order: Vec<String>,
+    pub track_id: String,
+    pub position: usize,
+}
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PreparedPlaylistMemberInsert {
+    pub bytes: Vec<u8>,
+}
 /// Reorder an existing playlist after an exact ordinal/order optimistic guard.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PlaylistReorderRequest {
@@ -1519,6 +1531,69 @@ pub fn prepare_playlist_member_append(
     Ok(PreparedPlaylistMemberAppend { bytes: output })
 }
 
+/// Prepare insertion at one zero-based position under an exact playlist guard.
+pub fn prepare_playlist_member_insert(
+    bytes: &[u8],
+    request: &PlaylistMemberInsertRequest,
+) -> Result<PreparedPlaylistMemberInsert, Error> {
+    let before = preflight_export(bytes)?;
+    let playlist = before
+        .selected_playlists
+        .get(request.playlist_index)
+        .ok_or_else(|| Error("playlist ordinal is stale".into()))?;
+    if playlist.tracks != request.expected_order {
+        return Err(Error("playlist order changed".into()));
+    }
+    if request.position > request.expected_order.len() {
+        return Err(Error("playlist insertion position is out of range".into()));
+    }
+    if request.expected_order.iter().collect::<HashSet<_>>().len() != request.expected_order.len() {
+        return Err(Error(
+            "playlist insertion does not support duplicate existing memberships".into(),
+        ));
+    }
+
+    let appended = prepare_playlist_member_append(
+        bytes,
+        &PlaylistMemberAppendRequest {
+            playlist_index: request.playlist_index,
+            expected_order: request.expected_order.clone(),
+            track_id: request.track_id.clone(),
+        },
+    )?;
+    let mut new_order = request.expected_order.clone();
+    new_order.insert(request.position, request.track_id.clone());
+    let mut after_append = request.expected_order.clone();
+    after_append.push(request.track_id.clone());
+    let output = if request.position == request.expected_order.len() {
+        appended.bytes
+    } else {
+        prepare_playlist_reorder(
+            &appended.bytes,
+            &PlaylistReorderRequest {
+                playlist_index: request.playlist_index,
+                expected_order: after_append,
+                new_order,
+            },
+        )?
+        .bytes
+    };
+    let after = preflight_export(&output)?;
+    let mut expected_playlists = before.selected_playlists.clone();
+    expected_playlists[request.playlist_index].tracks = request.expected_order.clone();
+    expected_playlists[request.playlist_index]
+        .tracks
+        .insert(request.position, request.track_id.clone());
+    if after.selected_tracks != before.selected_tracks
+        || after.selected_playlists != expected_playlists
+    {
+        return Err(Error(
+            "playlist member insertion verification failed".into(),
+        ));
+    }
+    Ok(PreparedPlaylistMemberInsert { bytes: output })
+}
+
 /// Prepare a byte-preserving reorder of playlist membership elements.
 pub fn prepare_playlist_reorder(
     bytes: &[u8],
@@ -2730,6 +2805,49 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    #[test]
+    fn guarded_playlist_member_insert_targets_one_position_and_rejects_invalid_position() {
+        let source = include_bytes!("../../../xtask/tests/fixtures/rekordbox-a1/F-02/source.bin");
+        let request = PlaylistMemberInsertRequest {
+            playlist_index: 1,
+            expected_order: vec!["200".into(), "400".into()],
+            track_id: "100".into(),
+            position: 1,
+        };
+        let result = prepare_playlist_member_insert(source, &request).unwrap();
+        let after = preflight_export(&result.bytes).unwrap();
+        assert_eq!(after.selected_playlists[0].tracks, ["100", "200", "300"]);
+        assert_eq!(after.selected_playlists[1].tracks, ["200", "100", "400"]);
+        assert_eq!(
+            after.selected_tracks,
+            preflight_export(source).unwrap().selected_tracks
+        );
+        assert_eq!(
+            source,
+            include_bytes!("../../../xtask/tests/fixtures/rekordbox-a1/F-02/source.bin")
+        );
+        let invalid_position = PlaylistMemberInsertRequest {
+            position: 3,
+            ..request.clone()
+        };
+        assert!(prepare_playlist_member_insert(source, &invalid_position).is_err());
+        let stale = PlaylistMemberInsertRequest {
+            expected_order: vec!["200".into()],
+            ..request.clone()
+        };
+        assert!(prepare_playlist_member_insert(source, &stale).is_err());
+        let present = PlaylistMemberInsertRequest {
+            track_id: "200".into(),
+            ..request.clone()
+        };
+        assert!(prepare_playlist_member_insert(source, &present).is_err());
+        let unknown = PlaylistMemberInsertRequest {
+            track_id: "999".into(),
+            ..request
+        };
+        assert!(prepare_playlist_member_insert(source, &unknown).is_err());
     }
 
     #[test]

@@ -1375,6 +1375,65 @@ fn clear_playlist_cli_retains_collection_and_other_playlist() {
     let _ = fs::remove_file(output);
 }
 
+#[test]
+fn insert_playlist_member_cli_targets_guarded_zero_based_position() {
+    let fixture = format!(
+        "{}/../../xtask/tests/fixtures/rekordbox-a1/F-02/source.bin",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let input = temporary_path("playlist-insert-input");
+    let output = temporary_path("playlist-insert-output");
+    let source = fs::read(fixture).unwrap();
+    fs::write(&input, &source).unwrap();
+    let invoke = |target: &std::path::Path, order: &str, position: &str| {
+        Command::new(env!("CARGO_BIN_EXE_oxidj-cli"))
+            .args([
+                "rekordbox",
+                "insert-playlist-member",
+                "--xml",
+                input.to_str().unwrap(),
+                "--output",
+                target.to_str().unwrap(),
+                "--playlist-index",
+                "1",
+                "--expected-order",
+                order,
+                "--track-id",
+                "100",
+                "--position",
+                position,
+            ])
+            .output()
+            .unwrap()
+    };
+    let result = invoke(&output, "200,400", "1");
+    assert_eq!(
+        result.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let exported = fs::read_to_string(&output).unwrap();
+    assert!(exported.contains("<COLLECTION Entries=\"4\">"));
+    assert!(exported.contains("Name=\"House\" Entries=\"3\""));
+    assert!(exported.contains("Name=\"Techno\" Entries=\"3\""));
+    let techno_start = exported.find("Name=\"Techno\"").unwrap();
+    let techno_end = exported[techno_start..].find("</NODE>").unwrap() + techno_start;
+    let techno = &exported[techno_start..techno_end];
+    let first = techno.find("Key=\"200\"").unwrap();
+    let second = techno.find("Key=\"100\"").unwrap();
+    let third = techno.find("Key=\"400\"").unwrap();
+    assert!(first < second && second < third);
+    assert_eq!(fs::read(&input).unwrap(), source);
+    for (label, order, position) in [("stale", "200", "1"), ("out-of-range", "200,400", "3")] {
+        let rejected = temporary_path(&format!("playlist-insert-{label}"));
+        assert_ne!(invoke(&rejected, order, position).status.code(), Some(0));
+        assert!(!rejected.exists());
+    }
+    let _ = fs::remove_file(input);
+    let _ = fs::remove_file(output);
+}
+
 fn temporary_path(label: &str) -> std::path::PathBuf {
     let stamp = SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)

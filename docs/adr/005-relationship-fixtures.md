@@ -219,6 +219,8 @@ An additional in-memory F-02 case appends TrackID 100 to an empty self-closing T
 
 **Observed synthetic XML playlist clear (F-02):** House was selected by ordinal 0 and exact old order `[100,200,300]`; one new-file export clears its memberships and sets its direct `Entries` to 0. The collection remains `[100,200,300,400]`, Techno remains `[200,400]`, and counts are `4/0/2`. Adapter and CLI tests cover stale order, malformed source count and source immutability. This is synthetic XML behavior only; Rekordbox application acceptance and qualification remain NOT DEMONSTRATED.
 
+**Observed synthetic XML playlist-member insertion (F-02):** TrackID 100 was inserted at zero-based position 1 in Techno after guarding `[200,400]`, yielding `[200,100,400]`. House and collection remain unchanged; only Techno membership and its `Entries` count change. Adapter/CLI tests reject stale order, an out-of-range position, already-present and unknown targets. This remains synthetic XML-only behavior; Rekordbox app/hardware acceptance and qualification are NOT DEMONSTRATED.
+
 ### F-03: Constant grid, cues and range unchanged
 
 Mixxx-derived **logical CueInfo DTO**, not a claimed Mixxx library transport.

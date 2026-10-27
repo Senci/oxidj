@@ -70,6 +70,48 @@ fn run(args: &[String]) -> i32 {
 fn run_rekordbox(args: &[String]) -> i32 {
     if args
         .first()
+        .is_some_and(|action| action == "insert-playlist-member")
+    {
+        if args.len() != 13
+            || args[1] != "--xml"
+            || args[3] != "--output"
+            || args[5] != "--playlist-index"
+            || args[7] != "--expected-order"
+            || args[9] != "--track-id"
+            || args[11] != "--position"
+        {
+            eprintln!(
+                "error: expected rekordbox insert-playlist-member --xml IN --output NEW --playlist-index N --expected-order ID,ID --track-id ID --position N"
+            );
+            return USAGE;
+        }
+        let (Ok(playlist_index), Ok(position)) =
+            (args[6].parse::<usize>(), args[12].parse::<usize>())
+        else {
+            eprintln!("error: malformed playlist index or insertion position");
+            return USAGE;
+        };
+        let request = oxidj_application::PlaylistMemberInsertRequest {
+            playlist_index,
+            expected_order: args[8].split(',').map(str::to_owned).collect(),
+            track_id: args[10].clone(),
+            position,
+        };
+        return match oxidj_application::export_rekordbox_playlist_member_insert(
+            &args[2], &args[4], &request,
+        ) {
+            Ok(()) => {
+                println!("Inserted playlist reference {} at {}", args[10], position);
+                OK
+            }
+            Err(error) => {
+                eprintln!("error: playlist member insertion rejected: {error}");
+                DOMAIN
+            }
+        };
+    }
+    if args
+        .first()
         .is_some_and(|action| action == "clear-playlist")
     {
         if args.len() != 9
@@ -886,6 +928,10 @@ fn print_usage(to_stdout: bool) {
     let _ = writeln!(
         output,
         "  rekordbox clear-playlist --xml <in> --output <new> --playlist-index <n> --expected-order <IDs>   Remove all guarded memberships from one playlist"
+    );
+    let _ = writeln!(
+        output,
+        "  rekordbox insert-playlist-member --xml <in> --output <new> --playlist-index <n> --expected-order <IDs> --track-id <id> --position <n>   Insert one existing track at a guarded zero-based position"
     );
     let _ = writeln!(
         output,
