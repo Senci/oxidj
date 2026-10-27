@@ -538,6 +538,43 @@ fn run_rekordbox(args: &[String]) -> i32 {
     }
     if args
         .first()
+        .is_some_and(|action| action == "edit-track-rating")
+    {
+        if args.len() != 11
+            || args[1] != "--xml"
+            || args[3] != "--output"
+            || args[5] != "--track-id"
+            || args[7] != "--expected-rating"
+            || args[9] != "--rating"
+        {
+            eprintln!(
+                "error: expected rekordbox edit-track-rating --xml IN --output NEW --track-id ID --expected-rating OLD --rating NEW"
+            );
+            return USAGE;
+        }
+        let request = oxidj_application::TrackRatingEditRequest {
+            track_id: args[6].clone(),
+            expected_old_rating: args[8].clone(),
+            new_rating: args[10].clone(),
+        };
+        return match oxidj_application::export_rekordbox_track_rating_edit(
+            &args[2], &args[4], &request,
+        ) {
+            Ok(change) => {
+                println!(
+                    "Changed raw Rating for track[{}]: {:?} to {:?}",
+                    change.track_id, change.old_rating, change.new_rating
+                );
+                OK
+            }
+            Err(error) => {
+                eprintln!("error: track Rating edit rejected: {error}");
+                DOMAIN
+            }
+        };
+    }
+    if args
+        .first()
         .is_some_and(|action| action == "edit-track-composer")
     {
         if args.len() != 11
@@ -1538,6 +1575,10 @@ fn print_usage(to_stdout: bool) {
     let _ = writeln!(
         output,
         "  rekordbox edit-track-grouping --xml <in> --output <new> --track-id <id> --expected-grouping <old> --grouping <new>   Export one guarded track Grouping edit"
+    );
+    let _ = writeln!(
+        output,
+        "  rekordbox edit-track-rating --xml <in> --output <new> --track-id <id> --expected-rating <old> --rating <new>   Export one guarded raw Rating edit"
     );
     let _ = writeln!(
         output,

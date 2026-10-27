@@ -397,6 +397,23 @@ pub struct TrackComposerEditRequest {
     pub new_composer: String,
 }
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TrackRatingEditRequest {
+    pub track_id: String,
+    pub expected_old_rating: String,
+    pub new_rating: String,
+}
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TrackRatingEditChange {
+    pub track_id: String,
+    pub old_rating: String,
+    pub new_rating: String,
+}
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PreparedTrackRatingEdit {
+    pub bytes: Vec<u8>,
+    pub change: TrackRatingEditChange,
+}
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TrackComposerEditChange {
     pub track_id: String,
     pub old_composer: String,
@@ -2567,6 +2584,67 @@ pub fn prepare_track_label_edit(
     })
 }
 
+/// Prepare one exact-old-value guarded raw Track Rating edit.
+pub fn prepare_track_rating_edit(
+    bytes: &[u8],
+    request: &TrackRatingEditRequest,
+) -> Result<PreparedTrackRatingEdit, Error> {
+    let before = preflight_export(bytes)?;
+    let track = before
+        .selected_tracks
+        .iter()
+        .find(|t| t.id == request.track_id)
+        .ok_or_else(|| Error(format!("unknown TrackID {}", request.track_id)))?;
+    let old = track
+        .rating
+        .as_deref()
+        .ok_or_else(|| Error("track Rating missing".into()))?;
+    if old != request.expected_old_rating {
+        return Err(Error("track Rating changed".into()));
+    }
+    if !request.new_rating.chars().all(
+        |c| matches!(c as u32, 9 | 10 | 13 | 0x20..=0xD7FF | 0xE000..=0xFFFD | 0x10000..=0x10FFFF),
+    ) {
+        return Err(Error("new Rating contains invalid XML 1.0 text".into()));
+    }
+    let range = track_attribute_range(
+        bytes,
+        &request.track_id,
+        "Rating",
+        &request.expected_old_rating,
+    )?;
+    let escaped = request
+        .new_rating
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&apos;")
+        .replace('\t', "&#9;")
+        .replace('\n', "&#10;")
+        .replace('\r', "&#13;");
+    let mut output = bytes.to_vec();
+    output.splice(range, escaped.bytes());
+    let after = preflight_export(&output)?;
+    let mut expected = before.selected_tracks.clone();
+    expected
+        .iter_mut()
+        .find(|t| t.id == request.track_id)
+        .unwrap()
+        .rating = Some(request.new_rating.clone());
+    if after.selected_tracks != expected {
+        return Err(Error("track Rating edit verification failed".into()));
+    }
+    Ok(PreparedTrackRatingEdit {
+        bytes: output,
+        change: TrackRatingEditChange {
+            track_id: request.track_id.clone(),
+            old_rating: old.to_owned(),
+            new_rating: request.new_rating.clone(),
+        },
+    })
+}
+
 /// Prepare one exact-old-value guarded Track Composer edit.
 pub fn prepare_track_composer_edit(
     bytes: &[u8],
@@ -4025,6 +4103,48 @@ mod tests {
         assert_eq!(plan.selected_tracks[1].play_count.as_deref(), Some(""));
         assert_eq!(plan.selected_tracks[2].play_count, None);
         assert_eq!(export_xml(source).unwrap(), source);
+    }
+
+    #[test]
+    fn guarded_raw_rating_edit_rejects_stale_missing_invalid_and_malformed() {
+        let base = include_bytes!("../../../xtask/tests/fixtures/rekordbox-a1/F-02/source.bin");
+        let xml = String::from_utf8(base.to_vec())
+            .unwrap()
+            .replacen(
+                "TrackID=\"100\" Name=\"A\"",
+                "TrackID=\"100\" Rating=\"-1\" Name=\"A\"",
+                1,
+            )
+            .into_bytes();
+        let req = TrackRatingEditRequest {
+            track_id: "100".into(),
+            expected_old_rating: "-1".into(),
+            new_rating: "A & <x>".into(),
+        };
+        let result = prepare_track_rating_edit(&xml, &req).unwrap();
+        assert!(
+            String::from_utf8_lossy(&result.bytes)
+                .contains("Rating=\"A &amp; &lt;x&gt;\" Name=\"A\"")
+        );
+        assert!(result.bytes.windows(6).any(|w| w == b"<TRACK"));
+        let mut stale = req.clone();
+        stale.expected_old_rating = "old".into();
+        assert!(prepare_track_rating_edit(&xml, &stale).is_err());
+        assert!(
+            prepare_track_rating_edit(
+                &xml,
+                &TrackRatingEditRequest {
+                    track_id: "200".into(),
+                    expected_old_rating: "".into(),
+                    new_rating: "1".into()
+                }
+            )
+            .is_err()
+        );
+        let mut invalid = req;
+        invalid.new_rating = "bad\u{1}".into();
+        assert!(prepare_track_rating_edit(&xml, &invalid).is_err());
+        assert!(prepare_track_rating_edit(b"<broken", &invalid).is_err());
     }
 
     #[test]
