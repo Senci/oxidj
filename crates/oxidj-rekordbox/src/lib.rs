@@ -3783,7 +3783,7 @@ mod tests {
             .unwrap()
             .replace(
                 "<TRACK TrackID=\"100\" Name=\"A\" Location=\"file://localhost/music/a.flac\"/>",
-                "<TRACK TrackID=\"100\" Name=\"A\" Location=\"file://localhost/music/a.flac\">\n      <POSITION_MARK Name=\"zero\" Type=\"0\" Start=\"0\" Num=\"0\" End=\"0\"/>\n    </TRACK>",
+                "<TRACK TrackID=\"100\" Name=\"A\" Location=\"file://localhost/music/a.flac\">\n      <POSITION_MARK Name=\"zero\" Type=\"0\" Start=\"0\" Num=\"0\" End=\"0\"></POSITION_MARK>\n    </TRACK>",
             )
             .replace(
                 "<TRACK TrackID=\"200\" Name=\"B\" Location=\"file://localhost/music/b.flac\"/>",
@@ -3793,6 +3793,12 @@ mod tests {
         let parsed = parse(bytes).unwrap();
         assert_eq!(parsed.tracks[0].marks[0].end_seconds.as_deref(), Some("0"));
         assert_eq!(parsed.tracks[1].marks[0].end_seconds, None);
+        assert!(
+            parsed
+                .tracks
+                .iter()
+                .any(|track| track.id == "300" && track.marks.is_empty())
+        ); // self-closing TRACK path
         let plan = preflight_export(bytes).unwrap();
         assert_eq!(
             plan.selected_tracks[0].marks[0].end_seconds.as_deref(),
