@@ -2,6 +2,7 @@ use oxidj_rekordbox as _;
 use quick_xml as _;
 use serde_json as _;
 use sha2 as _;
+use sha2::{Digest, Sha256};
 use std::collections::BTreeSet;
 
 const ASSET_IDS: [&str; 3] = ["stub-a", "stub-b", "stub-c"];
@@ -39,4 +40,58 @@ fn boundary_manifest_asset_sets_are_exact() {
         b1.union(&b2).copied().collect::<BTreeSet<_>>(),
         ASSET_IDS.into_iter().collect()
     );
+}
+
+fn sha256(bytes: &[u8]) -> String {
+    format!("{:x}", Sha256::digest(bytes))
+}
+
+fn manifest(boundary_id: &str, asset_ids: &[&str]) -> (Vec<u8>, String) {
+    let entries: Vec<_> = asset_ids
+        .iter()
+        .map(|asset_id| {
+            let payload = sentinel_bytes(asset_id);
+            serde_json::json!({
+                "asset_id": asset_id,
+                "relative_path": format!("assets/{asset_id}.bin"),
+                "byte_length": payload.len(),
+                "sha256": sha256(&payload),
+            })
+        })
+        .collect();
+    let value = serde_json::json!({
+        "format_version": 1,
+        "fixture_id": "oxidj-m1-asset-stubs-v1",
+        "boundary_id": boundary_id,
+        "entries": entries,
+    });
+    let mut bytes = serde_json::to_vec(&value).unwrap();
+    bytes.push(b'\n');
+    let digest = sha256(&bytes);
+    (bytes, digest)
+}
+
+#[test]
+fn b1_and_b2_manifest_bytes_and_digests_are_frozen() {
+    const B1: &[u8] = br#"{"boundary_id":"B1","entries":[{"asset_id":"stub-a","byte_length":30,"relative_path":"assets/stub-a.bin","sha256":"51116fb222616271217977708b14624881449d7fcd4c9e30fe39f45faf629798"},{"asset_id":"stub-b","byte_length":30,"relative_path":"assets/stub-b.bin","sha256":"9ea6ec1c3dea6600ddf03248fe14b579d3497d18a79f0048cfa5c1d544cd2d35"}],"fixture_id":"oxidj-m1-asset-stubs-v1","format_version":1}
+"#;
+    const B2: &[u8] = br#"{"boundary_id":"B2","entries":[{"asset_id":"stub-b","byte_length":30,"relative_path":"assets/stub-b.bin","sha256":"9ea6ec1c3dea6600ddf03248fe14b579d3497d18a79f0048cfa5c1d544cd2d35"},{"asset_id":"stub-c","byte_length":30,"relative_path":"assets/stub-c.bin","sha256":"d22732bb5055e125ebcc511b2e553ceb8d1f715d457db7bc2b3f4fe0fb90ba0b"}],"fixture_id":"oxidj-m1-asset-stubs-v1","format_version":1}
+"#;
+
+    let (b1, b1_digest) = manifest("B1", &["stub-a", "stub-b"]);
+    let (b2, b2_digest) = manifest("B2", &["stub-b", "stub-c"]);
+    assert_eq!(b1, B1);
+    assert_eq!(b2, B2);
+    assert_eq!(
+        b1_digest,
+        "7d5ac965ddc066e29e4addbeb9a8f07dc62a8790e0abc2a563566f23f772fc8e"
+    );
+    assert_eq!(
+        b2_digest,
+        "f7efd43d02205d7c64a2ef3c349b9606870b2ceddc8b0e679c99c9fc9a46a9ec"
+    );
+    assert_eq!(b1.iter().filter(|&&byte| byte == b'\n').count(), 1);
+    assert_eq!(b2.iter().filter(|&&byte| byte == b'\n').count(), 1);
+    assert!(!b1.starts_with(&[0xef, 0xbb, 0xbf]));
+    assert!(!b2.starts_with(&[0xef, 0xbb, 0xbf]));
 }
