@@ -231,6 +231,8 @@ An additional in-memory F-02 case appends TrackID 100 to an empty self-closing T
 
 **Observed synthetic XML sibling-folder reorder (F-02):** Direct Type=0 child-folder subtrees are reordered within an ordinal/name-guarded paired non-root folder, with exact current-order and unique-permutation guards. Only direct folder NODE slots move; interleaved playlists, Counts, memberships, track/playlist semantics and source bytes remain unchanged. Adapter and CLI regressions cover stale/duplicate/invalid/root/empty/malformed refusal, new-file export and source immutability. Sol approved commit `b3d3de9` and independently passed `cargo xtask ci-full` (exit 0; `ci=ok test=ok deny=ok`). This synthetic XML behavior does not demonstrate Rekordbox/OneLibrary compatibility, ADR-005 promotion, or qualification.
 
+**Observed synthetic XML cross-parent folder move (F-02):** One ordinal/name-guarded non-root Type=0 subtree moves to a different non-root parent after exact typed-child-order guards. Same-parent and descendant/cycle targets are refused. Only the source and target direct-child Counts change; subtree bytes, collection tracks and playlist memberships remain unchanged, and a self-closing empty destination expands. Adapter and CLI regressions pass in commit `1b1676f`; `cargo xtask ci-full` passes (exit 0; `ci=ok test=ok deny=ok`). Independent review is pending. This synthetic behavior does not demonstrate Rekordbox/OneLibrary compatibility, ADR-005 promotion, or qualification.
+
 ### F-03: Constant grid, cues and range unchanged
 
 Mixxx-derived **logical CueInfo DTO**, not a claimed Mixxx library transport.
