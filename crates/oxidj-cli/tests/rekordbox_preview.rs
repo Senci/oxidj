@@ -4,6 +4,52 @@ use oxidj_library as _;
 use std::{fs, process::Command, time::SystemTime};
 
 #[test]
+fn preview_reports_raw_composer_states_without_changing_source_bytes() {
+    let source = fs::read(format!(
+        "{}/../../xtask/tests/fixtures/rekordbox-a1/F-02/source.bin",
+        env!("CARGO_MANIFEST_DIR")
+    ))
+    .unwrap();
+    let source = String::from_utf8(source)
+        .unwrap()
+        .replace(
+            "TrackID=\"100\" Name=\"A\"",
+            "TrackID=\"100\" Name=\"A\" Composer=\"Raw &amp; Composer\"",
+        )
+        .replace(
+            "TrackID=\"200\" Name=\"B\"",
+            "TrackID=\"200\" Name=\"B\" Composer=\"\"",
+        )
+        .into_bytes();
+    let input = temporary_path("raw-composer-preview");
+    fs::write(&input, &source).unwrap();
+    let result = Command::new(env!("CARGO_BIN_EXE_oxidj-cli"))
+        .args(["rekordbox", "preview", "--xml", input.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert_eq!(
+        result.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let stdout = String::from_utf8(result.stdout).unwrap();
+    for (id, expected) in [
+        ("100", "Some(\"Raw & Composer\")"),
+        ("200", "Some(\"\")"),
+        ("300", "None"),
+    ] {
+        let row = stdout
+            .lines()
+            .find(|line| line.starts_with(&format!("{id}\t")))
+            .unwrap();
+        assert!(row.contains(expected), "expected {expected} in {row}");
+    }
+    assert_eq!(fs::read(&input).unwrap(), source);
+    let _ = fs::remove_file(input);
+}
+
+#[test]
 fn preview_reports_raw_genre_states_without_changing_source_bytes() {
     let source = fs::read(format!(
         "{}/../../xtask/tests/fixtures/rekordbox-a1/F-02/source.bin",
@@ -404,7 +450,7 @@ fn preview_prints_tracks_ordered_playlists_tempos_and_marks() {
     assert_eq!(out.status.code(), Some(0));
     let stdout = String::from_utf8(out.stdout).unwrap();
     assert!(stdout.contains(
-        "700\tTempo cue independence\tNone\tNone\tNone\tNone\tNone\tNone\tfile://localhost/music/tempo.flac"
+        "700\tTempo cue independence\tNone\tNone\tNone\tNone\tNone\tNone\tNone\tfile://localhost/music/tempo.flac"
     ));
     assert!(stdout.contains("TEMPO\t10\t128\t4/4\t1"));
     assert!(stdout.contains("POSITION_MARK\tIntro\t0\t5\t0\tNone"));
