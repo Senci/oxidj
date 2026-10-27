@@ -435,10 +435,12 @@ those controls or restores and defines no product media/retention policy.
   checker in `xtask/tests/rekordbox_xml_a1.rs`. The pinned Rekordbox XML format
   list (URL and digest in each `provenance.json`) specifies version 1.0.0,
   playlist `Type` 0/1, `KeyType` 0 for TrackID, and `POSITION_MARK` Cue=0; optional
-  mark `End` is absent in the cue fixture. Tests reject mutations, omissions,
-  dangling endpoints and reordered membership/tempo points. This is synthetic
-  fixture evidence only: no Rekordbox application acceptance or product adapter
-  is claimed.
+  mark `End` is absent in the cue fixture. Checker path/version/SHA-256 is frozen
+  externally in `checker-identity.json`; the test checks live checker bytes,
+  provenance identity, exact fixture sets and artifact digests. Tests reject
+  mutations, omissions, dangling endpoints and reordered membership/tempo points.
+  This is synthetic fixture evidence only: no Rekordbox application acceptance
+  or product adapter is claimed.
 - **A2 Mixxx binding:** select the exact adapter transport/envelope and pin how
   BeatMap/BeatGrid proto, sample-rate context and CueInfo DTO optionality/colors
   are carried. A CueInfo C++ DTO is not a library-file format. Bind raw bytes,
