@@ -2,6 +2,7 @@ use oxidj_rekordbox as _;
 use quick_xml as _;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
+use std::collections::BTreeSet;
 use std::path::PathBuf;
 
 fn fixture(name: &str) -> PathBuf {
@@ -56,18 +57,57 @@ fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
+fn check_provenance(provenance: &Value, source: &[u8]) -> Result<(), &'static str> {
+    if provenance["case_id"] != "F-08"
+        || provenance["classification"] != "logical-only-not-A3-evidence"
+        || provenance["source_citation"] != "docs/adr/005-relationship-fixtures.md §3 F-08"
+        || provenance["source_version"]
+            != "Synthetic F-05 logical object with F-08 alternate-encoding values; not OneLibrary bytes"
+        || provenance["source_length_bytes"] != source.len()
+        || provenance["source_sha256"] != digest(source)
+    {
+        return Err("provenance source claims mismatch");
+    }
+
+    let expected_artifacts = [
+        "case.json",
+        "expected-archive.json",
+        "expected-plan.json",
+        "expected-report.json",
+        "expected-visible.json",
+        "operations.json",
+        "source.bin",
+    ]
+    .into_iter()
+    .collect::<BTreeSet<_>>();
+    let artifacts = provenance["artifacts"]
+        .as_object()
+        .ok_or("provenance artifacts missing")?;
+    if artifacts
+        .keys()
+        .map(String::as_str)
+        .collect::<BTreeSet<_>>()
+        != expected_artifacts
+    {
+        return Err("provenance artifact set mismatch");
+    }
+    for (name, info) in artifacts {
+        let bytes = std::fs::read(fixture(name)).map_err(|_| "provenance artifact missing")?;
+        if info["path"] != name.as_str()
+            || info["length_bytes"] != bytes.len()
+            || info["sha256"] != digest(&bytes)
+        {
+            return Err("provenance artifact claim mismatch");
+        }
+    }
+    Ok(())
+}
+
 #[test]
 fn f08_artifacts_provenance_and_no_edit_echo_are_frozen() {
     let source = std::fs::read(fixture("source.bin")).unwrap();
     let provenance = read("provenance.json");
-    assert_eq!(provenance["source_sha256"], digest(&source));
-    assert_eq!(provenance["source_length_bytes"], source.len());
-    for (name, info) in provenance["artifacts"].as_object().unwrap() {
-        let bytes = std::fs::read(fixture(name)).unwrap();
-        assert_eq!(info["path"], name.as_str());
-        assert_eq!(info["length_bytes"], bytes.len(), "{name}");
-        assert_eq!(info["sha256"], digest(&bytes), "{name}");
-    }
+    check_provenance(&provenance, &source).unwrap();
     assert_eq!(read("case.json")["case_id"], "F-08");
     assert_eq!(read("operations.json"), json!([]));
     let archive = read("expected-archive.json");
@@ -85,6 +125,16 @@ fn f08_checker_rejects_opaque_byte_changes_and_invented_conversions() {
     let visible = read("expected-visible.json");
     let plan = read("expected-plan.json");
     let report = read("expected-report.json");
+    let provenance = read("provenance.json");
+    let mut invented_classification = provenance.clone();
+    invented_classification["classification"] = json!("real-onelibrary-evidence");
+    assert!(check_provenance(&invented_classification, &source).is_err());
+    let mut invented_citation = provenance.clone();
+    invented_citation["source_citation"] = json!("OneLibrary device export");
+    assert!(check_provenance(&invented_citation, &source).is_err());
+    let mut extra_artifact = provenance;
+    extra_artifact["artifacts"]["invented.json"] = json!({});
+    assert!(check_provenance(&extra_artifact, &source).is_err());
     let mut changed_source: Value = serde_json::from_slice(&source).unwrap();
     changed_source["opaque_hex"] = json!("00deadbeef");
     assert!(
