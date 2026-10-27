@@ -57,6 +57,49 @@ fn frozen_artifact_set_provenance_and_contract() {
     assert_eq!(prov["source_length_bytes"], src.len());
     assert_eq!(prov["source_sha256"], hash(&src));
     assert_eq!(prov["exact_artifact_set"], json!(names));
+    assert_eq!(prov["case_id"], "F-01-same-path-content-conflict");
+    assert_eq!(prov["checker"], "xtask/tests/f01_same_path_logical.rs");
+    assert_eq!(prov["checker_version"], "1");
+    assert_eq!(prov["classification"], "logical-only-not-A2-evidence");
+    assert_eq!(
+        prov["source_citation"],
+        "docs/adr/005-relationship-fixtures.md §3 F-01"
+    );
+    assert_eq!(
+        prov["source_version"],
+        "Mixxx 2.5.6 logical recipe; synthetic evidence, not Mixxx transport bytes or audio"
+    );
+    let claims_match = |value: &Value| {
+        value["case_id"] == "F-01-same-path-content-conflict"
+            && value["checker"] == "xtask/tests/f01_same_path_logical.rs"
+            && value["checker_version"] == "1"
+            && value["classification"] == "logical-only-not-A2-evidence"
+            && value["source_citation"] == "docs/adr/005-relationship-fixtures.md §3 F-01"
+            && value["source_version"]
+                == "Mixxx 2.5.6 logical recipe; synthetic evidence, not Mixxx transport bytes or audio"
+    };
+    assert!(claims_match(&prov));
+    assert_eq!(
+        prov.as_object()
+            .unwrap()
+            .keys()
+            .map(String::as_str)
+            .collect::<std::collections::BTreeSet<_>>(),
+        [
+            "artifacts",
+            "case_id",
+            "checker",
+            "checker_version",
+            "classification",
+            "exact_artifact_set",
+            "source_citation",
+            "source_length_bytes",
+            "source_sha256",
+            "source_version"
+        ]
+        .into_iter()
+        .collect()
+    );
     let actual = std::fs::read_dir(dir())
         .unwrap()
         .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
@@ -88,6 +131,9 @@ fn frozen_artifact_set_provenance_and_contract() {
     assert_eq!(prov["checker"], "xtask/tests/f01_same_path_logical.rs");
     assert_eq!(prov["checker_version"], "1");
     check(&s, &a, &o, &p, &r).unwrap();
+    let mut changed_provenance = prov.clone();
+    changed_provenance["source_citation"] = json!("docs/adr/005-relationship-fixtures.md §4");
+    assert!(!claims_match(&changed_provenance));
 }
 #[test]
 fn literal_mutation_controls_reject_merge_source_mutation_missing_candidate_and_report_changes() {
