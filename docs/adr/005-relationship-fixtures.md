@@ -239,6 +239,8 @@ An additional in-memory F-02 case appends TrackID 100 to an empty self-closing T
 
 **Observed F-09 post-edit independent evidence for one synthetic F-02 Type=1 playlist deletion:** frozen source `xtask/tests/fixtures/f02-playlist-delete/source.xml` passes through the existing guarded deletion adapter; `xtask/tests/f02_playlist_delete_oracle.rs` decodes output with test-only `quick-xml`, not the production importer. It verifies exact selected playlist removal, selected-parent Count decrement, remaining folder/playlist order and memberships, collection identity, and source-byte immutability; wrong-node, Count, membership, and child-order mutations are rejected. One synthetic case only: global F-09 remains **NOT DEMONSTRATED**, with no Rekordbox/OneLibrary compatibility claim or ADR-005 qualification.
 
+**Observed F-09 post-edit independent evidence for one synthetic F-02 playlist clear:** frozen source `xtask/tests/fixtures/f02-playlist-clear/source.xml` passes through the existing guarded clear adapter; `xtask/tests/f02_playlist_clear_oracle.rs` decodes output with test-only `quick-xml`, not the production importer. It verifies the selected House playlist has `Entries=0` and no TRACK children, Techno and all playlist/folder order and memberships remain unchanged, collection TrackIDs/Entries and Counts are correct, and source bytes are unchanged. Wrong-playlist, Entries, membership and child-order mutations are rejected. One synthetic case only: global F-09 remains **NOT DEMONSTRATED**, with no Rekordbox/OneLibrary compatibility claim or ADR-005 qualification.
+
 ### F-03: Constant grid, cues and range unchanged
 
 Mixxx-derived **logical CueInfo DTO**, not a claimed Mixxx library transport.
