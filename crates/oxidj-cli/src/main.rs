@@ -2237,8 +2237,14 @@ fn run_rekordbox(args: &[String]) -> i32 {
                 );
             }
             println!("Playlists:");
-            for p in p.playlists {
-                println!("{}\t{}", p.path.join("/"), p.tracks.join(","));
+            for (playlist, node) in p.playlists.into_iter().zip(p.playlist_nodes) {
+                println!(
+                    "{}\t{}\tEntries={:?}\tKeyType={:?}",
+                    playlist.path.join("/"),
+                    playlist.tracks.join(","),
+                    node.entries,
+                    node.key_type
+                );
             }
             for x in p.unsupported {
                 eprintln!("warning: unsupported content: {x}");

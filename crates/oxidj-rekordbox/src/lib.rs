@@ -64,10 +64,19 @@ pub struct Playlist {
     pub tracks: Vec<String>,
 }
 #[derive(Debug, Clone, PartialEq)]
+pub struct PlaylistNodeMetadata {
+    pub path: Vec<String>,
+    /// Raw optional NODE Entries attribute; None means absent, Some("") means present-empty.
+    pub entries: Option<String>,
+    /// Raw optional NODE KeyType attribute; None means absent, Some("") means present-empty.
+    pub key_type: Option<String>,
+}
+#[derive(Debug, Clone, PartialEq)]
 pub struct Preview {
     pub tracks: Vec<Track>,
     pub folders: Vec<Folder>,
     pub playlists: Vec<Playlist>,
+    pub playlist_nodes: Vec<PlaylistNodeMetadata>,
     pub unsupported: Vec<String>,
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -949,6 +958,7 @@ pub fn parse(bytes: &[u8]) -> Result<Preview, Error> {
         tracks: vec![],
         folders: vec![],
         playlists: vec![],
+        playlist_nodes: vec![],
         unsupported: vec![],
     };
     let mut ids = HashSet::new();
@@ -1018,6 +1028,11 @@ pub fn parse(bytes: &[u8]) -> Result<Preview, Error> {
                                 .collect(),
                             name: n,
                             tracks: vec![],
+                        });
+                        out.playlist_nodes.push(PlaylistNodeMetadata {
+                            path: playlist.as_ref().unwrap().path.clone(),
+                            entries: optional(&e, "Entries")?,
+                            key_type: optional(&e, "KeyType")?,
                         });
                     } else if ty == "0" {
                         out.folders.push(Folder {
@@ -1152,6 +1167,11 @@ pub fn parse(bytes: &[u8]) -> Result<Preview, Error> {
                                 .collect(),
                             name: n,
                             tracks: vec![],
+                        });
+                        out.playlist_nodes.push(PlaylistNodeMetadata {
+                            path: out.playlists.last().unwrap().path.clone(),
+                            entries: optional(&e, "Entries")?,
+                            key_type: optional(&e, "KeyType")?,
                         });
                     } else if ty == "0" {
                         out.folders.push(Folder {
@@ -8849,6 +8869,35 @@ mod tests {
                 .collect::<Vec<_>>(),
             ["120", "128", "132"]
         );
+    }
+
+    #[test]
+    fn preview_preserves_raw_playlist_node_attributes_for_paired_and_empty_nodes() {
+        let source = String::from_utf8(
+            include_bytes!("../../../xtask/tests/fixtures/rekordbox-a1/F-02/source.bin").to_vec(),
+        )
+        .unwrap()
+        .replace(
+            r#"        <NODE Type="1" Name="House" Entries="3" KeyType="0">
+          <TRACK Key="100"/>
+          <TRACK Key="200"/>
+          <TRACK Key="300"/>
+        </NODE>
+        <NODE Type="1" Name="Techno" Entries="2" KeyType="0">
+          <TRACK Key="200"/>
+          <TRACK Key="400"/>
+        </NODE>"#,
+            r#"        <NODE Type="1" Name="House" Entries="" KeyType="0"></NODE>
+        <NODE Type="1" Name="Techno" KeyType=""/>"#,
+        );
+
+        let preview = parse(source.as_bytes()).unwrap();
+        assert_eq!(preview.playlists[0].tracks, Vec::<String>::new());
+        assert_eq!(preview.playlists[1].tracks, Vec::<String>::new());
+        assert_eq!(preview.playlist_nodes[0].entries.as_deref(), Some(""));
+        assert_eq!(preview.playlist_nodes[0].key_type.as_deref(), Some("0"));
+        assert_eq!(preview.playlist_nodes[1].entries, None);
+        assert_eq!(preview.playlist_nodes[1].key_type.as_deref(), Some(""));
     }
     #[test]
     fn rejects_malformed_and_unsupported_version() {

@@ -49,6 +49,54 @@ fn preview_lists_nested_duplicate_and_empty_folders_in_source_order() {
 }
 
 #[test]
+fn preview_displays_raw_playlist_node_attribute_states_for_empty_nodes() {
+    let source = fs::read(format!(
+        "{}/../../xtask/tests/fixtures/rekordbox-a1/F-02/source.bin",
+        env!("CARGO_MANIFEST_DIR")
+    ))
+    .unwrap();
+    let source = String::from_utf8(source)
+        .unwrap()
+        .replace(
+            r#"        <NODE Type="1" Name="House" Entries="3" KeyType="0">
+          <TRACK Key="100"/>
+          <TRACK Key="200"/>
+          <TRACK Key="300"/>
+        </NODE>
+        <NODE Type="1" Name="Techno" Entries="2" KeyType="0">
+          <TRACK Key="200"/>
+          <TRACK Key="400"/>
+        </NODE>"#,
+            r#"        <NODE Type="1" Name="House" Entries="" KeyType="0"></NODE>
+        <NODE Type="1" Name="Techno" KeyType=""/>"#,
+        )
+        .into_bytes();
+    let input = temporary_path("playlist-node-preview");
+    fs::write(&input, &source).unwrap();
+    let result = Command::new(env!("CARGO_BIN_EXE_oxidj-cli"))
+        .args(["rekordbox", "preview", "--xml", input.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert_eq!(
+        result.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let stdout = String::from_utf8(result.stdout).unwrap();
+    assert!(
+        stdout.contains("Sets/House\t\tEntries=Some(\"\")\tKeyType=Some(\"0\")"),
+        "{stdout}"
+    );
+    assert!(
+        stdout.contains("Sets/Techno\t\tEntries=None\tKeyType=Some(\"\")"),
+        "{stdout}"
+    );
+    assert_eq!(fs::read(&input).unwrap(), source);
+    let _ = fs::remove_file(input);
+}
+
+#[test]
 fn preview_reports_raw_composer_states_without_changing_source_bytes() {
     let source = fs::read(format!(
         "{}/../../xtask/tests/fixtures/rekordbox-a1/F-02/source.bin",
