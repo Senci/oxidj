@@ -4319,3 +4319,73 @@ fn track_total_time_edit_preserves_raw_xml_and_rejects_invalid_requests() {
     let _ = fs::remove_file(output);
     let _ = fs::remove_file(empty_output);
 }
+
+#[test]
+fn track_bit_rate_edit_preserves_raw_xml_and_rejects_stale_values() {
+    let fixture = format!(
+        "{}/../../xtask/tests/fixtures/rekordbox-a1/F-02/source.bin",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let source = String::from_utf8(fs::read(fixture).unwrap())
+        .unwrap()
+        .replacen(
+            "TrackID=\"100\" Name=\"A\"",
+            "TrackID=\"100\" Name=\"A\" BitRate=\"320.5 kbps\"",
+            1,
+        )
+        .into_bytes();
+    let input = temporary_path("track-bit-rate-input");
+    let output = temporary_path("track-bit-rate-output");
+    fs::write(&input, &source).unwrap();
+    let invoke = |expected: &str, value: &str, target: &std::path::Path| {
+        Command::new(env!("CARGO_BIN_EXE_oxidj-cli"))
+            .args([
+                "rekordbox",
+                "edit-track-bit-rate",
+                "--xml",
+                input.to_str().unwrap(),
+                "--output",
+                target.to_str().unwrap(),
+                "--track-id",
+                "100",
+                "--expected-bit-rate",
+                expected,
+                "--bit-rate",
+                value,
+            ])
+            .output()
+            .unwrap()
+    };
+    let success = invoke("320.5 kbps", "raw & <odd>", &output);
+    assert_eq!(success.status.code(), Some(0), "{:?}", success.stderr);
+    let expected = String::from_utf8(source.clone()).unwrap().replacen(
+        "BitRate=\"320.5 kbps\"",
+        "BitRate=\"raw &amp; &lt;odd&gt;\"",
+        1,
+    );
+    assert_eq!(fs::read(&output).unwrap(), expected.as_bytes());
+    assert_eq!(fs::read(&input).unwrap(), source);
+
+    let stale_output = temporary_path("track-bit-rate-stale");
+    let stale = invoke("stale", "new", &stale_output);
+    assert_ne!(stale.status.code(), Some(0));
+    assert!(!stale_output.exists());
+
+    let empty_source =
+        String::from_utf8(source)
+            .unwrap()
+            .replacen(" BitRate=\"320.5 kbps\"", " BitRate=\"\"", 1);
+    fs::write(&input, empty_source.as_bytes()).unwrap();
+    let empty_output = temporary_path("track-bit-rate-empty");
+    let empty = invoke("", "still raw", &empty_output);
+    assert_eq!(empty.status.code(), Some(0), "{:?}", empty.stderr);
+    assert!(
+        String::from_utf8(fs::read(&empty_output).unwrap())
+            .unwrap()
+            .contains("BitRate=\"still raw\"")
+    );
+    let _ = fs::remove_file(input);
+    let _ = fs::remove_file(output);
+    let _ = fs::remove_file(stale_output);
+    let _ = fs::remove_file(empty_output);
+}

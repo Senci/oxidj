@@ -562,6 +562,23 @@ pub struct PreparedTrackTotalTimeEdit {
     pub change: TrackTotalTimeEditChange,
 }
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TrackBitRateEditRequest {
+    pub track_id: String,
+    pub expected_old_bit_rate: String,
+    pub new_bit_rate: String,
+}
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TrackBitRateEditChange {
+    pub track_id: String,
+    pub old_bit_rate: String,
+    pub new_bit_rate: String,
+}
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PreparedTrackBitRateEdit {
+    pub bytes: Vec<u8>,
+    pub change: TrackBitRateEditChange,
+}
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TrackAverageBpmEditChange {
     pub track_id: String,
     pub old_average_bpm: String,
@@ -3851,6 +3868,72 @@ pub fn prepare_track_total_time_edit(
             track_id: request.track_id.clone(),
             old_total_time: old.to_owned(),
             new_total_time: request.new_total_time.clone(),
+        },
+    })
+}
+
+/// Prepare one exact-old-value guarded raw Track BitRate edit (no numeric conversion).
+pub fn prepare_track_bit_rate_edit(
+    bytes: &[u8],
+    request: &TrackBitRateEditRequest,
+) -> Result<PreparedTrackBitRateEdit, Error> {
+    let before = preflight_export(bytes)?;
+    let matches: Vec<_> = before
+        .selected_tracks
+        .iter()
+        .filter(|t| t.id == request.track_id)
+        .collect();
+    let track = match matches.as_slice() {
+        [] => return Err(Error(format!("unknown TrackID {}", request.track_id))),
+        [track] => *track,
+        _ => return Err(Error(format!("duplicate TrackID {}", request.track_id))),
+    };
+    let old = track
+        .bit_rate
+        .as_deref()
+        .ok_or_else(|| Error("track BitRate missing".into()))?;
+    if old != request.expected_old_bit_rate {
+        return Err(Error("track BitRate changed".into()));
+    }
+    if !request.new_bit_rate.chars().all(
+        |c| matches!(c as u32, 9 | 10 | 13 | 0x20..=0xD7FF | 0xE000..=0xFFFD | 0x10000..=0x10FFFF),
+    ) {
+        return Err(Error("new BitRate contains invalid XML 1.0 text".into()));
+    }
+    let range = track_attribute_range(
+        bytes,
+        &request.track_id,
+        "BitRate",
+        &request.expected_old_bit_rate,
+    )?;
+    let escaped = request
+        .new_bit_rate
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&apos;")
+        .replace('\t', "&#9;")
+        .replace('\n', "&#10;")
+        .replace('\r', "&#13;");
+    let mut output = bytes.to_vec();
+    output.splice(range, escaped.bytes());
+    let after = preflight_export(&output)?;
+    let mut expected = before.selected_tracks.clone();
+    expected
+        .iter_mut()
+        .find(|t| t.id == request.track_id)
+        .unwrap()
+        .bit_rate = Some(request.new_bit_rate.clone());
+    if after.selected_tracks != expected {
+        return Err(Error("track BitRate edit verification failed".into()));
+    }
+    Ok(PreparedTrackBitRateEdit {
+        bytes: output,
+        change: TrackBitRateEditChange {
+            track_id: request.track_id.clone(),
+            old_bit_rate: old.to_owned(),
+            new_bit_rate: request.new_bit_rate.clone(),
         },
     })
 }
