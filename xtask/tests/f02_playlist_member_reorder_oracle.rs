@@ -193,6 +193,10 @@ fn independently_decodes_member_reorder_and_rejects_semantic_mutations() {
     );
     check(&output).unwrap();
     check(&output).unwrap();
+    assert!(
+        check(SOURCE).is_err(),
+        "oracle must reject original membership order"
+    );
     let text = String::from_utf8(output).unwrap();
     let mutations = [
         text.replacen("Key=\"300\"", "Key=\"200\"", 1),
