@@ -11,10 +11,11 @@ pub use oxidj_rekordbox::{
     PositionMarkNameEditRequest, PreparedFolderRename, PreparedPlaylistRename,
     PreparedPlaylistReorder, PreparedPositionMarkEdit, PreparedPositionMarkEndEdit,
     PreparedPositionMarkNameEdit, PreparedTempoBeatEdit, PreparedTempoEdit, PreparedTempoMeterEdit,
-    PreparedTempoStartEdit, PreparedTrackArtistEdit, PreparedTrackCommentsEdit,
-    PreparedTrackDelete, PreparedTrackNameEdit, Preview, TempoBeatEditChange, TempoBeatEditRequest,
-    TempoEditChange, TempoEditRequest, TempoMeterEditChange, TempoMeterEditRequest,
-    TempoStartEditChange, TempoStartEditRequest, TrackArtistEditChange, TrackArtistEditRequest,
+    PreparedTempoStartEdit, PreparedTrackAlbumEdit, PreparedTrackArtistEdit,
+    PreparedTrackCommentsEdit, PreparedTrackDelete, PreparedTrackNameEdit, Preview,
+    TempoBeatEditChange, TempoBeatEditRequest, TempoEditChange, TempoEditRequest,
+    TempoMeterEditChange, TempoMeterEditRequest, TempoStartEditChange, TempoStartEditRequest,
+    TrackAlbumEditChange, TrackAlbumEditRequest, TrackArtistEditChange, TrackArtistEditRequest,
     TrackCommentsEditChange, TrackCommentsEditRequest, TrackDeleteRequest, TrackNameEditChange,
     TrackNameEditRequest,
 };
@@ -44,6 +45,18 @@ pub fn export_rekordbox_track_comments_edit(
 ) -> Result<TrackCommentsEditChange, RekordboxError> {
     let (source, output) = read_new_export_source(input, output)?;
     let prepared = oxidj_rekordbox::prepare_track_comments_edit(&source, request)?;
+    publish_new_file(&output, &prepared.bytes)?;
+    Ok(prepared.change)
+}
+
+/// Export one guarded track Album edit to a new, non-overwriting file.
+pub fn export_rekordbox_track_album_edit(
+    input: impl AsRef<Path>,
+    output: impl AsRef<Path>,
+    request: &TrackAlbumEditRequest,
+) -> Result<TrackAlbumEditChange, RekordboxError> {
+    let (source, output) = read_new_export_source(input, output)?;
+    let prepared = oxidj_rekordbox::prepare_track_album_edit(&source, request)?;
     publish_new_file(&output, &prepared.bytes)?;
     Ok(prepared.change)
 }

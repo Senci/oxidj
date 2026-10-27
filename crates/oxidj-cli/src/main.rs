@@ -316,6 +316,43 @@ fn run_rekordbox(args: &[String]) -> i32 {
     }
     if args
         .first()
+        .is_some_and(|action| action == "edit-track-album")
+    {
+        if args.len() != 11
+            || args[1] != "--xml"
+            || args[3] != "--output"
+            || args[5] != "--track-id"
+            || args[7] != "--expected-album"
+            || args[9] != "--album"
+        {
+            eprintln!(
+                "error: expected rekordbox edit-track-album --xml IN --output NEW --track-id ID --expected-album OLD --album NEW"
+            );
+            return USAGE;
+        }
+        let request = oxidj_application::TrackAlbumEditRequest {
+            track_id: args[6].clone(),
+            expected_old_album: args[8].clone(),
+            new_album: args[10].clone(),
+        };
+        return match oxidj_application::export_rekordbox_track_album_edit(
+            &args[2], &args[4], &request,
+        ) {
+            Ok(change) => {
+                println!(
+                    "Changed Album for track[{}]: {:?} to {:?}",
+                    change.track_id, change.old_album, change.new_album
+                );
+                OK
+            }
+            Err(error) => {
+                eprintln!("error: track Album edit rejected: {error}");
+                DOMAIN
+            }
+        };
+    }
+    if args
+        .first()
         .is_some_and(|action| action == "edit-track-comments")
     {
         if args.len() != 11
@@ -842,8 +879,13 @@ fn run_rekordbox(args: &[String]) -> i32 {
                 println!("Selected units:");
                 for track in plan.selected_tracks {
                     println!(
-                        "Track\t{}\t{}\t{:?}\t{:?}\t{}",
-                        track.id, track.name, track.artist, track.comments, track.location
+                        "Track\t{}\t{}\t{:?}\t{:?}\t{:?}\t{}",
+                        track.id,
+                        track.name,
+                        track.artist,
+                        track.comments,
+                        track.album,
+                        track.location
                     );
                     for tempo in track.tempos {
                         println!(
@@ -903,7 +945,10 @@ fn run_rekordbox(args: &[String]) -> i32 {
         Ok(p) => {
             println!("Tracks:");
             for t in p.tracks {
-                println!("{}\t{}\t{:?}\t{}", t.id, t.name, t.artist, t.location);
+                println!(
+                    "{}\t{}\t{:?}\t{:?}\t{:?}\t{}",
+                    t.id, t.name, t.artist, t.comments, t.album, t.location
+                );
                 for x in t.tempos {
                     println!(
                         "  TEMPO\t{}\t{}\t{}\t{}",
@@ -1102,7 +1147,7 @@ fn print_usage(to_stdout: bool) {
     );
     let _ = writeln!(
         output,
-        "  rekordbox edit-track-comments --xml <in> --output <new> --track-id <id> --expected-comments <old> --comments <new>   Export one guarded track Comments edit\n  rekordbox edit-track-artist --xml <in> --output <new> --track-id <id> --expected-artist <old> --artist <new>   Export one guarded track Artist edit"
+        "  rekordbox edit-track-album --xml <in> --output <new> --track-id <id> --expected-album <old> --album <new>   Export one guarded track Album edit\n  rekordbox edit-track-comments --xml <in> --output <new> --track-id <id> --expected-comments <old> --comments <new>   Export one guarded track Comments edit\n  rekordbox edit-track-artist --xml <in> --output <new> --track-id <id> --expected-artist <old> --artist <new>   Export one guarded track Artist edit"
     );
     let _ = writeln!(
         output,

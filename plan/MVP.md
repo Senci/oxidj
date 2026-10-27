@@ -4,7 +4,7 @@
 - M1 Library core — revised local-library acceptance v1 below; vendor-schema/interoperability criteria remain separate and unpassed.
 - M2 Filesystem import — revised reference-only local importer acceptance v1 below.
 - M3 Usable library UI — revised integrated local-library UI acceptance v1 below; all ADR-001 gates remain prerequisites and unpassed.
-- M4 OneLibrary/Rekordbox interoperability — separate workstream; not a dependency of the revised local M1–M3 contract. A bounded synthetic Rekordbox XML edit now covers optional TRACK `Comments`: presence/empty-state preview, exact-old guarded new-file export, byte-preserving replacement and whitespace-reference round-trip. This is implementation/test evidence only; vendor application acceptance, ADR-005 promotion/qualification, and broader M4 completion remain unpassed.
+- M4 OneLibrary/Rekordbox interoperability — separate workstream; not a dependency of the revised local M1–M3 contract. Bounded synthetic Rekordbox XML edits now cover optional TRACK `Comments` and `Album`: presence/empty-state preview, exact-old guarded new-file export, byte-preserving replacement and whitespace-reference round-trip. This is implementation/test evidence only; vendor application acceptance, ADR-005 promotion/qualification, and broader M4 completion remain unpassed.
 - M5 DJ metadata; M6 Analysis; M7 MVP interoperability proof — unchanged wider-product milestones.
 
 ## Revised local M1–M3 acceptance contract v1 (2026-10-23)

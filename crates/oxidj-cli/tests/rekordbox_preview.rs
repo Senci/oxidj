@@ -15,9 +15,9 @@ fn preview_prints_tracks_ordered_playlists_tempos_and_marks() {
         .expect("run CLI");
     assert_eq!(out.status.code(), Some(0));
     let stdout = String::from_utf8(out.stdout).unwrap();
-    assert!(
-        stdout.contains("700\tTempo cue independence\tNone\tfile://localhost/music/tempo.flac")
-    );
+    assert!(stdout.contains(
+        "700\tTempo cue independence\tNone\tNone\tNone\tfile://localhost/music/tempo.flac"
+    ));
     assert!(stdout.contains("TEMPO\t10\t128\t4/4\t1"));
     assert!(stdout.contains("POSITION_MARK\tIntro\t0\t5\t0\tNone"));
     assert!(stdout.contains("Playlists:"));
@@ -135,7 +135,7 @@ fn export_plan_shows_ordered_f10_units_without_writing() {
         concat!(
             "Decision: ALLOW_EXPORT\n",
             "Selected units:\n",
-            "Track\t1000\tVariable tempo\tNone\tNone\tfile://localhost/music/variable.flac\n",
+            "Track\t1000\tVariable tempo\tNone\tNone\tNone\tfile://localhost/music/variable.flac\n",
             "TEMPO\t1000\t0\t120\t4/4\t1\n",
             "TEMPO\t1000\t8\t128\t4/4\t1\n",
             "TEMPO\t1000\t16\t132\t7/8\t3\n",
@@ -1300,6 +1300,142 @@ fn track_name_edit_exports_one_guarded_name_and_rejects_stale_or_existing_output
 
     let _ = fs::remove_file(input);
     let _ = fs::remove_file(output);
+}
+
+#[test]
+fn track_album_edit_preserves_optional_state_and_only_changes_selected_album() {
+    let fixture = format!(
+        "{}/../../xtask/tests/fixtures/rekordbox-a1/F-02/source.bin",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let base = String::from_utf8(fs::read(fixture).unwrap()).unwrap();
+    let source = base
+        .replacen(
+            "TrackID=\"100\" Name=\"A\"",
+            "TrackID=\"100\" Name=\"A\" Album=\"old &amp; record\"",
+            1,
+        )
+        .into_bytes();
+    let input = temporary_path("track-album-input");
+    let output = temporary_path("track-album-output");
+    fs::write(&input, &source).unwrap();
+    let preview = Command::new(env!("CARGO_BIN_EXE_oxidj-cli"))
+        .args(["rekordbox", "export-plan", "--xml", input.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert_eq!(preview.status.code(), Some(0));
+    let preview_text = String::from_utf8_lossy(&preview.stdout);
+    assert!(preview_text.contains("Track\t100\tA\tNone\tNone\tSome(\"old & record\")"));
+    assert!(preview_text.contains("Track\t200\tB\tNone\tNone\tNone"));
+
+    let empty_input = temporary_path("album-empty-preview");
+    let empty_source = String::from_utf8(source.clone())
+        .unwrap()
+        .replace("Album=\"old &amp; record\"", "Album=\"\"");
+    fs::write(&empty_input, empty_source).unwrap();
+    let empty_preview = Command::new(env!("CARGO_BIN_EXE_oxidj-cli"))
+        .args([
+            "rekordbox",
+            "export-plan",
+            "--xml",
+            empty_input.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(empty_preview.status.code(), Some(0));
+    assert!(
+        String::from_utf8_lossy(&empty_preview.stdout)
+            .contains("Track\t100\tA\tNone\tNone\tSome(\"\")")
+    );
+    let _ = fs::remove_file(empty_input);
+
+    let invoke = |id: &str, old: &str, new: &str, target: &std::path::Path| {
+        Command::new(env!("CARGO_BIN_EXE_oxidj-cli"))
+            .args([
+                "rekordbox",
+                "edit-track-album",
+                "--xml",
+                input.to_str().unwrap(),
+                "--output",
+                target.to_str().unwrap(),
+                "--track-id",
+                id,
+                "--expected-album",
+                old,
+                "--album",
+                new,
+            ])
+            .output()
+            .unwrap()
+    };
+    let value = "A\tB\nC\rD & <x>";
+    let success = invoke("100", "old & record", value, &output);
+    assert_eq!(
+        success.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&success.stderr)
+    );
+    let output_bytes = fs::read(&output).unwrap();
+    let encoded = "Album=\"A&#9;B&#10;C&#13;D &amp; &lt;x&gt;\"";
+    assert!(String::from_utf8_lossy(&output_bytes).contains(encoded));
+    let expected = String::from_utf8(source.clone()).unwrap().replacen(
+        "Album=\"old &amp; record\"",
+        encoded,
+        1,
+    );
+    assert_eq!(output_bytes, expected.as_bytes());
+    assert_eq!(fs::read(&input).unwrap(), source);
+    let decoded = Command::new("python3")
+        .args([
+            "-c",
+            "import sys,xml.etree.ElementTree as E; r=E.parse(sys.argv[1]).getroot(); c=r.find('COLLECTION'); a=next(x for x in c if x.get('TrackID')=='100'); b=next(x for x in c if x.get('TrackID')=='200'); assert a.get('Album')=='A\\tB\\nC\\rD & <x>'; assert b.get('Album') is None",
+            output.to_str().unwrap(),
+        ])
+        .status()
+        .unwrap();
+    assert!(decoded.success(), "independent ElementTree decode failed");
+
+    for (label, id, old, new) in [
+        ("absent", "200", "", "x"),
+        ("unknown", "999", "x", "y"),
+        ("stale", "100", "bad", "x"),
+        ("invalid", "100", "old & record", "bad\u{1}"),
+    ] {
+        let rejected = temporary_path(&format!("album-{label}"));
+        assert_ne!(invoke(id, old, new, &rejected).status.code(), Some(0));
+        assert!(!rejected.exists(), "{label} created output");
+    }
+    let duplicate = String::from_utf8(source.clone())
+        .unwrap()
+        .replacen("TrackID=\"200\"", "TrackID=\"100\"", 1)
+        .into_bytes();
+    fs::write(&input, &duplicate).unwrap();
+    let duplicate_output = temporary_path("album-duplicate");
+    assert_ne!(
+        invoke("100", "old & record", "x", &duplicate_output)
+            .status
+            .code(),
+        Some(0)
+    );
+    assert!(!duplicate_output.exists());
+    assert_eq!(fs::read(&input).unwrap(), duplicate);
+    fs::write(&input, &source).unwrap();
+    assert_ne!(
+        invoke("100", "old & record", "x", &input).status.code(),
+        Some(0)
+    );
+    let existing = temporary_path("album-existing");
+    fs::write(&existing, b"keep").unwrap();
+    assert_ne!(
+        invoke("100", "old & record", "x", &existing).status.code(),
+        Some(0)
+    );
+    assert_eq!(fs::read(&existing).unwrap(), b"keep");
+    assert_eq!(fs::read(&input).unwrap(), source);
+    for path in [&input, &output, &existing, &duplicate_output] {
+        let _ = fs::remove_file(path);
+    }
 }
 
 #[test]
