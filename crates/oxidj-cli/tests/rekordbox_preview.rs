@@ -1745,6 +1745,67 @@ fn sibling_folder_reorder_cli_exports_subtree_order_and_preserves_input() {
 }
 
 #[test]
+fn playlist_move_cli_updates_parent_counts_and_preserves_input() {
+    let fixture = format!(
+        "{}/../../xtask/tests/fixtures/rekordbox-a1/F-02/source.bin",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let source = String::from_utf8(fs::read(&fixture).unwrap())
+        .unwrap()
+        .replace("Name=\"ROOT\" Count=\"1\"", "Name=\"ROOT\" Count=\"2\"")
+        .replace("Name=\"Sets\" Count=\"2\"", "Name=\"Source\" Count=\"2\"")
+        .replace(
+            "      </NODE>\n    </NODE>\n  </PLAYLISTS>",
+            "      </NODE>\n      <NODE Type=\"0\" Name=\"Target\" Count=\"1\"><NODE Type=\"1\" Name=\"Other\" Entries=\"1\" KeyType=\"0\"><TRACK Key=\"400\"/></NODE></NODE>\n    </NODE>\n  </PLAYLISTS>",
+        );
+    let input = temporary_path("playlist-move-input");
+    let output = temporary_path("playlist-move-output");
+    fs::write(&input, &source).unwrap();
+    let invoke = |target: &std::path::Path, order: &str| {
+        Command::new(env!("CARGO_BIN_EXE_oxidj-cli"))
+            .args([
+                "rekordbox",
+                "move-playlist",
+                "--xml",
+                input.to_str().unwrap(),
+                "--output",
+                target.to_str().unwrap(),
+                "--playlist-index",
+                "0",
+                "--expected-name",
+                "House",
+                "--expected-members",
+                "100,200,300",
+                "--source-parent-index",
+                "0",
+                "--source-parent-name",
+                "Source",
+                "--target-parent-index",
+                "1",
+                "--target-parent-name",
+                "Target",
+                "--expected-target-order",
+                order,
+            ])
+            .output()
+            .unwrap()
+    };
+    let created = invoke(&output, "Other");
+    assert_eq!(created.status.code(), Some(0), "{:?}", created.stderr);
+    let exported = fs::read_to_string(&output).unwrap();
+    assert!(exported.contains("Name=\"Source\" Count=\"1\""));
+    assert!(exported.contains("Name=\"Target\" Count=\"2\""));
+    assert!(exported.find("Name=\"Techno\"").unwrap() < exported.find("Name=\"Other\"").unwrap());
+    assert!(exported.find("Name=\"Other\"").unwrap() < exported.find("Name=\"House\"").unwrap());
+    assert_eq!(fs::read_to_string(&input).unwrap(), source);
+    let rejected = temporary_path("playlist-move-stale");
+    assert_ne!(invoke(&rejected, "stale").status.code(), Some(0));
+    assert!(!rejected.exists());
+    let _ = fs::remove_file(input);
+    let _ = fs::remove_file(output);
+}
+
+#[test]
 fn empty_folder_delete_cli_is_guarded_and_preserves_input() {
     let fixture = format!(
         "{}/../../xtask/tests/fixtures/rekordbox-a1/F-02/source.bin",

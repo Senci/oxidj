@@ -194,6 +194,22 @@ pub struct SiblingFolderReorderRequest {
 pub struct PreparedSiblingFolderReorder {
     pub bytes: Vec<u8>,
 }
+/// Move one guarded playlist to the end of another non-root folder.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PlaylistMoveRequest {
+    pub playlist_index: usize,
+    pub expected_playlist_name: String,
+    pub expected_members: Vec<String>,
+    pub source_parent_index: usize,
+    pub expected_source_parent_name: String,
+    pub target_parent_index: usize,
+    pub expected_target_parent_name: String,
+    pub expected_target_order: Vec<String>,
+}
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PreparedPlaylistMove {
+    pub bytes: Vec<u8>,
+}
 /// One optimistic, ordinal-scoped rename of a non-root Type=0 folder.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FolderRenameRequest {
@@ -3378,6 +3394,299 @@ pub fn prepare_playlist_create(
     }
     let _ = parent_name;
     Ok(PreparedPlaylistCreate { bytes: output })
+}
+
+/// Move one guarded playlist to the end of a different non-root folder.
+pub fn prepare_playlist_move(
+    bytes: &[u8],
+    request: &PlaylistMoveRequest,
+) -> Result<PreparedPlaylistMove, Error> {
+    #[derive(Clone)]
+    struct Folder {
+        name: String,
+        path: Vec<String>,
+        count: usize,
+        count_range: std::ops::Range<usize>,
+        children: Vec<String>,
+        close_start: Option<usize>,
+        playlist_insert_index: Option<usize>,
+    }
+    #[derive(Clone)]
+    struct PlaylistNode {
+        name: String,
+        parent: Option<usize>,
+        range: Option<std::ops::Range<usize>>,
+    }
+    struct Frame {
+        kind: String,
+        folder: Option<usize>,
+        playlist: Option<usize>,
+        start: usize,
+    }
+
+    let before = preflight_export(bytes)?;
+    let mut reader = Reader::from_reader(bytes);
+    reader.config_mut().check_end_names = true;
+    let mut buf = Vec::new();
+    let mut stack: Vec<Frame> = Vec::new();
+    let mut folders: Vec<Folder> = Vec::new();
+    let mut playlists: Vec<PlaylistNode> = Vec::new();
+    let mut playlist_count = 0usize;
+
+    loop {
+        let start = reader.buffer_position() as usize;
+        let event = reader
+            .read_event_into(&mut buf)
+            .map_err(|e| Error(format!("malformed XML: {e}")))?;
+        let end = reader.buffer_position() as usize;
+        match event {
+            Event::Start(e) if e.name().as_ref() == b"NODE" => {
+                let kind = attr(&e, "Type")?;
+                let name = attr(&e, "Name")?;
+                let parent = stack
+                    .last()
+                    .and_then(|frame| (frame.kind == "0").then_some(frame.folder).flatten());
+                if kind == "0" {
+                    let raw_count = attr(&e, "Count")?;
+                    let count = raw_count
+                        .parse::<usize>()
+                        .map_err(|_| Error("invalid folder Count".into()))?;
+                    let folder = if stack.is_empty() {
+                        None
+                    } else {
+                        let index = folders.len();
+                        let mut path = parent
+                            .map(|parent| folders[parent].path.clone())
+                            .unwrap_or_default();
+                        path.push(name.clone());
+                        let count_range = attribute_value_range(&e, start, "Count", &raw_count)?;
+                        folders.push(Folder {
+                            name: name.clone(),
+                            path,
+                            count,
+                            count_range,
+                            children: Vec::new(),
+                            close_start: None,
+                            playlist_insert_index: None,
+                        });
+                        if let Some(parent) = parent {
+                            folders[parent].children.push(name.clone());
+                        }
+                        Some(index)
+                    };
+                    stack.push(Frame {
+                        kind,
+                        folder,
+                        playlist: None,
+                        start,
+                    });
+                } else if kind == "1" {
+                    if stack.last().is_none_or(|frame| frame.kind != "0") {
+                        return Err(Error("playlist is not a direct folder child".into()));
+                    }
+                    if let Some(parent) = parent {
+                        folders[parent].children.push(name.clone());
+                    }
+                    let index = playlist_count;
+                    playlist_count += 1;
+                    playlists.push(PlaylistNode {
+                        name: name.clone(),
+                        parent,
+                        range: None,
+                    });
+                    stack.push(Frame {
+                        kind,
+                        folder: None,
+                        playlist: Some(index),
+                        start,
+                    });
+                } else {
+                    return Err(Error(format!("unsupported playlist NODE Type={kind}")));
+                }
+            }
+            Event::Empty(e) if e.name().as_ref() == b"NODE" => {
+                let kind = attr(&e, "Type")?;
+                let name = attr(&e, "Name")?;
+                let parent = stack
+                    .last()
+                    .and_then(|frame| (frame.kind == "0").then_some(frame.folder).flatten());
+                if kind == "0" {
+                    let raw_count = attr(&e, "Count")?;
+                    let count = raw_count
+                        .parse::<usize>()
+                        .map_err(|_| Error("invalid folder Count".into()))?;
+                    if let Some(parent) = parent {
+                        if count != 0 {
+                            return Err(Error("empty folder Count is not zero".into()));
+                        }
+                        folders[parent].children.push(name.clone());
+                        let mut path = folders[parent].path.clone();
+                        path.push(name.clone());
+                        let count_range = attribute_value_range(&e, start, "Count", &raw_count)?;
+                        folders.push(Folder {
+                            name,
+                            path,
+                            count,
+                            count_range,
+                            children: Vec::new(),
+                            close_start: None,
+                            playlist_insert_index: None,
+                        });
+                    }
+                } else if kind == "1" {
+                    if let Some(parent) = parent {
+                        folders[parent].children.push(name.clone());
+                    }
+                    playlists.push(PlaylistNode {
+                        name,
+                        parent,
+                        range: None,
+                    });
+                    playlist_count += 1;
+                } else {
+                    return Err(Error(format!("unsupported playlist NODE Type={kind}")));
+                }
+            }
+            Event::End(e) if e.name().as_ref() == b"NODE" => {
+                let frame = stack
+                    .pop()
+                    .ok_or_else(|| Error("unexpected closing NODE".into()))?;
+                if let Some(index) = frame.playlist {
+                    playlists[index].range = Some(frame.start..end);
+                }
+                if let Some(index) = frame.folder {
+                    folders[index].close_start = Some(start);
+                    folders[index].playlist_insert_index = Some(playlist_count);
+                }
+            }
+            Event::Eof => break,
+            _ => {}
+        }
+        buf.clear();
+    }
+
+    if request.source_parent_index == request.target_parent_index {
+        return Err(Error("source and target folders must differ".into()));
+    }
+    let source = playlists
+        .get(request.playlist_index)
+        .ok_or_else(|| Error("playlist ordinal is out of range".into()))?;
+    if source.name != request.expected_playlist_name
+        || source.parent != Some(request.source_parent_index)
+    {
+        return Err(Error("playlist source guard changed".into()));
+    }
+    let expected_playlist = before
+        .selected_playlists
+        .get(request.playlist_index)
+        .ok_or_else(|| Error("playlist is not a paired supported NODE".into()))?;
+    if expected_playlist.name != request.expected_playlist_name
+        || expected_playlist.tracks != request.expected_members
+    {
+        return Err(Error("playlist name or membership guard changed".into()));
+    }
+    let source_folder = folders
+        .get(request.source_parent_index)
+        .ok_or_else(|| Error("source folder ordinal is out of range".into()))?;
+    let target_folder = folders
+        .get(request.target_parent_index)
+        .ok_or_else(|| Error("target folder ordinal is out of range".into()))?;
+    if source_folder.name != request.expected_source_parent_name
+        || target_folder.name != request.expected_target_parent_name
+        || source_folder.close_start.is_none()
+        || target_folder.close_start.is_none()
+    {
+        return Err(Error("source or target folder guard changed".into()));
+    }
+    for folder in [source_folder, target_folder] {
+        if folder.count != folder.children.len() {
+            return Err(Error("folder Count does not match direct children".into()));
+        }
+        let unique: HashSet<_> = folder.children.iter().collect();
+        if unique.len() != folder.children.len() {
+            return Err(Error("ambiguous duplicate sibling NODE Names".into()));
+        }
+    }
+    if target_folder.children != request.expected_target_order {
+        return Err(Error("target folder child order changed".into()));
+    }
+    if target_folder
+        .children
+        .contains(&request.expected_playlist_name)
+    {
+        return Err(Error(
+            "target already has a child with playlist Name".into(),
+        ));
+    }
+    let source_node = source
+        .range
+        .as_ref()
+        .ok_or_else(|| Error("playlist node is not paired".into()))?;
+    let target_close = target_folder.close_start.unwrap();
+    let target_insert_index = target_folder
+        .playlist_insert_index
+        .ok_or_else(|| Error("target folder close position is missing".into()))?;
+    let source_count = source_folder
+        .count
+        .checked_sub(1)
+        .ok_or_else(|| Error("source folder Count is zero".into()))?;
+    let target_count = target_folder
+        .count
+        .checked_add(1)
+        .ok_or_else(|| Error("target folder Count overflow".into()))?;
+
+    let line_start = bytes[..target_close]
+        .iter()
+        .rposition(|byte| *byte == b'\n')
+        .map_or(0, |index| index + 1);
+    let parent_indent = &bytes[line_start..target_close];
+    let parent_indent = if parent_indent
+        .iter()
+        .all(|byte| matches!(byte, b' ' | b'\t'))
+    {
+        parent_indent
+    } else {
+        &[]
+    };
+    let mut moved_node = Vec::new();
+    moved_node.extend_from_slice(b"\n");
+    moved_node.extend_from_slice(parent_indent);
+    moved_node.extend_from_slice(&bytes[source_node.clone()]);
+    moved_node.extend_from_slice(b"\n");
+    moved_node.extend_from_slice(parent_indent);
+
+    let mut changes = vec![
+        (source_node.clone(), Vec::new()),
+        (
+            source_folder.count_range.clone(),
+            source_count.to_string().into_bytes(),
+        ),
+        (
+            target_folder.count_range.clone(),
+            target_count.to_string().into_bytes(),
+        ),
+        (target_close..target_close, moved_node),
+    ];
+    changes.sort_by_key(|(range, _)| std::cmp::Reverse(range.start));
+    let mut output = bytes.to_vec();
+    for (range, replacement) in changes {
+        output.splice(range, replacement);
+    }
+
+    let after = preflight_export(&output)?;
+    let mut expected = before.selected_playlists.clone();
+    let mut moved = expected.remove(request.playlist_index);
+    moved.path = target_folder.path.clone();
+    moved.path.push(moved.name.clone());
+    let insertion_index =
+        target_insert_index - usize::from(request.playlist_index < target_insert_index);
+    expected.insert(insertion_index, moved);
+    if after.selected_tracks != before.selected_tracks || after.selected_playlists != expected {
+        return Err(Error(
+            "playlist move changed unrelated XML semantics".into(),
+        ));
+    }
+    Ok(PreparedPlaylistMove { bytes: output })
 }
 
 /// Validate and return unchanged bytes for the frozen synthetic A1 no-edit subset.
@@ -8092,6 +8401,91 @@ mod tests {
             .is_err()
         );
         assert!(prepare_sibling_folder_reorder(b"<bad", &request).is_err());
+    }
+
+    #[test]
+    fn guarded_playlist_move_updates_both_folder_counts_and_preserves_memberships() {
+        let fixture = include_bytes!("../../../xtask/tests/fixtures/rekordbox-a1/F-02/source.bin");
+        let source = String::from_utf8(fixture.to_vec())
+            .unwrap()
+            .replace("Name=\"ROOT\" Count=\"1\"", "Name=\"ROOT\" Count=\"2\"")
+            .replace("Name=\"Sets\" Count=\"2\"", "Name=\"Source\" Count=\"2\"")
+            .replace(
+                "      </NODE>\n    </NODE>\n  </PLAYLISTS>",
+                "      </NODE>\n      <NODE Type=\"0\" Name=\"Target\" Count=\"1\"><NODE Type=\"1\" Name=\"Other\" Entries=\"1\" KeyType=\"0\"><TRACK Key=\"400\"/></NODE></NODE>\n    </NODE>\n  </PLAYLISTS>",
+            );
+        let original = source.clone();
+        let request = PlaylistMoveRequest {
+            playlist_index: 0,
+            expected_playlist_name: "House".into(),
+            expected_members: vec!["100".into(), "200".into(), "300".into()],
+            source_parent_index: 0,
+            expected_source_parent_name: "Source".into(),
+            target_parent_index: 1,
+            expected_target_parent_name: "Target".into(),
+            expected_target_order: vec!["Other".into()],
+        };
+        let result = prepare_playlist_move(source.as_bytes(), &request).unwrap();
+        assert_eq!(source, original);
+        let before = preflight_export(source.as_bytes()).unwrap();
+        let after = preflight_export(&result.bytes).unwrap();
+        assert_eq!(after.selected_tracks, before.selected_tracks);
+        assert_eq!(
+            after
+                .selected_playlists
+                .iter()
+                .map(|p| (p.path.clone(), p.name.clone(), p.tracks.clone()))
+                .collect::<Vec<_>>(),
+            [
+                (
+                    vec!["Source".into(), "Techno".into()],
+                    "Techno".into(),
+                    vec!["200".into(), "400".into()]
+                ),
+                (
+                    vec!["Target".into(), "Other".into()],
+                    "Other".into(),
+                    vec!["400".into()]
+                ),
+                (
+                    vec!["Target".into(), "House".into()],
+                    "House".into(),
+                    vec!["100".into(), "200".into(), "300".into()]
+                ),
+            ]
+        );
+        let output = String::from_utf8(result.bytes).unwrap();
+        assert!(output.contains("Name=\"Source\" Count=\"1\""));
+        assert!(output.contains("Name=\"Target\" Count=\"2\""));
+
+        for invalid in [
+            PlaylistMoveRequest {
+                expected_target_order: vec!["stale".into()],
+                ..request.clone()
+            },
+            PlaylistMoveRequest {
+                expected_members: vec!["300".into(), "200".into(), "100".into()],
+                ..request.clone()
+            },
+            PlaylistMoveRequest {
+                target_parent_index: request.source_parent_index,
+                expected_target_parent_name: request.expected_source_parent_name.clone(),
+                ..request.clone()
+            },
+            PlaylistMoveRequest {
+                playlist_index: 1,
+                ..request.clone()
+            },
+        ] {
+            assert!(prepare_playlist_move(source.as_bytes(), &invalid).is_err());
+        }
+        let duplicate_target = source.replace("Name=\"Other\"", "Name=\"House\"");
+        let ambiguous = PlaylistMoveRequest {
+            expected_target_order: vec!["House".into()],
+            ..request
+        };
+        assert!(prepare_playlist_move(duplicate_target.as_bytes(), &ambiguous).is_err());
+        assert!(prepare_playlist_move(b"<bad", &ambiguous).is_err());
     }
 
     #[test]
