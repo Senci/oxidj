@@ -390,6 +390,43 @@ fn run_rekordbox(args: &[String]) -> i32 {
     }
     if args
         .first()
+        .is_some_and(|action| action == "edit-track-genre")
+    {
+        if args.len() != 11
+            || args[1] != "--xml"
+            || args[3] != "--output"
+            || args[5] != "--track-id"
+            || args[7] != "--expected-genre"
+            || args[9] != "--genre"
+        {
+            eprintln!(
+                "error: expected rekordbox edit-track-genre --xml IN --output NEW --track-id ID --expected-genre OLD --genre NEW"
+            );
+            return USAGE;
+        }
+        let request = oxidj_application::TrackGenreEditRequest {
+            track_id: args[6].clone(),
+            expected_old_genre: args[8].clone(),
+            new_genre: args[10].clone(),
+        };
+        return match oxidj_application::export_rekordbox_track_genre_edit(
+            &args[2], &args[4], &request,
+        ) {
+            Ok(change) => {
+                println!(
+                    "Changed Genre for track[{}]: {:?} to {:?}",
+                    change.track_id, change.old_genre, change.new_genre
+                );
+                OK
+            }
+            Err(error) => {
+                eprintln!("error: track Genre edit rejected: {error}");
+                DOMAIN
+            }
+        };
+    }
+    if args
+        .first()
         .is_some_and(|action| action == "edit-track-artist")
     {
         if args.len() != 11
@@ -879,12 +916,13 @@ fn run_rekordbox(args: &[String]) -> i32 {
                 println!("Selected units:");
                 for track in plan.selected_tracks {
                     println!(
-                        "Track\t{}\t{}\t{:?}\t{:?}\t{:?}\t{}",
+                        "Track\t{}\t{}\t{:?}\t{:?}\t{:?}\t{:?}\t{}",
                         track.id,
                         track.name,
                         track.artist,
                         track.comments,
                         track.album,
+                        track.genre,
                         track.location
                     );
                     for tempo in track.tempos {
@@ -1147,7 +1185,7 @@ fn print_usage(to_stdout: bool) {
     );
     let _ = writeln!(
         output,
-        "  rekordbox edit-track-album --xml <in> --output <new> --track-id <id> --expected-album <old> --album <new>   Export one guarded track Album edit\n  rekordbox edit-track-comments --xml <in> --output <new> --track-id <id> --expected-comments <old> --comments <new>   Export one guarded track Comments edit\n  rekordbox edit-track-artist --xml <in> --output <new> --track-id <id> --expected-artist <old> --artist <new>   Export one guarded track Artist edit"
+        "  rekordbox edit-track-album --xml <in> --output <new> --track-id <id> --expected-album <old> --album <new>   Export one guarded track Album edit\n  rekordbox edit-track-genre --xml <in> --output <new> --track-id <id> --expected-genre <old> --genre <new>   Export one guarded track Genre edit\n  rekordbox edit-track-comments --xml <in> --output <new> --track-id <id> --expected-comments <old> --comments <new>   Export one guarded track Comments edit\n  rekordbox edit-track-artist --xml <in> --output <new> --track-id <id> --expected-artist <old> --artist <new>   Export one guarded track Artist edit"
     );
     let _ = writeln!(
         output,

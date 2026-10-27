@@ -12,12 +12,12 @@ pub use oxidj_rekordbox::{
     PreparedPlaylistReorder, PreparedPositionMarkEdit, PreparedPositionMarkEndEdit,
     PreparedPositionMarkNameEdit, PreparedTempoBeatEdit, PreparedTempoEdit, PreparedTempoMeterEdit,
     PreparedTempoStartEdit, PreparedTrackAlbumEdit, PreparedTrackArtistEdit,
-    PreparedTrackCommentsEdit, PreparedTrackDelete, PreparedTrackNameEdit, Preview,
-    TempoBeatEditChange, TempoBeatEditRequest, TempoEditChange, TempoEditRequest,
+    PreparedTrackCommentsEdit, PreparedTrackDelete, PreparedTrackGenreEdit, PreparedTrackNameEdit,
+    Preview, TempoBeatEditChange, TempoBeatEditRequest, TempoEditChange, TempoEditRequest,
     TempoMeterEditChange, TempoMeterEditRequest, TempoStartEditChange, TempoStartEditRequest,
     TrackAlbumEditChange, TrackAlbumEditRequest, TrackArtistEditChange, TrackArtistEditRequest,
-    TrackCommentsEditChange, TrackCommentsEditRequest, TrackDeleteRequest, TrackNameEditChange,
-    TrackNameEditRequest,
+    TrackCommentsEditChange, TrackCommentsEditRequest, TrackDeleteRequest, TrackGenreEditChange,
+    TrackGenreEditRequest, TrackNameEditChange, TrackNameEditRequest,
 };
 
 /// Read-only preview handler; parsing and vendor-specific semantics stay in the adapter.
@@ -57,6 +57,18 @@ pub fn export_rekordbox_track_album_edit(
 ) -> Result<TrackAlbumEditChange, RekordboxError> {
     let (source, output) = read_new_export_source(input, output)?;
     let prepared = oxidj_rekordbox::prepare_track_album_edit(&source, request)?;
+    publish_new_file(&output, &prepared.bytes)?;
+    Ok(prepared.change)
+}
+
+/// Export one guarded track Genre edit to a new, non-overwriting file.
+pub fn export_rekordbox_track_genre_edit(
+    input: impl AsRef<Path>,
+    output: impl AsRef<Path>,
+    request: &TrackGenreEditRequest,
+) -> Result<TrackGenreEditChange, RekordboxError> {
+    let (source, output) = read_new_export_source(input, output)?;
+    let prepared = oxidj_rekordbox::prepare_track_genre_edit(&source, request)?;
     publish_new_file(&output, &prepared.bytes)?;
     Ok(prepared.change)
 }

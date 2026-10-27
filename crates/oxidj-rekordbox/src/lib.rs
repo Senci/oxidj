@@ -9,6 +9,7 @@ pub struct Track {
     pub artist: Option<String>,
     pub comments: Option<String>,
     pub album: Option<String>,
+    pub genre: Option<String>,
     pub location: String,
     pub tempos: Vec<Tempo>,
     pub marks: Vec<PositionMark>,
@@ -335,6 +336,23 @@ pub struct TrackAlbumEditChange {
     pub new_album: String,
 }
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TrackGenreEditRequest {
+    pub track_id: String,
+    pub expected_old_genre: String,
+    pub new_genre: String,
+}
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TrackGenreEditChange {
+    pub track_id: String,
+    pub old_genre: String,
+    pub new_genre: String,
+}
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PreparedTrackGenreEdit {
+    pub bytes: Vec<u8>,
+    pub change: TrackGenreEditChange,
+}
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PreparedTrackAlbumEdit {
     pub bytes: Vec<u8>,
     pub change: TrackAlbumEditChange,
@@ -447,6 +465,7 @@ pub fn parse(bytes: &[u8]) -> Result<Preview, Error> {
                         artist: optional(&e, "Artist")?,
                         comments: optional(&e, "Comments")?,
                         album: optional(&e, "Album")?,
+                        genre: optional(&e, "Genre")?,
                         location: attr(&e, "Location")?,
                         tempos: vec![],
                         marks: vec![],
@@ -528,6 +547,7 @@ pub fn parse(bytes: &[u8]) -> Result<Preview, Error> {
                         artist: optional(&e, "Artist")?,
                         comments: optional(&e, "Comments")?,
                         album: optional(&e, "Album")?,
+                        genre: optional(&e, "Genre")?,
                         location: attr(&e, "Location")?,
                         tempos: vec![],
                         marks: vec![],
@@ -657,9 +677,9 @@ fn validate_export_element(
         "DJ_PLAYLISTS" => &["Version"],
         "PRODUCT" => &["Name", "Version", "Company"],
         "COLLECTION" => &["Entries"],
-        "TRACK" if parent == Some("COLLECTION") => {
-            &["TrackID", "Name", "Artist", "Comments", "Album", "Location"]
-        }
+        "TRACK" if parent == Some("COLLECTION") => &[
+            "TrackID", "Name", "Artist", "Comments", "Album", "Genre", "Location",
+        ],
         "TRACK" => &["Key"],
         "TEMPO" => &["Inizio", "Bpm", "Metro", "Battito"],
         "POSITION_MARK" => &["Name", "Type", "Start", "Num", "End"],
@@ -2187,6 +2207,72 @@ pub fn prepare_track_album_edit(
     })
 }
 
+/// Prepare one exact-old-value guarded Track Genre edit.
+pub fn prepare_track_genre_edit(
+    bytes: &[u8],
+    request: &TrackGenreEditRequest,
+) -> Result<PreparedTrackGenreEdit, Error> {
+    let before = preflight_export(bytes)?;
+    let matches: Vec<_> = before
+        .selected_tracks
+        .iter()
+        .filter(|t| t.id == request.track_id)
+        .collect();
+    let track = match matches.as_slice() {
+        [] => return Err(Error(format!("unknown TrackID {}", request.track_id))),
+        [track] => *track,
+        _ => return Err(Error(format!("duplicate TrackID {}", request.track_id))),
+    };
+    let old_genre = track
+        .genre
+        .as_deref()
+        .ok_or_else(|| Error("track Genre missing".into()))?;
+    if old_genre != request.expected_old_genre {
+        return Err(Error("track Genre changed".into()));
+    }
+    if !request.new_genre.chars().all(
+        |c| matches!(c as u32, 9 | 10 | 13 | 0x20..=0xD7FF | 0xE000..=0xFFFD | 0x10000..=0x10FFFF),
+    ) {
+        return Err(Error("new Genre contains invalid XML 1.0 text".into()));
+    }
+    let range = track_attribute_range(
+        bytes,
+        &request.track_id,
+        "Genre",
+        &request.expected_old_genre,
+    )?;
+    let escaped = request
+        .new_genre
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&apos;")
+        .replace('\t', "&#9;")
+        .replace('\n', "&#10;")
+        .replace('\r', "&#13;");
+    let mut output = bytes.to_vec();
+    output.splice(range, escaped.bytes());
+    let after = preflight_export(&output)?;
+    let mut expected = before.selected_tracks.clone();
+    expected
+        .iter_mut()
+        .find(|t| t.id == request.track_id)
+        .unwrap()
+        .genre = Some(request.new_genre.clone());
+    if after.selected_tracks != expected {
+        return Err(Error("track Genre edit verification failed".into()));
+    }
+    Ok(PreparedTrackGenreEdit {
+        bytes: output,
+        change: TrackGenreEditChange {
+            track_id: request.track_id.clone(),
+            old_genre: old_genre.to_owned(),
+            new_genre: request.new_genre.clone(),
+        },
+    })
+}
+
 /// Prepare one exact-old-value guarded Track Artist edit.
 pub fn prepare_track_artist_edit(
     bytes: &[u8],
@@ -3552,6 +3638,69 @@ mod tests {
             ..request
         };
         assert!(prepare_track_name_edit(source, &invalid).is_err());
+    }
+
+    #[test]
+    fn guarded_track_genre_edit_preserves_optional_state_and_xml_whitespace() {
+        let base = include_bytes!("../../../xtask/tests/fixtures/rekordbox-a1/F-02/source.bin");
+        let source = String::from_utf8(base.to_vec()).unwrap().replacen(
+            "TrackID=\"100\" Name=\"A\"",
+            "TrackID=\"100\" Name=\"A\" Genre=\"old &amp; note\"",
+            1,
+        );
+        let parsed = parse(source.as_bytes()).unwrap();
+        assert_eq!(parsed.tracks[0].genre.as_deref(), Some("old & note"));
+        assert_eq!(parsed.tracks[1].genre, None);
+        let request = TrackGenreEditRequest {
+            track_id: "100".into(),
+            expected_old_genre: "old & note".into(),
+            new_genre: "A\tB\nC\rD & <x>".into(),
+        };
+        let prepared = prepare_track_genre_edit(source.as_bytes(), &request).unwrap();
+        assert!(
+            String::from_utf8(prepared.bytes.clone())
+                .unwrap()
+                .contains("Genre=\"A&#9;B&#10;C&#13;D &amp; &lt;x&gt;\"")
+        );
+        assert_eq!(
+            parse(&prepared.bytes).unwrap().tracks[0].genre.as_deref(),
+            Some("A\tB\nC\rD & <x>")
+        );
+        let expected = source.replacen(
+            "Genre=\"old &amp; note\"",
+            "Genre=\"A&#9;B&#10;C&#13;D &amp; &lt;x&gt;\"",
+            1,
+        );
+        assert_eq!(prepared.bytes, expected.as_bytes());
+        for request in [
+            TrackGenreEditRequest {
+                track_id: "200".into(),
+                expected_old_genre: "".into(),
+                new_genre: "x".into(),
+            },
+            TrackGenreEditRequest {
+                track_id: "999".into(),
+                expected_old_genre: "x".into(),
+                new_genre: "y".into(),
+            },
+            TrackGenreEditRequest {
+                track_id: "100".into(),
+                expected_old_genre: "stale".into(),
+                new_genre: "y".into(),
+            },
+            TrackGenreEditRequest {
+                track_id: "100".into(),
+                expected_old_genre: "old & note".into(),
+                new_genre: "bad\u{1}".into(),
+            },
+        ] {
+            assert!(prepare_track_genre_edit(source.as_bytes(), &request).is_err());
+        }
+        let empty = source.replacen("Genre=\"old &amp; note\"", "Genre=\"\"", 1);
+        assert_eq!(
+            parse(empty.as_bytes()).unwrap().tracks[0].genre.as_deref(),
+            Some("")
+        );
     }
 
     #[test]
