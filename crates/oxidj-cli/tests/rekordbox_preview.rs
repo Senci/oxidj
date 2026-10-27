@@ -14,11 +14,11 @@ fn preview_and_export_plan_report_track_raw_date_states_and_export_preserves_sou
         .unwrap()
         .replace(
             "TrackID=\"100\" Name=\"A\"",
-            "TrackID=\"100\" Name=\"A\" DateAdded=\"2024-02-03\" DateModified=\"2024-02-04\"",
+            "TrackID=\"100\" Name=\"A\" DateAdded=\"2024-02-03\" DateModified=\"2024-02-04\" LastPlayed=\"2024-02-05\"",
         )
         .replace(
             "TrackID=\"200\" Name=\"B\"",
-            "TrackID=\"200\" Name=\"B\" DateAdded=\"\" DateModified=\"\"",
+            "TrackID=\"200\" Name=\"B\" DateAdded=\"\" DateModified=\"\" LastPlayed=\"\"",
         )
         .into_bytes();
     let input = temporary_path("raw-dates-input");
@@ -43,13 +43,19 @@ fn preview_and_export_plan_report_track_raw_date_states_and_export_preserves_sou
         let first = lines.iter().find(|line| line.contains("100\tA\t")).unwrap();
         let second = lines.iter().find(|line| line.contains("200\tB\t")).unwrap();
         let third = lines.iter().find(|line| line.contains("300\tC\t")).unwrap();
-        for (row, added, modified) in [
-            (first, "Some(\"2024-02-03\")", "Some(\"2024-02-04\")"),
-            (second, "Some(\"\")", "Some(\"\")"),
-            (third, "None", "None"),
+        for (row, added, modified, last_played) in [
+            (
+                first,
+                "Some(\"2024-02-03\")",
+                "Some(\"2024-02-04\")",
+                "Some(\"2024-02-05\")",
+            ),
+            (second, "Some(\"\")", "Some(\"\")", "Some(\"\")"),
+            (third, "None", "None", "None"),
         ] {
-            assert_eq!(row.split('\t').rev().nth(1), Some(added), "{row}");
-            assert_eq!(row.split('\t').next_back(), Some(modified), "{row}");
+            assert_eq!(row.split('\t').rev().nth(2), Some(added), "{row}");
+            assert_eq!(row.split('\t').rev().nth(1), Some(modified), "{row}");
+            assert_eq!(row.split('\t').next_back(), Some(last_played), "{row}");
         }
     }
     let result = Command::new(env!("CARGO_BIN_EXE_oxidj-cli"))
@@ -187,7 +193,7 @@ fn preview_and_export_plan_report_track_year_states_and_export_preserves_source_
                 })
                 .unwrap_or_else(|| panic!("missing TrackID {track_id} row in:\\n{stdout}"));
             assert_eq!(
-                row.split('\t').rev().nth(5),
+                row.split('\t').rev().nth(6),
                 Some(expected_track_number),
                 "{row}"
             );
@@ -197,7 +203,7 @@ fn preview_and_export_plan_report_track_year_states_and_export_preserves_source_
                 _ => "None",
             };
             assert_eq!(
-                row.split('\t').rev().nth(3),
+                row.split('\t').rev().nth(4),
                 Some(match track_id {
                     "100" => "Some(\"-2147483648\")",
                     "200" => "Some(\"\")",
@@ -206,12 +212,12 @@ fn preview_and_export_plan_report_track_year_states_and_export_preserves_source_
                 "{row}"
             );
             assert_eq!(
-                row.split('\t').rev().nth(4),
+                row.split('\t').rev().nth(5),
                 Some(expected_total_time),
                 "{row}"
             );
             assert_eq!(
-                row.split('\t').rev().nth(2),
+                row.split('\t').rev().nth(3),
                 Some(match track_id {
                     "100" => "Some(\"48000.0\")",
                     "200" => "Some(\"\")",
@@ -376,7 +382,7 @@ fn export_plan_shows_ordered_f10_units_without_writing() {
         concat!(
             "Decision: ALLOW_EXPORT\n",
             "Selected units:\n",
-            "Track\t1000\tVariable tempo\tNone\tNone\tNone\tNone\tNone\tNone\tNone\tNone\tNone\tNone\tfile://localhost/music/variable.flac\tNone\tNone\tNone\tNone\tNone\tNone\tNone\tNone\tNone\tNone\n",
+            "Track\t1000\tVariable tempo\tNone\tNone\tNone\tNone\tNone\tNone\tNone\tNone\tNone\tNone\tfile://localhost/music/variable.flac\tNone\tNone\tNone\tNone\tNone\tNone\tNone\tNone\tNone\tNone\tNone\n",
             "TEMPO\t1000\t0\t120\t4/4\t1\n",
             "TEMPO\t1000\t8\t128\t4/4\t1\n",
             "TEMPO\t1000\t16\t132\t7/8\t3\n",
