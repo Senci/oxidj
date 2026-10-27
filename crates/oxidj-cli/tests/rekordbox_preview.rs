@@ -4,6 +4,69 @@ use oxidj_library as _;
 use std::{fs, process::Command, time::SystemTime};
 
 #[test]
+fn preview_and_export_plan_report_track_kind_states_and_export_preserves_source_bytes() {
+    let source = fs::read(format!(
+        "{}/../../xtask/tests/fixtures/rekordbox-a1/F-02/source.bin",
+        env!("CARGO_MANIFEST_DIR")
+    ))
+    .unwrap();
+    let source = String::from_utf8(source)
+        .unwrap()
+        .replace(
+            "TrackID=\"100\" Name=\"A\"",
+            "TrackID=\"100\" Name=\"A\" Kind=\"AIFF\"",
+        )
+        .replace(
+            "TrackID=\"200\" Name=\"B\"",
+            "TrackID=\"200\" Name=\"B\" Kind=\"\"",
+        )
+        .into_bytes();
+    let input = temporary_path("kind-input");
+    let output = temporary_path("kind-output");
+    fs::write(&input, &source).unwrap();
+    for args in [
+        vec!["rekordbox", "preview", "--xml", input.to_str().unwrap()],
+        vec!["rekordbox", "export-plan", "--xml", input.to_str().unwrap()],
+    ] {
+        let result = Command::new(env!("CARGO_BIN_EXE_oxidj-cli"))
+            .args(args)
+            .output()
+            .unwrap();
+        assert_eq!(
+            result.status.code(),
+            Some(0),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        let stdout = String::from_utf8(result.stdout).unwrap();
+        assert!(stdout.contains("AIFF"));
+        assert!(stdout.contains("Some(\"\")"));
+        assert!(stdout.contains("None"));
+    }
+    let result = Command::new(env!("CARGO_BIN_EXE_oxidj-cli"))
+        .args([
+            "rekordbox",
+            "export",
+            "--xml",
+            input.to_str().unwrap(),
+            "--output",
+            output.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(
+        result.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    assert_eq!(fs::read(&output).unwrap(), source);
+    assert_eq!(fs::read(&input).unwrap(), source);
+    let _ = fs::remove_file(input);
+    let _ = fs::remove_file(output);
+}
+
+#[test]
 fn preview_prints_tracks_ordered_playlists_tempos_and_marks() {
     let fixture = format!(
         "{}/../../xtask/tests/fixtures/rekordbox-a1/F-07/source.bin",
@@ -135,7 +198,7 @@ fn export_plan_shows_ordered_f10_units_without_writing() {
         concat!(
             "Decision: ALLOW_EXPORT\n",
             "Selected units:\n",
-            "Track\t1000\tVariable tempo\tNone\tNone\tNone\tNone\tNone\tNone\tNone\tNone\tNone\tNone\tfile://localhost/music/variable.flac\n",
+            "Track\t1000\tVariable tempo\tNone\tNone\tNone\tNone\tNone\tNone\tNone\tNone\tNone\tNone\tfile://localhost/music/variable.flac\tNone\n",
             "TEMPO\t1000\t0\t120\t4/4\t1\n",
             "TEMPO\t1000\t8\t128\t4/4\t1\n",
             "TEMPO\t1000\t16\t132\t7/8\t3\n",
