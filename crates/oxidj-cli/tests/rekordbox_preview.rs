@@ -450,7 +450,7 @@ fn preview_prints_tracks_ordered_playlists_tempos_and_marks() {
     assert_eq!(out.status.code(), Some(0));
     let stdout = String::from_utf8(out.stdout).unwrap();
     assert!(stdout.contains(
-        "700\tTempo cue independence\tNone\tNone\tNone\tNone\tNone\tNone\tNone\tfile://localhost/music/tempo.flac"
+        "700\tTempo cue independence\tNone\tNone\tNone\tNone\tNone\tNone\tNone\tNone\tfile://localhost/music/tempo.flac"
     ));
     assert!(stdout.contains("TEMPO\t10\t128\t4/4\t1"));
     assert!(stdout.contains("POSITION_MARK\tIntro\t0\t5\t0\tNone"));
@@ -3377,6 +3377,57 @@ fn insert_playlist_member_cli_targets_guarded_zero_based_position() {
     }
     let _ = fs::remove_file(input);
     let _ = fs::remove_file(output);
+}
+
+#[test]
+fn preview_reports_raw_grouping_states_and_preserves_source_bytes() {
+    let source = fs::read(format!(
+        "{}/../../xtask/tests/fixtures/rekordbox-a1/F-02/source.bin",
+        env!("CARGO_MANIFEST_DIR")
+    ))
+    .unwrap();
+    let source = String::from_utf8(source)
+        .unwrap()
+        .replace(
+            "TrackID=\"100\" Name=\"A\"",
+            "TrackID=\"100\" Name=\"A\" Grouping=\"Raw &amp; Group\"",
+        )
+        .replace(
+            "TrackID=\"200\" Name=\"B\"",
+            "TrackID=\"200\" Name=\"B\" Grouping=\"\"",
+        )
+        .into_bytes();
+    let input = temporary_path("raw-grouping-preview");
+    fs::write(&input, &source).unwrap();
+    for args in [
+        vec!["rekordbox", "preview", "--xml", input.to_str().unwrap()],
+        vec!["rekordbox", "export-plan", "--xml", input.to_str().unwrap()],
+    ] {
+        let result = Command::new(env!("CARGO_BIN_EXE_oxidj-cli"))
+            .args(args)
+            .output()
+            .unwrap();
+        assert_eq!(
+            result.status.code(),
+            Some(0),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        let stdout = String::from_utf8(result.stdout).unwrap();
+        for (id, name, expected) in [
+            ("100", "A", "Some(\"Raw & Group\")"),
+            ("200", "B", "Some(\"\")"),
+            ("300", "C", "None"),
+        ] {
+            let row = stdout
+                .lines()
+                .find(|line| line.contains(&format!("{id}\t{name}\t")))
+                .unwrap();
+            assert!(row.contains(expected), "expected {expected} in {row}");
+        }
+    }
+    assert_eq!(fs::read(&input).unwrap(), source);
+    let _ = fs::remove_file(input);
 }
 
 fn temporary_path(label: &str) -> std::path::PathBuf {
