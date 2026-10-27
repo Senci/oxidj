@@ -28,6 +28,7 @@ pub struct Track {
     pub date_modified: Option<String>,
     pub last_played: Option<String>,
     pub play_count: Option<String>,
+    pub rating: Option<String>,
     pub location: String,
     pub tempos: Vec<Tempo>,
     pub marks: Vec<PositionMark>,
@@ -606,6 +607,7 @@ pub fn parse(bytes: &[u8]) -> Result<Preview, Error> {
                         date_modified: optional(&e, "DateModified")?,
                         last_played: optional(&e, "LastPlayed")?,
                         play_count: optional(&e, "PlayCount")?,
+                        rating: optional(&e, "Rating")?,
                         location: attr(&e, "Location")?,
                         tempos: vec![],
                         marks: vec![],
@@ -706,6 +708,7 @@ pub fn parse(bytes: &[u8]) -> Result<Preview, Error> {
                         date_modified: optional(&e, "DateModified")?,
                         last_played: optional(&e, "LastPlayed")?,
                         play_count: optional(&e, "PlayCount")?,
+                        rating: optional(&e, "Rating")?,
                         location: attr(&e, "Location")?,
                         tempos: vec![],
                         marks: vec![],
@@ -860,6 +863,7 @@ fn validate_export_element(
             "DateModified",
             "LastPlayed",
             "PlayCount",
+            "Rating",
             "Location",
         ],
         "TRACK" => &["Key"],
@@ -3822,6 +3826,31 @@ mod tests {
         );
         assert_eq!(plan.selected_tracks[1].play_count.as_deref(), Some(""));
         assert_eq!(plan.selected_tracks[2].play_count, None);
+        assert_eq!(export_xml(source).unwrap(), source);
+    }
+
+    #[test]
+    fn raw_optional_rating_preserves_present_empty_absent_and_export_bytes() {
+        let source = include_bytes!("../../../xtask/tests/fixtures/rekordbox-a1/F-02/source.bin");
+        let source = String::from_utf8(source.to_vec())
+            .unwrap()
+            .replace(
+                "TrackID=\"100\" Name=\"A\"",
+                "TrackID=\"100\" Name=\"A\" Rating=\"-1\"",
+            )
+            .replace(
+                "TrackID=\"200\" Name=\"B\"",
+                "TrackID=\"200\" Name=\"B\" Rating=\"\"",
+            );
+        let source = source.as_bytes();
+        let preview = parse(source).unwrap();
+        assert_eq!(preview.tracks[0].rating.as_deref(), Some("-1"));
+        assert_eq!(preview.tracks[1].rating.as_deref(), Some(""));
+        assert_eq!(preview.tracks[2].rating, None);
+        let plan = preflight_export(source).unwrap();
+        assert_eq!(plan.selected_tracks[0].rating.as_deref(), Some("-1"));
+        assert_eq!(plan.selected_tracks[1].rating.as_deref(), Some(""));
+        assert_eq!(plan.selected_tracks[2].rating, None);
         assert_eq!(export_xml(source).unwrap(), source);
     }
 
