@@ -2,6 +2,7 @@ use oxidj_rekordbox as _;
 use quick_xml as _;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
+use std::collections::BTreeSet;
 use std::path::PathBuf;
 
 fn fixture(name: &str) -> PathBuf {
@@ -14,6 +15,73 @@ fn read(name: &str) -> Value {
 }
 fn digest(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
+}
+
+fn check_provenance(provenance: &Value, source: &[u8]) -> Result<(), &'static str> {
+    let identity: Value = serde_json::from_slice(
+        &std::fs::read(fixture("checker-identity.json")).map_err(|_| "checker identity missing")?,
+    )
+    .map_err(|_| "invalid checker identity")?;
+    let live_checker =
+        std::fs::read(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/f11_logical.rs"))
+            .map_err(|_| "checker source missing")?;
+    let expected_identity = json!({"path":"xtask/tests/f11_logical.rs","version":"f11-logical-checker-v1","sha256":digest(&live_checker)});
+    if identity != expected_identity || provenance["checker_identity"] != identity {
+        return Err("checker identity mismatch");
+    }
+    if provenance["source_sha256"] != digest(source)
+        || provenance["source_length_bytes"] != source.len()
+    {
+        return Err("provenance source mismatch");
+    }
+    let expected = [
+        "case.json",
+        "source.bin",
+        "expected-archive.json",
+        "expected-visible.json",
+        "expected-plan.json",
+        "expected-report.json",
+        "operations.json",
+        "checker-identity.json",
+    ]
+    .into_iter()
+    .collect::<BTreeSet<_>>();
+    let artifacts = provenance["artifacts"]
+        .as_object()
+        .ok_or("provenance artifacts missing")?;
+    if artifacts
+        .keys()
+        .map(String::as_str)
+        .collect::<BTreeSet<_>>()
+        != expected
+    {
+        return Err("provenance artifact set mismatch");
+    }
+    let actual = std::fs::read_dir(fixture("."))
+        .map_err(|_| "fixture missing")?
+        .map(|entry| entry.map_err(|_| "entry unreadable"))
+        .collect::<Result<Vec<_>, _>>()?
+        .into_iter()
+        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+        .collect::<BTreeSet<_>>();
+    let expected_files = expected
+        .iter()
+        .map(|name| name.to_string())
+        .chain(["provenance.json".to_owned()])
+        .collect::<BTreeSet<_>>();
+    if actual != expected_files {
+        return Err("live fixture artifact set mismatch");
+    }
+    for (name, info) in artifacts {
+        let bytes = std::fs::read(fixture(name)).map_err(|_| "artifact missing")?;
+        if info["path"] != name.as_str()
+            || info["length_bytes"] != bytes.len()
+            || info["sha256"] != digest(&bytes)
+        {
+            return Err("artifact provenance mismatch");
+        }
+    }
+    Ok(())
 }
 
 // Independent logical oracle: assertions below are literal contract values and do not
@@ -100,6 +168,7 @@ fn independently_check(
 fn f11_logical_artifacts_and_provenance_are_frozen() {
     let source = std::fs::read(fixture("source.bin")).unwrap();
     let provenance = read("provenance.json");
+    check_provenance(&provenance, &source).unwrap();
     assert_eq!(provenance["source_sha256"], digest(&source));
     assert_eq!(provenance["source_length_bytes"], source.len());
     for (file, info) in provenance["artifacts"].as_object().unwrap() {
@@ -166,4 +235,21 @@ fn f11_independent_checker_rejects_end_zero_and_range_mutations() {
             .is_err()
         );
     }
+}
+
+#[test]
+fn f11_provenance_rejects_checker_and_artifact_drift() {
+    let source = std::fs::read(fixture("source.bin")).unwrap();
+    let provenance = read("provenance.json");
+    for key in ["path", "version", "sha256"] {
+        let mut changed = provenance.clone();
+        changed["checker_identity"][key] = json!("drift");
+        assert!(check_provenance(&changed, &source).is_err());
+    }
+    let mut extra = provenance.clone();
+    extra["artifacts"]["unexpected.json"] = json!({});
+    assert!(check_provenance(&extra, &source).is_err());
+    let mut bad_digest = provenance;
+    bad_digest["artifacts"]["source.bin"]["sha256"] = json!("00");
+    assert!(check_provenance(&bad_digest, &source).is_err());
 }
