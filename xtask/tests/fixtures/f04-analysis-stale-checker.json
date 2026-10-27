@@ -1,0 +1,5 @@
+{
+  "checker_source": "xtask/tests/f04_analysis_stale_logical.rs",
+  "checker_version": "1",
+  "checker_source_sha256": "566edcb4fa7bacbc62698614afdf9d835c04035755196ba15e5c30b8d3927578"
+}

@@ -1,7 +1,7 @@
 use oxidj_rekordbox as _;
 use quick_xml as _;
 use serde_json::{Value, json};
-use sha2 as _;
+use sha2::{Digest, Sha256};
 use std::path::PathBuf;
 
 fn fixture(name: &str) -> PathBuf {
@@ -14,6 +14,20 @@ fn base(name: &str) -> PathBuf {
 }
 fn read(path: PathBuf) -> Value {
     serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap()
+}
+
+fn checker_identity_is_pinned(manifest: &Value) -> bool {
+    let expected_path = "xtask/tests/f04_analysis_stale_logical.rs";
+    let source_path =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/f04_analysis_stale_logical.rs");
+    let digest = format!("{:x}", Sha256::digest(std::fs::read(source_path).unwrap()));
+    manifest["checker_source"] == expected_path
+        && manifest["checker_version"] == "1"
+        && manifest["checker_source_sha256"] == digest
+}
+
+fn checker_manifest() -> Value {
+    read(fixture("f04-analysis-stale-checker.json"))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -51,6 +65,7 @@ fn check(
         "expected-report.json",
         "source.bin",
         "provenance.json",
+        "f04-analysis-stale-checker.json",
     ]
     .into_iter()
     .map(str::to_owned)
@@ -70,6 +85,7 @@ fn check(
     let mut actual = files.to_vec();
     actual.sort();
     source == &expected_source
+        && checker_identity_is_pinned(&checker_manifest())
         && candidate == &expected_candidate
         && archive == &expected_before["archive"]
         && intermediate == &expected_before["intermediate"]
@@ -125,6 +141,7 @@ fn inputs() -> (
         "f04-analysis-stale-before.json",
         "f04-analysis-stale-after.json",
         "f04-analysis-stale-result.json",
+        "f04-analysis-stale-checker.json",
     ]
     .into_iter()
     .map(str::to_owned)
@@ -387,4 +404,27 @@ fn mutation_controls_reject_all_drift() {
     let mut x = (s, c, a, i, v, p, r, pr, f, b, af, rs);
     x.11["state_changed"] = json!(true);
     rejected!(x);
+}
+
+#[test]
+fn checker_identity_mutations_are_rejected() {
+    let manifest = checker_manifest();
+    assert!(checker_identity_is_pinned(&manifest));
+    for (field, value) in [
+        ("checker_source", json!("other/path.rs")),
+        ("checker_version", json!("2")),
+        ("checker_source_sha256", json!("0".repeat(64))),
+    ] {
+        let mut mutated = manifest.clone();
+        mutated[field] = value;
+        assert!(
+            !checker_identity_is_pinned(&mutated),
+            "accepted {field} drift"
+        );
+    }
+    let (s, c, a, i, v, p, r, pr, mut files, b, af, rs) = inputs();
+    files.retain(|name| name != "f04-analysis-stale-checker.json");
+    assert!(!check(
+        &s, &c, &a, &i, &v, &p, &r, &pr, &files, &b, &af, &rs
+    ));
 }
