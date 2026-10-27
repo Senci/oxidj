@@ -834,6 +834,43 @@ fn run_rekordbox(args: &[String]) -> i32 {
     }
     if args
         .first()
+        .is_some_and(|action| action == "edit-track-play-count")
+    {
+        if args.len() != 11
+            || args[1] != "--xml"
+            || args[3] != "--output"
+            || args[5] != "--track-id"
+            || args[7] != "--expected-play-count"
+            || args[9] != "--play-count"
+        {
+            eprintln!(
+                "error: expected rekordbox edit-track-play-count --xml IN --output NEW --track-id ID --expected-play-count OLD --play-count NEW"
+            );
+            return USAGE;
+        }
+        let request = oxidj_application::TrackPlayCountEditRequest {
+            track_id: args[6].clone(),
+            expected_old_play_count: args[8].clone(),
+            new_play_count: args[10].clone(),
+        };
+        return match oxidj_application::export_rekordbox_track_play_count_edit(
+            &args[2], &args[4], &request,
+        ) {
+            Ok(change) => {
+                println!(
+                    "Changed raw PlayCount for track[{}]: {:?} to {:?}",
+                    change.track_id, change.old_play_count, change.new_play_count
+                );
+                OK
+            }
+            Err(error) => {
+                eprintln!("error: track PlayCount edit rejected: {error}");
+                DOMAIN
+            }
+        };
+    }
+    if args
+        .first()
         .is_some_and(|action| action == "edit-track-last-played")
     {
         if args.len() != 11

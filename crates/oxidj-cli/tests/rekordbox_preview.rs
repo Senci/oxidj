@@ -3749,3 +3749,55 @@ fn track_last_played_edit_escapes_xml_and_rejects_stale_guard_without_writing() 
     let _ = fs::remove_file(input);
     let _ = fs::remove_file(output);
 }
+
+#[test]
+fn track_play_count_edit_preserves_raw_xml_and_rejects_stale_guard() {
+    let fixture = format!(
+        "{}/../../xtask/tests/fixtures/rekordbox-a1/F-02/source.bin",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let source = String::from_utf8(fs::read(fixture).unwrap())
+        .unwrap()
+        .replacen(
+            "TrackID=\"100\" Name=\"A\"",
+            "TrackID=\"100\" Name=\"A\" PlayCount=\"raw &amp; old\"",
+            1,
+        )
+        .into_bytes();
+    let input = temporary_path("track-play-count-input");
+    let output = temporary_path("track-play-count-output");
+    fs::write(&input, &source).unwrap();
+    let invoke = |expected: &str, value: &str, target: &std::path::Path| {
+        Command::new(env!("CARGO_BIN_EXE_oxidj-cli"))
+            .args([
+                "rekordbox",
+                "edit-track-play-count",
+                "--xml",
+                input.to_str().unwrap(),
+                "--output",
+                target.to_str().unwrap(),
+                "--track-id",
+                "100",
+                "--expected-play-count",
+                expected,
+                "--play-count",
+                value,
+            ])
+            .output()
+            .unwrap()
+    };
+    let success = invoke("raw & old", "not numeric & <new>\t", &output);
+    assert_eq!(success.status.code(), Some(0), "{:?}", success.stderr);
+    let expected = String::from_utf8(source.clone()).unwrap().replacen(
+        "PlayCount=\"raw &amp; old\"",
+        "PlayCount=\"not numeric &amp; &lt;new&gt;&#9;\"",
+        1,
+    );
+    assert_eq!(fs::read(&output).unwrap(), expected.as_bytes());
+    let stale_output = temporary_path("track-play-count-stale");
+    assert_ne!(invoke("stale", "x", &stale_output).status.code(), Some(0));
+    assert!(!stale_output.exists());
+    assert_eq!(fs::read(&input).unwrap(), source);
+    let _ = fs::remove_file(input);
+    let _ = fs::remove_file(output);
+}
