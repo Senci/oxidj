@@ -4,30 +4,31 @@ use std::path::Path;
 
 pub use oxidj_rekordbox::{
     Error as RekordboxError, ExportDecision, ExportPreflight, FolderCreateRequest,
-    FolderDeleteRequest, FolderRenameChange, FolderRenameRequest, PlaylistClearRequest,
-    PlaylistCreateRequest, PlaylistDeleteRequest, PlaylistMemberAppendRequest,
-    PlaylistMemberDeleteRequest, PlaylistMemberInsertRequest, PlaylistMoveRequest,
-    PlaylistRenameChange, PlaylistRenameRequest, PlaylistReorderRequest, PositionMarkEditChange,
-    PositionMarkEditRequest, PositionMarkEndEditChange, PositionMarkEndEditRequest,
-    PositionMarkNameEditChange, PositionMarkNameEditRequest, PreparedFolderDelete,
-    PreparedFolderRename, PreparedPlaylistDelete, PreparedPlaylistMove, PreparedPlaylistRename,
-    PreparedPlaylistReorder, PreparedPositionMarkEdit, PreparedPositionMarkEndEdit,
-    PreparedPositionMarkNameEdit, PreparedSiblingFolderReorder, PreparedSiblingPlaylistReorder,
-    PreparedTempoBeatEdit, PreparedTempoEdit, PreparedTempoMeterEdit, PreparedTempoStartEdit,
-    PreparedTrackAlbumEdit, PreparedTrackArtistEdit, PreparedTrackAverageBpmEdit,
-    PreparedTrackBitRateEdit, PreparedTrackColourEdit, PreparedTrackCommentsEdit,
-    PreparedTrackComposerEdit, PreparedTrackDateAddedEdit, PreparedTrackDateModifiedEdit,
-    PreparedTrackDelete, PreparedTrackDiscNumberEdit, PreparedTrackGenreEdit,
-    PreparedTrackGroupingEdit, PreparedTrackKindEdit, PreparedTrackLabelEdit,
-    PreparedTrackLastPlayedEdit, PreparedTrackMixEdit, PreparedTrackNameEdit,
-    PreparedTrackNumberEdit, PreparedTrackPlayCountEdit, PreparedTrackRatingEdit,
-    PreparedTrackRemixerEdit, PreparedTrackSampleRateEdit, PreparedTrackSizeEdit,
-    PreparedTrackTotalTimeEdit, PreparedTrackYearEdit, Preview, SiblingFolderReorderRequest,
-    SiblingPlaylistReorderRequest, TempoBeatEditChange, TempoBeatEditRequest, TempoEditChange,
-    TempoEditRequest, TempoMeterEditChange, TempoMeterEditRequest, TempoStartEditChange,
-    TempoStartEditRequest, TrackAlbumEditChange, TrackAlbumEditRequest, TrackArtistEditChange,
-    TrackArtistEditRequest, TrackAverageBpmEditChange, TrackAverageBpmEditRequest,
-    TrackBitRateEditChange, TrackBitRateEditRequest, TrackColourEditChange, TrackColourEditRequest,
+    FolderDeleteRequest, FolderMoveRequest, FolderRenameChange, FolderRenameRequest,
+    PlaylistClearRequest, PlaylistCreateRequest, PlaylistDeleteRequest,
+    PlaylistMemberAppendRequest, PlaylistMemberDeleteRequest, PlaylistMemberInsertRequest,
+    PlaylistMoveRequest, PlaylistRenameChange, PlaylistRenameRequest, PlaylistReorderRequest,
+    PositionMarkEditChange, PositionMarkEditRequest, PositionMarkEndEditChange,
+    PositionMarkEndEditRequest, PositionMarkNameEditChange, PositionMarkNameEditRequest,
+    PreparedFolderDelete, PreparedFolderMove, PreparedFolderRename, PreparedPlaylistDelete,
+    PreparedPlaylistMove, PreparedPlaylistRename, PreparedPlaylistReorder,
+    PreparedPositionMarkEdit, PreparedPositionMarkEndEdit, PreparedPositionMarkNameEdit,
+    PreparedSiblingFolderReorder, PreparedSiblingPlaylistReorder, PreparedTempoBeatEdit,
+    PreparedTempoEdit, PreparedTempoMeterEdit, PreparedTempoStartEdit, PreparedTrackAlbumEdit,
+    PreparedTrackArtistEdit, PreparedTrackAverageBpmEdit, PreparedTrackBitRateEdit,
+    PreparedTrackColourEdit, PreparedTrackCommentsEdit, PreparedTrackComposerEdit,
+    PreparedTrackDateAddedEdit, PreparedTrackDateModifiedEdit, PreparedTrackDelete,
+    PreparedTrackDiscNumberEdit, PreparedTrackGenreEdit, PreparedTrackGroupingEdit,
+    PreparedTrackKindEdit, PreparedTrackLabelEdit, PreparedTrackLastPlayedEdit,
+    PreparedTrackMixEdit, PreparedTrackNameEdit, PreparedTrackNumberEdit,
+    PreparedTrackPlayCountEdit, PreparedTrackRatingEdit, PreparedTrackRemixerEdit,
+    PreparedTrackSampleRateEdit, PreparedTrackSizeEdit, PreparedTrackTotalTimeEdit,
+    PreparedTrackYearEdit, Preview, SiblingFolderReorderRequest, SiblingPlaylistReorderRequest,
+    TempoBeatEditChange, TempoBeatEditRequest, TempoEditChange, TempoEditRequest,
+    TempoMeterEditChange, TempoMeterEditRequest, TempoStartEditChange, TempoStartEditRequest,
+    TrackAlbumEditChange, TrackAlbumEditRequest, TrackArtistEditChange, TrackArtistEditRequest,
+    TrackAverageBpmEditChange, TrackAverageBpmEditRequest, TrackBitRateEditChange,
+    TrackBitRateEditRequest, TrackColourEditChange, TrackColourEditRequest,
     TrackCommentsEditChange, TrackCommentsEditRequest, TrackComposerEditChange,
     TrackComposerEditRequest, TrackDateAddedEditChange, TrackDateAddedEditRequest,
     TrackDateModifiedEditChange, TrackDateModifiedEditRequest, TrackDeleteRequest,
@@ -476,6 +477,17 @@ pub fn export_rekordbox_playlist_move(
 ) -> Result<(), RekordboxError> {
     let (source, output) = read_new_export_source(input, output)?;
     let prepared = oxidj_rekordbox::prepare_playlist_move(&source, request)?;
+    publish_new_file(&output, &prepared.bytes)
+}
+
+/// Export one guarded folder subtree move to a new, non-overwriting file.
+pub fn export_rekordbox_folder_move(
+    input: impl AsRef<Path>,
+    output: impl AsRef<Path>,
+    request: &FolderMoveRequest,
+) -> Result<(), RekordboxError> {
+    let (source, output) = read_new_export_source(input, output)?;
+    let prepared = oxidj_rekordbox::prepare_folder_move(&source, request)?;
     publish_new_file(&output, &prepared.bytes)
 }
 

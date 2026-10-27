@@ -1745,6 +1745,73 @@ fn sibling_folder_reorder_cli_exports_subtree_order_and_preserves_input() {
 }
 
 #[test]
+fn folder_move_cli_moves_subtree_updates_counts_and_preserves_input() {
+    let fixture = format!(
+        "{}/../../xtask/tests/fixtures/rekordbox-a1/F-02/source.bin",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let source = String::from_utf8(fs::read(&fixture).unwrap())
+        .unwrap()
+        .replace("Name=\"Sets\" Count=\"2\"", "Name=\"Sets\" Count=\"3\"")
+        .replace(
+            "        <NODE Type=\"1\" Name=\"House\" Entries=\"3\" KeyType=\"0\">\n          <TRACK Key=\"100\"/>\n          <TRACK Key=\"200\"/>\n          <TRACK Key=\"300\"/>\n        </NODE>",
+            "        <NODE Type=\"0\" Name=\"MoveMe\" Count=\"1\"><NODE Type=\"1\" Name=\"House\" Entries=\"3\" KeyType=\"0\"><TRACK Key=\"100\"/><TRACK Key=\"200\"/><TRACK Key=\"300\"/></NODE></NODE>",
+        )
+        .replace(
+            "      </NODE>\n    </NODE>\n  </PLAYLISTS>",
+            "        <NODE Type=\"0\" Name=\"Target\" Count=\"0\"/>\n      </NODE>\n    </NODE>\n  </PLAYLISTS>",
+        );
+    let input = temporary_path("folder-move-input");
+    let output = temporary_path("folder-move-output");
+    fs::write(&input, &source).unwrap();
+    let invoke = |target: &std::path::Path, target_index: &str, target_name: &str, order: &str| {
+        Command::new(env!("CARGO_BIN_EXE_oxidj-cli"))
+            .args([
+                "rekordbox",
+                "move-folder",
+                "--xml",
+                input.to_str().unwrap(),
+                "--output",
+                target.to_str().unwrap(),
+                "--folder-index",
+                "1",
+                "--expected-name",
+                "MoveMe",
+                "--source-parent-index",
+                "0",
+                "--source-parent-name",
+                "Sets",
+                "--expected-source-order",
+                "0:MoveMe,1:Techno,0:Target",
+                "--target-parent-index",
+                target_index,
+                "--target-parent-name",
+                target_name,
+                "--expected-target-order",
+                order,
+            ])
+            .output()
+            .unwrap()
+    };
+    let created = invoke(&output, "2", "Target", "");
+    assert_eq!(created.status.code(), Some(0), "{:?}", created.stderr);
+    let exported = fs::read_to_string(&output).unwrap();
+    assert!(exported.contains("Name=\"Sets\" Count=\"2\""));
+    assert!(exported.contains("Name=\"Target\" Count=\"1\">"));
+    assert!(exported.find("Name=\"House\"").unwrap() > exported.find("Name=\"Target\"").unwrap());
+    assert!(exported.contains("<TRACK Key=\"100\"/><TRACK Key=\"200\"/><TRACK Key=\"300\"/>"));
+    assert_eq!(fs::read_to_string(&input).unwrap(), source);
+    let rejected = temporary_path("folder-move-cycle");
+    assert_ne!(
+        invoke(&rejected, "1", "MoveMe", "1:House").status.code(),
+        Some(0)
+    );
+    assert!(!rejected.exists());
+    let _ = fs::remove_file(input);
+    let _ = fs::remove_file(output);
+}
+
+#[test]
 fn playlist_move_cli_updates_parent_counts_and_preserves_input() {
     let fixture = format!(
         "{}/../../xtask/tests/fixtures/rekordbox-a1/F-02/source.bin",

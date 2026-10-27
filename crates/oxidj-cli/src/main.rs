@@ -1606,6 +1606,62 @@ fn run_rekordbox(args: &[String]) -> i32 {
             }
         };
     }
+    if args.first().is_some_and(|action| action == "move-folder") {
+        if args.len() != 21
+            || args[1] != "--xml"
+            || args[3] != "--output"
+            || args[5] != "--folder-index"
+            || args[7] != "--expected-name"
+            || args[9] != "--source-parent-index"
+            || args[11] != "--source-parent-name"
+            || args[13] != "--expected-source-order"
+            || args[15] != "--target-parent-index"
+            || args[17] != "--target-parent-name"
+            || args[19] != "--expected-target-order"
+        {
+            eprintln!(
+                "error: expected rekordbox move-folder --xml IN --output NEW --folder-index N --expected-name NAME --source-parent-index N --source-parent-name NAME --expected-source-order TYPE:NAME,... --target-parent-index N --target-parent-name NAME --expected-target-order TYPE:NAME,..."
+            );
+            return USAGE;
+        }
+        let parse_index = |index: usize| args[index].parse::<usize>();
+        let (Ok(folder_index), Ok(source_parent_index), Ok(target_parent_index)) =
+            (parse_index(6), parse_index(10), parse_index(16))
+        else {
+            eprintln!("error: folder indices must be non-negative integers");
+            return USAGE;
+        };
+        let parse_order = |value: &str| {
+            if value.is_empty() {
+                Vec::new()
+            } else {
+                value.split(',').map(str::to_owned).collect()
+            }
+        };
+        let request = oxidj_application::FolderMoveRequest {
+            folder_index,
+            expected_folder_name: args[8].clone(),
+            source_parent_index,
+            expected_source_parent_name: args[12].clone(),
+            expected_source_order: parse_order(&args[14]),
+            target_parent_index,
+            expected_target_parent_name: args[18].clone(),
+            expected_target_order: parse_order(&args[20]),
+        };
+        return match oxidj_application::export_rekordbox_folder_move(&args[2], &args[4], &request) {
+            Ok(()) => {
+                println!(
+                    "Moved folder[{}] to folder[{}]",
+                    folder_index, target_parent_index
+                );
+                OK
+            }
+            Err(error) => {
+                eprintln!("error: folder move rejected: {error}");
+                DOMAIN
+            }
+        };
+    }
     if args
         .first()
         .is_some_and(|action| action == "rename-playlist")
@@ -2300,6 +2356,10 @@ fn print_usage(to_stdout: bool) {
     let _ = writeln!(
         output,
         "  rekordbox move-playlist --xml <in> --output <new> --playlist-index <n> --expected-name <name> --expected-members <IDs> --source-parent-index <n> --source-parent-name <name> --target-parent-index <n> --target-parent-name <name> --expected-target-order <names>   Move one playlist to another folder"
+    );
+    let _ = writeln!(
+        output,
+        "  rekordbox move-folder --xml <in> --output <new> --folder-index <n> --expected-name <name> --source-parent-index <n> --source-parent-name <name> --expected-source-order <typed-names> --target-parent-index <n> --target-parent-name <name> --expected-target-order <typed-names>   Move one folder subtree to another folder"
     );
     let _ = writeln!(
         output,

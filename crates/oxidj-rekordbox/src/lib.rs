@@ -210,6 +210,22 @@ pub struct PlaylistMoveRequest {
 pub struct PreparedPlaylistMove {
     pub bytes: Vec<u8>,
 }
+/// Move one guarded folder subtree to another non-root folder.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FolderMoveRequest {
+    pub folder_index: usize,
+    pub expected_folder_name: String,
+    pub source_parent_index: usize,
+    pub expected_source_parent_name: String,
+    pub expected_source_order: Vec<String>,
+    pub target_parent_index: usize,
+    pub expected_target_parent_name: String,
+    pub expected_target_order: Vec<String>,
+}
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PreparedFolderMove {
+    pub bytes: Vec<u8>,
+}
 /// One optimistic, ordinal-scoped rename of a non-root Type=0 folder.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FolderRenameRequest {
@@ -2856,6 +2872,328 @@ pub fn prepare_sibling_folder_reorder(
         return Err(Error("sibling folder reorder verification failed".into()));
     }
     Ok(PreparedSiblingFolderReorder { bytes: output })
+}
+
+/// Prepare one guarded cross-folder subtree move; only its two parent Counts change.
+pub fn prepare_folder_move(
+    bytes: &[u8],
+    request: &FolderMoveRequest,
+) -> Result<PreparedFolderMove, Error> {
+    #[derive(Clone)]
+    struct Folder {
+        name: String,
+        parent: Option<usize>,
+        range: Option<std::ops::Range<usize>>,
+        close_start: Option<usize>,
+        empty_range: Option<std::ops::Range<usize>>,
+        count: usize,
+        count_range: std::ops::Range<usize>,
+        children: Vec<String>,
+    }
+    struct Frame {
+        ty: String,
+        folder: Option<usize>,
+    }
+    fn scan(bytes: &[u8]) -> Result<Vec<Folder>, Error> {
+        let mut reader = Reader::from_reader(bytes);
+        reader.config_mut().check_end_names = true;
+        let mut buf = Vec::new();
+        let mut stack: Vec<Frame> = Vec::new();
+        let mut folders: Vec<Folder> = Vec::new();
+        loop {
+            let start = reader.buffer_position() as usize;
+            let event = reader
+                .read_event_into(&mut buf)
+                .map_err(|error| Error(format!("malformed XML: {error}")))?;
+            let end = reader.buffer_position() as usize;
+            match event {
+                Event::Start(element) if element.name().as_ref() == b"NODE" => {
+                    let ty = attr(&element, "Type")?;
+                    let name = attr(&element, "Name")?;
+                    let parent = stack
+                        .last()
+                        .filter(|frame| frame.ty == "0")
+                        .and_then(|frame| frame.folder);
+                    let root = ty == "0" && stack.is_empty();
+                    let folder = if ty == "0" && !root {
+                        if let Some(parent) = parent {
+                            folders[parent].children.push(format!("0:{name}"));
+                        }
+                        let raw_count = attr(&element, "Count")?;
+                        let count = raw_count
+                            .parse::<usize>()
+                            .map_err(|_| Error("invalid folder Count".into()))?;
+                        let count_range =
+                            attribute_value_range(&element, start, "Count", &raw_count)?;
+                        let index = folders.len();
+                        folders.push(Folder {
+                            name,
+                            parent,
+                            range: Some(start..end),
+                            close_start: None,
+                            empty_range: None,
+                            count,
+                            count_range,
+                            children: Vec::new(),
+                        });
+                        Some(index)
+                    } else {
+                        if ty == "1"
+                            && let Some(parent) = parent
+                        {
+                            folders[parent].children.push(format!("1:{name}"));
+                        }
+                        None
+                    };
+                    stack.push(Frame { ty, folder });
+                }
+                Event::Empty(element) if element.name().as_ref() == b"NODE" => {
+                    let ty = attr(&element, "Type")?;
+                    let name = attr(&element, "Name")?;
+                    let parent = stack
+                        .last()
+                        .filter(|frame| frame.ty == "0")
+                        .and_then(|frame| frame.folder);
+                    if ty == "1" {
+                        if let Some(parent) = parent {
+                            folders[parent].children.push(format!("1:{name}"));
+                        }
+                    } else if ty == "0" && !stack.is_empty() {
+                        if let Some(parent) = parent {
+                            folders[parent].children.push(format!("0:{name}"));
+                        }
+                        let raw_count = attr(&element, "Count")?;
+                        let count = raw_count
+                            .parse::<usize>()
+                            .map_err(|_| Error("invalid folder Count".into()))?;
+                        let count_range =
+                            attribute_value_range(&element, start, "Count", &raw_count)?;
+                        folders.push(Folder {
+                            name,
+                            parent,
+                            range: Some(start..end),
+                            close_start: None,
+                            empty_range: Some(start..end),
+                            count,
+                            count_range,
+                            children: Vec::new(),
+                        });
+                    }
+                }
+                Event::End(element) if element.name().as_ref() == b"NODE" => {
+                    let frame = stack
+                        .pop()
+                        .ok_or_else(|| Error("unexpected closing NODE".into()))?;
+                    if let Some(index) = frame.folder {
+                        folders[index].range.as_mut().unwrap().end = end;
+                        folders[index].close_start = Some(start);
+                    }
+                }
+                Event::Eof => break,
+                _ => {}
+            }
+            buf.clear();
+        }
+        if !stack.is_empty() {
+            return Err(Error("malformed folder NODE".into()));
+        }
+        Ok(folders)
+    }
+
+    let before = preflight_export(bytes)?;
+    let folders = scan(bytes)?;
+    let folder = folders
+        .get(request.folder_index)
+        .ok_or_else(|| Error("no source folder at requested ordinal".into()))?;
+    if folder.name != request.expected_folder_name {
+        return Err(Error("source folder Name changed".into()));
+    }
+    let source_parent_index = folder
+        .parent
+        .ok_or_else(|| Error("source folder must have a non-root parent".into()))?;
+    if source_parent_index != request.source_parent_index {
+        return Err(Error("source parent folder changed".into()));
+    }
+    let source_parent = &folders[source_parent_index];
+    let target_parent = folders
+        .get(request.target_parent_index)
+        .ok_or_else(|| Error("no target parent folder at requested ordinal".into()))?;
+    if source_parent.name != request.expected_source_parent_name
+        || target_parent.name != request.expected_target_parent_name
+    {
+        return Err(Error("source or target parent Name changed".into()));
+    }
+    if source_parent_index == request.target_parent_index {
+        return Err(Error("source and target parents are the same".into()));
+    }
+    let mut ancestor = Some(request.target_parent_index);
+    while let Some(index) = ancestor {
+        if index == request.folder_index {
+            return Err(Error(
+                "target parent is inside source folder subtree".into(),
+            ));
+        }
+        ancestor = folders[index].parent;
+    }
+    let unique = |children: &[String]| {
+        let names: HashSet<_> = children.iter().collect();
+        names.len() == children.len()
+    };
+    if !unique(&source_parent.children) || !unique(&target_parent.children) {
+        return Err(Error("ambiguous duplicate direct child Names".into()));
+    }
+    if source_parent.children != request.expected_source_order {
+        return Err(Error("source parent child order changed".into()));
+    }
+    if target_parent.children != request.expected_target_order {
+        return Err(Error("target parent child order changed".into()));
+    }
+    if source_parent.count != source_parent.children.len()
+        || target_parent.count != target_parent.children.len()
+    {
+        return Err(Error(
+            "source or target parent Count does not match children".into(),
+        ));
+    }
+    let source_count = source_parent
+        .count
+        .checked_sub(1)
+        .ok_or_else(|| Error("source parent Count is zero".into()))?;
+    let target_count = target_parent
+        .count
+        .checked_add(1)
+        .ok_or_else(|| Error("target parent Count overflow".into()))?;
+    let source_range = folder
+        .range
+        .clone()
+        .ok_or_else(|| Error("source folder byte range missing".into()))?;
+    let moved_folder_count = folders
+        .iter()
+        .filter(|candidate| {
+            candidate.range.as_ref().is_some_and(|range| {
+                range.start >= source_range.start && range.end <= source_range.end
+            })
+        })
+        .count();
+    let source_child = format!("0:{}", folder.name);
+    let moved_bytes = bytes[source_range.clone()].to_vec();
+
+    let mut changes = vec![
+        (source_range, Vec::new()),
+        (
+            source_parent.count_range.clone(),
+            source_count.to_string().into_bytes(),
+        ),
+    ];
+    if let Some(target_range) = target_parent.empty_range.as_ref() {
+        let mut expanded = bytes[target_range.clone()].to_vec();
+        let count_range = target_parent.count_range.start - target_range.start
+            ..target_parent.count_range.end - target_range.start;
+        expanded.splice(count_range, target_count.to_string().bytes());
+        let slash = expanded
+            .windows(2)
+            .rposition(|pair| pair == b"/>")
+            .ok_or_else(|| Error("empty target parent is not self-closing".into()))?;
+        expanded.splice(slash..slash + 2, *b">");
+        let line_start = bytes[..target_range.start]
+            .iter()
+            .rposition(|byte| *byte == b'\n')
+            .map_or(0, |index| index + 1);
+        let indent = &bytes[line_start..target_range.start];
+        let indent = if indent.iter().all(|byte| matches!(byte, b' ' | b'\t')) {
+            indent
+        } else {
+            &[]
+        };
+        expanded.extend_from_slice(b"\n");
+        expanded.extend_from_slice(indent);
+        expanded.extend_from_slice(&moved_bytes);
+        expanded.extend_from_slice(b"\n");
+        expanded.extend_from_slice(indent);
+        expanded.extend_from_slice(b"</NODE>");
+        changes.push((target_range.clone(), expanded));
+    } else {
+        let close_start = target_parent
+            .close_start
+            .ok_or_else(|| Error("target parent is not paired".into()))?;
+        let line_start = bytes[..close_start]
+            .iter()
+            .rposition(|byte| *byte == b'\n')
+            .map_or(0, |index| index + 1);
+        let indent = &bytes[line_start..close_start];
+        let indent = if indent.iter().all(|byte| matches!(byte, b' ' | b'\t')) {
+            indent
+        } else {
+            &[]
+        };
+        let mut insertion = Vec::new();
+        insertion.extend_from_slice(b"\n");
+        insertion.extend_from_slice(indent);
+        insertion.extend_from_slice(&moved_bytes);
+        insertion.extend_from_slice(b"\n");
+        insertion.extend_from_slice(indent);
+        changes.push((
+            target_parent.count_range.clone(),
+            target_count.to_string().into_bytes(),
+        ));
+        changes.push((close_start..close_start, insertion));
+    }
+    changes.sort_by_key(|(range, _)| std::cmp::Reverse(range.start));
+    let mut output = bytes.to_vec();
+    for (range, replacement) in changes {
+        output.splice(range, replacement);
+    }
+    let after = preflight_export(&output)?;
+    let after_folders = scan(&output)?;
+    let after_target_parent_index = if request.target_parent_index > request.folder_index {
+        request
+            .target_parent_index
+            .checked_sub(moved_folder_count)
+            .ok_or_else(|| Error("target parent ordinal underflow".into()))?
+    } else {
+        request.target_parent_index
+    };
+    let after_source_parent = after_folders
+        .get(request.source_parent_index)
+        .ok_or_else(|| Error("source parent missing after move".into()))?;
+    let after_target_parent = after_folders
+        .get(after_target_parent_index)
+        .ok_or_else(|| Error("target parent missing after move".into()))?;
+    let expected_source_order: Vec<_> = request
+        .expected_source_order
+        .iter()
+        .filter(|child| **child != source_child)
+        .cloned()
+        .collect();
+    let mut expected_target_order = request.expected_target_order.clone();
+    expected_target_order.push(source_child);
+    if after_source_parent.children != expected_source_order
+        || after_target_parent.children != expected_target_order
+        || after_source_parent.count != after_source_parent.children.len()
+        || after_target_parent.count != after_target_parent.children.len()
+    {
+        return Err(Error(
+            "folder move child order or Count verification failed".into(),
+        ));
+    }
+    let mut before_playlists: Vec<_> = before
+        .selected_playlists
+        .iter()
+        .map(|playlist| (playlist.name.clone(), playlist.tracks.clone()))
+        .collect();
+    let mut after_playlists: Vec<_> = after
+        .selected_playlists
+        .iter()
+        .map(|playlist| (playlist.name.clone(), playlist.tracks.clone()))
+        .collect();
+    before_playlists.sort_unstable();
+    after_playlists.sort_unstable();
+    if after.selected_tracks != before.selected_tracks || before_playlists != after_playlists {
+        return Err(Error(
+            "folder move changed track or playlist membership semantics".into(),
+        ));
+    }
+    Ok(PreparedFolderMove { bytes: output })
 }
 
 /// Prepare one guarded non-root folder rename, preserving every other source byte.
@@ -8352,6 +8690,75 @@ mod tests {
             assert!(prepare_sibling_playlist_reorder(source.as_bytes(), &invalid).is_err());
         }
         assert!(prepare_sibling_playlist_reorder(b"<bad", &request).is_err());
+    }
+
+    #[test]
+    fn guarded_folder_move_preserves_subtree_and_updates_parent_counts() {
+        let fixture = include_bytes!("../../../xtask/tests/fixtures/rekordbox-a1/F-02/source.bin");
+        let source = String::from_utf8(fixture.to_vec())
+            .unwrap()
+            .replace("Name=\"Sets\" Count=\"2\"", "Name=\"Sets\" Count=\"3\"")
+            .replace(
+                "        <NODE Type=\"1\" Name=\"House\" Entries=\"3\" KeyType=\"0\">\n          <TRACK Key=\"100\"/>\n          <TRACK Key=\"200\"/>\n          <TRACK Key=\"300\"/>\n        </NODE>",
+                "        <NODE Type=\"0\" Name=\"MoveMe\" Count=\"1\"><NODE Type=\"1\" Name=\"House\" Entries=\"3\" KeyType=\"0\"><TRACK Key=\"100\"/><TRACK Key=\"200\"/><TRACK Key=\"300\"/></NODE></NODE>",
+            )
+            .replace(
+                "      </NODE>\n    </NODE>\n  </PLAYLISTS>",
+                "        <NODE Type=\"0\" Name=\"Target\" Count=\"0\"/>\n      </NODE>\n    </NODE>\n  </PLAYLISTS>",
+            );
+        let request = FolderMoveRequest {
+            folder_index: 1,
+            expected_folder_name: "MoveMe".into(),
+            source_parent_index: 0,
+            expected_source_parent_name: "Sets".into(),
+            expected_source_order: vec!["0:MoveMe".into(), "1:Techno".into(), "0:Target".into()],
+            target_parent_index: 2,
+            expected_target_parent_name: "Target".into(),
+            expected_target_order: vec![],
+        };
+        let original = source.clone();
+        let result = prepare_folder_move(source.as_bytes(), &request).unwrap();
+        assert_eq!(source, original);
+        let after = preflight_export(&result.bytes).unwrap();
+        assert_eq!(after.selected_tracks.len(), 4);
+        let house = after
+            .selected_playlists
+            .iter()
+            .find(|playlist| playlist.name == "House")
+            .unwrap();
+        assert_eq!(house.path, ["Sets", "Target", "MoveMe", "House"]);
+        assert_eq!(house.tracks, ["100", "200", "300"]);
+        let techno = after
+            .selected_playlists
+            .iter()
+            .find(|playlist| playlist.name == "Techno")
+            .unwrap();
+        assert_eq!(techno.path, ["Sets", "Techno"]);
+        let output = String::from_utf8(result.bytes).unwrap();
+        assert!(output.contains("Name=\"Sets\" Count=\"2\""));
+        assert!(output.contains("Name=\"Target\" Count=\"1\">"));
+        assert!(output.contains("Name=\"MoveMe\" Count=\"1\"><NODE Type=\"1\" Name=\"House\""));
+
+        let same_parent = FolderMoveRequest {
+            target_parent_index: 0,
+            expected_target_parent_name: "Sets".into(),
+            expected_target_order: request.expected_source_order.clone(),
+            ..request.clone()
+        };
+        assert!(prepare_folder_move(source.as_bytes(), &same_parent).is_err());
+        let cycle = FolderMoveRequest {
+            target_parent_index: 1,
+            expected_target_parent_name: "MoveMe".into(),
+            expected_target_order: vec!["1:House".into()],
+            ..request.clone()
+        };
+        assert!(prepare_folder_move(source.as_bytes(), &cycle).is_err());
+        let stale = FolderMoveRequest {
+            expected_target_order: vec!["stale".into()],
+            ..request
+        };
+        assert!(prepare_folder_move(source.as_bytes(), &stale).is_err());
+        assert!(prepare_folder_move(b"<bad", &same_parent).is_err());
     }
 
     #[test]
