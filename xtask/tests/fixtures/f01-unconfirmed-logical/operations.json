@@ -1,0 +1,1 @@
+[{"expected_revision":0,"operation":"import","operation_id":"import-a","record_id":"r1","result":"accepted","revision_after":1},{"expected_revision":1,"operation":"import-candidate","operation_id":"import-b","reason":"unconfirmed-identity","record_id":"r2","result":"identity-conflict","revision_after":1}]

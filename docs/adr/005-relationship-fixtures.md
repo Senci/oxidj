@@ -149,6 +149,18 @@ contains one track corresponding to t1; it need not have the same ID or old path
 `oxidj-f01-different-v1\n` → reason `source-id-content-disagreement`;
 (b) different namespaces sharing ID 100, without confirmed reconciliation →
 `unconfirmed-identity`; (c) same path but different content → `path-content-disagreement`.
+
+**Observed logical-only result (unconfirmed cross-namespace identity subcase):**
+`xtask/tests/fixtures/f01-unconfirmed-logical/` freezes distinct literal source
+namespaces with shared external ID 100 and the exact same synthetic content witness.
+No reconciliation occurs: r1 remains the selected original and r2 an unresolved
+candidate; safe-v1 export is blocked with the exact `IDENTITY_CONFLICT` report,
+reason `unconfirmed-identity`. `xtask/tests/f01_unconfirmed_logical.rs` independently
+checks source, operations, archive, visible, plan, report, provenance and exact
+artifact set; mutation controls reject silent merge, namespace/ID/content drift,
+added confirmation and report/plan changes. Logical-only PASS; other F-01 conflicts,
+Mixxx A2 and ADR-005 promotion remain open.
+
 No silent merge, original unchanged, export blocked with `IDENTITY_CONFLICT`,
 record `r2`, null element/cause, field `identity`, exact reason above. A fourth
 subcase confirms relocation but B says BPM 129: retain both assertions, project
@@ -423,7 +435,7 @@ those controls or restores and defines no product media/retention policy.
 
 | Case | Required specification behavior | Observed result |
 |---|---|---|
-| F-01 | Explicit reconciliation/conflicts, archive vs current location | Same-content relocation success PASS; same-namespace/source-ID content-conflict subcase PASS — logical-only fixture/checker; remaining conflict subcases NOT DEMONSTRATED; A2 NOT DEMONSTRATED |
+| F-01 | Explicit reconciliation/conflicts, archive vs current location | Same-content relocation success PASS; same-namespace/source-ID content-conflict and unconfirmed cross-namespace identity subcases PASS — logical-only fixtures/checkers; remaining conflict subcases NOT DEMONSTRATED; A2 NOT DEMONSTRATED |
 | F-02 | XML child order, shared endpoints | PASS — synthetic A1 checker/tests; no application acceptance |
 | F-03 | Constant grid/cue/range preservation | PASS — logical-only fixture/checker and mutation controls; A2 NOT DEMONSTRATED |
 | F-04 | Revisioned edits, stale conflicts, analysis precedence | NOT DEMONSTRATED |
