@@ -52,6 +52,18 @@ fn check(
     Ok(())
 }
 fn check_provenance(provenance: &Value, source: &[u8]) -> Result<(), &'static str> {
+    let identity = read("checker-identity.json");
+    let live_checker =
+        std::fs::read(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/f08b_logical.rs"))
+            .map_err(|_| "checker source missing")?;
+    let expected_identity = json!({
+        "path": "xtask/tests/f08b_logical.rs",
+        "version": "f08b-logical-checker-v1",
+        "sha256": digest(&live_checker)
+    });
+    if identity != expected_identity || provenance["checker_identity"] != identity {
+        return Err("checker identity mismatch");
+    }
     if provenance["case_id"] != "F-08b"
         || provenance["classification"] != "logical-only-not-A3-evidence"
         || provenance["source_citation"] != "docs/adr/005-relationship-fixtures.md §3 F-08b"
@@ -70,6 +82,7 @@ fn check_provenance(provenance: &Value, source: &[u8]) -> Result<(), &'static st
         "expected-visible.json",
         "operations.json",
         "source.bin",
+        "checker-identity.json",
     ]
     .into_iter()
     .collect::<BTreeSet<_>>();
@@ -83,6 +96,21 @@ fn check_provenance(provenance: &Value, source: &[u8]) -> Result<(), &'static st
         != expected
     {
         return Err("provenance artifact set mismatch");
+    }
+    let actual = std::fs::read_dir(fixture("."))
+        .map_err(|_| "fixture missing")?
+        .map(|entry| entry.map_err(|_| "entry unreadable"))
+        .collect::<Result<Vec<_>, _>>()?
+        .into_iter()
+        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+        .collect::<BTreeSet<_>>();
+    let expected_files = expected
+        .iter()
+        .map(|name| name.to_string())
+        .chain(["provenance.json".to_owned()])
+        .collect::<BTreeSet<_>>();
+    if actual != expected_files {
+        return Err("live fixture artifact set mismatch");
     }
     for (name, info) in artifacts {
         let bytes = std::fs::read(fixture(name)).map_err(|_| "artifact missing")?;
@@ -147,4 +175,16 @@ fn f08b_checker_rejects_report_visibility_and_original_mutations() {
     let mut changed_provenance = read("provenance.json");
     changed_provenance["artifacts"]["source.bin"]["sha256"] = json!("00");
     assert!(check_provenance(&changed_provenance, &source).is_err());
+    for (key, value) in [
+        ("path", json!("xtask/tests/other.rs")),
+        ("version", json!("drift")),
+        ("sha256", json!("wrong")),
+    ] {
+        let mut drift = read("provenance.json");
+        drift["checker_identity"][key] = value;
+        assert!(check_provenance(&drift, &source).is_err());
+    }
+    let mut extra = read("provenance.json");
+    extra["artifacts"]["unexpected.json"] = json!({});
+    assert!(check_provenance(&extra, &source).is_err());
 }
