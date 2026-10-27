@@ -427,6 +427,43 @@ fn run_rekordbox(args: &[String]) -> i32 {
     }
     if args
         .first()
+        .is_some_and(|action| action == "edit-track-grouping")
+    {
+        if args.len() != 11
+            || args[1] != "--xml"
+            || args[3] != "--output"
+            || args[5] != "--track-id"
+            || args[7] != "--expected-grouping"
+            || args[9] != "--grouping"
+        {
+            eprintln!(
+                "error: expected rekordbox edit-track-grouping --xml IN --output NEW --track-id ID --expected-grouping OLD --grouping NEW"
+            );
+            return USAGE;
+        }
+        let request = oxidj_application::TrackGroupingEditRequest {
+            track_id: args[6].clone(),
+            expected_old_grouping: args[8].clone(),
+            new_grouping: args[10].clone(),
+        };
+        return match oxidj_application::export_rekordbox_track_grouping_edit(
+            &args[2], &args[4], &request,
+        ) {
+            Ok(change) => {
+                println!(
+                    "Changed Grouping for track[{}]: {:?} to {:?}",
+                    change.track_id, change.old_grouping, change.new_grouping
+                );
+                OK
+            }
+            Err(error) => {
+                eprintln!("error: track Grouping edit rejected: {error}");
+                DOMAIN
+            }
+        };
+    }
+    if args
+        .first()
         .is_some_and(|action| action == "edit-track-composer")
     {
         if args.len() != 11
@@ -1027,7 +1064,7 @@ fn run_rekordbox(args: &[String]) -> i32 {
                 println!("Selected units:");
                 for track in plan.selected_tracks {
                     println!(
-                        "Track\t{}\t{}\t{:?}\t{:?}\t{:?}\t{:?}\t{:?}\t{:?}\t{:?}\t{}",
+                        "Track\t{}\t{}\t{:?}\t{:?}\t{:?}\t{:?}\t{:?}\t{:?}\t{:?}\t{:?}\t{}",
                         track.id,
                         track.name,
                         track.artist,
@@ -1036,6 +1073,7 @@ fn run_rekordbox(args: &[String]) -> i32 {
                         track.genre,
                         track.label,
                         track.composer,
+                        track.grouping,
                         track.tonality,
                         track.location
                     );
@@ -1299,7 +1337,35 @@ fn print_usage(to_stdout: bool) {
     );
     let _ = writeln!(
         output,
-        "  rekordbox edit-track-composer --xml <in> --output <new> --track-id <id> --expected-composer <old> --composer <new>   Export one guarded track Composer edit\n  rekordbox edit-track-tonality --xml <in> --output <new> --track-id <id> --expected-tonality <old> --tonality <new>   Export one guarded track Tonality edit\n  rekordbox edit-track-album --xml <in> --output <new> --track-id <id> --expected-album <old> --album <new>   Export one guarded track Album edit\n  rekordbox edit-track-genre --xml <in> --output <new> --track-id <id> --expected-genre <old> --genre <new>   Export one guarded track Genre edit\n  rekordbox edit-track-label --xml <in> --output <new> --track-id <id> --expected-label <old> --label <new>   Export one guarded track Label edit\n  rekordbox edit-track-comments --xml <in> --output <new> --track-id <id> --expected-comments <old> --comments <new>   Export one guarded track Comments edit\n  rekordbox edit-track-artist --xml <in> --output <new> --track-id <id> --expected-artist <old> --artist <new>   Export one guarded track Artist edit"
+        "  rekordbox edit-track-grouping --xml <in> --output <new> --track-id <id> --expected-grouping <old> --grouping <new>   Export one guarded track Grouping edit"
+    );
+    let _ = writeln!(
+        output,
+        "  rekordbox edit-track-composer --xml <in> --output <new> --track-id <id> --expected-composer <old> --composer <new>   Export one guarded track Composer edit"
+    );
+    let _ = writeln!(
+        output,
+        "  rekordbox edit-track-tonality --xml <in> --output <new> --track-id <id> --expected-tonality <old> --tonality <new>   Export one guarded track Tonality edit"
+    );
+    let _ = writeln!(
+        output,
+        "  rekordbox edit-track-album --xml <in> --output <new> --track-id <id> --expected-album <old> --album <new>   Export one guarded track Album edit"
+    );
+    let _ = writeln!(
+        output,
+        "  rekordbox edit-track-genre --xml <in> --output <new> --track-id <id> --expected-genre <old> --genre <new>   Export one guarded track Genre edit"
+    );
+    let _ = writeln!(
+        output,
+        "  rekordbox edit-track-label --xml <in> --output <new> --track-id <id> --expected-label <old> --label <new>   Export one guarded track Label edit"
+    );
+    let _ = writeln!(
+        output,
+        "  rekordbox edit-track-comments --xml <in> --output <new> --track-id <id> --expected-comments <old> --comments <new>   Export one guarded track Comments edit"
+    );
+    let _ = writeln!(
+        output,
+        "  rekordbox edit-track-artist --xml <in> --output <new> --track-id <id> --expected-artist <old> --artist <new>   Export one guarded track Artist edit"
     );
     let _ = writeln!(
         output,

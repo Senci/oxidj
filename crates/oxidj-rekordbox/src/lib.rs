@@ -12,6 +12,7 @@ pub struct Track {
     pub genre: Option<String>,
     pub label: Option<String>,
     pub composer: Option<String>,
+    pub grouping: Option<String>,
     pub tonality: Option<String>,
     pub location: String,
     pub tempos: Vec<Tempo>,
@@ -389,6 +390,23 @@ pub struct PreparedTrackComposerEdit {
     pub bytes: Vec<u8>,
     pub change: TrackComposerEditChange,
 }
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TrackGroupingEditRequest {
+    pub track_id: String,
+    pub expected_old_grouping: String,
+    pub new_grouping: String,
+}
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TrackGroupingEditChange {
+    pub track_id: String,
+    pub old_grouping: String,
+    pub new_grouping: String,
+}
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PreparedTrackGroupingEdit {
+    pub bytes: Vec<u8>,
+    pub change: TrackGroupingEditChange,
+}
 /// Raw Tonality is preserved as supplied; no key notation is inferred.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TrackTonalityEditRequest {
@@ -524,6 +542,7 @@ pub fn parse(bytes: &[u8]) -> Result<Preview, Error> {
                         genre: optional(&e, "Genre")?,
                         label: optional(&e, "Label")?,
                         composer: optional(&e, "Composer")?,
+                        grouping: optional(&e, "Grouping")?,
                         tonality: optional(&e, "Tonality")?,
                         location: attr(&e, "Location")?,
                         tempos: vec![],
@@ -609,6 +628,7 @@ pub fn parse(bytes: &[u8]) -> Result<Preview, Error> {
                         genre: optional(&e, "Genre")?,
                         label: optional(&e, "Label")?,
                         composer: optional(&e, "Composer")?,
+                        grouping: optional(&e, "Grouping")?,
                         tonality: optional(&e, "Tonality")?,
                         location: attr(&e, "Location")?,
                         tempos: vec![],
@@ -741,7 +761,7 @@ fn validate_export_element(
         "COLLECTION" => &["Entries"],
         "TRACK" if parent == Some("COLLECTION") => &[
             "TrackID", "Name", "Artist", "Comments", "Album", "Genre", "Label", "Composer",
-            "Tonality", "Location",
+            "Grouping", "Tonality", "Location",
         ],
         "TRACK" => &["Key"],
         "TEMPO" => &["Inizio", "Bpm", "Metro", "Battito"],
@@ -2468,6 +2488,72 @@ pub fn prepare_track_composer_edit(
     })
 }
 
+/// Prepare one exact-old-value guarded Track Grouping edit.
+pub fn prepare_track_grouping_edit(
+    bytes: &[u8],
+    request: &TrackGroupingEditRequest,
+) -> Result<PreparedTrackGroupingEdit, Error> {
+    let before = preflight_export(bytes)?;
+    let matches: Vec<_> = before
+        .selected_tracks
+        .iter()
+        .filter(|t| t.id == request.track_id)
+        .collect();
+    let track = match matches.as_slice() {
+        [] => return Err(Error(format!("unknown TrackID {}", request.track_id))),
+        [track] => *track,
+        _ => return Err(Error(format!("duplicate TrackID {}", request.track_id))),
+    };
+    let old_grouping = track
+        .grouping
+        .as_deref()
+        .ok_or_else(|| Error("track Grouping missing".into()))?;
+    if old_grouping != request.expected_old_grouping {
+        return Err(Error("track Grouping changed".into()));
+    }
+    if !request.new_grouping.chars().all(
+        |c| matches!(c as u32, 9 | 10 | 13 | 0x20..=0xD7FF | 0xE000..=0xFFFD | 0x10000..=0x10FFFF),
+    ) {
+        return Err(Error("new Grouping contains invalid XML 1.0 text".into()));
+    }
+    let range = track_attribute_range(
+        bytes,
+        &request.track_id,
+        "Grouping",
+        &request.expected_old_grouping,
+    )?;
+    let escaped = request
+        .new_grouping
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&apos;")
+        .replace('\t', "&#9;")
+        .replace('\n', "&#10;")
+        .replace('\r', "&#13;");
+    let mut output = bytes.to_vec();
+    output.splice(range, escaped.bytes());
+    let after = preflight_export(&output)?;
+    let mut expected = before.selected_tracks.clone();
+    expected
+        .iter_mut()
+        .find(|t| t.id == request.track_id)
+        .unwrap()
+        .grouping = Some(request.new_grouping.clone());
+    if after.selected_tracks != expected {
+        return Err(Error("track Grouping edit verification failed".into()));
+    }
+    Ok(PreparedTrackGroupingEdit {
+        bytes: output,
+        change: TrackGroupingEditChange {
+            track_id: request.track_id.clone(),
+            old_grouping: old_grouping.to_owned(),
+            new_grouping: request.new_grouping.clone(),
+        },
+    })
+}
+
 /// Prepare one exact-old-value guarded Track Tonality edit.
 pub fn prepare_track_tonality_edit(
     bytes: &[u8],
@@ -4099,6 +4185,83 @@ mod tests {
         assert_eq!(
             parse(empty.as_bytes()).unwrap().tracks[0]
                 .composer
+                .as_deref(),
+            Some("")
+        );
+    }
+
+    #[test]
+    fn guarded_track_grouping_edit_preserves_optional_state_and_xml_whitespace() {
+        let base = include_bytes!("../../../xtask/tests/fixtures/rekordbox-a1/F-02/source.bin");
+        let source = String::from_utf8(base.to_vec()).unwrap().replacen(
+            "TrackID=\"100\" Name=\"A\"",
+            "TrackID=\"100\" Name=\"A\" Grouping=\"old &amp; note\"",
+            1,
+        );
+        let parsed = parse(source.as_bytes()).unwrap();
+        assert_eq!(parsed.tracks[0].grouping.as_deref(), Some("old & note"));
+        assert_eq!(parsed.tracks[1].grouping, None);
+        let request = TrackGroupingEditRequest {
+            track_id: "100".into(),
+            expected_old_grouping: "old & note".into(),
+            new_grouping: "A\tB\nC\rD & <x>".into(),
+        };
+        let prepared = prepare_track_grouping_edit(source.as_bytes(), &request).unwrap();
+        assert!(
+            String::from_utf8(prepared.bytes.clone())
+                .unwrap()
+                .contains("Grouping=\"A&#9;B&#10;C&#13;D &amp; &lt;x&gt;\"")
+        );
+        assert_eq!(
+            parse(&prepared.bytes).unwrap().tracks[0]
+                .grouping
+                .as_deref(),
+            Some("A\tB\nC\rD & <x>")
+        );
+        let expected = source.replacen(
+            "Grouping=\"old &amp; note\"",
+            "Grouping=\"A&#9;B&#10;C&#13;D &amp; &lt;x&gt;\"",
+            1,
+        );
+        assert_eq!(prepared.bytes, expected.as_bytes());
+        let xml = String::from_utf8(prepared.bytes.clone()).unwrap();
+        let decoded = std::process::Command::new("python3")
+            .args([
+                "-c",
+                "import sys,xml.etree.ElementTree as E; r=E.fromstring(sys.argv[1]); t=next(x for x in r.find('COLLECTION') if x.get('TrackID')=='100'); assert t.get('Grouping')=='A\\tB\\nC\\rD & <x>'; assert next(x for x in r.find('COLLECTION') if x.get('TrackID')=='200').get('Grouping') is None",
+                &xml,
+            ])
+            .status()
+            .unwrap();
+        assert!(decoded.success(), "independent ElementTree decode failed");
+        for request in [
+            TrackGroupingEditRequest {
+                track_id: "200".into(),
+                expected_old_grouping: "".into(),
+                new_grouping: "x".into(),
+            },
+            TrackGroupingEditRequest {
+                track_id: "999".into(),
+                expected_old_grouping: "x".into(),
+                new_grouping: "y".into(),
+            },
+            TrackGroupingEditRequest {
+                track_id: "100".into(),
+                expected_old_grouping: "stale".into(),
+                new_grouping: "y".into(),
+            },
+            TrackGroupingEditRequest {
+                track_id: "100".into(),
+                expected_old_grouping: "old & note".into(),
+                new_grouping: "bad\u{1}".into(),
+            },
+        ] {
+            assert!(prepare_track_grouping_edit(source.as_bytes(), &request).is_err());
+        }
+        let empty = source.replacen("Grouping=\"old &amp; note\"", "Grouping=\"\"", 1);
+        assert_eq!(
+            parse(empty.as_bytes()).unwrap().tracks[0]
+                .grouping
                 .as_deref(),
             Some("")
         );

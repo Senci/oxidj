@@ -13,14 +13,15 @@ pub use oxidj_rekordbox::{
     PreparedPositionMarkNameEdit, PreparedTempoBeatEdit, PreparedTempoEdit, PreparedTempoMeterEdit,
     PreparedTempoStartEdit, PreparedTrackAlbumEdit, PreparedTrackArtistEdit,
     PreparedTrackCommentsEdit, PreparedTrackComposerEdit, PreparedTrackDelete,
-    PreparedTrackGenreEdit, PreparedTrackLabelEdit, PreparedTrackNameEdit, Preview,
-    TempoBeatEditChange, TempoBeatEditRequest, TempoEditChange, TempoEditRequest,
-    TempoMeterEditChange, TempoMeterEditRequest, TempoStartEditChange, TempoStartEditRequest,
-    TrackAlbumEditChange, TrackAlbumEditRequest, TrackArtistEditChange, TrackArtistEditRequest,
-    TrackCommentsEditChange, TrackCommentsEditRequest, TrackComposerEditChange,
-    TrackComposerEditRequest, TrackDeleteRequest, TrackGenreEditChange, TrackGenreEditRequest,
-    TrackLabelEditChange, TrackLabelEditRequest, TrackNameEditChange, TrackNameEditRequest,
-    TrackTonalityEditChange, TrackTonalityEditRequest,
+    PreparedTrackGenreEdit, PreparedTrackGroupingEdit, PreparedTrackLabelEdit,
+    PreparedTrackNameEdit, Preview, TempoBeatEditChange, TempoBeatEditRequest, TempoEditChange,
+    TempoEditRequest, TempoMeterEditChange, TempoMeterEditRequest, TempoStartEditChange,
+    TempoStartEditRequest, TrackAlbumEditChange, TrackAlbumEditRequest, TrackArtistEditChange,
+    TrackArtistEditRequest, TrackCommentsEditChange, TrackCommentsEditRequest,
+    TrackComposerEditChange, TrackComposerEditRequest, TrackDeleteRequest, TrackGenreEditChange,
+    TrackGenreEditRequest, TrackGroupingEditChange, TrackGroupingEditRequest, TrackLabelEditChange,
+    TrackLabelEditRequest, TrackNameEditChange, TrackNameEditRequest, TrackTonalityEditChange,
+    TrackTonalityEditRequest,
 };
 
 /// Read-only preview handler; parsing and vendor-specific semantics stay in the adapter.
@@ -96,6 +97,18 @@ pub fn export_rekordbox_track_composer_edit(
 ) -> Result<TrackComposerEditChange, RekordboxError> {
     let (source, output) = read_new_export_source(input, output)?;
     let prepared = oxidj_rekordbox::prepare_track_composer_edit(&source, request)?;
+    publish_new_file(&output, &prepared.bytes)?;
+    Ok(prepared.change)
+}
+
+/// Export one guarded track Grouping edit to a new, non-overwriting file.
+pub fn export_rekordbox_track_grouping_edit(
+    input: impl AsRef<Path>,
+    output: impl AsRef<Path>,
+    request: &TrackGroupingEditRequest,
+) -> Result<TrackGroupingEditChange, RekordboxError> {
+    let (source, output) = read_new_export_source(input, output)?;
+    let prepared = oxidj_rekordbox::prepare_track_grouping_edit(&source, request)?;
     publish_new_file(&output, &prepared.bytes)?;
     Ok(prepared.change)
 }
