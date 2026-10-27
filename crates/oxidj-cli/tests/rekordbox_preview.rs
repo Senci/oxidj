@@ -77,11 +77,11 @@ fn preview_and_export_plan_report_track_year_states_and_export_preserves_source_
         .unwrap()
         .replace(
             "TrackID=\"100\" Name=\"A\"",
-            "TrackID=\"100\" Name=\"A\" Year=\"2024\" Size=\"9223372036854775807\"",
+            "TrackID=\"100\" Name=\"A\" Year=\"2024\" Size=\"9223372036854775807\" DiscNumber=\"-2147483648\"",
         )
         .replace(
             "TrackID=\"200\" Name=\"B\"",
-            "TrackID=\"200\" Name=\"B\" Year=\"\" Size=\"\"",
+            "TrackID=\"200\" Name=\"B\" Year=\"\" Size=\"\" DiscNumber=\"\"",
         )
         .into_bytes();
     let input = temporary_path("year-input");
@@ -102,8 +102,8 @@ fn preview_and_export_plan_report_track_year_states_and_export_preserves_source_
             String::from_utf8_lossy(&result.stderr)
         );
         let stdout = String::from_utf8(result.stdout).unwrap();
-        for (track_id, expected_size) in [
-            ("100", "Some(\"9223372036854775807\")"),
+        for (track_id, expected_disc_number) in [
+            ("100", "Some(\"-2147483648\")"),
             ("200", "Some(\"\")"),
             ("300", "None"),
         ] {
@@ -114,7 +114,11 @@ fn preview_and_export_plan_report_track_year_states_and_export_preserves_source_
                         || line.starts_with(&format!("Track\t{track_id}\t"))
                 })
                 .unwrap_or_else(|| panic!("missing TrackID {track_id} row in:\\n{stdout}"));
-            assert_eq!(row.split('\t').next_back(), Some(expected_size), "{row}");
+            assert_eq!(
+                row.split('\t').next_back(),
+                Some(expected_disc_number),
+                "{row}"
+            );
         }
     }
     let result = Command::new(env!("CARGO_BIN_EXE_oxidj-cli"))
@@ -272,7 +276,7 @@ fn export_plan_shows_ordered_f10_units_without_writing() {
         concat!(
             "Decision: ALLOW_EXPORT\n",
             "Selected units:\n",
-            "Track\t1000\tVariable tempo\tNone\tNone\tNone\tNone\tNone\tNone\tNone\tNone\tNone\tNone\tfile://localhost/music/variable.flac\tNone\tNone\tNone\n",
+            "Track\t1000\tVariable tempo\tNone\tNone\tNone\tNone\tNone\tNone\tNone\tNone\tNone\tNone\tfile://localhost/music/variable.flac\tNone\tNone\tNone\tNone\n",
             "TEMPO\t1000\t0\t120\t4/4\t1\n",
             "TEMPO\t1000\t8\t128\t4/4\t1\n",
             "TEMPO\t1000\t16\t132\t7/8\t3\n",
