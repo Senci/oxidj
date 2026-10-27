@@ -227,6 +227,8 @@ An additional in-memory F-02 case appends TrackID 100 to an empty self-closing T
 
 **Observed synthetic XML empty-folder deletion (F-02):** A non-root Type=0 folder was selected by ordinal and exact Name; deletion required `Count=0` and no child elements, and decremented only the immediate parent folder's `Count`. Adapter tests cover paired and self-closing empty nodes plus root, nonempty, stale, out-of-range, and bad-count refusal; a CLI test confirms new-file export and unchanged source bytes. Sol approved commit `02588b3` and independently passed `cargo xtask ci-full`. This bounded XML behavior does not demonstrate Rekordbox/OneLibrary compatibility, ADR-005 promotion, or qualification.
 
+**Observed synthetic XML sibling-playlist reorder (F-02):** Direct Type=1 playlist nodes are reordered within an ordinal/name-guarded paired non-root folder, with exact current-order and unique-permutation guards. Only playlist NODE slots move; an interleaved child folder, counts, memberships, collection tracks and source bytes remain unchanged. Adapter and CLI regressions cover stale/duplicate/invalid/root/stale-parent/malformed refusal, new-file export and source immutability. Sol approved commit `3896976` and independently passed `cargo xtask ci-full` (exit 0; `ci=ok test=ok deny=ok`). This synthetic XML behavior does not demonstrate Rekordbox/OneLibrary compatibility, ADR-005 promotion, or qualification.
+
 ### F-03: Constant grid, cues and range unchanged
 
 Mixxx-derived **logical CueInfo DTO**, not a claimed Mixxx library transport.
