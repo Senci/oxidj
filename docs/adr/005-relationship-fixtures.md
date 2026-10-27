@@ -185,6 +185,12 @@ OxiDJ analysis origin or a claim about any eventual library transport.
 Fail on index-zero loss, end fabrication, range collapse or changed grid.
 Real Mixxx transport/DB fidelity remains A2, not implied by DTO equality.
 
+**Observed logical-only result:** `xtask/tests/fixtures/f03-logical/` freezes canonical
+source bytes, case, operations, archive, visible, plan, report and provenance;
+`xtask/tests/f03_logical.rs` independently checks the literal contract and rejects
+index-zero loss, fabricated point end, collapsed loop range and changed grid.
+This is not A2 evidence or a real Mixxx transport claim.
+
 ### F-04: Edits, composition, conflicts and analysis precedence
 
 Start with F-03 grid and only c0. Imported origin is `VENDOR:Mixxx` with retained
@@ -399,7 +405,7 @@ those controls or restores and defines no product media/retention policy.
 |---|---|---|
 | F-01 | Explicit reconciliation/conflicts, archive vs current location | NOT DEMONSTRATED |
 | F-02 | XML child order, shared endpoints | PASS — synthetic A1 checker/tests; no application acceptance |
-| F-03 | Constant grid/cue/range preservation | NOT DEMONSTRATED |
+| F-03 | Constant grid/cue/range preservation | PASS — logical-only fixture/checker and mutation controls; A2 NOT DEMONSTRATED |
 | F-04 | Revisioned edits, stale conflicts, analysis precedence | NOT DEMONSTRATED |
 | F-05 | Synthetic unknown-kind bytes; real vendor gap | NOT DEMONSTRATED |
 | F-06 / F-06b | Absolute independence / declared anchor loss | NOT DEMONSTRATED |
