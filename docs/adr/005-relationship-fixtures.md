@@ -359,6 +359,8 @@ an absolute Start invalid. Fail if this bounded case moves/withholds c0 or inven
 a dependency warning. No claim about Rekordbox UI recalculation. Loss behavior is
 exercised by F-06b, F-08b and F-12, not fabricated tempo coupling.
 
+**Observed F-09 post-edit independent evidence for one synthetic F-07 POSITION_MARK deletion:** Frozen `xtask/tests/fixtures/f07-position-mark-delete/source.xml` contains two marks on TrackID 700. The existing adapter deletes ordinal 0 under exact raw Type/Start/Name/End guards; `xtask/tests/f07_position_mark_delete_oracle.rs` decodes with test-only `quick-xml`, not the production importer. It verifies only the selected mark is removed, retained mark including raw `End="0"`, TEMPO fields/order, TrackID/metadata, playlist tree and source bytes remain exact, and rejects restored/deleted-wrong mark plus retained-mark, tempo and collection mutations. This is one synthetic case only; global F-09 and vendor qualification remain **NOT DEMONSTRATED**.
+
 ### F-08: Alternate encodings and unsupported position edit
 
 Synthetic object as F-05, replacing kind with0 and opaque_hex with `deadbeef`,
