@@ -5668,15 +5668,27 @@ mod tests {
     }
 
     #[test]
-    fn guarded_playlist_delete_refuses_malformed_xml_and_non_playlist_ordinal() {
+    fn guarded_playlist_delete_refuses_malformed_xml_root_and_folder_selection() {
         let source = include_bytes!("../../../xtask/tests/fixtures/rekordbox-a1/F-02/source.bin");
-        let request = PlaylistDeleteRequest {
+        let root = PlaylistDeleteRequest {
+            playlist_index: 0,
+            expected_name: "ROOT".into(),
+            expected_order: vec![],
+        };
+        let folder = PlaylistDeleteRequest {
             playlist_index: 2,
             expected_name: "Sets".into(),
             expected_order: vec![],
         };
-        assert!(prepare_playlist_delete(source, &request).is_err());
-        assert!(prepare_playlist_delete(b"<DJ_PLAYLISTS>", &request).is_err());
+        assert!(prepare_playlist_delete(source, &root).is_err());
+        assert!(prepare_playlist_delete(source, &folder).is_err());
+        let malformed = b"<DJ_PLAYLISTS>";
+        let playlist = PlaylistDeleteRequest {
+            playlist_index: 0,
+            expected_name: "House".into(),
+            expected_order: vec!["100".into(), "200".into(), "300".into()],
+        };
+        assert!(prepare_playlist_delete(malformed, &playlist).is_err());
     }
 
     #[test]

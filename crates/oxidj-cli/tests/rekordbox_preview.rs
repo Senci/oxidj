@@ -3509,10 +3509,55 @@ fn delete_playlist_cli_guards_ordinal_and_preserves_source() {
     assert!(!empty_export.contains("<NODE Type=\"1\" Name=\"House\" Entries=\"0\""));
     assert!(empty_export.contains("<NODE Type=\"0\" Name=\"Sets\" Count=\"1\">"));
     assert_eq!(fs::read(&empty_input).unwrap(), empty_source);
+
+    // Duplicate names remain addressable by ordinal plus the member-order guard.
+    let duplicate_output = temporary_path("playlist-delete-duplicate");
+    let duplicate_result = invoke(&duplicate_output, "1", "House", "200,400");
+    assert_eq!(duplicate_result.status.code(), Some(0));
+    let duplicate_export = fs::read_to_string(&duplicate_output).unwrap();
+    assert!(duplicate_export.contains("<NODE Type=\"1\" Name=\"House\" Entries=\"3\""));
+    assert!(!duplicate_export.contains("<NODE Type=\"1\" Name=\"House\" Entries=\"2\""));
+    let ambiguous_output = temporary_path("playlist-delete-ambiguous");
+    assert_ne!(
+        invoke(&ambiguous_output, "1", "House", "100,200,300")
+            .status
+            .code(),
+        Some(0)
+    );
+    assert!(!ambiguous_output.exists());
+
+    // Malformed input must be rejected without creating an output file.
+    let malformed_input = temporary_path("playlist-delete-malformed-input");
+    let malformed_output = temporary_path("playlist-delete-malformed-output");
+    fs::write(&malformed_input, b"<DJ_PLAYLISTS>").unwrap();
+    let malformed_result = Command::new(env!("CARGO_BIN_EXE_oxidj-cli"))
+        .args([
+            "rekordbox",
+            "delete-playlist",
+            "--xml",
+            malformed_input.to_str().unwrap(),
+            "--output",
+            malformed_output.to_str().unwrap(),
+            "--playlist-index",
+            "0",
+            "--expected-name",
+            "House",
+            "--expected-order",
+            "100,200,300",
+        ])
+        .output()
+        .unwrap();
+    assert_ne!(malformed_result.status.code(), Some(0));
+    assert!(!malformed_output.exists());
+
     let _ = fs::remove_file(input);
     let _ = fs::remove_file(output);
     let _ = fs::remove_file(empty_input);
     let _ = fs::remove_file(empty_output);
+    let _ = fs::remove_file(duplicate_output);
+    let _ = fs::remove_file(ambiguous_output);
+    let _ = fs::remove_file(malformed_input);
+    let _ = fs::remove_file(malformed_output);
 }
 
 #[test]
