@@ -70,6 +70,44 @@ fn run(args: &[String]) -> i32 {
 fn run_rekordbox(args: &[String]) -> i32 {
     if args
         .first()
+        .is_some_and(|action| action == "append-playlist-member")
+    {
+        if args.len() != 11
+            || args[1] != "--xml"
+            || args[3] != "--output"
+            || args[5] != "--playlist-index"
+            || args[7] != "--expected-order"
+            || args[9] != "--track-id"
+        {
+            eprintln!(
+                "error: expected rekordbox append-playlist-member --xml IN --output NEW --playlist-index N --expected-order ID,ID --track-id ID"
+            );
+            return USAGE;
+        }
+        let Ok(playlist_index) = args[6].parse::<usize>() else {
+            eprintln!("error: malformed playlist index");
+            return USAGE;
+        };
+        let request = oxidj_application::PlaylistMemberAppendRequest {
+            playlist_index,
+            expected_order: args[8].split(',').map(str::to_owned).collect(),
+            track_id: args[10].clone(),
+        };
+        return match oxidj_application::export_rekordbox_playlist_member_append(
+            &args[2], &args[4], &request,
+        ) {
+            Ok(()) => {
+                println!("Appended playlist reference {}", args[10]);
+                OK
+            }
+            Err(error) => {
+                eprintln!("error: playlist member append rejected: {error}");
+                DOMAIN
+            }
+        };
+    }
+    if args
+        .first()
         .is_some_and(|action| action == "remove-playlist-member")
     {
         if args.len() != 11
@@ -796,6 +834,10 @@ fn print_usage(to_stdout: bool) {
     let _ = writeln!(
         output,
         "  rekordbox delete-track --xml <in> --output <new> --track-id <id> --expected-memberships <index:IDs;...>   Delete a track and all guarded playlist memberships"
+    );
+    let _ = writeln!(
+        output,
+        "  rekordbox append-playlist-member --xml <in> --output <new> --playlist-index <n> --expected-order <IDs> --track-id <id>   Append one existing track to one guarded playlist"
     );
     let _ = writeln!(
         output,

@@ -4,14 +4,15 @@ use std::path::Path;
 
 pub use oxidj_rekordbox::{
     Error as RekordboxError, ExportDecision, ExportPreflight, FolderRenameChange,
-    FolderRenameRequest, PlaylistMemberDeleteRequest, PlaylistRenameChange, PlaylistRenameRequest,
-    PlaylistReorderRequest, PositionMarkEditChange, PositionMarkEditRequest,
-    PositionMarkEndEditChange, PositionMarkEndEditRequest, PositionMarkNameEditChange,
-    PositionMarkNameEditRequest, PreparedFolderRename, PreparedPlaylistRename,
-    PreparedPlaylistReorder, PreparedPositionMarkEdit, PreparedPositionMarkEndEdit,
-    PreparedPositionMarkNameEdit, PreparedTempoEdit, PreparedTempoStartEdit, PreparedTrackDelete,
-    PreparedTrackNameEdit, Preview, TempoEditChange, TempoEditRequest, TempoStartEditChange,
-    TempoStartEditRequest, TrackDeleteRequest, TrackNameEditChange, TrackNameEditRequest,
+    FolderRenameRequest, PlaylistMemberAppendRequest, PlaylistMemberDeleteRequest,
+    PlaylistRenameChange, PlaylistRenameRequest, PlaylistReorderRequest, PositionMarkEditChange,
+    PositionMarkEditRequest, PositionMarkEndEditChange, PositionMarkEndEditRequest,
+    PositionMarkNameEditChange, PositionMarkNameEditRequest, PreparedFolderRename,
+    PreparedPlaylistRename, PreparedPlaylistReorder, PreparedPositionMarkEdit,
+    PreparedPositionMarkEndEdit, PreparedPositionMarkNameEdit, PreparedTempoEdit,
+    PreparedTempoStartEdit, PreparedTrackDelete, PreparedTrackNameEdit, Preview, TempoEditChange,
+    TempoEditRequest, TempoStartEditChange, TempoStartEditRequest, TrackDeleteRequest,
+    TrackNameEditChange, TrackNameEditRequest,
 };
 
 /// Read-only preview handler; parsing and vendor-specific semantics stay in the adapter.
@@ -39,6 +40,17 @@ pub fn export_rekordbox_playlist_member_delete(
 ) -> Result<(), RekordboxError> {
     let (source, output) = read_new_export_source(input, output)?;
     let prepared = oxidj_rekordbox::prepare_playlist_member_delete(&source, request)?;
+    publish_new_file(&output, &prepared.bytes)
+}
+
+/// Export one guarded append of an existing collection track to a playlist.
+pub fn export_rekordbox_playlist_member_append(
+    input: impl AsRef<Path>,
+    output: impl AsRef<Path>,
+    request: &PlaylistMemberAppendRequest,
+) -> Result<(), RekordboxError> {
+    let (source, output) = read_new_export_source(input, output)?;
+    let prepared = oxidj_rekordbox::prepare_playlist_member_append(&source, request)?;
     publish_new_file(&output, &prepared.bytes)
 }
 

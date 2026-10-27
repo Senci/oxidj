@@ -88,6 +88,17 @@ pub struct PlaylistMemberDeleteRequest {
 pub struct PreparedPlaylistMemberDelete {
     pub bytes: Vec<u8>,
 }
+/// Append one existing track to a playlist after an exact ordinal/order guard.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PlaylistMemberAppendRequest {
+    pub playlist_index: usize,
+    pub expected_order: Vec<String>,
+    pub track_id: String,
+}
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PreparedPlaylistMemberAppend {
+    pub bytes: Vec<u8>,
+}
 /// Reorder an existing playlist after an exact ordinal/order optimistic guard.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PlaylistReorderRequest {
@@ -1207,6 +1218,185 @@ pub fn prepare_playlist_member_delete(
     Ok(PreparedPlaylistMemberDelete { bytes: output })
 }
 
+/// Prepare append of one existing collection track to a guarded playlist.
+pub fn prepare_playlist_member_append(
+    bytes: &[u8],
+    request: &PlaylistMemberAppendRequest,
+) -> Result<PreparedPlaylistMemberAppend, Error> {
+    let before = preflight_export(bytes)?;
+    let playlist = before
+        .selected_playlists
+        .get(request.playlist_index)
+        .ok_or_else(|| Error("playlist ordinal is stale".into()))?;
+    if playlist.tracks != request.expected_order {
+        return Err(Error("playlist order changed".into()));
+    }
+    if playlist.tracks.iter().any(|id| id == &request.track_id) {
+        return Err(Error("playlist already contains TrackID".into()));
+    }
+    if before
+        .selected_tracks
+        .iter()
+        .filter(|track| track.id == request.track_id)
+        .count()
+        != 1
+    {
+        return Err(Error(
+            "target collection track missing or duplicated".into(),
+        ));
+    }
+
+    let mut reader = Reader::from_reader(bytes);
+    reader.config_mut().check_end_names = true;
+    let mut buf = Vec::new();
+    let mut stack = Vec::<String>::new();
+    let mut track_key_value = None;
+    loop {
+        let start = reader.buffer_position() as usize;
+        let event = reader
+            .read_event_into(&mut buf)
+            .map_err(|error| Error(format!("malformed XML: {error}")))?;
+        match event {
+            Event::Start(element) => {
+                if element.name().as_ref() == b"TRACK"
+                    && stack.last().is_some_and(|parent| parent == "COLLECTION")
+                    && attr(&element, "TrackID")? == request.track_id
+                {
+                    if track_key_value.is_some() {
+                        return Err(Error("target collection track is ambiguous".into()));
+                    }
+                    let range =
+                        attribute_value_range(&element, start, "TrackID", &request.track_id)?;
+                    track_key_value = Some(bytes[range].to_vec());
+                }
+                stack.push(String::from_utf8_lossy(element.name().as_ref()).into_owned());
+            }
+            Event::Empty(element) => {
+                if element.name().as_ref() == b"TRACK"
+                    && stack.last().is_some_and(|parent| parent == "COLLECTION")
+                    && attr(&element, "TrackID")? == request.track_id
+                {
+                    if track_key_value.is_some() {
+                        return Err(Error("target collection track is ambiguous".into()));
+                    }
+                    let range =
+                        attribute_value_range(&element, start, "TrackID", &request.track_id)?;
+                    track_key_value = Some(bytes[range].to_vec());
+                }
+            }
+            Event::End(_) => {
+                stack.pop();
+            }
+            Event::Eof => break,
+            _ => {}
+        }
+        buf.clear();
+    }
+    let track_key_value = track_key_value
+        .ok_or_else(|| Error("target collection TrackID location missing".into()))?;
+
+    let mut reader = Reader::from_reader(bytes);
+    reader.config_mut().check_end_names = true;
+    let mut buf = Vec::new();
+    let mut node_stack = Vec::<Option<usize>>::new();
+    let mut next_playlist = 0usize;
+    let mut target_tag = None;
+    let mut target_close = None;
+    loop {
+        let start = reader.buffer_position() as usize;
+        let event = reader
+            .read_event_into(&mut buf)
+            .map_err(|error| Error(format!("malformed XML: {error}")))?;
+        let end = reader.buffer_position() as usize;
+        match event {
+            Event::Start(element) if element.name().as_ref() == b"NODE" => {
+                let playlist = if attr(&element, "Type")? == "1" {
+                    let current = next_playlist;
+                    next_playlist += 1;
+                    Some(current)
+                } else {
+                    None
+                };
+                if playlist == Some(request.playlist_index) {
+                    target_tag = Some((start..end, false));
+                }
+                node_stack.push(playlist);
+            }
+            Event::Empty(element) if element.name().as_ref() == b"NODE" => {
+                if attr(&element, "Type")? == "1" {
+                    if next_playlist == request.playlist_index {
+                        target_tag = Some((start..end, true));
+                    }
+                    next_playlist += 1;
+                }
+            }
+            Event::End(element) if element.name().as_ref() == b"NODE" => {
+                if node_stack.pop().flatten() == Some(request.playlist_index) {
+                    target_close = Some(start);
+                }
+            }
+            Event::Eof => break,
+            _ => {}
+        }
+        buf.clear();
+    }
+    let (tag, self_closing) = target_tag.ok_or_else(|| Error("playlist node missing".into()))?;
+    let count = count_attribute_value_range(&bytes[tag.clone()], "Entries")?;
+    let old_count = std::str::from_utf8(&bytes[tag.start + count.start..tag.start + count.end])
+        .map_err(|_| Error("invalid Entries".into()))?
+        .parse::<usize>()
+        .map_err(|_| Error("malformed Entries".into()))?;
+    if old_count != request.expected_order.len() {
+        return Err(Error("playlist Entries count mismatch".into()));
+    }
+    let new_count = old_count
+        .checked_add(1)
+        .ok_or_else(|| Error("Entries overflow".into()))?
+        .to_string();
+    let mut member = b"<TRACK Key=\"".to_vec();
+    member.extend_from_slice(&track_key_value);
+    member.extend_from_slice(b"\"/>");
+
+    let mut edits = Vec::new();
+    if self_closing {
+        let mut replacement = bytes[tag.clone()].to_vec();
+        replacement.splice(count, new_count.bytes());
+        if !replacement.ends_with(b"/>") {
+            return Err(Error("empty playlist NODE is not self-closing".into()));
+        }
+        replacement.splice(replacement.len() - 2.., b">".iter().copied());
+        replacement.extend_from_slice(&member);
+        replacement.extend_from_slice(b"</NODE>");
+        edits.push((tag, replacement));
+    } else {
+        let close = target_close.ok_or_else(|| Error("playlist closing NODE missing".into()))?;
+        if close < tag.end {
+            return Err(Error("playlist NODE span is invalid".into()));
+        }
+        edits.push((
+            tag.start + count.start..tag.start + count.end,
+            new_count.into_bytes(),
+        ));
+        edits.push((close..close, member));
+    }
+    edits.sort_by_key(|(range, _)| std::cmp::Reverse(range.start));
+    let mut output = bytes.to_vec();
+    for (range, replacement) in edits {
+        output.splice(range, replacement);
+    }
+    let after = preflight_export(&output)?;
+    let mut expected_playlists = before.selected_playlists.clone();
+    expected_playlists[request.playlist_index]
+        .tracks
+        .push(request.track_id.clone());
+    if after.selected_tracks != before.selected_tracks
+        || after.selected_playlists != expected_playlists
+    {
+        return Err(Error("playlist member append verification failed".into()));
+    }
+    Ok(PreparedPlaylistMemberAppend { bytes: output })
+}
+
 /// Prepare a byte-preserving reorder of playlist membership elements.
 pub fn prepare_playlist_reorder(
     bytes: &[u8],
@@ -2281,6 +2471,50 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    #[test]
+    fn guarded_playlist_member_append_preserves_collection_and_other_playlist() {
+        let source = include_bytes!("../../../xtask/tests/fixtures/rekordbox-a1/F-02/source.bin");
+        let request = PlaylistMemberAppendRequest {
+            playlist_index: 1,
+            expected_order: vec!["200".into(), "400".into()],
+            track_id: "100".into(),
+        };
+        let result = prepare_playlist_member_append(source, &request).unwrap();
+        let after = preflight_export(&result.bytes).unwrap();
+        assert_eq!(
+            after.selected_tracks,
+            preflight_export(source).unwrap().selected_tracks
+        );
+        assert_eq!(after.selected_playlists[0].tracks, ["100", "200", "300"]);
+        assert_eq!(after.selected_playlists[1].tracks, ["200", "400", "100"]);
+        assert!(
+            result
+                .bytes
+                .windows(b"Name=\"Techno\" Entries=\"3\"".len())
+                .any(|w| w == b"Name=\"Techno\" Entries=\"3\"")
+        );
+        assert_eq!(
+            source,
+            include_bytes!("../../../xtask/tests/fixtures/rekordbox-a1/F-02/source.bin")
+        );
+        for invalid in [
+            PlaylistMemberAppendRequest {
+                expected_order: vec!["200".into()],
+                ..request.clone()
+            },
+            PlaylistMemberAppendRequest {
+                track_id: "200".into(),
+                ..request.clone()
+            },
+            PlaylistMemberAppendRequest {
+                track_id: "999".into(),
+                ..request.clone()
+            },
+        ] {
+            assert!(prepare_playlist_member_append(source, &invalid).is_err());
+        }
     }
 
     #[test]

@@ -1218,6 +1218,55 @@ fn remove_playlist_member_cli_retains_track_and_rejects_stale_guard() {
     let _ = fs::remove_file(output);
 }
 
+#[test]
+fn append_playlist_member_cli_adds_existing_track_and_rejects_stale_guard() {
+    let fixture = format!(
+        "{}/../../xtask/tests/fixtures/rekordbox-a1/F-02/source.bin",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let input = temporary_path("member-append-input");
+    let output = temporary_path("member-append-output");
+    let source = fs::read(fixture).unwrap();
+    fs::write(&input, &source).unwrap();
+    let invoke = |target: &std::path::Path, order: &str| {
+        Command::new(env!("CARGO_BIN_EXE_oxidj-cli"))
+            .args([
+                "rekordbox",
+                "append-playlist-member",
+                "--xml",
+                input.to_str().unwrap(),
+                "--output",
+                target.to_str().unwrap(),
+                "--playlist-index",
+                "1",
+                "--expected-order",
+                order,
+                "--track-id",
+                "100",
+            ])
+            .output()
+            .unwrap()
+    };
+    let result = invoke(&output, "200,400");
+    assert_eq!(
+        result.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let exported = fs::read_to_string(&output).unwrap();
+    assert!(exported.contains("<COLLECTION Entries=\"4\">"));
+    assert!(exported.contains("Name=\"House\" Entries=\"3\""));
+    assert!(exported.contains("Name=\"Techno\" Entries=\"3\""));
+    assert!(exported.contains("<TRACK Key=\"100\"/>"));
+    assert_eq!(fs::read(&input).unwrap(), source);
+    let stale = temporary_path("member-append-stale");
+    assert_ne!(invoke(&stale, "200").status.code(), Some(0));
+    assert!(!stale.exists());
+    let _ = fs::remove_file(input);
+    let _ = fs::remove_file(output);
+}
+
 fn temporary_path(label: &str) -> std::path::PathBuf {
     let stamp = SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)
