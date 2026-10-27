@@ -21,6 +21,7 @@ pub struct Track {
     pub size: Option<String>,
     pub disc_number: Option<String>,
     pub track_number: Option<String>,
+    pub total_time: Option<String>,
     pub location: String,
     pub tempos: Vec<Tempo>,
     pub marks: Vec<PositionMark>,
@@ -592,6 +593,7 @@ pub fn parse(bytes: &[u8]) -> Result<Preview, Error> {
                         size: optional(&e, "Size")?,
                         disc_number: optional(&e, "DiscNumber")?,
                         track_number: optional(&e, "TrackNumber")?,
+                        total_time: optional(&e, "TotalTime")?,
                         location: attr(&e, "Location")?,
                         tempos: vec![],
                         marks: vec![],
@@ -685,6 +687,7 @@ pub fn parse(bytes: &[u8]) -> Result<Preview, Error> {
                         size: optional(&e, "Size")?,
                         disc_number: optional(&e, "DiscNumber")?,
                         track_number: optional(&e, "TrackNumber")?,
+                        total_time: optional(&e, "TotalTime")?,
                         location: attr(&e, "Location")?,
                         tempos: vec![],
                         marks: vec![],
@@ -832,6 +835,7 @@ fn validate_export_element(
             "Size",
             "DiscNumber",
             "TrackNumber",
+            "TotalTime",
             "Location",
         ],
         "TRACK" => &["Key"],
@@ -3824,11 +3828,11 @@ mod tests {
             .unwrap()
             .replace(
                 "TrackID=\"100\" Name=\"A\"",
-                "TrackID=\"100\" Name=\"A\" TrackNumber=\"-2147483648\"",
+                "TrackID=\"100\" Name=\"A\" TrackNumber=\"-2147483648\" TotalTime=\"3.141592653589793\"",
             )
             .replace(
                 "TrackID=\"200\" Name=\"B\"",
-                "TrackID=\"200\" Name=\"B\" TrackNumber=\"\"",
+                "TrackID=\"200\" Name=\"B\" TrackNumber=\"\" TotalTime=\"\"",
             );
         let source = source.as_bytes();
         let preview = parse(source).unwrap();
@@ -3838,6 +3842,12 @@ mod tests {
         );
         assert_eq!(preview.tracks[1].track_number.as_deref(), Some(""));
         assert_eq!(preview.tracks[2].track_number, None);
+        assert_eq!(
+            preview.tracks[0].total_time.as_deref(),
+            Some("3.141592653589793")
+        );
+        assert_eq!(preview.tracks[1].total_time.as_deref(), Some(""));
+        assert_eq!(preview.tracks[2].total_time, None);
         let plan = preflight_export(source).unwrap();
         assert_eq!(
             plan.selected_tracks[0].track_number.as_deref(),
@@ -3845,6 +3855,12 @@ mod tests {
         );
         assert_eq!(plan.selected_tracks[1].track_number.as_deref(), Some(""));
         assert_eq!(plan.selected_tracks[2].track_number, None);
+        assert_eq!(
+            plan.selected_tracks[0].total_time.as_deref(),
+            Some("3.141592653589793")
+        );
+        assert_eq!(plan.selected_tracks[1].total_time.as_deref(), Some(""));
+        assert_eq!(plan.selected_tracks[2].total_time, None);
         assert_eq!(export_xml(source).unwrap(), source);
     }
 

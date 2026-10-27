@@ -1138,7 +1138,7 @@ fn run_rekordbox(args: &[String]) -> i32 {
                 println!("Selected units:");
                 for track in plan.selected_tracks {
                     println!(
-                        "Track\t{}\t{}\t{:?}\t{:?}\t{:?}\t{:?}\t{:?}\t{:?}\t{:?}\t{:?}\t{:?}\t{:?}\t{}\t{:?}\t{:?}\t{:?}\t{:?}\t{:?}",
+                        "Track\t{}\t{}\t{:?}\t{:?}\t{:?}\t{:?}\t{:?}\t{:?}\t{:?}\t{:?}\t{:?}\t{:?}\t{}\t{:?}\t{:?}\t{:?}\t{:?}\t{:?}\t{:?}",
                         track.id,
                         track.name,
                         track.artist,
@@ -1156,7 +1156,8 @@ fn run_rekordbox(args: &[String]) -> i32 {
                         track.year,
                         track.size,
                         track.disc_number,
-                        track.track_number
+                        track.track_number,
+                        track.total_time
                     );
                     for tempo in track.tempos {
                         println!(
@@ -1217,7 +1218,7 @@ fn run_rekordbox(args: &[String]) -> i32 {
             println!("Tracks:");
             for t in p.tracks {
                 println!(
-                    "{}\t{}\t{:?}\t{:?}\t{:?}\t{}\t{:?}\t{:?}\t{:?}\t{:?}\t{:?}",
+                    "{}\t{}\t{:?}\t{:?}\t{:?}\t{}\t{:?}\t{:?}\t{:?}\t{:?}\t{:?}\t{:?}",
                     t.id,
                     t.name,
                     t.artist,
@@ -1228,7 +1229,8 @@ fn run_rekordbox(args: &[String]) -> i32 {
                     t.year,
                     t.size,
                     t.disc_number,
-                    t.track_number
+                    t.track_number,
+                    t.total_time
                 );
                 for x in t.tempos {
                     println!(
