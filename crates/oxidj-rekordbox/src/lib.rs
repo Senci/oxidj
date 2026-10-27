@@ -10,6 +10,7 @@ pub struct Track {
     pub comments: Option<String>,
     pub album: Option<String>,
     pub genre: Option<String>,
+    pub label: Option<String>,
     pub location: String,
     pub tempos: Vec<Tempo>,
     pub marks: Vec<PositionMark>,
@@ -353,6 +354,23 @@ pub struct PreparedTrackGenreEdit {
     pub change: TrackGenreEditChange,
 }
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TrackLabelEditRequest {
+    pub track_id: String,
+    pub expected_old_label: String,
+    pub new_label: String,
+}
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TrackLabelEditChange {
+    pub track_id: String,
+    pub old_label: String,
+    pub new_label: String,
+}
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PreparedTrackLabelEdit {
+    pub bytes: Vec<u8>,
+    pub change: TrackLabelEditChange,
+}
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PreparedTrackAlbumEdit {
     pub bytes: Vec<u8>,
     pub change: TrackAlbumEditChange,
@@ -466,6 +484,7 @@ pub fn parse(bytes: &[u8]) -> Result<Preview, Error> {
                         comments: optional(&e, "Comments")?,
                         album: optional(&e, "Album")?,
                         genre: optional(&e, "Genre")?,
+                        label: optional(&e, "Label")?,
                         location: attr(&e, "Location")?,
                         tempos: vec![],
                         marks: vec![],
@@ -548,6 +567,7 @@ pub fn parse(bytes: &[u8]) -> Result<Preview, Error> {
                         comments: optional(&e, "Comments")?,
                         album: optional(&e, "Album")?,
                         genre: optional(&e, "Genre")?,
+                        label: optional(&e, "Label")?,
                         location: attr(&e, "Location")?,
                         tempos: vec![],
                         marks: vec![],
@@ -678,7 +698,7 @@ fn validate_export_element(
         "PRODUCT" => &["Name", "Version", "Company"],
         "COLLECTION" => &["Entries"],
         "TRACK" if parent == Some("COLLECTION") => &[
-            "TrackID", "Name", "Artist", "Comments", "Album", "Genre", "Location",
+            "TrackID", "Name", "Artist", "Comments", "Album", "Genre", "Label", "Location",
         ],
         "TRACK" => &["Key"],
         "TEMPO" => &["Inizio", "Bpm", "Metro", "Battito"],
@@ -2273,6 +2293,72 @@ pub fn prepare_track_genre_edit(
     })
 }
 
+/// Prepare one exact-old-value guarded Track Label edit.
+pub fn prepare_track_label_edit(
+    bytes: &[u8],
+    request: &TrackLabelEditRequest,
+) -> Result<PreparedTrackLabelEdit, Error> {
+    let before = preflight_export(bytes)?;
+    let matches: Vec<_> = before
+        .selected_tracks
+        .iter()
+        .filter(|t| t.id == request.track_id)
+        .collect();
+    let track = match matches.as_slice() {
+        [] => return Err(Error(format!("unknown TrackID {}", request.track_id))),
+        [track] => *track,
+        _ => return Err(Error(format!("duplicate TrackID {}", request.track_id))),
+    };
+    let old_label = track
+        .label
+        .as_deref()
+        .ok_or_else(|| Error("track Label missing".into()))?;
+    if old_label != request.expected_old_label {
+        return Err(Error("track Label changed".into()));
+    }
+    if !request.new_label.chars().all(
+        |c| matches!(c as u32, 9 | 10 | 13 | 0x20..=0xD7FF | 0xE000..=0xFFFD | 0x10000..=0x10FFFF),
+    ) {
+        return Err(Error("new Label contains invalid XML 1.0 text".into()));
+    }
+    let range = track_attribute_range(
+        bytes,
+        &request.track_id,
+        "Label",
+        &request.expected_old_label,
+    )?;
+    let escaped = request
+        .new_label
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&apos;")
+        .replace('\t', "&#9;")
+        .replace('\n', "&#10;")
+        .replace('\r', "&#13;");
+    let mut output = bytes.to_vec();
+    output.splice(range, escaped.bytes());
+    let after = preflight_export(&output)?;
+    let mut expected = before.selected_tracks.clone();
+    expected
+        .iter_mut()
+        .find(|t| t.id == request.track_id)
+        .unwrap()
+        .label = Some(request.new_label.clone());
+    if after.selected_tracks != expected {
+        return Err(Error("track Label edit verification failed".into()));
+    }
+    Ok(PreparedTrackLabelEdit {
+        bytes: output,
+        change: TrackLabelEditChange {
+            track_id: request.track_id.clone(),
+            old_label: old_label.to_owned(),
+            new_label: request.new_label.clone(),
+        },
+    })
+}
+
 /// Prepare one exact-old-value guarded Track Artist edit.
 pub fn prepare_track_artist_edit(
     bytes: &[u8],
@@ -3699,6 +3785,69 @@ mod tests {
         let empty = source.replacen("Genre=\"old &amp; note\"", "Genre=\"\"", 1);
         assert_eq!(
             parse(empty.as_bytes()).unwrap().tracks[0].genre.as_deref(),
+            Some("")
+        );
+    }
+
+    #[test]
+    fn guarded_track_label_edit_preserves_optional_state_and_xml_whitespace() {
+        let base = include_bytes!("../../../xtask/tests/fixtures/rekordbox-a1/F-02/source.bin");
+        let source = String::from_utf8(base.to_vec()).unwrap().replacen(
+            "TrackID=\"100\" Name=\"A\"",
+            "TrackID=\"100\" Name=\"A\" Label=\"old &amp; note\"",
+            1,
+        );
+        let parsed = parse(source.as_bytes()).unwrap();
+        assert_eq!(parsed.tracks[0].label.as_deref(), Some("old & note"));
+        assert_eq!(parsed.tracks[1].label, None);
+        let request = TrackLabelEditRequest {
+            track_id: "100".into(),
+            expected_old_label: "old & note".into(),
+            new_label: "A\tB\nC\rD & <x>".into(),
+        };
+        let prepared = prepare_track_label_edit(source.as_bytes(), &request).unwrap();
+        assert!(
+            String::from_utf8(prepared.bytes.clone())
+                .unwrap()
+                .contains("Label=\"A&#9;B&#10;C&#13;D &amp; &lt;x&gt;\"")
+        );
+        assert_eq!(
+            parse(&prepared.bytes).unwrap().tracks[0].label.as_deref(),
+            Some("A\tB\nC\rD & <x>")
+        );
+        let expected = source.replacen(
+            "Label=\"old &amp; note\"",
+            "Label=\"A&#9;B&#10;C&#13;D &amp; &lt;x&gt;\"",
+            1,
+        );
+        assert_eq!(prepared.bytes, expected.as_bytes());
+        for request in [
+            TrackLabelEditRequest {
+                track_id: "200".into(),
+                expected_old_label: "".into(),
+                new_label: "x".into(),
+            },
+            TrackLabelEditRequest {
+                track_id: "999".into(),
+                expected_old_label: "x".into(),
+                new_label: "y".into(),
+            },
+            TrackLabelEditRequest {
+                track_id: "100".into(),
+                expected_old_label: "stale".into(),
+                new_label: "y".into(),
+            },
+            TrackLabelEditRequest {
+                track_id: "100".into(),
+                expected_old_label: "old & note".into(),
+                new_label: "bad\u{1}".into(),
+            },
+        ] {
+            assert!(prepare_track_label_edit(source.as_bytes(), &request).is_err());
+        }
+        let empty = source.replacen("Label=\"old &amp; note\"", "Label=\"\"", 1);
+        assert_eq!(
+            parse(empty.as_bytes()).unwrap().tracks[0].label.as_deref(),
             Some("")
         );
     }
