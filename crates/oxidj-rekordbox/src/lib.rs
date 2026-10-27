@@ -886,7 +886,9 @@ pub fn prepare_playlist_reorder(
     let mut stack: Vec<String> = Vec::new();
     let mut node_path: Vec<String> = Vec::new();
     let mut playlist_no = 0usize;
-    let mut target_path: Option<Vec<String>> = None;
+    let mut node_ordinal = 0usize;
+    let mut node_ids: Vec<usize> = Vec::new();
+    let mut target_node: Option<usize> = None;
     let mut spans: Vec<(String, std::ops::Range<usize>)> = Vec::new();
     loop {
         let start = reader.buffer_position() as usize;
@@ -898,10 +900,13 @@ pub fn prepare_playlist_reorder(
             Event::Start(e) if e.name().as_ref() == b"NODE" => {
                 let ty = attr(&e, "Type")?;
                 let name = attr(&e, "Name")?;
+                let this_node = node_ordinal;
+                node_ordinal += 1;
                 node_path.push(name);
+                node_ids.push(this_node);
                 if ty == "1" {
                     if playlist_no == request.playlist_index {
-                        target_path = Some(node_path.clone());
+                        target_node = Some(this_node);
                     }
                     playlist_no += 1;
                 }
@@ -909,27 +914,26 @@ pub fn prepare_playlist_reorder(
             }
             Event::Empty(e) if e.name().as_ref() == b"NODE" => {
                 if attr(&e, "Type")? == "1" {
+                    let this_node = node_ordinal;
+                    node_ordinal += 1;
                     if playlist_no == request.playlist_index {
-                        target_path = Some(
-                            node_path
-                                .iter()
-                                .cloned()
-                                .chain(std::iter::once(attr(&e, "Name")?))
-                                .collect(),
-                        );
+                        target_node = Some(this_node);
                     }
                     playlist_no += 1;
+                } else {
+                    node_ordinal += 1;
                 }
             }
             Event::Empty(e)
                 if e.name().as_ref() == b"TRACK"
-                    && target_path.as_ref().is_some_and(|p| p == &node_path) =>
+                    && target_node.is_some_and(|target| node_ids.last() == Some(&target)) =>
             {
                 spans.push((attr(&e, "Key")?, start..end));
             }
             Event::End(e) => {
                 if e.name().as_ref() == b"NODE" {
                     node_path.pop();
+                    node_ids.pop();
                 }
                 stack.pop();
             }
@@ -2070,6 +2074,38 @@ mod tests {
             };
             assert!(prepare_playlist_reorder(source, &invalid).is_err());
         }
+    }
+
+    #[test]
+    fn guarded_reorder_distinguishes_duplicate_playlist_names_by_node_identity() {
+        let source = include_bytes!("../../../xtask/tests/fixtures/rekordbox-a1/F-02/source.bin");
+        let mut text = String::from_utf8(source.to_vec()).unwrap();
+        let duplicate_branch = "      <NODE Type=\"0\" Name=\"Sets\" Count=\"1\">\n        <NODE Type=\"1\" Name=\"House\" Entries=\"3\" KeyType=\"0\">\n          <TRACK Key=\"100\"/>\n          <TRACK Key=\"200\"/>\n          <TRACK Key=\"300\"/>\n        </NODE>\n      </NODE>\n";
+        text = text.replace(
+            "<NODE Type=\"0\" Name=\"ROOT\" Count=\"1\">",
+            "<NODE Type=\"0\" Name=\"ROOT\" Count=\"2\">",
+        );
+        text = text.replace(
+            "    </NODE>\n  </PLAYLISTS>",
+            &format!("{duplicate_branch}    </NODE>\n  </PLAYLISTS>"),
+        );
+        let request = PlaylistReorderRequest {
+            playlist_index: 0,
+            expected_order: vec!["100".into(), "200".into(), "300".into()],
+            new_order: vec!["300".into(), "100".into(), "200".into()],
+        };
+        let changed = prepare_playlist_reorder(text.as_bytes(), &request)
+            .unwrap()
+            .bytes;
+        let parsed = parse(&changed).unwrap();
+        assert_eq!(parsed.playlists[0].tracks, request.new_order);
+        assert_eq!(parsed.playlists[1].tracks, vec!["200", "400"]);
+        assert_eq!(parsed.playlists[2].tracks, vec!["100", "200", "300"]);
+        assert!(
+            String::from_utf8(changed)
+                .unwrap()
+                .contains(duplicate_branch)
+        );
     }
 
     #[test]
