@@ -3473,7 +3473,7 @@ fn delete_playlist_cli_guards_ordinal_and_preserves_source() {
 
     let empty_input = temporary_path("playlist-delete-empty-input");
     let empty_output = temporary_path("playlist-delete-empty-output");
-    let empty_source = String::from_utf8(source)
+    let empty_source = String::from_utf8(source.clone())
         .unwrap()
         .replace(
             "<NODE Type=\"1\" Name=\"House\" Entries=\"2\" KeyType=\"0\">\n          <TRACK Key=\"200\"/>\n          <TRACK Key=\"400\"/>\n        </NODE>",
@@ -3517,12 +3517,37 @@ fn delete_playlist_cli_guards_ordinal_and_preserves_source() {
     let duplicate_export = fs::read_to_string(&duplicate_output).unwrap();
     assert!(duplicate_export.contains("<NODE Type=\"1\" Name=\"House\" Entries=\"3\""));
     assert!(!duplicate_export.contains("<NODE Type=\"1\" Name=\"House\" Entries=\"2\""));
+    let ambiguous_input = temporary_path("playlist-delete-ambiguous-input");
+    let ambiguous_source = String::from_utf8(source.clone())
+        .unwrap()
+        .replace(
+            "<NODE Type=\"1\" Name=\"House\" Entries=\"2\" KeyType=\"0\">\n          <TRACK Key=\"200\"/>\n          <TRACK Key=\"400\"/>\n        </NODE>",
+            "<NODE Type=\"1\" Name=\"House\" Entries=\"3\" KeyType=\"0\">\n          <TRACK Key=\"100\"/>\n          <TRACK Key=\"200\"/>\n          <TRACK Key=\"300\"/>\n        </NODE>",
+        )
+        .into_bytes();
+    fs::write(&ambiguous_input, &ambiguous_source).unwrap();
     let ambiguous_output = temporary_path("playlist-delete-ambiguous");
-    assert_ne!(
-        invoke(&ambiguous_output, "1", "House", "100,200,300")
-            .status
-            .code(),
-        Some(0)
+    let ambiguous_result = Command::new(env!("CARGO_BIN_EXE_oxidj-cli"))
+        .args([
+            "rekordbox",
+            "delete-playlist",
+            "--xml",
+            ambiguous_input.to_str().unwrap(),
+            "--output",
+            ambiguous_output.to_str().unwrap(),
+            "--playlist-index",
+            "1",
+            "--expected-name",
+            "House",
+            "--expected-order",
+            "100,200,300",
+        ])
+        .output()
+        .unwrap();
+    assert_ne!(ambiguous_result.status.code(), Some(0));
+    assert!(
+        String::from_utf8_lossy(&ambiguous_result.stderr)
+            .contains("playlist deletion guard is ambiguous")
     );
     assert!(!ambiguous_output.exists());
 
@@ -3555,6 +3580,7 @@ fn delete_playlist_cli_guards_ordinal_and_preserves_source() {
     let _ = fs::remove_file(empty_input);
     let _ = fs::remove_file(empty_output);
     let _ = fs::remove_file(duplicate_output);
+    let _ = fs::remove_file(ambiguous_input);
     let _ = fs::remove_file(ambiguous_output);
     let _ = fs::remove_file(malformed_input);
     let _ = fs::remove_file(malformed_output);

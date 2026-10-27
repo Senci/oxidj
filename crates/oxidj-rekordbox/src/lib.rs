@@ -5623,19 +5623,23 @@ mod tests {
                 .contains("<NODE Type=\"0\" Name=\"Sets\" Count=\"1\">")
         );
 
-        let ambiguous = duplicate_name
-            .windows(b"Key=\"400\"".len())
-            .position(|window| window == b"Key=\"400\"")
-            .map(|start| {
-                let mut bytes = duplicate_name.clone();
-                bytes.splice(
-                    start..start + b"Key=\"400\"".len(),
-                    b"Key=\"300\"".iter().copied(),
-                );
-                bytes
-            })
-            .unwrap();
-        assert!(prepare_playlist_delete(&ambiguous, &request).is_err());
+        let ambiguous = String::from_utf8(duplicate_name)
+            .unwrap()
+            .replace(
+                "<NODE Type=\"1\" Name=\"House\" Entries=\"2\" KeyType=\"0\">\n          <TRACK Key=\"200\"/>\n          <TRACK Key=\"400\"/>\n        </NODE>",
+                "<NODE Type=\"1\" Name=\"House\" Entries=\"3\" KeyType=\"0\">\n          <TRACK Key=\"100\"/>\n          <TRACK Key=\"200\"/>\n          <TRACK Key=\"300\"/>\n        </NODE>",
+            )
+            .into_bytes();
+        let ambiguous_error = prepare_playlist_delete(
+            &ambiguous,
+            &PlaylistDeleteRequest {
+                playlist_index: 1,
+                expected_name: "House".into(),
+                expected_order: vec!["100".into(), "200".into(), "300".into()],
+            },
+        )
+        .unwrap_err();
+        assert_eq!(ambiguous_error.0, "playlist deletion guard is ambiguous");
     }
 
     #[test]
