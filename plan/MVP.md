@@ -49,4 +49,6 @@ The original dependency and delivery order is complete for the bounded local sli
 
 Qualification protocol, runner, threshold, P0/P1, B1/B2, WAL/recovery and ADR-005/A1–A3/C1–C6 remain independently governed by their source records. Do not relabel proposal, unmeasured, NOT READY, NOT PASSED, or NOT QUALIFYING evidence as passed. No code, dependency, qualification, benchmark, or fault-campaign result is implied by this documentation amendment.
 
+**Partial test-only evidence (2026-10-27):** `xtask/tests/asset_sentinel_oracle.rs` at commit `a92e15e` asserts the exact protocol sentinel payload bytes and B1/B2 asset-ID sets using synthetic in-memory values. Independent review and the focused test passed. This does not implement canonical manifest serialization or qualify B1/B2 backup/restore; ADR-005 and B1/B2 qualification remain open and **NOT DEMONSTRATED**.
+
 This conditional plan amendment itself passes no implementation, validation, dependency-admission, M2-readiness, or qualification gate. Subsequent bounded M1–M3 implementation and acceptance status is recorded in the closeout above. ADR-005, representative-scale qualification, and production GUI readiness remain unpassed.
