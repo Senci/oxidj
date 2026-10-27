@@ -63,9 +63,83 @@ fn preview_and_export_plan_report_raw_play_count_states_and_preserve_source_byte
             (third, "None", "None", "None", "None", "None"),
         ] {
             let fields = row.split('\t').collect::<Vec<_>>();
-            let suffix = [added, modified, last_played, play_count, rating].join("\t");
+            let suffix = [added, modified, last_played, play_count, rating, "None"].join("\t");
             assert!(row.ends_with(&suffix), "{row}");
-            assert_eq!(fields.last().copied(), Some(rating), "{row}");
+            assert_eq!(fields[fields.len() - 2], rating, "{row}");
+        }
+    }
+    let result = Command::new(env!("CARGO_BIN_EXE_oxidj-cli"))
+        .args([
+            "rekordbox",
+            "export",
+            "--xml",
+            input.to_str().unwrap(),
+            "--output",
+            output.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(
+        result.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    assert_eq!(fs::read(&output).unwrap(), source);
+    assert_eq!(fs::read(&input).unwrap(), source);
+    let _ = fs::remove_file(input);
+    let _ = fs::remove_file(output);
+}
+
+#[test]
+fn preview_and_export_plan_report_raw_colour_states_and_export_preserves_source_bytes() {
+    let source = fs::read(format!(
+        "{}/../../xtask/tests/fixtures/rekordbox-a1/F-02/source.bin",
+        env!("CARGO_MANIFEST_DIR")
+    ))
+    .unwrap();
+    let source = String::from_utf8(source)
+        .unwrap()
+        .replace(
+            "TrackID=\"100\" Name=\"A\"",
+            "TrackID=\"100\" Name=\"A\" Colour=\"#12aBcF\"",
+        )
+        .replace(
+            "TrackID=\"200\" Name=\"B\"",
+            "TrackID=\"200\" Name=\"B\" Colour=\"\"",
+        )
+        .into_bytes();
+    let input = temporary_path("colour-input");
+    let output = temporary_path("colour-output");
+    fs::write(&input, &source).unwrap();
+    for args in [
+        vec!["rekordbox", "preview", "--xml", input.to_str().unwrap()],
+        vec!["rekordbox", "export-plan", "--xml", input.to_str().unwrap()],
+    ] {
+        let result = Command::new(env!("CARGO_BIN_EXE_oxidj-cli"))
+            .args(args)
+            .output()
+            .unwrap();
+        assert_eq!(
+            result.status.code(),
+            Some(0),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        let stdout = String::from_utf8(result.stdout).unwrap();
+        for (id, colour) in [
+            ("100", "Some(\"#12aBcF\")"),
+            ("200", "Some(\"\")"),
+            ("300", "None"),
+        ] {
+            let row = stdout
+                .lines()
+                .find(|line| {
+                    line.starts_with(&format!("{id}\t"))
+                        || line.starts_with(&format!("Track\t{id}\t"))
+                })
+                .unwrap();
+            assert_eq!(row.split('\t').next_back(), Some(colour), "{row}");
         }
     }
     let result = Command::new(env!("CARGO_BIN_EXE_oxidj-cli"))
@@ -203,7 +277,7 @@ fn preview_and_export_plan_report_track_year_states_and_export_preserves_source_
                 })
                 .unwrap_or_else(|| panic!("missing TrackID {track_id} row in:\\n{stdout}"));
             assert_eq!(
-                row.split('\t').rev().nth(8),
+                row.split('\t').rev().nth(10),
                 Some(expected_track_number),
                 "{row}"
             );
@@ -213,7 +287,7 @@ fn preview_and_export_plan_report_track_year_states_and_export_preserves_source_
                 _ => "None",
             };
             assert_eq!(
-                row.split('\t').rev().nth(6),
+                row.split('\t').rev().nth(7),
                 Some(match track_id {
                     "100" => "Some(\"-2147483648\")",
                     "200" => "Some(\"\")",
@@ -391,7 +465,7 @@ fn export_plan_shows_ordered_f10_units_without_writing() {
         concat!(
             "Decision: ALLOW_EXPORT\n",
             "Selected units:\n",
-            "Track\t1000\tVariable tempo\tNone\tNone\tNone\tNone\tNone\tNone\tNone\tNone\tNone\tNone\tfile://localhost/music/variable.flac\tNone\tNone\tNone\tNone\tNone\tNone\tNone\tNone\tNone\tNone\tNone\tNone\tNone\n",
+            "Track\t1000\tVariable tempo\tNone\tNone\tNone\tNone\tNone\tNone\tNone\tNone\tNone\tNone\tfile://localhost/music/variable.flac\tNone\tNone\tNone\tNone\tNone\tNone\tNone\tNone\tNone\tNone\tNone\tNone\tNone\tNone\n",
             "TEMPO\t1000\t0\t120\t4/4\t1\n",
             "TEMPO\t1000\t8\t128\t4/4\t1\n",
             "TEMPO\t1000\t16\t132\t7/8\t3\n",
