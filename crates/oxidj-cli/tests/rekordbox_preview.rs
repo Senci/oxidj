@@ -1752,8 +1752,12 @@ fn playlist_move_cli_updates_parent_counts_and_preserves_input() {
     );
     let source = String::from_utf8(fs::read(&fixture).unwrap())
         .unwrap()
-        .replace("Name=\"ROOT\" Count=\"1\"", "Name=\"ROOT\" Count=\"2\"")
+        .replace("Name=\"ROOT\" Count=\"1\"", "Name=\"ROOT\" Count=\"3\"")
         .replace("Name=\"Sets\" Count=\"2\"", "Name=\"Source\" Count=\"2\"")
+        .replace(
+            "    <NODE Type=\"0\" Name=\"Source\"",
+            "    <NODE Type=\"0\" Name=\"Empty\" Count=\"0\"/>\n    <NODE Type=\"0\" Name=\"Source\"",
+        )
         .replace(
             "      </NODE>\n    </NODE>\n  </PLAYLISTS>",
             "      </NODE>\n      <NODE Type=\"0\" Name=\"Target\" Count=\"1\"><NODE Type=\"1\" Name=\"Other\" Entries=\"1\" KeyType=\"0\"><TRACK Key=\"400\"/></NODE></NODE>\n    </NODE>\n  </PLAYLISTS>",
@@ -1777,11 +1781,11 @@ fn playlist_move_cli_updates_parent_counts_and_preserves_input() {
                 "--expected-members",
                 "100,200,300",
                 "--source-parent-index",
-                "0",
+                "1",
                 "--source-parent-name",
                 "Source",
                 "--target-parent-index",
-                "1",
+                "2",
                 "--target-parent-name",
                 "Target",
                 "--expected-target-order",
@@ -1801,6 +1805,66 @@ fn playlist_move_cli_updates_parent_counts_and_preserves_input() {
     let rejected = temporary_path("playlist-move-stale");
     assert_ne!(invoke(&rejected, "stale").status.code(), Some(0));
     assert!(!rejected.exists());
+    let _ = fs::remove_file(input);
+    let _ = fs::remove_file(output);
+}
+
+#[test]
+fn playlist_move_cli_expands_empty_target_and_moves_empty_playlist() {
+    let fixture = format!(
+        "{}/../../xtask/tests/fixtures/rekordbox-a1/F-02/source.bin",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let source = String::from_utf8(fs::read(&fixture).unwrap())
+        .unwrap()
+        .replace("Name=\"ROOT\" Count=\"1\"", "Name=\"ROOT\" Count=\"2\"")
+        .replace("Name=\"Sets\" Count=\"2\"", "Name=\"Source\" Count=\"2\"")
+        .replace(
+            "        <NODE Type=\"1\" Name=\"House\" Entries=\"3\" KeyType=\"0\">\n          <TRACK Key=\"100\"/>\n          <TRACK Key=\"200\"/>\n          <TRACK Key=\"300\"/>\n        </NODE>",
+            "        <NODE Type=\"1\" Name=\"House\" Entries=\"0\" KeyType=\"0\"/>",
+        )
+        .replace(
+            "      </NODE>\n    </NODE>\n  </PLAYLISTS>",
+            "      </NODE>\n      <NODE Type=\"0\" Name=\"Target\" Count=\"0\"/>\n    </NODE>\n  </PLAYLISTS>",
+        );
+    let input = temporary_path("playlist-move-empty-input");
+    let output = temporary_path("playlist-move-empty-output");
+    fs::write(&input, &source).unwrap();
+    let run = Command::new(env!("CARGO_BIN_EXE_oxidj-cli"))
+        .args([
+            "rekordbox",
+            "move-playlist",
+            "--xml",
+            input.to_str().unwrap(),
+            "--output",
+            output.to_str().unwrap(),
+            "--playlist-index",
+            "0",
+            "--expected-name",
+            "House",
+            "--expected-members",
+            "",
+            "--source-parent-index",
+            "0",
+            "--source-parent-name",
+            "Source",
+            "--target-parent-index",
+            "1",
+            "--target-parent-name",
+            "Target",
+            "--expected-target-order",
+            "",
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(run.status.code(), Some(0), "{:?}", run.stderr);
+    let exported = fs::read_to_string(&output).unwrap();
+    assert!(exported.contains("Name=\"Source\" Count=\"1\""));
+    assert!(exported.contains("Name=\"Target\" Count=\"1\">"));
+    assert!(exported.contains("Name=\"House\" Entries=\"0\" KeyType=\"0\"/>"));
+    assert!(exported.find("Name=\"Techno\"").unwrap() < exported.find("Name=\"House\"").unwrap());
+    assert_eq!(fs::read_to_string(&input).unwrap(), source);
+    assert_eq!(fs::read_to_string(&input).unwrap(), source);
     let _ = fs::remove_file(input);
     let _ = fs::remove_file(output);
 }

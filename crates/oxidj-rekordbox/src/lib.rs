@@ -3410,6 +3410,7 @@ pub fn prepare_playlist_move(
         children: Vec<String>,
         close_start: Option<usize>,
         playlist_insert_index: Option<usize>,
+        empty_range: Option<std::ops::Range<usize>>,
     }
     #[derive(Clone)]
     struct PlaylistNode {
@@ -3468,6 +3469,7 @@ pub fn prepare_playlist_move(
                             children: Vec::new(),
                             close_start: None,
                             playlist_insert_index: None,
+                            empty_range: None,
                         });
                         if let Some(parent) = parent {
                             folders[parent].children.push(name.clone());
@@ -3515,22 +3517,27 @@ pub fn prepare_playlist_move(
                     let count = raw_count
                         .parse::<usize>()
                         .map_err(|_| Error("invalid folder Count".into()))?;
+                    if count != 0 {
+                        return Err(Error("empty folder Count is not zero".into()));
+                    }
                     if let Some(parent) = parent {
-                        if count != 0 {
-                            return Err(Error("empty folder Count is not zero".into()));
-                        }
                         folders[parent].children.push(name.clone());
-                        let mut path = folders[parent].path.clone();
+                    }
+                    if !stack.is_empty() {
+                        let mut path = parent
+                            .map(|parent| folders[parent].path.clone())
+                            .unwrap_or_default();
                         path.push(name.clone());
                         let count_range = attribute_value_range(&e, start, "Count", &raw_count)?;
                         folders.push(Folder {
-                            name,
+                            name: name.clone(),
                             path,
                             count,
                             count_range,
                             children: Vec::new(),
                             close_start: None,
-                            playlist_insert_index: None,
+                            playlist_insert_index: Some(playlist_count),
+                            empty_range: Some(start..end),
                         });
                     }
                 } else if kind == "1" {
@@ -3540,7 +3547,7 @@ pub fn prepare_playlist_move(
                     playlists.push(PlaylistNode {
                         name,
                         parent,
-                        range: None,
+                        range: Some(start..end),
                     });
                     playlist_count += 1;
                 } else {
@@ -3594,7 +3601,7 @@ pub fn prepare_playlist_move(
     if source_folder.name != request.expected_source_parent_name
         || target_folder.name != request.expected_target_parent_name
         || source_folder.close_start.is_none()
-        || target_folder.close_start.is_none()
+        || (target_folder.close_start.is_none() && target_folder.empty_range.is_none())
     {
         return Err(Error("source or target folder guard changed".into()));
     }
@@ -3621,8 +3628,7 @@ pub fn prepare_playlist_move(
     let source_node = source
         .range
         .as_ref()
-        .ok_or_else(|| Error("playlist node is not paired".into()))?;
-    let target_close = target_folder.close_start.unwrap();
+        .ok_or_else(|| Error("playlist node range is missing".into()))?;
     let target_insert_index = target_folder
         .playlist_insert_index
         .ok_or_else(|| Error("target folder close position is missing".into()))?;
@@ -3635,38 +3641,67 @@ pub fn prepare_playlist_move(
         .checked_add(1)
         .ok_or_else(|| Error("target folder Count overflow".into()))?;
 
-    let line_start = bytes[..target_close]
-        .iter()
-        .rposition(|byte| *byte == b'\n')
-        .map_or(0, |index| index + 1);
-    let parent_indent = &bytes[line_start..target_close];
-    let parent_indent = if parent_indent
-        .iter()
-        .all(|byte| matches!(byte, b' ' | b'\t'))
-    {
-        parent_indent
-    } else {
-        &[]
-    };
-    let mut moved_node = Vec::new();
-    moved_node.extend_from_slice(b"\n");
-    moved_node.extend_from_slice(parent_indent);
-    moved_node.extend_from_slice(&bytes[source_node.clone()]);
-    moved_node.extend_from_slice(b"\n");
-    moved_node.extend_from_slice(parent_indent);
-
     let mut changes = vec![
         (source_node.clone(), Vec::new()),
         (
             source_folder.count_range.clone(),
             source_count.to_string().into_bytes(),
         ),
-        (
+    ];
+    if let Some(target_range) = target_folder.empty_range.as_ref() {
+        let line_start = bytes[..target_range.start]
+            .iter()
+            .rposition(|byte| *byte == b'\n')
+            .map_or(0, |index| index + 1);
+        let indent = &bytes[line_start..target_range.start];
+        let indent = if indent.iter().all(|byte| matches!(byte, b' ' | b'\t')) {
+            indent
+        } else {
+            &[]
+        };
+        let mut expanded = bytes[target_range.clone()].to_vec();
+        let count_range = target_folder.count_range.start - target_range.start
+            ..target_folder.count_range.end - target_range.start;
+        expanded.splice(count_range, target_count.to_string().bytes());
+        let slash = expanded
+            .windows(2)
+            .rposition(|pair| pair == b"/>")
+            .ok_or_else(|| Error("empty target folder is not self-closing".into()))?;
+        expanded.splice(slash..slash + 2, *b">");
+        expanded.extend_from_slice(b"\n");
+        expanded.extend_from_slice(indent);
+        expanded.extend_from_slice(&bytes[source_node.clone()]);
+        expanded.extend_from_slice(b"\n");
+        expanded.extend_from_slice(indent);
+        expanded.extend_from_slice(b"</NODE>");
+        changes.push((target_range.clone(), expanded));
+    } else {
+        let target_close = target_folder.close_start.unwrap();
+        let line_start = bytes[..target_close]
+            .iter()
+            .rposition(|byte| *byte == b'\n')
+            .map_or(0, |index| index + 1);
+        let parent_indent = &bytes[line_start..target_close];
+        let parent_indent = if parent_indent
+            .iter()
+            .all(|byte| matches!(byte, b' ' | b'\t'))
+        {
+            parent_indent
+        } else {
+            &[]
+        };
+        let mut moved_node = Vec::new();
+        moved_node.extend_from_slice(b"\n");
+        moved_node.extend_from_slice(parent_indent);
+        moved_node.extend_from_slice(&bytes[source_node.clone()]);
+        moved_node.extend_from_slice(b"\n");
+        moved_node.extend_from_slice(parent_indent);
+        changes.push((
             target_folder.count_range.clone(),
             target_count.to_string().into_bytes(),
-        ),
-        (target_close..target_close, moved_node),
-    ];
+        ));
+        changes.push((target_close..target_close, moved_node));
+    }
     changes.sort_by_key(|(range, _)| std::cmp::Reverse(range.start));
     let mut output = bytes.to_vec();
     for (range, replacement) in changes {
@@ -8408,8 +8443,12 @@ mod tests {
         let fixture = include_bytes!("../../../xtask/tests/fixtures/rekordbox-a1/F-02/source.bin");
         let source = String::from_utf8(fixture.to_vec())
             .unwrap()
-            .replace("Name=\"ROOT\" Count=\"1\"", "Name=\"ROOT\" Count=\"2\"")
+            .replace("Name=\"ROOT\" Count=\"1\"", "Name=\"ROOT\" Count=\"3\"")
             .replace("Name=\"Sets\" Count=\"2\"", "Name=\"Source\" Count=\"2\"")
+            .replace(
+                "    <NODE Type=\"0\" Name=\"Source\"",
+                "    <NODE Type=\"0\" Name=\"Empty\" Count=\"0\"/>\n    <NODE Type=\"0\" Name=\"Source\"",
+            )
             .replace(
                 "      </NODE>\n    </NODE>\n  </PLAYLISTS>",
                 "      </NODE>\n      <NODE Type=\"0\" Name=\"Target\" Count=\"1\"><NODE Type=\"1\" Name=\"Other\" Entries=\"1\" KeyType=\"0\"><TRACK Key=\"400\"/></NODE></NODE>\n    </NODE>\n  </PLAYLISTS>",
@@ -8419,9 +8458,9 @@ mod tests {
             playlist_index: 0,
             expected_playlist_name: "House".into(),
             expected_members: vec!["100".into(), "200".into(), "300".into()],
-            source_parent_index: 0,
+            source_parent_index: 1,
             expected_source_parent_name: "Source".into(),
-            target_parent_index: 1,
+            target_parent_index: 2,
             expected_target_parent_name: "Target".into(),
             expected_target_order: vec!["Other".into()],
         };
@@ -8486,6 +8525,57 @@ mod tests {
         };
         assert!(prepare_playlist_move(duplicate_target.as_bytes(), &ambiguous).is_err());
         assert!(prepare_playlist_move(b"<bad", &ambiguous).is_err());
+    }
+
+    #[test]
+    fn guarded_playlist_move_handles_empty_playlist_and_self_closing_target() {
+        let fixture = include_bytes!("../../../xtask/tests/fixtures/rekordbox-a1/F-02/source.bin");
+        let source = String::from_utf8(fixture.to_vec())
+            .unwrap()
+            .replace("Name=\"ROOT\" Count=\"1\"", "Name=\"ROOT\" Count=\"2\"")
+            .replace("Name=\"Sets\" Count=\"2\"", "Name=\"Source\" Count=\"2\"")
+            .replace(
+                "        <NODE Type=\"1\" Name=\"House\" Entries=\"3\" KeyType=\"0\">\n          <TRACK Key=\"100\"/>\n          <TRACK Key=\"200\"/>\n          <TRACK Key=\"300\"/>\n        </NODE>",
+                "        <NODE Type=\"1\" Name=\"House\" Entries=\"0\" KeyType=\"0\"/>",
+            )
+            .replace(
+                "      </NODE>\n    </NODE>\n  </PLAYLISTS>",
+                "      </NODE>\n      <NODE Type=\"0\" Name=\"Target\" Count=\"0\"/>\n    </NODE>\n  </PLAYLISTS>",
+            );
+        let request = PlaylistMoveRequest {
+            playlist_index: 0,
+            expected_playlist_name: "House".into(),
+            expected_members: vec![],
+            source_parent_index: 0,
+            expected_source_parent_name: "Source".into(),
+            target_parent_index: 1,
+            expected_target_parent_name: "Target".into(),
+            expected_target_order: vec![],
+        };
+        let original = source.clone();
+        let result = prepare_playlist_move(source.as_bytes(), &request).unwrap();
+        assert_eq!(source, original);
+        assert!(
+            preflight_export(source.as_bytes())
+                .unwrap()
+                .selected_playlists[0]
+                .tracks
+                .is_empty()
+        );
+        let after = preflight_export(&result.bytes).unwrap();
+        assert_eq!(after.selected_playlists[0].name, "Techno");
+        assert_eq!(after.selected_playlists[1].name, "House");
+        assert_eq!(after.selected_playlists[1].path, ["Target", "House"]);
+        let output = String::from_utf8(result.bytes).unwrap();
+        assert!(output.contains("Name=\"Source\" Count=\"1\""));
+        assert!(output.contains("Name=\"Target\" Count=\"1\">"));
+        assert_eq!(
+            preflight_export(source.as_bytes())
+                .unwrap()
+                .selected_playlists[1]
+                .name,
+            "Techno"
+        );
     }
 
     #[test]
