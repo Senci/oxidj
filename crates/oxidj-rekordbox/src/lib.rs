@@ -528,6 +528,23 @@ pub struct PreparedTrackNumberEdit {
     pub change: TrackNumberEditChange,
 }
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TrackSizeEditRequest {
+    pub track_id: String,
+    pub expected_old_size: String,
+    pub new_size: String,
+}
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TrackSizeEditChange {
+    pub track_id: String,
+    pub old_size: String,
+    pub new_size: String,
+}
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PreparedTrackSizeEdit {
+    pub bytes: Vec<u8>,
+    pub change: TrackSizeEditChange,
+}
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TrackAverageBpmEditChange {
     pub track_id: String,
     pub old_average_bpm: String,
@@ -3689,6 +3706,68 @@ pub fn prepare_track_number_edit(
             track_id: request.track_id.clone(),
             old_track_number: old.to_owned(),
             new_track_number: request.new_track_number.clone(),
+        },
+    })
+}
+
+/// Prepare one exact-old-value guarded raw Track Size edit (no numeric conversion).
+pub fn prepare_track_size_edit(
+    bytes: &[u8],
+    request: &TrackSizeEditRequest,
+) -> Result<PreparedTrackSizeEdit, Error> {
+    let before = preflight_export(bytes)?;
+    let matches: Vec<_> = before
+        .selected_tracks
+        .iter()
+        .filter(|t| t.id == request.track_id)
+        .collect();
+    let track = match matches.as_slice() {
+        [] => return Err(Error(format!("unknown TrackID {}", request.track_id))),
+        [track] => *track,
+        _ => return Err(Error(format!("duplicate TrackID {}", request.track_id))),
+    };
+    let old = track
+        .size
+        .as_deref()
+        .ok_or_else(|| Error("track Size missing".into()))?;
+    if old != request.expected_old_size {
+        return Err(Error("track Size changed".into()));
+    }
+    if !request.new_size.chars().all(
+        |c| matches!(c as u32, 9 | 10 | 13 | 0x20..=0xD7FF | 0xE000..=0xFFFD | 0x10000..=0x10FFFF),
+    ) {
+        return Err(Error("new Size contains invalid XML 1.0 text".into()));
+    }
+    let range =
+        track_attribute_range(bytes, &request.track_id, "Size", &request.expected_old_size)?;
+    let escaped = request
+        .new_size
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&apos;")
+        .replace('\t', "&#9;")
+        .replace('\n', "&#10;")
+        .replace('\r', "&#13;");
+    let mut output = bytes.to_vec();
+    output.splice(range, escaped.bytes());
+    let after = preflight_export(&output)?;
+    let mut expected = before.selected_tracks.clone();
+    expected
+        .iter_mut()
+        .find(|t| t.id == request.track_id)
+        .unwrap()
+        .size = Some(request.new_size.clone());
+    if after.selected_tracks != expected {
+        return Err(Error("track Size edit verification failed".into()));
+    }
+    Ok(PreparedTrackSizeEdit {
+        bytes: output,
+        change: TrackSizeEditChange {
+            track_id: request.track_id.clone(),
+            old_size: old.to_owned(),
+            new_size: request.new_size.clone(),
         },
     })
 }
