@@ -1,0 +1,1 @@
+{"beats":[{"id":"b0","frame":0,"enabled":true,"source":"ANALYZER"},{"id":"b1","frame":120000,"enabled":true,"source":"ANALYZER"},{"id":"b2","frame":240000,"enabled":true,"source":"ANALYZER"}],"sample_rate_hz":48000,"cue":{"id":"c0","kind":"HotCue","index":0,"start_usec":3000000,"label":"Transition","color":[0,255,0],"flags":0}}
