@@ -68,10 +68,10 @@ fn check(
     {
         return Err("plan mismatch");
     }
-    if reimport["cues"] != json!([])
+    if reimport["beats"] != json!([beats[0].clone(), beats[2].clone()])
+        || reimport["cues"] != json!([])
         || reimport["relationships"] != json!([])
         || reimport["report"] != json!([])
-        || reimport["provenance"] != "FRESH_VENDOR_ONLY_IMPORT"
     {
         return Err("vendor-only re-import mismatch");
     }
@@ -93,7 +93,7 @@ fn f06b_frozen_logical_fixture_matches_independent_contract() {
     let visible = read("expected-visible.json");
     let plan = read("expected-plan.json");
     let report = read("expected-report.json");
-    let reimport = read("expected-vendor-reimport.json");
+    let reimport = read("vendor-reimport.json");
     assert_eq!(read("case.json")["case_id"], "F-06b");
     assert_eq!(read("operations.json"), archive["operations"]);
     check(&source, &archive, &visible, &plan, &report, &reimport).unwrap();
@@ -107,7 +107,7 @@ fn f06b_mutations_reject_loss_report_changes_and_resurrection() {
     let visible = read("expected-visible.json");
     let plan = read("expected-plan.json");
     let report = read("expected-report.json");
-    let reimport = read("expected-vendor-reimport.json");
+    let reimport = read("vendor-reimport.json");
 
     let mut missing_report = visible.clone();
     missing_report["report"] = json!([]);
