@@ -242,6 +242,7 @@ analysis is rejected without change. Archive contains originals, all accepted
 operations and candidate; visible values contain only effective values, no history.
 Fresh vendor-only re-import must **not** be required to reconstruct that archive.
 
+**Observed logical-only result (initial accepted-edit composition subcase):** `xtask/tests/fixtures/f04-compose-logical/` freezes the canonical one-cue F-03-derived source, ordered e1/e2 revisions, archive originals and USER overlays, effective visible grid/cue, safe-v1 plan, empty report and provenance with exact artifact digests. The independent literal checker `xtask/tests/f04_compose_logical.rs` verifies exact source values/bytes, operation order/revisions, original/effective values, provenance, report and artifact set; mutation controls reject revision/order/source/effective/archive-history/report/provenance drift. This initial composition subcase is logical-only PASS; stale edit, replay, operation-ID reuse, cue reorder, analysis precedence, Mixxx A2 and overall F-04 remain NOT DEMONSTRATED.
 ### F-05: Unknown kind and opaque bytes — synthetic only
 
 This is `onelibrary-synthetic`, **not real OneLibrary bytes/row serialization**.
@@ -452,7 +453,7 @@ those controls or restores and defines no product media/retention policy.
 | F-01 | Explicit reconciliation/conflicts, archive vs current location | Same-content relocation success PASS; same-namespace/source-ID content conflict, unconfirmed cross-namespace identity, same-path/different-content conflict, and metadata-source disagreement PASS — logical-only fixtures/checkers; other conflict cases and A2 NOT DEMONSTRATED |
 | F-02 | XML child order, shared endpoints | PASS — synthetic A1 checker/tests; no application acceptance |
 | F-03 | Constant grid/cue/range preservation | PASS — logical-only fixture/checker and mutation controls; A2 NOT DEMONSTRATED |
-| F-04 | Revisioned edits, stale conflicts, analysis precedence | NOT DEMONSTRATED |
+| F-04 | Revisioned edits, stale conflicts, analysis precedence | Initial accepted-edit composition PASS — logical-only fixture/checker/mutation controls; stale/replay/ID-reuse/reorder/analysis subcases and A2 NOT DEMONSTRATED; overall F-04 NOT DEMONSTRATED |
 | F-05 | Synthetic unknown-kind bytes; real vendor gap | PASS — synthetic logical fixture/checker and mutation controls; A3 NOT DEMONSTRATED |
 | F-06a | Absolute cue independence, logical-only | PASS — synthetic logical fixture/checker and mutation controls; A2 NOT DEMONSTRATED |
 | F-06b | Declared anchor loss, logical-only | PASS — synthetic OxiDJ-only declaration/deletion, exact safe-v1 withholding report, vendor-only re-import and mutation controls; A2 NOT DEMONSTRATED |

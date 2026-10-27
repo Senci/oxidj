@@ -1,0 +1,1 @@
+{"case_id":"F-04-compose","contract_version":"logical-v1","export_policy":"safe-v1","ordered_element_ids":["c0"],"ordered_record_ids":["r-grid","r-cues"],"source_kind":"mixxx-cueinfo-logical","source_version":"Mixxx 2.5.6 CueInfo DTO logical recipe; not transport bytes","target_format":"mixxx-cueinfo-logical"}
