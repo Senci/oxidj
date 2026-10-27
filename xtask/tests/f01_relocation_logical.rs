@@ -14,6 +14,10 @@ fn read(name: &str) -> Value {
 fn digest(b: &[u8]) -> String {
     format!("{:x}", Sha256::digest(b))
 }
+fn checker_identity_matches(identity: &Value, live: &[u8]) -> bool {
+    identity
+        == &json!({"path":"xtask/tests/f01_relocation_logical.rs","version":"f01-relocation-logical-v1","sha256":digest(live)})
+}
 fn check(
     s: &Value,
     a: &Value,
@@ -82,6 +86,7 @@ fn frozen_artifacts_provenance_and_independent_checker() {
         .map(|x| x.as_str().unwrap().to_owned())
         .collect::<Vec<_>>();
     let expected = vec![
+        "checker-identity.json",
         "case.json",
         "expected-archive.json",
         "expected-plan.json",
@@ -104,6 +109,7 @@ fn frozen_artifacts_provenance_and_independent_checker() {
     assert_eq!(actual, expected_files);
     let expected_case = json!({"case_id":"F-01-relocation-success","classification":"logical-only-not-A2-evidence","contract_version":"logical-v1","export_policy":"safe-v1","ordered_element_ids":["c0"],"ordered_record_ids":["r1","r2"],"source_kind":"mixxx-library-logical","source_version":"logical-v1","target_format":"mixxx-library-logical"});
     let expected_names = vec![
+        "checker-identity.json",
         "case.json",
         "expected-archive.json",
         "expected-plan.json",
@@ -113,7 +119,13 @@ fn frozen_artifacts_provenance_and_independent_checker() {
         "source.bin",
         "vendor-reimport.json",
     ];
-    let expected_prov = json!({"case_id":"F-01-relocation-success","checker":"xtask/tests/f01_relocation_logical.rs","checker_version":"1","classification":"logical-only-not-A2-evidence","source_citation":"docs/adr/005-relationship-fixtures.md §3 F-01","source_version":"Mixxx 2.5.6 logical recipe; synthetic evidence, not Mixxx transport bytes or audio","exact_artifact_set":expected_names,"source_length_bytes":src.len(),"source_sha256":digest(&src)});
+    let identity = read("checker-identity.json");
+    let live = std::fs::read(
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/f01_relocation_logical.rs"),
+    )
+    .unwrap();
+    assert!(checker_identity_matches(&identity, &live));
+    let expected_prov = json!({"case_id":"F-01-relocation-success","checker":"xtask/tests/f01_relocation_logical.rs","checker_version":"f01-relocation-logical-v1","checker_identity":identity,"classification":"logical-only-not-A2-evidence","source_citation":"docs/adr/005-relationship-fixtures.md §3 F-01","source_version":"Mixxx 2.5.6 logical recipe; synthetic evidence, not Mixxx transport bytes or audio","exact_artifact_set":expected_names,"source_length_bytes":src.len(),"source_sha256":digest(&src)});
     let mut expected_metadata = expected_prov.as_object().unwrap().clone();
     expected_metadata.insert("artifacts".into(), prov["artifacts"].clone());
     assert!(
@@ -149,6 +161,10 @@ fn frozen_artifacts_provenance_and_independent_checker() {
     let r = read("expected-report.json");
     let re = read("vendor-reimport.json");
     assert_eq!(read("operations.json"), a["operations"]);
+    let mut changed_identity = identity.clone();
+    changed_identity["version"] = json!("drift");
+    assert!(!checker_identity_matches(&changed_identity, &live));
+    assert!(!checker_identity_matches(&identity, b"mutated checker"));
     check(&s, &a, &v, &p, &r, &re).unwrap();
 }
 #[test]
