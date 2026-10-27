@@ -15,6 +15,13 @@ fn read(name: &str) -> Value {
 fn hash(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
 }
+fn checker_identity() -> Value {
+    serde_json::from_slice(&std::fs::read(path("checker-identity.json")).unwrap()).unwrap()
+}
+fn checker_identity_matches(identity: &Value, live_source: &[u8]) -> bool {
+    identity
+        == &json!({"path":"xtask/tests/f04_cue_order_logical.rs","version":"f04-cue-order-checker-v1","sha256":hash(live_source)})
+}
 fn expected_source() -> Value {
     json!({"grid":{"bpm":"128","first_beat_frame":96000,"sample_rate_hz":48000,"source":"ANALYZER"},"cues":[
         {"color":[255,0,0],"flags":0,"id":"c0","index":0,"kind":"HotCue","label":"Intro","start_usec":10000000},
@@ -32,11 +39,25 @@ fn provenance_valid(prov: &Value) -> bool {
         "expected-plan.json",
         "expected-report.json",
         "source.bin",
+        "checker-identity.json",
     ];
     if prov["case_id"] != "F-04-cue-order-edit"
         || prov["classification"] != "logical-only-not-A2-evidence"
         || prov["checker"] != "independent-literal-v1"
     {
+        return false;
+    }
+    let Ok(identity) = std::fs::read(path("checker-identity.json"))
+        .and_then(|b| serde_json::from_slice::<Value>(&b).map_err(std::io::Error::other))
+    else {
+        return false;
+    };
+    let Ok(live_source) = std::fs::read(
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/f04_cue_order_logical.rs"),
+    ) else {
+        return false;
+    };
+    if !checker_identity_matches(&identity, &live_source) || prov["checker_identity"] != identity {
         return false;
     }
     let Ok(source) = std::fs::read(path("source.bin")) else {
@@ -124,9 +145,29 @@ fn frozen_artifacts_independent_checker_and_mutation_controls() {
         "expected-plan.json",
         "expected-report.json",
         "source.bin",
+        "checker-identity.json",
     ];
     let source = std::fs::read(path("source.bin")).unwrap();
     let prov = read("provenance.json");
+    let identity = checker_identity();
+    let live_source = std::fs::read(
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/f04_cue_order_logical.rs"),
+    )
+    .unwrap();
+    assert!(checker_identity_matches(&identity, &live_source));
+    for (key, value) in [
+        ("path", json!("xtask/tests/other.rs")),
+        ("version", json!("f04-cue-order-checker-v2")),
+        ("sha256", json!("wrong-digest")),
+    ] {
+        let mut drift = identity.clone();
+        drift[key] = value;
+        assert!(!checker_identity_matches(&drift, &live_source));
+    }
+    assert!(!checker_identity_matches(
+        &identity,
+        b"mutated checker source"
+    ));
     assert!(provenance_valid(&prov));
     let mut changed_provenance = prov.clone();
     changed_provenance["source_sha256"] = json!("0");
@@ -145,6 +186,15 @@ fn frozen_artifacts_independent_checker_and_mutation_controls() {
         .collect();
     expected.sort();
     assert_eq!(actual, expected);
+    let mut drifted = prov.clone();
+    drifted["artifacts"]
+        .as_object_mut()
+        .unwrap()
+        .remove("checker-identity.json");
+    assert!(!provenance_valid(&drifted));
+    drifted = prov.clone();
+    drifted["checker_identity"]["version"] = json!("drift");
+    assert!(!provenance_valid(&drifted));
     for n in names {
         let b = std::fs::read(path(n)).unwrap();
         assert_eq!(artifacts[n]["length_bytes"], b.len());
