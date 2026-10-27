@@ -684,6 +684,43 @@ fn run_rekordbox(args: &[String]) -> i32 {
             }
         };
     }
+    if args
+        .first()
+        .is_some_and(|action| action == "edit-track-year")
+    {
+        if args.len() != 11
+            || args[1] != "--xml"
+            || args[3] != "--output"
+            || args[5] != "--track-id"
+            || args[7] != "--expected-year"
+            || args[9] != "--year"
+        {
+            eprintln!(
+                "error: expected rekordbox edit-track-year --xml IN --output NEW --track-id ID --expected-year OLD --year NEW"
+            );
+            return USAGE;
+        }
+        let request = oxidj_application::TrackYearEditRequest {
+            track_id: args[6].clone(),
+            expected_old_year: args[8].clone(),
+            new_year: args[10].clone(),
+        };
+        return match oxidj_application::export_rekordbox_track_year_edit(
+            &args[2], &args[4], &request,
+        ) {
+            Ok(change) => {
+                println!(
+                    "Changed Year for track[{}]: {:?} to {:?}",
+                    change.track_id, change.old_year, change.new_year
+                );
+                OK
+            }
+            Err(error) => {
+                eprintln!("error: track Year edit rejected: {error}");
+                DOMAIN
+            }
+        };
+    }
     if args.first().is_some_and(|action| action == "rename-folder") {
         if args.len() != 11
             || args[1] != "--xml"
@@ -1451,7 +1488,7 @@ fn print_usage(to_stdout: bool) {
     );
     let _ = writeln!(
         output,
-        "  rekordbox edit-track-name --xml <in> --output <new> --track-id <id> --expected-name <old> --name <new>   Export one guarded track Name edit"
+        "  rekordbox edit-track-name --xml <in> --output <new> --track-id <id> --expected-name <old> --name <new>   Export one guarded track Name edit\n  rekordbox edit-track-year --xml <in> --output <new> --track-id <id> --expected-year <old> --year <new>   Export one guarded raw track Year edit"
     );
     let _ = writeln!(
         output,

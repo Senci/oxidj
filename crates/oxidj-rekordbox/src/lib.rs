@@ -476,6 +476,23 @@ pub struct PreparedTrackTonalityEdit {
     pub bytes: Vec<u8>,
     pub change: TrackTonalityEditChange,
 }
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TrackYearEditRequest {
+    pub track_id: String,
+    pub expected_old_year: String,
+    pub new_year: String,
+}
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TrackYearEditChange {
+    pub track_id: String,
+    pub old_year: String,
+    pub new_year: String,
+}
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PreparedTrackYearEdit {
+    pub bytes: Vec<u8>,
+    pub change: TrackYearEditChange,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PreparedTrackAlbumEdit {
@@ -2854,6 +2871,68 @@ pub fn prepare_track_tonality_edit(
             track_id: request.track_id.clone(),
             old_tonality: old_tonality.to_owned(),
             new_tonality: request.new_tonality.clone(),
+        },
+    })
+}
+
+/// Prepare one exact-old-value guarded raw Track Year edit (no numeric conversion).
+pub fn prepare_track_year_edit(
+    bytes: &[u8],
+    request: &TrackYearEditRequest,
+) -> Result<PreparedTrackYearEdit, Error> {
+    let before = preflight_export(bytes)?;
+    let matches: Vec<_> = before
+        .selected_tracks
+        .iter()
+        .filter(|t| t.id == request.track_id)
+        .collect();
+    let track = match matches.as_slice() {
+        [] => return Err(Error(format!("unknown TrackID {}", request.track_id))),
+        [track] => *track,
+        _ => return Err(Error(format!("duplicate TrackID {}", request.track_id))),
+    };
+    let old_year = track
+        .year
+        .as_deref()
+        .ok_or_else(|| Error("track Year missing".into()))?;
+    if old_year != request.expected_old_year {
+        return Err(Error("track Year changed".into()));
+    }
+    if !request.new_year.chars().all(
+        |c| matches!(c as u32, 9 | 10 | 13 | 0x20..=0xD7FF | 0xE000..=0xFFFD | 0x10000..=0x10FFFF),
+    ) {
+        return Err(Error("new Year contains invalid XML 1.0 text".into()));
+    }
+    let range =
+        track_attribute_range(bytes, &request.track_id, "Year", &request.expected_old_year)?;
+    let escaped = request
+        .new_year
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&apos;")
+        .replace('\t', "&#9;")
+        .replace('\n', "&#10;")
+        .replace('\r', "&#13;");
+    let mut output = bytes.to_vec();
+    output.splice(range, escaped.bytes());
+    let after = preflight_export(&output)?;
+    let mut expected = before.selected_tracks.clone();
+    expected
+        .iter_mut()
+        .find(|t| t.id == request.track_id)
+        .unwrap()
+        .year = Some(request.new_year.clone());
+    if after.selected_tracks != expected {
+        return Err(Error("track Year edit verification failed".into()));
+    }
+    Ok(PreparedTrackYearEdit {
+        bytes: output,
+        change: TrackYearEditChange {
+            track_id: request.track_id.clone(),
+            old_year: old_year.to_owned(),
+            new_year: request.new_year.clone(),
         },
     })
 }
@@ -5421,6 +5500,61 @@ mod tests {
                 .unwrap()
                 .contains(duplicate_branch)
         );
+    }
+
+    #[test]
+    fn guarded_track_year_edit_preserves_raw_value_and_rejects_stale_absent_invalid() {
+        let base = include_bytes!("../../../xtask/tests/fixtures/rekordbox-a1/F-02/source.bin");
+        let source = String::from_utf8(base.to_vec()).unwrap().replacen(
+            "TrackID=\"100\" Name=\"A\"",
+            "TrackID=\"100\" Name=\"A\" Year=\"20&amp;24\"",
+            1,
+        );
+        let source = source.replacen(
+            "TrackID=\"200\" Name=\"B\"",
+            "TrackID=\"200\" Name=\"B\" Year=\"\"",
+            1,
+        );
+
+        let request = TrackYearEditRequest {
+            track_id: "100".into(),
+            expected_old_year: "20&24".into(),
+            new_year: "raw & <year>\t\n".into(),
+        };
+        let edited = prepare_track_year_edit(source.as_bytes(), &request).unwrap();
+        assert!(
+            String::from_utf8(edited.bytes.clone())
+                .unwrap()
+                .contains("Year=\"raw &amp; &lt;year&gt;&#9;&#10;\"")
+        );
+        assert_eq!(
+            parse(&edited.bytes).unwrap().tracks[0].year.as_deref(),
+            Some("raw & <year>\t\n")
+        );
+        assert_eq!(
+            parse(source.as_bytes()).unwrap().tracks[1].year.as_deref(),
+            Some("")
+        );
+        assert_eq!(parse(source.as_bytes()).unwrap().tracks[2].year, None);
+        for (id, old, new) in [
+            ("100", "stale", "x"),
+            ("300", "", "x"),
+            ("999", "x", "y"),
+            ("100", "20&24", "bad\u{1}"),
+        ] {
+            assert!(
+                prepare_track_year_edit(
+                    source.as_bytes(),
+                    &TrackYearEditRequest {
+                        track_id: id.into(),
+                        expected_old_year: old.into(),
+                        new_year: new.into()
+                    }
+                )
+                .is_err()
+            );
+        }
+        assert!(prepare_track_year_edit(b"<bad", &request).is_err());
     }
 
     #[test]
