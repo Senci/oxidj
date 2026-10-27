@@ -142,6 +142,8 @@ metadata edits. Export-visible state has **one current location**, B, and the
 unchanged grid/cue; report `[]`. Archive retains A and B. Fresh vendor-only import
 contains one track corresponding to t1; it need not have the same ID or old path.
 
+**Observed logical-only result (same-content relocation success subcase only):** `xtask/tests/fixtures/f01-relocation-logical/` freezes canonical source bytes with the exact shared synthetic content witness, both immutable source assertions, operation history, archive, visible location/grid/cue, safe-v1 plan/report, vendor-only re-import and provenance. `xtask/tests/f01_relocation_logical.rs` independently checks reconciliation at revision 0, source selection at revision 1, final revision 2, exact artifact digests and the one-track re-import; mutation controls reject changed history/revision/current location, cue movement, re-import count and report changes. Only this logical success subcase is PASS. F-01 conflict subcases remain NOT DEMONSTRATED; no Mixxx transport, A2, collision, near-duplicate or URI claim is made.
+
 Reset conflict subcases: (a) same namespace/ID 100 but different content bytes
 `oxidj-f01-different-v1\n` → reason `source-id-content-disagreement`;
 (b) different namespaces sharing ID 100, without confirmed reconciliation →
@@ -420,7 +422,7 @@ those controls or restores and defines no product media/retention policy.
 
 | Case | Required specification behavior | Observed result |
 |---|---|---|
-| F-01 | Explicit reconciliation/conflicts, archive vs current location | NOT DEMONSTRATED |
+| F-01 | Explicit reconciliation/conflicts, archive vs current location | Same-content relocation success subcase PASS — logical-only fixture/checker; conflict subcases NOT DEMONSTRATED; A2 NOT DEMONSTRATED |
 | F-02 | XML child order, shared endpoints | PASS — synthetic A1 checker/tests; no application acceptance |
 | F-03 | Constant grid/cue/range preservation | PASS — logical-only fixture/checker and mutation controls; A2 NOT DEMONSTRATED |
 | F-04 | Revisioned edits, stale conflicts, analysis precedence | NOT DEMONSTRATED |
