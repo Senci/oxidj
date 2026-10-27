@@ -17,6 +17,17 @@ fn hash(b: &[u8]) -> String {
 fn provenance_matches(prov: &Value, expected: &Value) -> bool {
     prov == expected
 }
+fn checker_identity() -> Value {
+    serde_json::from_slice(&std::fs::read(path("checker-identity.json")).unwrap()).unwrap()
+}
+fn checker_identity_matches(identity: &Value, live_source: &[u8]) -> bool {
+    identity
+        == &json!({
+            "path": "xtask/tests/f04_analysis_logical.rs",
+            "version": "f04-analysis-precedence-checker-v1",
+            "sha256": hash(live_source)
+        })
+}
 fn check(s: &Value, o: &Value, a: &Value, mid: &Value, v: &Value, p: &Value, r: &Value) -> bool {
     let grid =
         json!({"bpm":"128","first_beat_frame":96000,"sample_rate_hz":48000,"source":"ANALYZER"});
@@ -60,11 +71,18 @@ fn frozen_artifacts_and_literal_state() {
         "expected-plan.json",
         "expected-report.json",
         "source.bin",
+        "checker-identity.json",
     ];
     let b = std::fs::read(path("source.bin")).unwrap();
     let s: Value = serde_json::from_slice(&b).unwrap();
     assert_eq!(b, format!("{}\n", s).as_bytes());
     let prov = read("provenance.json");
+    let identity = checker_identity();
+    let checker_source = std::fs::read(
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/f04_analysis_logical.rs"),
+    )
+    .unwrap();
+    assert!(checker_identity_matches(&identity, &checker_source));
     let mut artifact_map = serde_json::Map::new();
     for n in names {
         let x = std::fs::read(path(n)).unwrap();
@@ -76,6 +94,7 @@ fn frozen_artifacts_and_literal_state() {
     let expected_provenance = json!({
         "artifacts": artifact_map,
         "checker": "independent-literal-v1",
+        "checker_identity": identity,
         "classification": "logical-only-not-A2-evidence",
         "source_length_bytes": b.len(),
         "source_sha256": hash(&b),
@@ -154,6 +173,25 @@ fn mutation_controls_reject_drift() {
     let mut m = mid.clone();
     m["grid"]["bpm"] = json!("129");
     assert!(!check(&s, &o, &a, &m, &v, &p, &r));
+
+    let live = std::fs::read(
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/f04_analysis_logical.rs"),
+    )
+    .unwrap();
+    let identity = checker_identity();
+    for (key, value) in [
+        ("path", json!("xtask/tests/other.rs")),
+        ("version", json!("f04-analysis-precedence-checker-v2")),
+        ("sha256", json!("wrong-digest")),
+    ] {
+        let mut drift = identity.clone();
+        drift[key] = value;
+        assert!(!checker_identity_matches(&drift, &live));
+    }
+    assert!(!checker_identity_matches(
+        &identity,
+        b"mutated checker source"
+    ));
 
     let mut provenance = read("provenance.json");
     let mut expected = provenance.clone();
