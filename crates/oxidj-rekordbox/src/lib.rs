@@ -13,6 +13,7 @@ pub struct Track {
     pub label: Option<String>,
     pub composer: Option<String>,
     pub grouping: Option<String>,
+    pub remixer: Option<String>,
     pub tonality: Option<String>,
     pub location: String,
     pub tempos: Vec<Tempo>,
@@ -407,6 +408,23 @@ pub struct PreparedTrackGroupingEdit {
     pub bytes: Vec<u8>,
     pub change: TrackGroupingEditChange,
 }
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TrackRemixerEditRequest {
+    pub track_id: String,
+    pub expected_old_remixer: String,
+    pub new_remixer: String,
+}
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TrackRemixerEditChange {
+    pub track_id: String,
+    pub old_remixer: String,
+    pub new_remixer: String,
+}
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PreparedTrackRemixerEdit {
+    pub bytes: Vec<u8>,
+    pub change: TrackRemixerEditChange,
+}
 /// Raw Tonality is preserved as supplied; no key notation is inferred.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TrackTonalityEditRequest {
@@ -543,6 +561,7 @@ pub fn parse(bytes: &[u8]) -> Result<Preview, Error> {
                         label: optional(&e, "Label")?,
                         composer: optional(&e, "Composer")?,
                         grouping: optional(&e, "Grouping")?,
+                        remixer: optional(&e, "Remixer")?,
                         tonality: optional(&e, "Tonality")?,
                         location: attr(&e, "Location")?,
                         tempos: vec![],
@@ -629,6 +648,7 @@ pub fn parse(bytes: &[u8]) -> Result<Preview, Error> {
                         label: optional(&e, "Label")?,
                         composer: optional(&e, "Composer")?,
                         grouping: optional(&e, "Grouping")?,
+                        remixer: optional(&e, "Remixer")?,
                         tonality: optional(&e, "Tonality")?,
                         location: attr(&e, "Location")?,
                         tempos: vec![],
@@ -761,7 +781,7 @@ fn validate_export_element(
         "COLLECTION" => &["Entries"],
         "TRACK" if parent == Some("COLLECTION") => &[
             "TrackID", "Name", "Artist", "Comments", "Album", "Genre", "Label", "Composer",
-            "Grouping", "Tonality", "Location",
+            "Grouping", "Remixer", "Tonality", "Location",
         ],
         "TRACK" => &["Key"],
         "TEMPO" => &["Inizio", "Bpm", "Metro", "Battito"],
@@ -2554,6 +2574,72 @@ pub fn prepare_track_grouping_edit(
     })
 }
 
+/// Prepare one exact-old-value guarded Track Remixer edit.
+pub fn prepare_track_remixer_edit(
+    bytes: &[u8],
+    request: &TrackRemixerEditRequest,
+) -> Result<PreparedTrackRemixerEdit, Error> {
+    let before = preflight_export(bytes)?;
+    let matches: Vec<_> = before
+        .selected_tracks
+        .iter()
+        .filter(|t| t.id == request.track_id)
+        .collect();
+    let track = match matches.as_slice() {
+        [] => return Err(Error(format!("unknown TrackID {}", request.track_id))),
+        [track] => *track,
+        _ => return Err(Error(format!("duplicate TrackID {}", request.track_id))),
+    };
+    let old_remixer = track
+        .remixer
+        .as_deref()
+        .ok_or_else(|| Error("track Remixer missing".into()))?;
+    if old_remixer != request.expected_old_remixer {
+        return Err(Error("track Remixer changed".into()));
+    }
+    if !request.new_remixer.chars().all(
+        |c| matches!(c as u32, 9 | 10 | 13 | 0x20..=0xD7FF | 0xE000..=0xFFFD | 0x10000..=0x10FFFF),
+    ) {
+        return Err(Error("new Remixer contains invalid XML 1.0 text".into()));
+    }
+    let range = track_attribute_range(
+        bytes,
+        &request.track_id,
+        "Remixer",
+        &request.expected_old_remixer,
+    )?;
+    let escaped = request
+        .new_remixer
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&apos;")
+        .replace('\t', "&#9;")
+        .replace('\n', "&#10;")
+        .replace('\r', "&#13;");
+    let mut output = bytes.to_vec();
+    output.splice(range, escaped.bytes());
+    let after = preflight_export(&output)?;
+    let mut expected = before.selected_tracks.clone();
+    expected
+        .iter_mut()
+        .find(|t| t.id == request.track_id)
+        .unwrap()
+        .remixer = Some(request.new_remixer.clone());
+    if after.selected_tracks != expected {
+        return Err(Error("track Remixer edit verification failed".into()));
+    }
+    Ok(PreparedTrackRemixerEdit {
+        bytes: output,
+        change: TrackRemixerEditChange {
+            track_id: request.track_id.clone(),
+            old_remixer: old_remixer.to_owned(),
+            new_remixer: request.new_remixer.clone(),
+        },
+    })
+}
+
 /// Prepare one exact-old-value guarded Track Tonality edit.
 pub fn prepare_track_tonality_edit(
     bytes: &[u8],
@@ -4262,6 +4348,81 @@ mod tests {
         assert_eq!(
             parse(empty.as_bytes()).unwrap().tracks[0]
                 .grouping
+                .as_deref(),
+            Some("")
+        );
+    }
+
+    #[test]
+    fn guarded_track_remixer_edit_preserves_optional_state_and_xml_whitespace() {
+        let base = include_bytes!("../../../xtask/tests/fixtures/rekordbox-a1/F-02/source.bin");
+        let source = String::from_utf8(base.to_vec()).unwrap().replacen(
+            "TrackID=\"100\" Name=\"A\"",
+            "TrackID=\"100\" Name=\"A\" Remixer=\"old &amp; note\"",
+            1,
+        );
+        let parsed = parse(source.as_bytes()).unwrap();
+        assert_eq!(parsed.tracks[0].remixer.as_deref(), Some("old & note"));
+        assert_eq!(parsed.tracks[1].remixer, None);
+        let request = TrackRemixerEditRequest {
+            track_id: "100".into(),
+            expected_old_remixer: "old & note".into(),
+            new_remixer: "A\tB\nC\rD & <x>".into(),
+        };
+        let prepared = prepare_track_remixer_edit(source.as_bytes(), &request).unwrap();
+        assert!(
+            String::from_utf8(prepared.bytes.clone())
+                .unwrap()
+                .contains("Remixer=\"A&#9;B&#10;C&#13;D &amp; &lt;x&gt;\"")
+        );
+        assert_eq!(
+            parse(&prepared.bytes).unwrap().tracks[0].remixer.as_deref(),
+            Some("A\tB\nC\rD & <x>")
+        );
+        let expected = source.replacen(
+            "Remixer=\"old &amp; note\"",
+            "Remixer=\"A&#9;B&#10;C&#13;D &amp; &lt;x&gt;\"",
+            1,
+        );
+        assert_eq!(prepared.bytes, expected.as_bytes());
+        let xml = String::from_utf8(prepared.bytes.clone()).unwrap();
+        let decoded = std::process::Command::new("python3")
+            .args([
+                "-c",
+                "import sys,xml.etree.ElementTree as E; r=E.fromstring(sys.argv[1]); t=next(x for x in r.find('COLLECTION') if x.get('TrackID')=='100'); assert t.get('Remixer')=='A\\tB\\nC\\rD & <x>'; assert next(x for x in r.find('COLLECTION') if x.get('TrackID')=='200').get('Remixer') is None",
+                &xml,
+            ])
+            .status()
+            .unwrap();
+        assert!(decoded.success(), "independent ElementTree decode failed");
+        for request in [
+            TrackRemixerEditRequest {
+                track_id: "200".into(),
+                expected_old_remixer: "".into(),
+                new_remixer: "x".into(),
+            },
+            TrackRemixerEditRequest {
+                track_id: "999".into(),
+                expected_old_remixer: "x".into(),
+                new_remixer: "y".into(),
+            },
+            TrackRemixerEditRequest {
+                track_id: "100".into(),
+                expected_old_remixer: "stale".into(),
+                new_remixer: "y".into(),
+            },
+            TrackRemixerEditRequest {
+                track_id: "100".into(),
+                expected_old_remixer: "old & note".into(),
+                new_remixer: "bad\u{1}".into(),
+            },
+        ] {
+            assert!(prepare_track_remixer_edit(source.as_bytes(), &request).is_err());
+        }
+        let empty = source.replacen("Remixer=\"old &amp; note\"", "Remixer=\"\"", 1);
+        assert_eq!(
+            parse(empty.as_bytes()).unwrap().tracks[0]
+                .remixer
                 .as_deref(),
             Some("")
         );

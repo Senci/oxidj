@@ -427,6 +427,43 @@ fn run_rekordbox(args: &[String]) -> i32 {
     }
     if args
         .first()
+        .is_some_and(|action| action == "edit-track-remixer")
+    {
+        if args.len() != 11
+            || args[1] != "--xml"
+            || args[3] != "--output"
+            || args[5] != "--track-id"
+            || args[7] != "--expected-remixer"
+            || args[9] != "--remixer"
+        {
+            eprintln!(
+                "error: expected rekordbox edit-track-remixer --xml IN --output NEW --track-id ID --expected-remixer OLD --remixer NEW"
+            );
+            return USAGE;
+        }
+        let request = oxidj_application::TrackRemixerEditRequest {
+            track_id: args[6].clone(),
+            expected_old_remixer: args[8].clone(),
+            new_remixer: args[10].clone(),
+        };
+        return match oxidj_application::export_rekordbox_track_remixer_edit(
+            &args[2], &args[4], &request,
+        ) {
+            Ok(change) => {
+                println!(
+                    "Changed Remixer for track[{}]: {:?} to {:?}",
+                    change.track_id, change.old_remixer, change.new_remixer
+                );
+                OK
+            }
+            Err(error) => {
+                eprintln!("error: track Remixer edit rejected: {error}");
+                DOMAIN
+            }
+        };
+    }
+    if args
+        .first()
         .is_some_and(|action| action == "edit-track-grouping")
     {
         if args.len() != 11
@@ -1064,7 +1101,7 @@ fn run_rekordbox(args: &[String]) -> i32 {
                 println!("Selected units:");
                 for track in plan.selected_tracks {
                     println!(
-                        "Track\t{}\t{}\t{:?}\t{:?}\t{:?}\t{:?}\t{:?}\t{:?}\t{:?}\t{:?}\t{}",
+                        "Track\t{}\t{}\t{:?}\t{:?}\t{:?}\t{:?}\t{:?}\t{:?}\t{:?}\t{:?}\t{:?}\t{}",
                         track.id,
                         track.name,
                         track.artist,
@@ -1074,6 +1111,7 @@ fn run_rekordbox(args: &[String]) -> i32 {
                         track.label,
                         track.composer,
                         track.grouping,
+                        track.remixer,
                         track.tonality,
                         track.location
                     );
@@ -1334,6 +1372,10 @@ fn print_usage(to_stdout: bool) {
     let _ = writeln!(
         output,
         "  rekordbox edit-track-name --xml <in> --output <new> --track-id <id> --expected-name <old> --name <new>   Export one guarded track Name edit"
+    );
+    let _ = writeln!(
+        output,
+        "  rekordbox edit-track-remixer --xml <in> --output <new> --track-id <id> --expected-remixer <old> --remixer <new>   Export one guarded track Remixer edit"
     );
     let _ = writeln!(
         output,
