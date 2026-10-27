@@ -304,6 +304,86 @@ fn mutation_controls_reject_all_drift() {
     );
     x.8.push("unexpected.json".into());
     rejected!(x);
+    let mut x = (
+        s.clone(),
+        c.clone(),
+        a.clone(),
+        i.clone(),
+        v.clone(),
+        p.clone(),
+        r.clone(),
+        pr.clone(),
+        f.clone(),
+        b.clone(),
+        af.clone(),
+        rs.clone(),
+    );
+    x.3["analysis"][0]["bpm"] = json!("131");
+    rejected!(x);
+    let mut x = (
+        s.clone(),
+        c.clone(),
+        a.clone(),
+        i.clone(),
+        v.clone(),
+        p.clone(),
+        r.clone(),
+        pr.clone(),
+        f.clone(),
+        b.clone(),
+        af.clone(),
+        rs.clone(),
+    );
+    x.5["case_id"] = json!("changed-plan-case");
+    rejected!(x);
+    let mut x = (
+        s.clone(),
+        c.clone(),
+        a.clone(),
+        i.clone(),
+        v.clone(),
+        p.clone(),
+        r.clone(),
+        pr.clone(),
+        f.clone(),
+        b.clone(),
+        af.clone(),
+        rs.clone(),
+    );
+    x.6 = json!([{"drift":true}]);
+    rejected!(x);
+    let mut x = (
+        s.clone(),
+        c.clone(),
+        a.clone(),
+        i.clone(),
+        v.clone(),
+        p.clone(),
+        r.clone(),
+        pr.clone(),
+        f.clone(),
+        b.clone(),
+        af.clone(),
+        rs.clone(),
+    );
+    x.1["operation_id"] = json!("changed-operation-identity");
+    rejected!(x);
+    let mut x = (
+        s.clone(),
+        c.clone(),
+        a.clone(),
+        i.clone(),
+        v.clone(),
+        p.clone(),
+        r.clone(),
+        pr.clone(),
+        f.clone(),
+        b.clone(),
+        af.clone(),
+        rs.clone(),
+    );
+    x.1["expected_revision"] = json!(999);
+    rejected!(x);
     let mut x = (s, c, a, i, v, p, r, pr, f, b, af, rs);
     x.11["state_changed"] = json!(true);
     rejected!(x);
