@@ -14,7 +14,7 @@ fn read(n: &str) -> Value {
 fn hash(b: &[u8]) -> String {
     format!("{:x}", Sha256::digest(b))
 }
-fn check(s: &Value, o: &Value, a: &Value, v: &Value, p: &Value, r: &Value) -> bool {
+fn check(s: &Value, o: &Value, a: &Value, mid: &Value, v: &Value, p: &Value, r: &Value) -> bool {
     let grid =
         json!({"bpm":"128","first_beat_frame":96000,"sample_rate_hz":48000,"source":"ANALYZER"});
     let cues = json!([{"color":[255,0,0],"flags":0,"id":"c0","index":0,"kind":"HotCue","label":"Intro","start_usec":10000000}]);
@@ -37,8 +37,9 @@ fn check(s: &Value, o: &Value, a: &Value, v: &Value, p: &Value, r: &Value) -> bo
         && a["records"][0]["analysis"]
             == json!([{"operation_id":"a1","analyzer":"m1-synthetic","analyzer_version":"1","sequence":1,"source_revision":"s1","content_revision":3,"bpm":"129"}])
         && a["records"][0]["user_history"]
-            .as_array()
-            .is_some_and(|x| x.len() == 2)
+            == json!([{"from":"128","operation_id":"e2","revision":1,"to":"130"},{"cleared":"130","operation_id":"clear-user","revision":4}])
+        && mid
+            == &json!({"revision":4,"grid":{"bpm":"130","first_beat_frame":96000,"sample_rate_hz":48000,"source":"ANALYZER"},"analysis":[{"operation_id":"a1","analyzer":"m1-synthetic","analyzer_version":"1","sequence":1,"source_revision":"s1","content_revision":3,"bpm":"129"}],"user_history":[{"from":"128","operation_id":"e2","revision":1,"to":"130"}],"overlays":[{"field":"grid.bpm","operation_id":"e2","origin":"USER","value":"130"}],"report":[]})
         && a["records"][1]["original_cues"] == cues
         && v == &json!({"grid":after,"cues":[{"color":[255,0,0],"flags":0,"id":"c0","index":0,"kind":"HotCue","label":"Opening 2","start_usec":10000000}],"report":[]})
         && a["report"] == json!([])
@@ -51,6 +52,7 @@ fn frozen_artifacts_and_literal_state() {
         "case.json",
         "operations.json",
         "expected-archive.json",
+        "expected-intermediate.json",
         "expected-visible.json",
         "expected-plan.json",
         "expected-report.json",
@@ -84,6 +86,7 @@ fn frozen_artifacts_and_literal_state() {
         &s,
         &read("operations.json"),
         &read("expected-archive.json"),
+        &read("expected-intermediate.json"),
         &read("expected-visible.json"),
         &read("expected-plan.json"),
         &read("expected-report.json")
@@ -94,11 +97,13 @@ fn mutation_controls_reject_drift() {
     let s: Value = serde_json::from_slice(&std::fs::read(path("source.bin")).unwrap()).unwrap();
     let o = read("operations.json");
     let a = read("expected-archive.json");
+    let mid = read("expected-intermediate.json");
     let v = read("expected-visible.json");
     let p = read("expected-plan.json");
     let r = read("expected-report.json");
     for (idx, key, val) in [
         (3, "analyzer", json!("wrong")),
+        (3, "analyzer_version", json!("2")),
         (3, "expected_revision", json!(2)),
         (3, "sequence", json!(2)),
         (3, "bpm", json!("128")),
@@ -106,21 +111,30 @@ fn mutation_controls_reject_drift() {
     ] {
         let mut m = o.clone();
         m[idx][key] = val;
-        assert!(!check(&s, &m, &a, &v, &p, &r));
+        assert!(!check(&s, &m, &a, &mid, &v, &p, &r));
     }
     let mut m = a.clone();
     m["records"][0]["grid"]["bpm"] = json!("130");
-    assert!(!check(&s, &o, &m, &v, &p, &r));
+    assert!(!check(&s, &o, &m, &mid, &v, &p, &r));
+    let mut m = a.clone();
+    m["records"][0]["analysis"][0]["source_revision"] = json!("s2");
+    assert!(!check(&s, &o, &m, &mid, &v, &p, &r));
+    let mut m = a.clone();
+    m["records"][0]["analysis"][0]["content_revision"] = json!(2);
+    assert!(!check(&s, &o, &m, &mid, &v, &p, &r));
     let mut m = a.clone();
     m["records"][0]["user_history"] = json!([]);
-    assert!(!check(&s, &o, &m, &v, &p, &r));
+    assert!(!check(&s, &o, &m, &mid, &v, &p, &r));
     let mut m = v.clone();
     m["grid"]["bpm"] = json!("130");
-    assert!(!check(&s, &o, &a, &m, &p, &r));
+    assert!(!check(&s, &o, &a, &mid, &m, &p, &r));
     let mut m = r.clone();
     m.as_array_mut().unwrap().push(json!({"drift":true}));
-    assert!(!check(&s, &o, &a, &v, &p, &m));
+    assert!(!check(&s, &o, &a, &mid, &v, &p, &m));
     let mut m = p.clone();
     m["report"] = json!([{"drift":true}]);
-    assert!(!check(&s, &o, &a, &v, &m, &r));
+    assert!(!check(&s, &o, &a, &mid, &v, &m, &r));
+    let mut m = mid.clone();
+    m["grid"]["bpm"] = json!("129");
+    assert!(!check(&s, &o, &a, &m, &v, &p, &r));
 }
