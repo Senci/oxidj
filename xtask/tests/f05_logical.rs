@@ -61,7 +61,9 @@ fn check(
     Ok(())
 }
 fn check_provenance(p: &Value, source: &[u8]) -> Result<(), &'static str> {
-    if p["case_id"] != "F-05"
+    if p["checker"]
+        != json!({"identity":"xtask/tests/f05_logical.rs independent literal oracle","version":"1"})
+        || p["case_id"] != "F-05"
         || p["classification"] != "logical-only-not-A3-evidence"
         || p["source_citation"] != "docs/adr/005-relationship-fixtures.md §3 F-05"
         || p["source_version"] != "Synthetic unknown-kind logical object; not OneLibrary bytes"
@@ -109,7 +111,10 @@ fn check_provenance(p: &Value, source: &[u8]) -> Result<(), &'static str> {
 fn f05_frozen_artifacts_and_separate_target_decisions_match() {
     let source = std::fs::read(fixture("source.bin")).unwrap();
     check_provenance(&read("provenance.json"), &source).unwrap();
-    assert_eq!(read("case.json")["case_id"], "F-05");
+    assert_eq!(
+        read("case.json"),
+        json!({"case_id":"F-05","contract_version":"logical-v1","source_kind":"onelibrary-synthetic","source_version":"logical-v1","ordered_record_ids":["r1"],"ordered_element_ids":["c0"],"target_format":"onelibrary-synthetic","export_policy":"safe-v1"})
+    );
     assert_eq!(read("operations.json"), json!([]));
     check(
         &source,
@@ -163,6 +168,15 @@ fn f05_checker_rejects_loop_inference_raw_mutation_and_missing_block_entry() {
             &rr
         )
         .is_err()
+    );
+    let mut bad = read("provenance.json");
+    bad["checker"]["version"] = json!("2");
+    assert!(check_provenance(&bad, &source).is_err());
+    let mut altered_case = read("case.json");
+    altered_case["source_kind"] = json!("onelibrary");
+    assert_ne!(
+        altered_case,
+        json!({"case_id":"F-05","contract_version":"logical-v1","source_kind":"onelibrary-synthetic","source_version":"logical-v1","ordered_record_ids":["r1"],"ordered_element_ids":["c0"],"target_format":"onelibrary-synthetic","export_policy":"safe-v1"})
     );
     let mut bad = read("provenance.json");
     bad["artifacts"]["source.bin"]["sha256"] = json!("00");
