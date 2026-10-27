@@ -151,10 +151,13 @@ fn independently_decodes_sibling_reorder_and_rejects_output_mutations() {
     assert_eq!(SOURCE, frozen.as_slice());
     verify(&output).unwrap();
     let text = String::from_utf8(output).unwrap();
+    let techno = "<NODE Type=\"1\" Name=\"Techno\" Entries=\"2\" KeyType=\"0\"><TRACK Key=\"200\"/><TRACK Key=\"400\"/></NODE>";
+    let house = "<NODE Type=\"1\" Name=\"House\" Entries=\"3\" KeyType=\"0\"><TRACK Key=\"100\"/><TRACK Key=\"200\"/><TRACK Key=\"300\"/></NODE>";
+    assert!(text.contains(techno) && text.contains(house));
     let swapped = text
-        .replace("Name=\"Techno\"", "Name=\"TEMP\"")
-        .replace("Name=\"House\"", "Name=\"Techno\"")
-        .replace("Name=\"TEMP\"", "Name=\"House\"");
+        .replacen(techno, "<NODE Type=\"1\" Name=\"TEMP\"/>", 1)
+        .replacen(house, techno, 1)
+        .replacen("<NODE Type=\"1\" Name=\"TEMP\"/>", house, 1);
     for m in [
         swapped,
         text.replacen("Name=\"Sets\" Count=\"3\"", "Name=\"Sets\" Count=\"4\"", 1),
