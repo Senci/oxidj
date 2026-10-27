@@ -172,6 +172,18 @@ Selecting B resolves effective BPM to129 while A remains128 in history. Do not
 infer that equal content makes metadata equal. Content-hash collision safety, acoustic near-duplicate
 matching and platform URI normalization remain NOT DEMONSTRATED.
 
+**Observed logical-only result (metadata-source disagreement subcase):**
+`xtask/tests/fixtures/f01-metadata-conflict-logical/` freezes the same-content
+relocation assertions (A=128 BPM, B=129 BPM), reconciliation and source-selection
+history, retained A/B archive assertions, selected B location and effective BPM.
+The preselection archive state records the exact blocked safe-v1 `IDENTITY_CONFLICT`
+for r2 (`field=identity`, null element/cause, reason
+`metadata-source-disagreement`). `xtask/tests/f01_metadata_conflict_logical.rs`
+independently checks canonical source, operations, archive, visible, plan, report,
+provenance and exact artifact set; mutation controls reject dropped assertions,
+wrong effective BPM, unblocked export and report drift. This is a logical-only
+fixture, not A2/Mixxx transport evidence; ADR-005 remains Proposed.
+
 ### F-02: XML order and cross-record endpoints
 
 XML-format artifact binding must encode four COLLECTION tracks with TrackIDs
