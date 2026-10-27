@@ -200,6 +200,7 @@ fn independently_decodes_member_removal_and_rejects_semantic_mutations() {
         text.replacen("Key=\"400\"", "Key=\"999\"", 1),
         text.replacen("Entries=\"2\"", "Entries=\"1\"", 1),
         text.replacen("Name=\"Sets\" Count=\"2\"", "Name=\"Sets\" Count=\"1\"", 1),
+        text.replacen("TrackID=\"200\"", "TrackID=\"999\"", 1),
         text.replacen("Name=\"Techno\"", "Name=\"Other\"", 1),
         text.replacen("Name=\"House\"", "Name=\"Other\"", 1)
             .replacen("Name=\"Techno\"", "Name=\"House\"", 1)
