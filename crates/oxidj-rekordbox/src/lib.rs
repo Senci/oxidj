@@ -14,6 +14,7 @@ pub struct Track {
     pub composer: Option<String>,
     pub grouping: Option<String>,
     pub remixer: Option<String>,
+    pub mix: Option<String>,
     pub tonality: Option<String>,
     pub location: String,
     pub tempos: Vec<Tempo>,
@@ -425,6 +426,23 @@ pub struct PreparedTrackRemixerEdit {
     pub bytes: Vec<u8>,
     pub change: TrackRemixerEditChange,
 }
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TrackMixEditRequest {
+    pub track_id: String,
+    pub expected_old_mix: String,
+    pub new_mix: String,
+}
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TrackMixEditChange {
+    pub track_id: String,
+    pub old_mix: String,
+    pub new_mix: String,
+}
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PreparedTrackMixEdit {
+    pub bytes: Vec<u8>,
+    pub change: TrackMixEditChange,
+}
 /// Raw Tonality is preserved as supplied; no key notation is inferred.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TrackTonalityEditRequest {
@@ -562,6 +580,7 @@ pub fn parse(bytes: &[u8]) -> Result<Preview, Error> {
                         composer: optional(&e, "Composer")?,
                         grouping: optional(&e, "Grouping")?,
                         remixer: optional(&e, "Remixer")?,
+                        mix: optional(&e, "Mix")?,
                         tonality: optional(&e, "Tonality")?,
                         location: attr(&e, "Location")?,
                         tempos: vec![],
@@ -649,6 +668,7 @@ pub fn parse(bytes: &[u8]) -> Result<Preview, Error> {
                         composer: optional(&e, "Composer")?,
                         grouping: optional(&e, "Grouping")?,
                         remixer: optional(&e, "Remixer")?,
+                        mix: optional(&e, "Mix")?,
                         tonality: optional(&e, "Tonality")?,
                         location: attr(&e, "Location")?,
                         tempos: vec![],
@@ -781,7 +801,7 @@ fn validate_export_element(
         "COLLECTION" => &["Entries"],
         "TRACK" if parent == Some("COLLECTION") => &[
             "TrackID", "Name", "Artist", "Comments", "Album", "Genre", "Label", "Composer",
-            "Grouping", "Remixer", "Tonality", "Location",
+            "Grouping", "Remixer", "Mix", "Tonality", "Location",
         ],
         "TRACK" => &["Key"],
         "TEMPO" => &["Inizio", "Bpm", "Metro", "Battito"],
@@ -2640,6 +2660,67 @@ pub fn prepare_track_remixer_edit(
     })
 }
 
+/// Prepare one exact-old-value guarded Track Mix edit.
+pub fn prepare_track_mix_edit(
+    bytes: &[u8],
+    request: &TrackMixEditRequest,
+) -> Result<PreparedTrackMixEdit, Error> {
+    let before = preflight_export(bytes)?;
+    let matches: Vec<_> = before
+        .selected_tracks
+        .iter()
+        .filter(|t| t.id == request.track_id)
+        .collect();
+    let track = match matches.as_slice() {
+        [] => return Err(Error(format!("unknown TrackID {}", request.track_id))),
+        [track] => *track,
+        _ => return Err(Error(format!("duplicate TrackID {}", request.track_id))),
+    };
+    let old_mix = track
+        .mix
+        .as_deref()
+        .ok_or_else(|| Error("track Mix missing".into()))?;
+    if old_mix != request.expected_old_mix {
+        return Err(Error("track Mix changed".into()));
+    }
+    if !request.new_mix.chars().all(
+        |c| matches!(c as u32, 9 | 10 | 13 | 0x20..=0xD7FF | 0xE000..=0xFFFD | 0x10000..=0x10FFFF),
+    ) {
+        return Err(Error("new Mix contains invalid XML 1.0 text".into()));
+    }
+    let range = track_attribute_range(bytes, &request.track_id, "Mix", &request.expected_old_mix)?;
+    let escaped = request
+        .new_mix
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&apos;")
+        .replace('\t', "&#9;")
+        .replace('\n', "&#10;")
+        .replace('\r', "&#13;");
+    let mut output = bytes.to_vec();
+    output.splice(range, escaped.bytes());
+    let after = preflight_export(&output)?;
+    let mut expected = before.selected_tracks.clone();
+    expected
+        .iter_mut()
+        .find(|t| t.id == request.track_id)
+        .unwrap()
+        .mix = Some(request.new_mix.clone());
+    if after.selected_tracks != expected {
+        return Err(Error("track Mix edit verification failed".into()));
+    }
+    Ok(PreparedTrackMixEdit {
+        bytes: output,
+        change: TrackMixEditChange {
+            track_id: request.track_id.clone(),
+            old_mix: old_mix.to_owned(),
+            new_mix: request.new_mix.clone(),
+        },
+    })
+}
+
 /// Prepare one exact-old-value guarded Track Tonality edit.
 pub fn prepare_track_tonality_edit(
     bytes: &[u8],
@@ -4426,6 +4507,75 @@ mod tests {
                 .as_deref(),
             Some("")
         );
+    }
+
+    #[test]
+    fn guarded_track_mix_edit_preserves_optional_state_and_xml_whitespace() {
+        let base = include_bytes!("../../../xtask/tests/fixtures/rekordbox-a1/F-02/source.bin");
+        let source = String::from_utf8(base.to_vec())
+            .unwrap()
+            .replacen(
+                "TrackID=\"100\" Name=\"A\"",
+                "TrackID=\"100\" Name=\"A\" Mix=\"old &amp; note\"",
+                1,
+            )
+            .replacen(
+                "TrackID=\"200\" Name=\"B\"",
+                "TrackID=\"200\" Name=\"B\" Mix=\"\"",
+                1,
+            );
+        let parsed = parse(source.as_bytes()).unwrap();
+        assert_eq!(parsed.tracks[0].mix.as_deref(), Some("old & note"));
+        assert_eq!(parsed.tracks[1].mix.as_deref(), Some(""));
+        assert_eq!(parsed.tracks[2].mix, None);
+
+        let request = TrackMixEditRequest {
+            track_id: "100".into(),
+            expected_old_mix: "old & note".into(),
+            new_mix: "A\tB\nC\rD & <x>".into(),
+        };
+        let prepared = prepare_track_mix_edit(source.as_bytes(), &request).unwrap();
+        let output = String::from_utf8(prepared.bytes.clone()).unwrap();
+        assert!(output.contains("Mix=\"A&#9;B&#10;C&#13;D &amp; &lt;x&gt;\""));
+        assert_eq!(
+            parse(&prepared.bytes).unwrap().tracks[0].mix.as_deref(),
+            Some("A\tB\nC\rD & <x>")
+        );
+        let expected = source.replacen(
+            "Mix=\"old &amp; note\"",
+            "Mix=\"A&#9;B&#10;C&#13;D &amp; &lt;x&gt;\"",
+            1,
+        );
+        assert_eq!(prepared.bytes, expected.as_bytes());
+        let decoded = std::process::Command::new("python3")
+            .args([
+                "-c",
+                "import sys,xml.etree.ElementTree as E; r=E.fromstring(sys.argv[1]); ts={x.get('TrackID'):x for x in r.find('COLLECTION')}; assert ts['100'].get('Mix')=='A\\tB\\nC\\rD & <x>'; assert ts['200'].get('Mix')==''; assert ts['300'].get('Mix') is None",
+                &output,
+            ])
+            .status()
+            .unwrap();
+        assert!(decoded.success(), "independent ElementTree decode failed");
+
+        for request in [
+            TrackMixEditRequest {
+                track_id: "300".into(),
+                expected_old_mix: "".into(),
+                new_mix: "x".into(),
+            },
+            TrackMixEditRequest {
+                track_id: "100".into(),
+                expected_old_mix: "stale".into(),
+                new_mix: "x".into(),
+            },
+            TrackMixEditRequest {
+                track_id: "100".into(),
+                expected_old_mix: "old & note".into(),
+                new_mix: "bad\u{1}".into(),
+            },
+        ] {
+            assert!(prepare_track_mix_edit(source.as_bytes(), &request).is_err());
+        }
     }
 
     #[test]

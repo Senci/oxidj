@@ -464,6 +464,43 @@ fn run_rekordbox(args: &[String]) -> i32 {
     }
     if args
         .first()
+        .is_some_and(|action| action == "edit-track-mix")
+    {
+        if args.len() != 11
+            || args[1] != "--xml"
+            || args[3] != "--output"
+            || args[5] != "--track-id"
+            || args[7] != "--expected-mix"
+            || args[9] != "--mix"
+        {
+            eprintln!(
+                "error: expected rekordbox edit-track-mix --xml IN --output NEW --track-id ID --expected-mix OLD --mix NEW"
+            );
+            return USAGE;
+        }
+        let request = oxidj_application::TrackMixEditRequest {
+            track_id: args[6].clone(),
+            expected_old_mix: args[8].clone(),
+            new_mix: args[10].clone(),
+        };
+        return match oxidj_application::export_rekordbox_track_mix_edit(
+            &args[2], &args[4], &request,
+        ) {
+            Ok(change) => {
+                println!(
+                    "Changed Mix for track[{}]: {:?} to {:?}",
+                    change.track_id, change.old_mix, change.new_mix
+                );
+                OK
+            }
+            Err(error) => {
+                eprintln!("error: track Mix edit rejected: {error}");
+                DOMAIN
+            }
+        };
+    }
+    if args
+        .first()
         .is_some_and(|action| action == "edit-track-grouping")
     {
         if args.len() != 11
@@ -1101,7 +1138,7 @@ fn run_rekordbox(args: &[String]) -> i32 {
                 println!("Selected units:");
                 for track in plan.selected_tracks {
                     println!(
-                        "Track\t{}\t{}\t{:?}\t{:?}\t{:?}\t{:?}\t{:?}\t{:?}\t{:?}\t{:?}\t{:?}\t{}",
+                        "Track\t{}\t{}\t{:?}\t{:?}\t{:?}\t{:?}\t{:?}\t{:?}\t{:?}\t{:?}\t{:?}\t{:?}\t{}",
                         track.id,
                         track.name,
                         track.artist,
@@ -1112,6 +1149,7 @@ fn run_rekordbox(args: &[String]) -> i32 {
                         track.composer,
                         track.grouping,
                         track.remixer,
+                        track.mix,
                         track.tonality,
                         track.location
                     );
@@ -1376,6 +1414,10 @@ fn print_usage(to_stdout: bool) {
     let _ = writeln!(
         output,
         "  rekordbox edit-track-remixer --xml <in> --output <new> --track-id <id> --expected-remixer <old> --remixer <new>   Export one guarded track Remixer edit"
+    );
+    let _ = writeln!(
+        output,
+        "  rekordbox edit-track-mix --xml <in> --output <new> --track-id <id> --expected-mix <old> --mix <new>   Export one guarded track Mix edit"
     );
     let _ = writeln!(
         output,

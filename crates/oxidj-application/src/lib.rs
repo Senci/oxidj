@@ -14,14 +14,15 @@ pub use oxidj_rekordbox::{
     PreparedTempoStartEdit, PreparedTrackAlbumEdit, PreparedTrackArtistEdit,
     PreparedTrackCommentsEdit, PreparedTrackComposerEdit, PreparedTrackDelete,
     PreparedTrackGenreEdit, PreparedTrackGroupingEdit, PreparedTrackLabelEdit,
-    PreparedTrackNameEdit, PreparedTrackRemixerEdit, Preview, TempoBeatEditChange,
-    TempoBeatEditRequest, TempoEditChange, TempoEditRequest, TempoMeterEditChange,
-    TempoMeterEditRequest, TempoStartEditChange, TempoStartEditRequest, TrackAlbumEditChange,
-    TrackAlbumEditRequest, TrackArtistEditChange, TrackArtistEditRequest, TrackCommentsEditChange,
-    TrackCommentsEditRequest, TrackComposerEditChange, TrackComposerEditRequest,
-    TrackDeleteRequest, TrackGenreEditChange, TrackGenreEditRequest, TrackGroupingEditChange,
-    TrackGroupingEditRequest, TrackLabelEditChange, TrackLabelEditRequest, TrackNameEditChange,
-    TrackNameEditRequest, TrackRemixerEditChange, TrackRemixerEditRequest, TrackTonalityEditChange,
+    PreparedTrackMixEdit, PreparedTrackNameEdit, PreparedTrackRemixerEdit, Preview,
+    TempoBeatEditChange, TempoBeatEditRequest, TempoEditChange, TempoEditRequest,
+    TempoMeterEditChange, TempoMeterEditRequest, TempoStartEditChange, TempoStartEditRequest,
+    TrackAlbumEditChange, TrackAlbumEditRequest, TrackArtistEditChange, TrackArtistEditRequest,
+    TrackCommentsEditChange, TrackCommentsEditRequest, TrackComposerEditChange,
+    TrackComposerEditRequest, TrackDeleteRequest, TrackGenreEditChange, TrackGenreEditRequest,
+    TrackGroupingEditChange, TrackGroupingEditRequest, TrackLabelEditChange, TrackLabelEditRequest,
+    TrackMixEditChange, TrackMixEditRequest, TrackNameEditChange, TrackNameEditRequest,
+    TrackRemixerEditChange, TrackRemixerEditRequest, TrackTonalityEditChange,
     TrackTonalityEditRequest,
 };
 
@@ -122,6 +123,18 @@ pub fn export_rekordbox_track_remixer_edit(
 ) -> Result<TrackRemixerEditChange, RekordboxError> {
     let (source, output) = read_new_export_source(input, output)?;
     let prepared = oxidj_rekordbox::prepare_track_remixer_edit(&source, request)?;
+    publish_new_file(&output, &prepared.bytes)?;
+    Ok(prepared.change)
+}
+
+/// Export one guarded track Mix edit to a new, non-overwriting file.
+pub fn export_rekordbox_track_mix_edit(
+    input: impl AsRef<Path>,
+    output: impl AsRef<Path>,
+    request: &TrackMixEditRequest,
+) -> Result<TrackMixEditChange, RekordboxError> {
+    let (source, output) = read_new_export_source(input, output)?;
+    let prepared = oxidj_rekordbox::prepare_track_mix_edit(&source, request)?;
     publish_new_file(&output, &prepared.bytes)?;
     Ok(prepared.change)
 }

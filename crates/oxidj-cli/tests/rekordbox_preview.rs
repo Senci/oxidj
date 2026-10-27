@@ -135,7 +135,7 @@ fn export_plan_shows_ordered_f10_units_without_writing() {
         concat!(
             "Decision: ALLOW_EXPORT\n",
             "Selected units:\n",
-            "Track\t1000\tVariable tempo\tNone\tNone\tNone\tNone\tNone\tNone\tNone\tNone\tNone\tfile://localhost/music/variable.flac\n",
+            "Track\t1000\tVariable tempo\tNone\tNone\tNone\tNone\tNone\tNone\tNone\tNone\tNone\tNone\tfile://localhost/music/variable.flac\n",
             "TEMPO\t1000\t0\t120\t4/4\t1\n",
             "TEMPO\t1000\t8\t128\t4/4\t1\n",
             "TEMPO\t1000\t16\t132\t7/8\t3\n",
@@ -2168,6 +2168,142 @@ fn track_remixer_edit_exports_one_guarded_value_and_rejects_without_mutation() {
     assert_eq!(fs::read(&existing).unwrap(), b"keep");
     assert_eq!(fs::read(&input).unwrap(), source);
     for path in [&input, &output, &existing, &duplicate_output] {
+        let _ = fs::remove_file(path);
+    }
+}
+
+#[test]
+fn track_mix_edit_preserves_optional_state_and_exports_one_guarded_value() {
+    let fixture = format!(
+        "{}/../../xtask/tests/fixtures/rekordbox-a1/F-02/source.bin",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let base = String::from_utf8(fs::read(fixture).unwrap()).unwrap();
+    let source = base
+        .replacen(
+            "TrackID=\"100\" Name=\"A\"",
+            "TrackID=\"100\" Name=\"A\" Mix=\"old &amp; note\"",
+            1,
+        )
+        .replacen(
+            "TrackID=\"200\" Name=\"B\"",
+            "TrackID=\"200\" Name=\"B\" Mix=\"\"",
+            1,
+        )
+        .into_bytes();
+    let input = temporary_path("track-mix-input");
+    let output = temporary_path("track-mix-output");
+    fs::write(&input, &source).unwrap();
+
+    let preview = Command::new(env!("CARGO_BIN_EXE_oxidj-cli"))
+        .args(["rekordbox", "export-plan", "--xml", input.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert_eq!(preview.status.code(), Some(0));
+    let preview = String::from_utf8_lossy(&preview.stdout);
+    assert!(preview.contains("Some(\"old & note\")"));
+    assert!(preview.contains("Some(\"\")"));
+
+    let invoke = |id: &str, old: &str, new: &str, target: &std::path::Path| {
+        Command::new(env!("CARGO_BIN_EXE_oxidj-cli"))
+            .args([
+                "rekordbox",
+                "edit-track-mix",
+                "--xml",
+                input.to_str().unwrap(),
+                "--output",
+                target.to_str().unwrap(),
+                "--track-id",
+                id,
+                "--expected-mix",
+                old,
+                "--mix",
+                new,
+            ])
+            .output()
+            .unwrap()
+    };
+    let success = invoke("100", "old & note", "A\tB\nC\rD & <x>", &output);
+    assert_eq!(
+        success.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&success.stderr)
+    );
+    let output_bytes = fs::read(&output).unwrap();
+    assert!(
+        String::from_utf8_lossy(&output_bytes)
+            .contains("Mix=\"A&#9;B&#10;C&#13;D &amp; &lt;x&gt;\"")
+    );
+    assert_eq!(fs::read(&input).unwrap(), source);
+    let decoded = Command::new("python3")
+        .args([
+            "-c",
+            "import sys,xml.etree.ElementTree as E; r=E.parse(sys.argv[1]).getroot(); ts={x.get('TrackID'):x for x in r.find('COLLECTION')}; assert ts['100'].get('Mix')=='A\\tB\\nC\\rD & <x>'; assert ts['200'].get('Mix')==''; assert ts['300'].get('Mix') is None",
+            output.to_str().unwrap(),
+        ])
+        .status()
+        .unwrap();
+    assert!(decoded.success(), "independent ElementTree decode failed");
+
+    for (case, id, old, new) in [
+        ("absent", "300", "", "x"),
+        ("unknown", "999", "x", "y"),
+        ("stale", "100", "bad", "x"),
+        ("invalid", "100", "old & note", "bad\u{1}"),
+    ] {
+        let target = temporary_path(&format!("track-mix-{case}"));
+        assert_ne!(invoke(id, old, new, &target).status.code(), Some(0));
+        assert!(!target.exists(), "{case} created output");
+    }
+
+    let duplicate = String::from_utf8(source.clone())
+        .unwrap()
+        .replacen("TrackID=\"400\"", "TrackID=\"100\"", 1)
+        .into_bytes();
+    fs::write(&input, &duplicate).unwrap();
+    let duplicate_output = temporary_path("track-mix-duplicate");
+    assert_ne!(
+        invoke("100", "old & note", "x", &duplicate_output)
+            .status
+            .code(),
+        Some(0)
+    );
+    assert!(!duplicate_output.exists());
+    assert_eq!(fs::read(&input).unwrap(), duplicate);
+
+    let malformed = b"<DJ_PLAYLISTS><COLLECTION>";
+    fs::write(&input, malformed).unwrap();
+    let malformed_output = temporary_path("track-mix-malformed");
+    assert_ne!(
+        invoke("100", "old & note", "x", &malformed_output)
+            .status
+            .code(),
+        Some(0)
+    );
+    assert!(!malformed_output.exists());
+    assert_eq!(fs::read(&input).unwrap(), malformed);
+
+    fs::write(&input, &source).unwrap();
+    assert_ne!(
+        invoke("100", "old & note", "x", &input).status.code(),
+        Some(0)
+    );
+    let existing = temporary_path("track-mix-existing");
+    fs::write(&existing, b"keep").unwrap();
+    assert_ne!(
+        invoke("100", "old & note", "x", &existing).status.code(),
+        Some(0)
+    );
+    assert_eq!(fs::read(&existing).unwrap(), b"keep");
+    assert_eq!(fs::read(&input).unwrap(), source);
+    for path in [
+        &input,
+        &output,
+        &existing,
+        &duplicate_output,
+        &malformed_output,
+    ] {
         let _ = fs::remove_file(path);
     }
 }
