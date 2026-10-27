@@ -279,8 +279,10 @@ The inUsec/outUsec projection is a labeled observation, not vendor authority.
 canonical F-05-derived source object, all ten alternate integer observations,
 archive raw-byte witness, visible object, no-edit plan/report and provenance.
 `xtask/tests/f08_logical.rs` independently checks the frozen values and hashes;
-mutation controls reject changed opaque bytes and invented conversion/kind
-semantics. This is synthetic logical evidence only; A3 remains unqualified.
+provenance claims, the complete artifact set, and artifact hashes; mutation
+controls reject changed opaque bytes, invented conversion/kind semantics, and
+invented provenance claims. This is synthetic logical evidence only; A3 remains
+unqualified.
 
 F-08b: e1 sets the observed inUsec10000000→11000000 at revision0. Revision1
 retains the new observation as USER intent, marks the position unsafe for export,
