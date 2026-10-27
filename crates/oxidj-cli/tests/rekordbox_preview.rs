@@ -102,9 +102,20 @@ fn preview_and_export_plan_report_track_year_states_and_export_preserves_source_
             String::from_utf8_lossy(&result.stderr)
         );
         let stdout = String::from_utf8(result.stdout).unwrap();
-        assert!(stdout.contains("Some(\"2024\")"));
-        assert!(stdout.contains("Some(\"\")"));
-        assert!(stdout.contains("Some(\"9223372036854775807\")"));
+        for (track_id, expected_size) in [
+            ("100", "Some(\"9223372036854775807\")"),
+            ("200", "Some(\"\")"),
+            ("300", "None"),
+        ] {
+            let row = stdout
+                .lines()
+                .find(|line| {
+                    line.starts_with(&format!("{track_id}\t"))
+                        || line.starts_with(&format!("Track\t{track_id}\t"))
+                })
+                .unwrap_or_else(|| panic!("missing TrackID {track_id} row in:\\n{stdout}"));
+            assert_eq!(row.split('\t').next_back(), Some(expected_size), "{row}");
+        }
     }
     let result = Command::new(env!("CARGO_BIN_EXE_oxidj-cli"))
         .args([
