@@ -144,6 +144,44 @@ fn run_rekordbox(args: &[String]) -> i32 {
     }
     if args
         .first()
+        .is_some_and(|action| action == "reorder-playlist")
+    {
+        if args.len() != 11
+            || args[1] != "--xml"
+            || args[3] != "--output"
+            || args[5] != "--playlist-index"
+            || args[7] != "--expected-order"
+            || args[9] != "--order"
+        {
+            eprintln!(
+                "error: expected rekordbox reorder-playlist --xml IN --output NEW --playlist-index N --expected-order ID,ID --order ID,ID"
+            );
+            return USAGE;
+        }
+        let Ok(playlist_index) = args[6].parse::<usize>() else {
+            eprintln!("error: playlist index must be a non-negative integer");
+            return USAGE;
+        };
+        let request = oxidj_application::PlaylistReorderRequest {
+            playlist_index,
+            expected_order: args[8].split(',').map(str::to_owned).collect(),
+            new_order: args[10].split(',').map(str::to_owned).collect(),
+        };
+        return match oxidj_application::export_rekordbox_playlist_reorder(
+            &args[2], &args[4], &request,
+        ) {
+            Ok(()) => {
+                println!("Reordered playlist[{}]", playlist_index);
+                OK
+            }
+            Err(error) => {
+                eprintln!("error: playlist reorder rejected: {error}");
+                DOMAIN
+            }
+        };
+    }
+    if args
+        .first()
         .is_some_and(|action| action == "rename-playlist")
     {
         if args.len() != 11

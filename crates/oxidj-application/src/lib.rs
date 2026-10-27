@@ -4,13 +4,14 @@ use std::path::Path;
 
 pub use oxidj_rekordbox::{
     Error as RekordboxError, ExportDecision, ExportPreflight, FolderRenameChange,
-    FolderRenameRequest, PlaylistRenameChange, PlaylistRenameRequest, PositionMarkEditChange,
-    PositionMarkEditRequest, PositionMarkEndEditChange, PositionMarkEndEditRequest,
-    PositionMarkNameEditChange, PositionMarkNameEditRequest, PreparedFolderRename,
-    PreparedPlaylistRename, PreparedPositionMarkEdit, PreparedPositionMarkEndEdit,
-    PreparedPositionMarkNameEdit, PreparedTempoEdit, PreparedTempoStartEdit, PreparedTrackNameEdit,
-    Preview, TempoEditChange, TempoEditRequest, TempoStartEditChange, TempoStartEditRequest,
-    TrackNameEditChange, TrackNameEditRequest,
+    FolderRenameRequest, PlaylistRenameChange, PlaylistRenameRequest, PlaylistReorderRequest,
+    PositionMarkEditChange, PositionMarkEditRequest, PositionMarkEndEditChange,
+    PositionMarkEndEditRequest, PositionMarkNameEditChange, PositionMarkNameEditRequest,
+    PreparedFolderRename, PreparedPlaylistRename, PreparedPlaylistReorder,
+    PreparedPositionMarkEdit, PreparedPositionMarkEndEdit, PreparedPositionMarkNameEdit,
+    PreparedTempoEdit, PreparedTempoStartEdit, PreparedTrackNameEdit, Preview, TempoEditChange,
+    TempoEditRequest, TempoStartEditChange, TempoStartEditRequest, TrackNameEditChange,
+    TrackNameEditRequest,
 };
 
 /// Read-only preview handler; parsing and vendor-specific semantics stay in the adapter.
@@ -46,6 +47,17 @@ pub fn export_rekordbox_playlist_rename(
     let prepared = oxidj_rekordbox::prepare_playlist_rename(&source, request)?;
     publish_new_file(&output, &prepared.bytes)?;
     Ok(prepared.change)
+}
+
+/// Export a guarded playlist reorder to a new, non-overwriting file.
+pub fn export_rekordbox_playlist_reorder(
+    input: impl AsRef<Path>,
+    output: impl AsRef<Path>,
+    request: &PlaylistReorderRequest,
+) -> Result<(), RekordboxError> {
+    let (source, output) = read_new_export_source(input, output)?;
+    let prepared = oxidj_rekordbox::prepare_playlist_reorder(&source, request)?;
+    publish_new_file(&output, &prepared.bytes)
 }
 
 /// Export one guarded folder rename to a new, non-overwriting file.

@@ -67,6 +67,17 @@ pub struct PreparedPlaylistRename {
     pub bytes: Vec<u8>,
     pub change: PlaylistRenameChange,
 }
+/// Reorder an existing playlist after an exact ordinal/order optimistic guard.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PlaylistReorderRequest {
+    pub playlist_index: usize,
+    pub expected_order: Vec<String>,
+    pub new_order: Vec<String>,
+}
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PreparedPlaylistReorder {
+    pub bytes: Vec<u8>,
+}
 /// One optimistic, ordinal-scoped rename of a non-root Type=0 folder.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FolderRenameRequest {
@@ -843,6 +854,118 @@ pub fn prepare_playlist_rename(
             new_name: request.new_name.clone(),
         },
     })
+}
+
+/// Prepare a byte-preserving reorder of playlist membership elements.
+pub fn prepare_playlist_reorder(
+    bytes: &[u8],
+    request: &PlaylistReorderRequest,
+) -> Result<PreparedPlaylistReorder, Error> {
+    let before = preflight_export(bytes)?;
+    let playlist = before
+        .selected_playlists
+        .get(request.playlist_index)
+        .ok_or_else(|| Error(format!("no playlist at ordinal {}", request.playlist_index)))?;
+    if playlist.tracks != request.expected_order {
+        return Err(Error("playlist order changed".into()));
+    }
+    let existing: HashSet<_> = playlist.tracks.iter().collect();
+    let desired: HashSet<_> = request.new_order.iter().collect();
+    if request.new_order.len() != playlist.tracks.len()
+        || desired.len() != request.new_order.len()
+        || desired != existing
+    {
+        return Err(Error(
+            "new order must be a unique permutation of existing TrackIDs".into(),
+        ));
+    }
+
+    let mut reader = Reader::from_reader(bytes);
+    reader.config_mut().check_end_names = true;
+    let mut buf = Vec::new();
+    let mut stack: Vec<String> = Vec::new();
+    let mut node_path: Vec<String> = Vec::new();
+    let mut playlist_no = 0usize;
+    let mut target_path: Option<Vec<String>> = None;
+    let mut spans: Vec<(String, std::ops::Range<usize>)> = Vec::new();
+    loop {
+        let start = reader.buffer_position() as usize;
+        let event = reader
+            .read_event_into(&mut buf)
+            .map_err(|e| Error(format!("malformed XML: {e}")))?;
+        let end = reader.buffer_position() as usize;
+        match event {
+            Event::Start(e) if e.name().as_ref() == b"NODE" => {
+                let ty = attr(&e, "Type")?;
+                let name = attr(&e, "Name")?;
+                node_path.push(name);
+                if ty == "1" {
+                    if playlist_no == request.playlist_index {
+                        target_path = Some(node_path.clone());
+                    }
+                    playlist_no += 1;
+                }
+                stack.push("NODE".into());
+            }
+            Event::Empty(e) if e.name().as_ref() == b"NODE" => {
+                if attr(&e, "Type")? == "1" {
+                    if playlist_no == request.playlist_index {
+                        target_path = Some(
+                            node_path
+                                .iter()
+                                .cloned()
+                                .chain(std::iter::once(attr(&e, "Name")?))
+                                .collect(),
+                        );
+                    }
+                    playlist_no += 1;
+                }
+            }
+            Event::Empty(e)
+                if e.name().as_ref() == b"TRACK"
+                    && target_path.as_ref().is_some_and(|p| p == &node_path) =>
+            {
+                spans.push((attr(&e, "Key")?, start..end));
+            }
+            Event::End(e) => {
+                if e.name().as_ref() == b"NODE" {
+                    node_path.pop();
+                }
+                stack.pop();
+            }
+            Event::Eof => break,
+            _ => {}
+        }
+        buf.clear();
+    }
+    let mut ordered = spans.clone();
+    ordered.sort_by_key(|(id, _)| {
+        request
+            .new_order
+            .iter()
+            .position(|v| v == id)
+            .unwrap_or(usize::MAX)
+    });
+    if spans.iter().map(|(id, _)| id).collect::<Vec<_>>()
+        != playlist.tracks.iter().collect::<Vec<_>>()
+    {
+        return Err(Error(
+            "playlist membership locations could not be verified".into(),
+        ));
+    }
+    let mut output = bytes.to_vec();
+    // Replace each membership slot with the requested element while retaining all inter-element bytes.
+    for (i, (_, slot)) in spans.iter().enumerate().rev() {
+        let element = &bytes[ordered[i].1.clone()];
+        output.splice(slot.clone(), element.iter().copied());
+    }
+    let after = preflight_export(&output)?;
+    let mut expected = before.selected_playlists.clone();
+    expected[request.playlist_index].tracks = request.new_order.clone();
+    if after.selected_playlists != expected || after.selected_tracks != before.selected_tracks {
+        return Err(Error("playlist reorder verification failed".into()));
+    }
+    Ok(PreparedPlaylistReorder { bytes: output })
 }
 
 /// Prepare one guarded non-root folder rename, preserving every other source byte.
@@ -1916,6 +2039,37 @@ mod tests {
                 .to_string()
                 .contains("malformed XML")
         );
+    }
+
+    #[test]
+    fn guarded_playlist_reorder_preserves_other_xml_and_rejects_non_permutations() {
+        let source = include_bytes!("../../../xtask/tests/fixtures/rekordbox-a1/F-02/source.bin");
+        let request = PlaylistReorderRequest {
+            playlist_index: 0,
+            expected_order: vec!["100".into(), "200".into(), "300".into()],
+            new_order: vec!["300".into(), "100".into(), "200".into()],
+        };
+        let changed = prepare_playlist_reorder(source, &request).unwrap().bytes;
+        let parsed = parse(&changed).unwrap();
+        assert_eq!(parsed.playlists[0].tracks, request.new_order);
+        assert_eq!(parsed.playlists[1].tracks, vec!["200", "400"]);
+        assert_eq!(parsed.tracks, parse(source).unwrap().tracks);
+        let stale = PlaylistReorderRequest {
+            expected_order: vec!["200".into(), "100".into(), "300".into()],
+            ..request.clone()
+        };
+        assert!(prepare_playlist_reorder(source, &stale).is_err());
+        for bad in [
+            vec!["300".into(), "100".into(), "100".into()],
+            vec!["300".into(), "100".into(), "999".into()],
+            vec!["300".into(), "100".into()],
+        ] {
+            let invalid = PlaylistReorderRequest {
+                new_order: bad,
+                ..request.clone()
+            };
+            assert!(prepare_playlist_reorder(source, &invalid).is_err());
+        }
     }
 
     #[test]
