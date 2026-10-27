@@ -12,6 +12,62 @@ fn read(n: &str) -> Value {
 fn hash(b: &[u8]) -> String {
     format!("{:x}", Sha256::digest(b))
 }
+fn checker_identity_matches(identity: &Value, live_source: &[u8]) -> bool {
+    identity
+        == &json!({"path":"xtask/tests/f01_metadata_conflict_logical.rs","version":"f01-metadata-conflict-logical-v1","sha256":hash(live_source)})
+}
+fn check_provenance(p: &Value, identity: &Value, live_checker: &[u8]) -> Result<(), &'static str> {
+    if !checker_identity_matches(identity, live_checker) || p["checker_identity"] != *identity {
+        return Err("checker identity mismatch");
+    }
+    let names = [
+        "case.json",
+        "expected-archive.json",
+        "expected-plan.json",
+        "expected-report.json",
+        "expected-visible.json",
+        "operations.json",
+        "source.bin",
+        "checker-identity.json",
+    ];
+    if p["exact_artifact_set"] != json!(names) {
+        return Err("provenance artifact set mismatch");
+    }
+    let expected = names
+        .iter()
+        .map(|s| s.to_string())
+        .chain(std::iter::once("provenance.json".into()))
+        .collect::<std::collections::BTreeSet<_>>();
+    let actual = std::fs::read_dir(dir())
+        .map_err(|_| "fixture directory missing")?
+        .map(|e| e.map_err(|_| "fixture entry unreadable"))
+        .collect::<Result<Vec<_>, _>>()?
+        .into_iter()
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .collect::<std::collections::BTreeSet<_>>();
+    if actual != expected {
+        return Err("live fixture artifact set mismatch");
+    }
+    let artifact_keys = p["artifacts"]
+        .as_object()
+        .ok_or("provenance artifacts missing")?
+        .keys()
+        .map(String::as_str)
+        .collect::<std::collections::BTreeSet<_>>();
+    if artifact_keys != names.iter().copied().collect() {
+        return Err("provenance artifact set mismatch");
+    }
+    for n in names {
+        let b = std::fs::read(dir().join(n)).map_err(|_| "artifact missing")?;
+        if p["artifacts"][n]["path"] != n
+            || p["artifacts"][n]["length_bytes"] != b.len()
+            || p["artifacts"][n]["sha256"] != hash(&b)
+        {
+            return Err("artifact provenance mismatch");
+        }
+    }
+    Ok(())
+}
 fn check(
     s: &Value,
     a: &Value,
@@ -59,6 +115,7 @@ fn frozen_artifacts_and_literal_checker() {
         "expected-visible.json",
         "operations.json",
         "source.bin",
+        "checker-identity.json",
     ];
     let prov = read("provenance.json");
     let src = std::fs::read(dir().join("source.bin")).unwrap();
@@ -83,10 +140,15 @@ fn frozen_artifacts_and_literal_checker() {
         assert_eq!(prov["artifacts"][n]["length_bytes"], b.len());
         assert_eq!(prov["artifacts"][n]["sha256"], hash(&b));
     }
-    assert_eq!(
-        prov["checker"],
-        "xtask/tests/f01_metadata_conflict_logical.rs"
-    );
+    let prov = read("provenance.json");
+    let identity: Value =
+        serde_json::from_slice(&std::fs::read(dir().join("checker-identity.json")).unwrap())
+            .unwrap();
+    let live_checker = std::fs::read(
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/f01_metadata_conflict_logical.rs"),
+    )
+    .unwrap();
+    check_provenance(&prov, &identity, &live_checker).unwrap();
     assert_eq!(
         read("case.json"),
         json!({"case_id":"F-01-metadata-source-disagreement","classification":"logical-only-not-A2-evidence","contract_version":"logical-v1","export_policy":"safe-v1","ordered_element_ids":["c0"],"ordered_record_ids":["r1","r2"],"source_kind":"mixxx-library-logical","source_version":"logical-v1","target_format":"mixxx-library-logical"})
@@ -122,5 +184,42 @@ fn mutation_controls_reject_dropped_assertion_wrong_bpm_unblocked_export_and_rep
     assert!(check(&s, &a, &o, &v, &p, &x).is_err());
     let mut x = p.clone();
     x["report"] = json!([]);
-    assert!(check(&s, &a, &o, &v, &x, &r).is_err());
+    assert!(check(&s, &a, &o, &v, &p, &x).is_err());
+}
+
+#[test]
+fn checker_identity_and_artifact_mutations_are_rejected() {
+    let identity: Value =
+        serde_json::from_slice(&std::fs::read(dir().join("checker-identity.json")).unwrap())
+            .unwrap();
+    let live = std::fs::read(
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/f01_metadata_conflict_logical.rs"),
+    )
+    .unwrap();
+    let prov = read("provenance.json");
+    for (key, value) in [
+        ("path", json!("other.rs")),
+        ("version", json!("drift")),
+        ("sha256", json!("wrong")),
+    ] {
+        let mut changed = identity.clone();
+        changed[key] = value;
+        assert!(check_provenance(&prov, &changed, &live).is_err());
+    }
+    assert!(check_provenance(&prov, &identity, b"mutated checker").is_err());
+    let mut changed = prov.clone();
+    changed["checker_identity"]["version"] = json!("drift");
+    assert!(check_provenance(&changed, &identity, &live).is_err());
+    changed = prov.clone();
+    changed["artifacts"]
+        .as_object_mut()
+        .unwrap()
+        .remove("checker-identity.json");
+    assert!(check_provenance(&changed, &identity, &live).is_err());
+    changed = prov.clone();
+    changed["artifacts"]["unexpected.json"] = json!({});
+    assert!(check_provenance(&changed, &identity, &live).is_err());
+    changed = prov;
+    changed["exact_artifact_set"] = json!(["drift"]);
+    assert!(check_provenance(&changed, &identity, &live).is_err());
 }
