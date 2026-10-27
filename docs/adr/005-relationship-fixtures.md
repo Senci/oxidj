@@ -217,6 +217,8 @@ An additional in-memory F-02 case appends TrackID 100 to an empty self-closing T
 
 **Observed synthetic XML deletion:** F-02 TrackID 200 is deleted from the collection and both guarded memberships in House and Techno in one new-file export. The request requires exact old ordered memberships for every playlist containing the target; stale/incomplete guards and missing/duplicate target references are rejected. The adapter updates `COLLECTION Entries` and the affected playlist `NODE Entries` while retaining all unrelated source bytes. Focused adapter/CLI tests exercise export, refusal and source immutability; independent ElementTree decode observed collection `[100,300,400]`, House `[100,300]`, Techno `[400]`, and counts `3/2/1`. This is synthetic F-02 behavior only; Rekordbox application acceptance, ADR-005 promotion and qualification remain NOT DEMONSTRATED.
 
+**Observed synthetic XML playlist clear (F-02):** House was selected by ordinal 0 and exact old order `[100,200,300]`; one new-file export clears its memberships and sets its direct `Entries` to 0. The collection remains `[100,200,300,400]`, Techno remains `[200,400]`, and counts are `4/0/2`. Adapter and CLI tests cover stale order, malformed source count and source immutability. This is synthetic XML behavior only; Rekordbox application acceptance and qualification remain NOT DEMONSTRATED.
+
 ### F-03: Constant grid, cues and range unchanged
 
 Mixxx-derived **logical CueInfo DTO**, not a claimed Mixxx library transport.

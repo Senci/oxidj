@@ -1324,6 +1324,57 @@ fn append_playlist_member_cli_expands_empty_self_closing_playlist() {
     let _ = fs::remove_file(output);
 }
 
+#[test]
+fn clear_playlist_cli_retains_collection_and_other_playlist() {
+    let fixture = format!(
+        "{}/../../xtask/tests/fixtures/rekordbox-a1/F-02/source.bin",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let input = temporary_path("playlist-clear-input");
+    let output = temporary_path("playlist-clear-output");
+    let source = fs::read(fixture).unwrap();
+    fs::write(&input, &source).unwrap();
+    let invoke = |target: &std::path::Path, order: &str| {
+        Command::new(env!("CARGO_BIN_EXE_oxidj-cli"))
+            .args([
+                "rekordbox",
+                "clear-playlist",
+                "--xml",
+                input.to_str().unwrap(),
+                "--output",
+                target.to_str().unwrap(),
+                "--playlist-index",
+                "0",
+                "--expected-order",
+                order,
+            ])
+            .output()
+            .unwrap()
+    };
+    let result = invoke(&output, "100,200,300");
+    assert_eq!(
+        result.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let exported = fs::read_to_string(&output).unwrap();
+    assert!(exported.contains("<COLLECTION Entries=\"4\">"));
+    assert!(exported.contains("Name=\"House\" Entries=\"0\""));
+    assert!(exported.contains("Name=\"Techno\" Entries=\"2\""));
+    let house_start = exported
+        .find("<NODE Type=\"1\" Name=\"House\" Entries=\"0\"")
+        .unwrap();
+    let house_end = exported[house_start..].find("</NODE>").unwrap() + house_start;
+    assert!(!exported[house_start..house_end].contains("<TRACK"));
+    assert_eq!(fs::read(&input).unwrap(), source);
+    let stale = temporary_path("playlist-clear-stale");
+    assert_ne!(invoke(&stale, "100,300").status.code(), Some(0));
+    assert!(!stale.exists());
+    let _ = fs::remove_file(input);
+    let _ = fs::remove_file(output);
+}
+
 fn temporary_path(label: &str) -> std::path::PathBuf {
     let stamp = SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)

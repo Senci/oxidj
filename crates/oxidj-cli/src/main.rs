@@ -70,6 +70,46 @@ fn run(args: &[String]) -> i32 {
 fn run_rekordbox(args: &[String]) -> i32 {
     if args
         .first()
+        .is_some_and(|action| action == "clear-playlist")
+    {
+        if args.len() != 9
+            || args[1] != "--xml"
+            || args[3] != "--output"
+            || args[5] != "--playlist-index"
+            || args[7] != "--expected-order"
+        {
+            eprintln!(
+                "error: expected rekordbox clear-playlist --xml IN --output NEW --playlist-index N --expected-order ID,ID"
+            );
+            return USAGE;
+        }
+        let Ok(playlist_index) = args[6].parse::<usize>() else {
+            eprintln!("error: malformed playlist index");
+            return USAGE;
+        };
+        let request = oxidj_application::PlaylistClearRequest {
+            playlist_index,
+            expected_order: if args[8].is_empty() {
+                vec![]
+            } else {
+                args[8].split(',').map(str::to_owned).collect()
+            },
+        };
+        return match oxidj_application::export_rekordbox_playlist_clear(
+            &args[2], &args[4], &request,
+        ) {
+            Ok(()) => {
+                println!("Cleared playlist memberships");
+                OK
+            }
+            Err(error) => {
+                eprintln!("error: playlist clear rejected: {error}");
+                DOMAIN
+            }
+        };
+    }
+    if args
+        .first()
         .is_some_and(|action| action == "append-playlist-member")
     {
         if args.len() != 11
@@ -842,6 +882,10 @@ fn print_usage(to_stdout: bool) {
     let _ = writeln!(
         output,
         "  rekordbox append-playlist-member --xml <in> --output <new> --playlist-index <n> --expected-order <IDs> --track-id <id>   Append one existing track to one guarded playlist"
+    );
+    let _ = writeln!(
+        output,
+        "  rekordbox clear-playlist --xml <in> --output <new> --playlist-index <n> --expected-order <IDs>   Remove all guarded memberships from one playlist"
     );
     let _ = writeln!(
         output,
