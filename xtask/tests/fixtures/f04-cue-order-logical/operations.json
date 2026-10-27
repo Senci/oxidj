@@ -1,0 +1,1 @@
+[{"expected_revision":0,"new":["c1","c0","c2","c3"],"old":["c0","c1","c2","c3"],"operation_id":"e1","result_revision":1,"target":"r-cues/order"},{"expected_revision":1,"new":"Opening","old":"Intro","operation_id":"e2","result_revision":2,"target":"r-cues/c0.label"}]

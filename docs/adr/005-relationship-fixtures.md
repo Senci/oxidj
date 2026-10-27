@@ -230,9 +230,7 @@ grid BPM130/anchor2000000; effective changed fields USER; report `[]`.
 
 Continuation: e3 label `Opening`→`Opening 2` at revision 2 succeeds (revision 3).
 Stale e4 (`Intro`→`Wrong`, expected 0) returns Conflict, no change. Replay e3
-identically makes no change; reuse e3 with different payload errors. In a separate reset subcase, reorder the F-03
-cue collection to c1,c0,c2,c3 at revision0 then edit c0.label at revision1:
-c0 changes, not c1, final revision2. A new source revision does not inherit
+identically makes no change; reuse e3 with different payload errors. Separate reset subcase: reorder the F-03 cue collection to c1,c0,c2,c3 at revision 0, then at revision 1 edit c0.label `Intro`→`Opening`; final revision 2, with c1 still `Drop`. Preserve source bytes and every other cue field/order; archive retains originals/history, visible has effective order only, report `[]`. A new source revision does not inherit
 these overlays automatically.
 
 Analysis a1, current source/content, analyzer `m1-synthetic`/`1`, sequence 1,
@@ -243,6 +241,8 @@ operations and candidate; visible values contain only effective values, no histo
 Fresh vendor-only re-import must **not** be required to reconstruct that archive.
 
 **Observed logical-only result (initial accepted-edit composition subcase):** `xtask/tests/fixtures/f04-compose-logical/` freezes the canonical one-cue F-03-derived source, ordered e1/e2 revisions, archive originals and USER overlays, effective visible grid/cue, safe-v1 plan, empty report and provenance with exact artifact digests. The independent literal checker `xtask/tests/f04_compose_logical.rs` verifies exact source values/bytes, operation order/revisions, original/effective values, provenance, report and artifact set; mutation controls reject revision/order/source/effective/archive-history/report/provenance drift. This initial composition subcase is logical-only PASS. The continuation controls in `xtask/tests/fixtures/f04-replay-logical/` freeze e3 at revision 2→3, stale e4 Conflict without revision/state change, identical replay NoChange, and altered e3 payload IdReuseError; the independent literal checker and mutation controls cover result/revision/payload changes, replay changes, history loss, visible/report/provenance drift and exact artifact digests. This continuation subcase is logical-only PASS; cue reorder, analysis precedence, Mixxx A2 and overall F-04 remain NOT DEMONSTRATED.
+
+**Observed logical-only result (cue-order/edit-targeting subcase):** `xtask/tests/fixtures/f04-cue-order-logical/` freezes the exact four-cue F-03 source, revision-0 reorder and revision-1 c0 label edit, revision-2 archive with originals/history, effective ordered visible cues, safe-v1 plan, empty report and exact provenance/artifact set. Independent literal checker `xtask/tests/f04_cue_order_logical.rs` rejects wrong order, c1 targeting, unrelated field drift, source/archive/revision/report/provenance changes. Synthetic logical bytes only; this does not qualify Mixxx A2 or demonstrate overall F-04.
 ### F-05: Unknown kind and opaque bytes — synthetic only
 
 This is `onelibrary-synthetic`, **not real OneLibrary bytes/row serialization**.
