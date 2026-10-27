@@ -27,6 +27,7 @@ pub struct Track {
     pub date_added: Option<String>,
     pub date_modified: Option<String>,
     pub last_played: Option<String>,
+    pub play_count: Option<String>,
     pub location: String,
     pub tempos: Vec<Tempo>,
     pub marks: Vec<PositionMark>,
@@ -604,6 +605,7 @@ pub fn parse(bytes: &[u8]) -> Result<Preview, Error> {
                         date_added: optional(&e, "DateAdded")?,
                         date_modified: optional(&e, "DateModified")?,
                         last_played: optional(&e, "LastPlayed")?,
+                        play_count: optional(&e, "PlayCount")?,
                         location: attr(&e, "Location")?,
                         tempos: vec![],
                         marks: vec![],
@@ -703,6 +705,7 @@ pub fn parse(bytes: &[u8]) -> Result<Preview, Error> {
                         date_added: optional(&e, "DateAdded")?,
                         date_modified: optional(&e, "DateModified")?,
                         last_played: optional(&e, "LastPlayed")?,
+                        play_count: optional(&e, "PlayCount")?,
                         location: attr(&e, "Location")?,
                         tempos: vec![],
                         marks: vec![],
@@ -856,6 +859,7 @@ fn validate_export_element(
             "DateAdded",
             "DateModified",
             "LastPlayed",
+            "PlayCount",
             "Location",
         ],
         "TRACK" => &["Key"],
@@ -3761,17 +3765,17 @@ mod tests {
     use super::*;
 
     #[test]
-    fn raw_optional_dates_preserve_present_empty_absent_and_export_bytes() {
+    fn raw_optional_dates_and_play_count_preserve_present_empty_absent_and_export_bytes() {
         let source = include_bytes!("../../../xtask/tests/fixtures/rekordbox-a1/F-02/source.bin");
         let source = String::from_utf8(source.to_vec())
             .unwrap()
             .replace(
                 "TrackID=\"100\" Name=\"A\"",
-                "TrackID=\"100\" Name=\"A\" DateAdded=\"2024-02-03\" DateModified=\"2024-02-04\" LastPlayed=\"2024-02-05\"",
+                "TrackID=\"100\" Name=\"A\" DateAdded=\"2024-02-03\" DateModified=\"2024-02-04\" LastPlayed=\"2024-02-05\" PlayCount=\"not-a-number\"",
             )
             .replace(
                 "TrackID=\"200\" Name=\"B\"",
-                "TrackID=\"200\" Name=\"B\" DateAdded=\"\" DateModified=\"\" LastPlayed=\"\"",
+                "TrackID=\"200\" Name=\"B\" DateAdded=\"\" DateModified=\"\" LastPlayed=\"\" PlayCount=\"\"",
             );
         let source = source.as_bytes();
         let preview = parse(source).unwrap();
@@ -3787,6 +3791,12 @@ mod tests {
         assert_eq!(preview.tracks[0].last_played.as_deref(), Some("2024-02-05"));
         assert_eq!(preview.tracks[1].last_played.as_deref(), Some(""));
         assert_eq!(preview.tracks[2].last_played, None);
+        assert_eq!(
+            preview.tracks[0].play_count.as_deref(),
+            Some("not-a-number")
+        );
+        assert_eq!(preview.tracks[1].play_count.as_deref(), Some(""));
+        assert_eq!(preview.tracks[2].play_count, None);
         let plan = preflight_export(source).unwrap();
         assert_eq!(
             plan.selected_tracks[0].date_added.as_deref(),
@@ -3806,6 +3816,12 @@ mod tests {
         );
         assert_eq!(plan.selected_tracks[1].last_played.as_deref(), Some(""));
         assert_eq!(plan.selected_tracks[2].last_played, None);
+        assert_eq!(
+            plan.selected_tracks[0].play_count.as_deref(),
+            Some("not-a-number")
+        );
+        assert_eq!(plan.selected_tracks[1].play_count.as_deref(), Some(""));
+        assert_eq!(plan.selected_tracks[2].play_count, None);
         assert_eq!(export_xml(source).unwrap(), source);
     }
 
