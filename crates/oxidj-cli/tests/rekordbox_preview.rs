@@ -3767,7 +3767,7 @@ fn track_play_count_edit_preserves_raw_xml_and_rejects_stale_guard() {
     let input = temporary_path("track-play-count-input");
     let output = temporary_path("track-play-count-output");
     fs::write(&input, &source).unwrap();
-    let invoke = |expected: &str, value: &str, target: &std::path::Path| {
+    let invoke = |track_id: &str, expected: &str, value: &str, target: &std::path::Path| {
         Command::new(env!("CARGO_BIN_EXE_oxidj-cli"))
             .args([
                 "rekordbox",
@@ -3777,7 +3777,7 @@ fn track_play_count_edit_preserves_raw_xml_and_rejects_stale_guard() {
                 "--output",
                 target.to_str().unwrap(),
                 "--track-id",
-                "100",
+                track_id,
                 "--expected-play-count",
                 expected,
                 "--play-count",
@@ -3786,7 +3786,7 @@ fn track_play_count_edit_preserves_raw_xml_and_rejects_stale_guard() {
             .output()
             .unwrap()
     };
-    let success = invoke("raw & old", "not numeric & <new>\t", &output);
+    let success = invoke("100", "raw & old", "not numeric & <new>\t", &output);
     assert_eq!(success.status.code(), Some(0), "{:?}", success.stderr);
     let expected = String::from_utf8(source.clone()).unwrap().replacen(
         "PlayCount=\"raw &amp; old\"",
@@ -3795,9 +3795,52 @@ fn track_play_count_edit_preserves_raw_xml_and_rejects_stale_guard() {
     );
     assert_eq!(fs::read(&output).unwrap(), expected.as_bytes());
     let stale_output = temporary_path("track-play-count-stale");
-    assert_ne!(invoke("stale", "x", &stale_output).status.code(), Some(0));
+    assert_ne!(
+        invoke("100", "stale", "x", &stale_output).status.code(),
+        Some(0)
+    );
     assert!(!stale_output.exists());
     assert_eq!(fs::read(&input).unwrap(), source);
+
+    let empty_source = String::from_utf8(source.clone())
+        .unwrap()
+        .replacen(" PlayCount=\"raw &amp; old\"", " PlayCount=\"\"", 1)
+        .into_bytes();
+    fs::write(&input, &empty_source).unwrap();
+    let empty_output = temporary_path("track-play-count-empty");
+    let empty = invoke("100", "", "0", &empty_output);
+    assert_eq!(empty.status.code(), Some(0), "{:?}", empty.stderr);
+    let expected_empty =
+        String::from_utf8(empty_source)
+            .unwrap()
+            .replacen("PlayCount=\"\"", "PlayCount=\"0\"", 1);
+    assert_eq!(fs::read(&empty_output).unwrap(), expected_empty.as_bytes());
+
+    let missing_field = String::from_utf8(source.clone())
+        .unwrap()
+        .replacen(" PlayCount=\"raw &amp; old\"", "", 1)
+        .into_bytes();
+    let cases: [(&str, Vec<u8>, &str, &str); 4] = [
+        ("missing-track", source.clone(), "999", "raw & old"),
+        ("missing-field", missing_field, "100", ""),
+        ("invalid-xml-text", source.clone(), "100", "bad\u{1}"),
+        (
+            "malformed-xml",
+            b"<DJ_PLAYLISTS><COLLECTION><TRACK TrackID=\"100\"".to_vec(),
+            "100",
+            "raw & old",
+        ),
+    ];
+    for (label, malformed, track_id, expected) in cases {
+        fs::write(&input, malformed).unwrap();
+        let rejected_output = temporary_path(&format!("track-play-count-{label}"));
+        let result = invoke(track_id, expected, "new", &rejected_output);
+        assert_ne!(result.status.code(), Some(0), "{label} accepted");
+        assert!(!rejected_output.exists(), "{label} created output");
+        let _ = fs::remove_file(rejected_output);
+    }
     let _ = fs::remove_file(input);
     let _ = fs::remove_file(output);
+    let _ = fs::remove_file(stale_output);
+    let _ = fs::remove_file(empty_output);
 }
