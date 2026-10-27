@@ -11,6 +11,7 @@ pub struct Track {
     pub album: Option<String>,
     pub genre: Option<String>,
     pub label: Option<String>,
+    pub tonality: Option<String>,
     pub location: String,
     pub tempos: Vec<Tempo>,
     pub marks: Vec<PositionMark>,
@@ -370,6 +371,25 @@ pub struct PreparedTrackLabelEdit {
     pub bytes: Vec<u8>,
     pub change: TrackLabelEditChange,
 }
+/// Raw Tonality is preserved as supplied; no key notation is inferred.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TrackTonalityEditRequest {
+    pub track_id: String,
+    pub expected_old_tonality: String,
+    pub new_tonality: String,
+}
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TrackTonalityEditChange {
+    pub track_id: String,
+    pub old_tonality: String,
+    pub new_tonality: String,
+}
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PreparedTrackTonalityEdit {
+    pub bytes: Vec<u8>,
+    pub change: TrackTonalityEditChange,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PreparedTrackAlbumEdit {
     pub bytes: Vec<u8>,
@@ -485,6 +505,7 @@ pub fn parse(bytes: &[u8]) -> Result<Preview, Error> {
                         album: optional(&e, "Album")?,
                         genre: optional(&e, "Genre")?,
                         label: optional(&e, "Label")?,
+                        tonality: optional(&e, "Tonality")?,
                         location: attr(&e, "Location")?,
                         tempos: vec![],
                         marks: vec![],
@@ -568,6 +589,7 @@ pub fn parse(bytes: &[u8]) -> Result<Preview, Error> {
                         album: optional(&e, "Album")?,
                         genre: optional(&e, "Genre")?,
                         label: optional(&e, "Label")?,
+                        tonality: optional(&e, "Tonality")?,
                         location: attr(&e, "Location")?,
                         tempos: vec![],
                         marks: vec![],
@@ -698,7 +720,8 @@ fn validate_export_element(
         "PRODUCT" => &["Name", "Version", "Company"],
         "COLLECTION" => &["Entries"],
         "TRACK" if parent == Some("COLLECTION") => &[
-            "TrackID", "Name", "Artist", "Comments", "Album", "Genre", "Label", "Location",
+            "TrackID", "Name", "Artist", "Comments", "Album", "Genre", "Label", "Tonality",
+            "Location",
         ],
         "TRACK" => &["Key"],
         "TEMPO" => &["Inizio", "Bpm", "Metro", "Battito"],
@@ -2359,6 +2382,72 @@ pub fn prepare_track_label_edit(
     })
 }
 
+/// Prepare one exact-old-value guarded Track Tonality edit.
+pub fn prepare_track_tonality_edit(
+    bytes: &[u8],
+    request: &TrackTonalityEditRequest,
+) -> Result<PreparedTrackTonalityEdit, Error> {
+    let before = preflight_export(bytes)?;
+    let matches: Vec<_> = before
+        .selected_tracks
+        .iter()
+        .filter(|t| t.id == request.track_id)
+        .collect();
+    let track = match matches.as_slice() {
+        [] => return Err(Error(format!("unknown TrackID {}", request.track_id))),
+        [track] => *track,
+        _ => return Err(Error(format!("duplicate TrackID {}", request.track_id))),
+    };
+    let old_tonality = track
+        .tonality
+        .as_deref()
+        .ok_or_else(|| Error("track Tonality missing".into()))?;
+    if old_tonality != request.expected_old_tonality {
+        return Err(Error("track Tonality changed".into()));
+    }
+    if !request.new_tonality.chars().all(
+        |c| matches!(c as u32, 9 | 10 | 13 | 0x20..=0xD7FF | 0xE000..=0xFFFD | 0x10000..=0x10FFFF),
+    ) {
+        return Err(Error("new Tonality contains invalid XML 1.0 text".into()));
+    }
+    let range = track_attribute_range(
+        bytes,
+        &request.track_id,
+        "Tonality",
+        &request.expected_old_tonality,
+    )?;
+    let escaped = request
+        .new_tonality
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&apos;")
+        .replace('\t', "&#9;")
+        .replace('\n', "&#10;")
+        .replace('\r', "&#13;");
+    let mut output = bytes.to_vec();
+    output.splice(range, escaped.bytes());
+    let after = preflight_export(&output)?;
+    let mut expected = before.selected_tracks.clone();
+    expected
+        .iter_mut()
+        .find(|t| t.id == request.track_id)
+        .unwrap()
+        .tonality = Some(request.new_tonality.clone());
+    if after.selected_tracks != expected {
+        return Err(Error("track Tonality edit verification failed".into()));
+    }
+    Ok(PreparedTrackTonalityEdit {
+        bytes: output,
+        change: TrackTonalityEditChange {
+            track_id: request.track_id.clone(),
+            old_tonality: old_tonality.to_owned(),
+            new_tonality: request.new_tonality.clone(),
+        },
+    })
+}
+
 /// Prepare one exact-old-value guarded Track Artist edit.
 pub fn prepare_track_artist_edit(
     bytes: &[u8],
@@ -3848,6 +3937,73 @@ mod tests {
         let empty = source.replacen("Label=\"old &amp; note\"", "Label=\"\"", 1);
         assert_eq!(
             parse(empty.as_bytes()).unwrap().tracks[0].label.as_deref(),
+            Some("")
+        );
+    }
+
+    #[test]
+    fn guarded_track_tonality_edit_preserves_optional_state_and_xml_whitespace() {
+        let base = include_bytes!("../../../xtask/tests/fixtures/rekordbox-a1/F-02/source.bin");
+        let source = String::from_utf8(base.to_vec()).unwrap().replacen(
+            "TrackID=\"100\" Name=\"A\"",
+            "TrackID=\"100\" Name=\"A\" Tonality=\"old &amp; note\"",
+            1,
+        );
+        let parsed = parse(source.as_bytes()).unwrap();
+        assert_eq!(parsed.tracks[0].tonality.as_deref(), Some("old & note"));
+        assert_eq!(parsed.tracks[1].tonality, None);
+        let request = TrackTonalityEditRequest {
+            track_id: "100".into(),
+            expected_old_tonality: "old & note".into(),
+            new_tonality: "A\tB\nC\rD & <x>".into(),
+        };
+        let prepared = prepare_track_tonality_edit(source.as_bytes(), &request).unwrap();
+        assert!(
+            String::from_utf8(prepared.bytes.clone())
+                .unwrap()
+                .contains("Tonality=\"A&#9;B&#10;C&#13;D &amp; &lt;x&gt;\"")
+        );
+        assert_eq!(
+            parse(&prepared.bytes).unwrap().tracks[0]
+                .tonality
+                .as_deref(),
+            Some("A\tB\nC\rD & <x>")
+        );
+        let expected = source.replacen(
+            "Tonality=\"old &amp; note\"",
+            "Tonality=\"A&#9;B&#10;C&#13;D &amp; &lt;x&gt;\"",
+            1,
+        );
+        assert_eq!(prepared.bytes, expected.as_bytes());
+        for request in [
+            TrackTonalityEditRequest {
+                track_id: "200".into(),
+                expected_old_tonality: "".into(),
+                new_tonality: "x".into(),
+            },
+            TrackTonalityEditRequest {
+                track_id: "999".into(),
+                expected_old_tonality: "x".into(),
+                new_tonality: "y".into(),
+            },
+            TrackTonalityEditRequest {
+                track_id: "100".into(),
+                expected_old_tonality: "stale".into(),
+                new_tonality: "y".into(),
+            },
+            TrackTonalityEditRequest {
+                track_id: "100".into(),
+                expected_old_tonality: "old & note".into(),
+                new_tonality: "bad\u{1}".into(),
+            },
+        ] {
+            assert!(prepare_track_tonality_edit(source.as_bytes(), &request).is_err());
+        }
+        let empty = source.replacen("Tonality=\"old &amp; note\"", "Tonality=\"\"", 1);
+        assert_eq!(
+            parse(empty.as_bytes()).unwrap().tracks[0]
+                .tonality
+                .as_deref(),
             Some("")
         );
     }

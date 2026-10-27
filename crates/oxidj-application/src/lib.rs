@@ -18,7 +18,7 @@ pub use oxidj_rekordbox::{
     TempoStartEditRequest, TrackAlbumEditChange, TrackAlbumEditRequest, TrackArtistEditChange,
     TrackArtistEditRequest, TrackCommentsEditChange, TrackCommentsEditRequest, TrackDeleteRequest,
     TrackGenreEditChange, TrackGenreEditRequest, TrackLabelEditChange, TrackLabelEditRequest,
-    TrackNameEditChange, TrackNameEditRequest,
+    TrackNameEditChange, TrackNameEditRequest, TrackTonalityEditChange, TrackTonalityEditRequest,
 };
 
 /// Read-only preview handler; parsing and vendor-specific semantics stay in the adapter.
@@ -82,6 +82,18 @@ pub fn export_rekordbox_track_label_edit(
 ) -> Result<TrackLabelEditChange, RekordboxError> {
     let (source, output) = read_new_export_source(input, output)?;
     let prepared = oxidj_rekordbox::prepare_track_label_edit(&source, request)?;
+    publish_new_file(&output, &prepared.bytes)?;
+    Ok(prepared.change)
+}
+
+/// Export one guarded track Tonality edit to a new, non-overwriting file.
+pub fn export_rekordbox_track_tonality_edit(
+    input: impl AsRef<Path>,
+    output: impl AsRef<Path>,
+    request: &TrackTonalityEditRequest,
+) -> Result<TrackTonalityEditChange, RekordboxError> {
+    let (source, output) = read_new_export_source(input, output)?;
+    let prepared = oxidj_rekordbox::prepare_track_tonality_edit(&source, request)?;
     publish_new_file(&output, &prepared.bytes)?;
     Ok(prepared.change)
 }
