@@ -1227,12 +1227,13 @@ fn run_rekordbox(args: &[String]) -> i32 {
             println!("Tracks:");
             for t in p.tracks {
                 println!(
-                    "{}\t{}\t{:?}\t{:?}\t{:?}\t{}\t{:?}\t{:?}\t{:?}\t{:?}\t{:?}\t{:?}\t{:?}\t{:?}\t{:?}\t{:?}\t{:?}\t{:?}\t{:?}\t{:?}\t{:?}",
+                    "{}\t{}\t{:?}\t{:?}\t{:?}\t{:?}\t{}\t{:?}\t{:?}\t{:?}\t{:?}\t{:?}\t{:?}\t{:?}\t{:?}\t{:?}\t{:?}\t{:?}\t{:?}\t{:?}\t{:?}\t{:?}",
                     t.id,
                     t.name,
                     t.artist,
                     t.comments,
                     t.album,
+                    t.tonality,
                     t.location,
                     t.kind,
                     t.year,

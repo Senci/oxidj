@@ -358,7 +358,7 @@ fn preview_prints_tracks_ordered_playlists_tempos_and_marks() {
     assert_eq!(out.status.code(), Some(0));
     let stdout = String::from_utf8(out.stdout).unwrap();
     assert!(stdout.contains(
-        "700\tTempo cue independence\tNone\tNone\tNone\tfile://localhost/music/tempo.flac"
+        "700\tTempo cue independence\tNone\tNone\tNone\tNone\tfile://localhost/music/tempo.flac"
     ));
     assert!(stdout.contains("TEMPO\t10\t128\t4/4\t1"));
     assert!(stdout.contains("POSITION_MARK\tIntro\t0\t5\t0\tNone"));
@@ -2648,6 +2648,48 @@ fn track_mix_edit_preserves_optional_state_and_exports_one_guarded_value() {
     ] {
         let _ = fs::remove_file(path);
     }
+}
+
+#[test]
+fn preview_reports_raw_track_tonality_states_and_preserves_source_bytes() {
+    let fixture = format!(
+        "{}/../../xtask/tests/fixtures/rekordbox-a1/F-02/source.bin",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let base = String::from_utf8(fs::read(fixture).unwrap()).unwrap();
+    let source = base
+        .replacen(
+            "TrackID=\"100\" Name=\"A\"",
+            "TrackID=\"100\" Name=\"A\" Tonality=\"old &amp; note\"",
+            1,
+        )
+        .replace(
+            "TrackID=\"200\" Name=\"B\"",
+            "TrackID=\"200\" Name=\"B\" Tonality=\"\"",
+        );
+    let input = temporary_path("tonality-preview");
+    fs::write(&input, source.as_bytes()).unwrap();
+    let preview = Command::new(env!("CARGO_BIN_EXE_oxidj-cli"))
+        .args(["rekordbox", "preview", "--xml", input.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert_eq!(preview.status.code(), Some(0));
+    let preview_text = String::from_utf8_lossy(&preview.stdout);
+    assert!(
+        preview_text.contains("Some(\"old & note\")"),
+        "{preview_text}"
+    );
+    assert!(preview_text.contains("Some(\"\")"), "{preview_text}");
+    assert!(
+        preview_text.contains("200\tB\tNone\tNone\tNone\tSome(\"\")"),
+        "{preview_text}"
+    );
+    assert!(
+        preview_text.contains("300\tC\tNone\tNone\tNone\tNone"),
+        "{preview_text}"
+    );
+    assert_eq!(fs::read(&input).unwrap(), source.as_bytes());
+    let _ = fs::remove_file(input);
 }
 
 #[test]
