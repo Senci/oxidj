@@ -191,8 +191,28 @@ fn independently_decodes_playlist_move_and_rejects_order_count_membership_mutati
     );
     check(&output).unwrap();
     let text = String::from_utf8(output).unwrap();
+    let other_start = text.find("<NODE Type=\"1\" Name=\"Other\"").unwrap();
+    let other_end = text[other_start..].find("</NODE>").unwrap() + other_start + "</NODE>".len();
+    let house_start = text.find("<NODE Type=\"1\" Name=\"House\"").unwrap();
+    let house_end = text[house_start..].find("</NODE>").unwrap() + house_start + "</NODE>".len();
+    assert!(
+        other_end <= house_start,
+        "fixture expects adjacent target playlists"
+    );
+    let reordered = format!(
+        "{}{}{}{}{}",
+        &text[..other_start],
+        &text[house_start..house_end],
+        &text[other_end..house_start],
+        &text[other_start..other_end],
+        &text[house_end..],
+    );
+    assert_ne!(
+        reordered, text,
+        "node-order mutation must change only sibling order"
+    );
     for mutated in [
-        text.replacen("Name=\"Other\"", "Name=\"House\"", 1),
+        reordered,
         text.replacen("Name=\"Sets\" Count=\"1\"", "Name=\"Sets\" Count=\"2\"", 1),
         text.replacen("<TRACK Key=\"100\"/>", "<TRACK Key=\"999\"/>", 1),
     ] {
