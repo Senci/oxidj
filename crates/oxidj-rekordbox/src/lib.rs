@@ -186,6 +186,26 @@ pub struct PreparedTempoBeatEdit {
     pub bytes: Vec<u8>,
     pub change: TempoBeatEditChange,
 }
+/// One optimistic, ordinal-scoped raw tempo-point Metro edit request.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TempoMeterEditRequest {
+    pub track_id: String,
+    pub tempo_index: usize,
+    pub expected_old_meter: String,
+    pub new_meter: String,
+}
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TempoMeterEditChange {
+    pub track_id: String,
+    pub tempo_index: usize,
+    pub old_meter: String,
+    pub new_meter: String,
+}
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PreparedTempoMeterEdit {
+    pub bytes: Vec<u8>,
+    pub change: TempoMeterEditChange,
+}
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TempoStartEditChange {
     pub track_id: String,
@@ -2749,6 +2769,76 @@ pub fn prepare_tempo_beat_edit(
     })
 }
 
+/// Prepare a single raw tempo-point Metro edit while preserving every other source byte.
+pub fn prepare_tempo_meter_edit(
+    bytes: &[u8],
+    request: &TempoMeterEditRequest,
+) -> Result<PreparedTempoMeterEdit, Error> {
+    let source = preflight_export(bytes)?;
+    let track = source
+        .selected_tracks
+        .iter()
+        .find(|track| track.id == request.track_id)
+        .ok_or_else(|| Error(format!("unknown TrackID {}", request.track_id)))?;
+    let tempo = track.tempos.get(request.tempo_index).ok_or_else(|| {
+        Error(format!(
+            "no tempo point {} for TrackID {}",
+            request.tempo_index, request.track_id
+        ))
+    })?;
+    if tempo.meter != request.expected_old_meter {
+        return Err(Error(format!(
+            "tempo Metro changed: expected {}, found {}",
+            request.expected_old_meter, tempo.meter
+        )));
+    }
+    let valid_xml_text = |value: &str| {
+        !value.is_empty()
+            && value.chars().all(|c| {
+                matches!(c as u32, 9 | 10 | 13 | 0x20..=0xD7FF | 0xE000..=0xFFFD | 0x10000..=0x10FFFF)
+            })
+    };
+    if !valid_xml_text(&request.new_meter) {
+        return Err(Error("invalid tempo Metro XML text".into()));
+    }
+    let range = tempo_attribute_range(
+        bytes,
+        &request.track_id,
+        request.tempo_index,
+        "Metro",
+        &request.expected_old_meter,
+    )?;
+    let escaped = request
+        .new_meter
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&apos;");
+    let mut output = bytes.to_vec();
+    output.splice(range, escaped.bytes());
+    let verified = preflight_export(&output)?;
+    let mut expected_track = track.clone();
+    expected_track.tempos[request.tempo_index].meter = request.new_meter.clone();
+    let actual_track = verified
+        .selected_tracks
+        .iter()
+        .find(|track| track.id == request.track_id)
+        .ok_or_else(|| Error("edited track missing after validation".into()))?;
+    if actual_track != &expected_track {
+        return Err(Error("edited tempo Metro verification failed".into()));
+    }
+    Ok(PreparedTempoMeterEdit {
+        bytes: output,
+        change: TempoMeterEditChange {
+            track_id: request.track_id.clone(),
+            tempo_index: request.tempo_index,
+            old_meter: request.expected_old_meter.clone(),
+            new_meter: request.new_meter.clone(),
+        },
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -3016,6 +3106,52 @@ mod tests {
             },
         ] {
             assert!(prepare_tempo_beat_edit(source, &invalid).is_err());
+        }
+    }
+
+    #[test]
+    fn guarded_tempo_meter_edit_changes_only_selected_raw_value_and_rejects_invalid_text() {
+        let source = include_bytes!("../../../xtask/tests/fixtures/rekordbox-a1/F-07/source.bin");
+        let request = TempoMeterEditRequest {
+            track_id: "700".into(),
+            tempo_index: 0,
+            expected_old_meter: "4/4".into(),
+            new_meter: "3/4".into(),
+        };
+        let result = prepare_tempo_meter_edit(source, &request).unwrap();
+        let expected = String::from_utf8(source.to_vec()).unwrap().replacen(
+            "Metro=\"4/4\"",
+            "Metro=\"3/4\"",
+            1,
+        );
+        assert_eq!(result.bytes, expected.as_bytes());
+        let after = preflight_export(&result.bytes).unwrap();
+        assert_eq!(after.selected_tracks[0].tempos[0].meter, "3/4");
+        assert_eq!(after.selected_tracks[0].tempos[1].meter, "4/4");
+
+        for invalid in [
+            TempoMeterEditRequest {
+                expected_old_meter: "stale".into(),
+                ..request.clone()
+            },
+            TempoMeterEditRequest {
+                tempo_index: 9,
+                ..request.clone()
+            },
+            TempoMeterEditRequest {
+                new_meter: String::new(),
+                ..request.clone()
+            },
+            TempoMeterEditRequest {
+                new_meter: "bad\u{0001}".into(),
+                ..request.clone()
+            },
+            TempoMeterEditRequest {
+                track_id: "999".into(),
+                ..request
+            },
+        ] {
+            assert!(prepare_tempo_meter_edit(source, &invalid).is_err());
         }
     }
 

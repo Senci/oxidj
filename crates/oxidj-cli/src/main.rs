@@ -662,6 +662,49 @@ fn run_rekordbox(args: &[String]) -> i32 {
     }
     if args
         .first()
+        .is_some_and(|action| action == "edit-tempo-meter")
+    {
+        if args.len() != 13
+            || args[1] != "--xml"
+            || args[3] != "--output"
+            || args[5] != "--track-id"
+            || args[7] != "--tempo-index"
+            || args[9] != "--expected-meter"
+            || args[11] != "--meter"
+        {
+            eprintln!(
+                "error: expected rekordbox edit-tempo-meter --xml IN --output NEW --track-id ID --tempo-index N --expected-meter OLD --meter NEW"
+            );
+            return USAGE;
+        }
+        let Ok(tempo_index) = args[8].parse::<usize>() else {
+            eprintln!("error: tempo index must be a non-negative integer");
+            return USAGE;
+        };
+        let request = oxidj_application::TempoMeterEditRequest {
+            track_id: args[6].clone(),
+            tempo_index,
+            expected_old_meter: args[10].clone(),
+            new_meter: args[12].clone(),
+        };
+        return match oxidj_application::export_rekordbox_tempo_meter_edit(
+            &args[2], &args[4], &request,
+        ) {
+            Ok(change) => {
+                println!(
+                    "Edited TrackID={} TEMPO[{}].Metro {:?} to {:?}",
+                    change.track_id, change.tempo_index, change.old_meter, change.new_meter
+                );
+                OK
+            }
+            Err(error) => {
+                eprintln!("error: tempo Metro edit rejected: {error}");
+                DOMAIN
+            }
+        };
+    }
+    if args
+        .first()
         .is_some_and(|action| action == "edit-tempo-start")
     {
         if args.len() != 13
@@ -771,7 +814,7 @@ fn run_rekordbox(args: &[String]) -> i32 {
     }
     if args.len() != 3 || args[0] != "preview" || args[1] != "--xml" {
         eprintln!(
-            "error: expected rekordbox preview --xml PATH, export-plan --xml PATH, edit-position --xml IN --output NEW --track-id ID --mark-index N --expected-start OLD --start NEW, edit-tempo --xml IN --output NEW --track-id ID --tempo-index N --expected-bpm OLD --bpm NEW, edit-tempo-beat --xml IN --output NEW --track-id ID --tempo-index N --expected-beat OLD --beat NEW, or export --xml IN --output NEW"
+            "error: expected rekordbox preview --xml PATH, export-plan --xml PATH, edit-position --xml IN --output NEW --track-id ID --mark-index N --expected-start OLD --start NEW, edit-tempo --xml IN --output NEW --track-id ID --tempo-index N --expected-bpm OLD --bpm NEW, edit-tempo-beat --xml IN --output NEW --track-id ID --tempo-index N --expected-beat OLD --beat NEW, edit-tempo-meter --xml IN --output NEW --track-id ID --tempo-index N --expected-meter OLD --meter NEW, or export --xml IN --output NEW"
         );
         return USAGE;
     }
@@ -999,6 +1042,10 @@ fn print_usage(to_stdout: bool) {
     let _ = writeln!(
         output,
         "  rekordbox edit-tempo-beat --xml <in> --output <new> --track-id <id> --tempo-index <n> --expected-beat <old> --beat <new>   Export one guarded Battito edit"
+    );
+    let _ = writeln!(
+        output,
+        "  rekordbox edit-tempo-meter --xml <in> --output <new> --track-id <id> --tempo-index <n> --expected-meter <old> --meter <new>   Export one guarded raw Metro edit"
     );
     let _ = writeln!(
         output,
