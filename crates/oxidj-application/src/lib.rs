@@ -12,8 +12,8 @@ pub use oxidj_rekordbox::{
     PositionMarkNameEditRequest, PreparedFolderDelete, PreparedFolderRename,
     PreparedPlaylistDelete, PreparedPlaylistRename, PreparedPlaylistReorder,
     PreparedPositionMarkEdit, PreparedPositionMarkEndEdit, PreparedPositionMarkNameEdit,
-    PreparedSiblingPlaylistReorder, PreparedTempoBeatEdit, PreparedTempoEdit,
-    PreparedTempoMeterEdit, PreparedTempoStartEdit, PreparedTrackAlbumEdit,
+    PreparedSiblingFolderReorder, PreparedSiblingPlaylistReorder, PreparedTempoBeatEdit,
+    PreparedTempoEdit, PreparedTempoMeterEdit, PreparedTempoStartEdit, PreparedTrackAlbumEdit,
     PreparedTrackArtistEdit, PreparedTrackAverageBpmEdit, PreparedTrackBitRateEdit,
     PreparedTrackColourEdit, PreparedTrackCommentsEdit, PreparedTrackComposerEdit,
     PreparedTrackDateAddedEdit, PreparedTrackDateModifiedEdit, PreparedTrackDelete,
@@ -22,10 +22,10 @@ pub use oxidj_rekordbox::{
     PreparedTrackMixEdit, PreparedTrackNameEdit, PreparedTrackNumberEdit,
     PreparedTrackPlayCountEdit, PreparedTrackRatingEdit, PreparedTrackRemixerEdit,
     PreparedTrackSampleRateEdit, PreparedTrackSizeEdit, PreparedTrackTotalTimeEdit,
-    PreparedTrackYearEdit, Preview, SiblingPlaylistReorderRequest, TempoBeatEditChange,
-    TempoBeatEditRequest, TempoEditChange, TempoEditRequest, TempoMeterEditChange,
-    TempoMeterEditRequest, TempoStartEditChange, TempoStartEditRequest, TrackAlbumEditChange,
-    TrackAlbumEditRequest, TrackArtistEditChange, TrackArtistEditRequest,
+    PreparedTrackYearEdit, Preview, SiblingFolderReorderRequest, SiblingPlaylistReorderRequest,
+    TempoBeatEditChange, TempoBeatEditRequest, TempoEditChange, TempoEditRequest,
+    TempoMeterEditChange, TempoMeterEditRequest, TempoStartEditChange, TempoStartEditRequest,
+    TrackAlbumEditChange, TrackAlbumEditRequest, TrackArtistEditChange, TrackArtistEditRequest,
     TrackAverageBpmEditChange, TrackAverageBpmEditRequest, TrackBitRateEditChange,
     TrackBitRateEditRequest, TrackColourEditChange, TrackColourEditRequest,
     TrackCommentsEditChange, TrackCommentsEditRequest, TrackComposerEditChange,
@@ -454,6 +454,17 @@ pub fn export_rekordbox_sibling_playlist_reorder(
 ) -> Result<(), RekordboxError> {
     let (source, output) = read_new_export_source(input, output)?;
     let prepared = oxidj_rekordbox::prepare_sibling_playlist_reorder(&source, request)?;
+    publish_new_file(&output, &prepared.bytes)
+}
+
+/// Export a guarded sibling-folder reorder to a new, non-overwriting file.
+pub fn export_rekordbox_sibling_folder_reorder(
+    input: impl AsRef<Path>,
+    output: impl AsRef<Path>,
+    request: &SiblingFolderReorderRequest,
+) -> Result<(), RekordboxError> {
+    let (source, output) = read_new_export_source(input, output)?;
+    let prepared = oxidj_rekordbox::prepare_sibling_folder_reorder(&source, request)?;
     publish_new_file(&output, &prepared.bytes)
 }
 

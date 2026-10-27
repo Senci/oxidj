@@ -1696,6 +1696,55 @@ fn sibling_playlist_reorder_cli_exports_new_order_and_preserves_input() {
 }
 
 #[test]
+fn sibling_folder_reorder_cli_exports_subtree_order_and_preserves_input() {
+    let fixture = format!(
+        "{}/../../xtask/tests/fixtures/rekordbox-a1/F-02/source.bin",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let source = String::from_utf8(fs::read(&fixture).unwrap()).unwrap()
+        .replace("Name=\"Sets\" Count=\"2\"", "Name=\"Sets\" Count=\"4\"")
+        .replace("        <NODE Type=\"1\" Name=\"Techno\"", "        <NODE Type=\"0\" Name=\"FolderA\" Count=\"1\"><NODE Type=\"1\" Name=\"A-child\" Entries=\"1\" KeyType=\"0\"><TRACK Key=\"100\"/></NODE></NODE>\n        <NODE Type=\"1\" Name=\"Techno\"")
+        .replace("      </NODE>\n    </NODE>\n  </PLAYLISTS>", "        <NODE Type=\"0\" Name=\"FolderB\" Count=\"1\"><NODE Type=\"1\" Name=\"B-child\" Entries=\"1\" KeyType=\"0\"><TRACK Key=\"200\"/></NODE></NODE>\n      </NODE>\n    </NODE>\n  </PLAYLISTS>");
+    let input = temporary_path("sibling-folder-reorder-input");
+    let output = temporary_path("sibling-folder-reorder-output");
+    fs::write(&input, &source).unwrap();
+    let invoke = |target: &std::path::Path, order: &str| {
+        Command::new(env!("CARGO_BIN_EXE_oxidj-cli"))
+            .args([
+                "rekordbox",
+                "reorder-sibling-folders",
+                "--xml",
+                input.to_str().unwrap(),
+                "--output",
+                target.to_str().unwrap(),
+                "--parent-index",
+                "0",
+                "--expected-name",
+                "Sets",
+                "--expected-order",
+                "FolderA,FolderB",
+                "--order",
+                order,
+            ])
+            .output()
+            .unwrap()
+    };
+    let created = invoke(&output, "FolderB,FolderA");
+    assert_eq!(created.status.code(), Some(0), "{:?}", created.stderr);
+    let exported = fs::read_to_string(&output).unwrap();
+    assert!(
+        exported.find("Name=\"FolderB\"").unwrap() < exported.find("Name=\"FolderA\"").unwrap()
+    );
+    assert!(exported.contains("Name=\"B-child\" Entries=\"1\" KeyType=\"0\""));
+    assert_eq!(fs::read_to_string(&input).unwrap(), source);
+    let rejected = temporary_path("sibling-folder-reorder-stale");
+    assert_ne!(invoke(&rejected, "FolderA,FolderA").status.code(), Some(0));
+    assert!(!rejected.exists());
+    let _ = fs::remove_file(input);
+    let _ = fs::remove_file(output);
+}
+
+#[test]
 fn empty_folder_delete_cli_is_guarded_and_preserves_input() {
     let fixture = format!(
         "{}/../../xtask/tests/fixtures/rekordbox-a1/F-02/source.bin",
