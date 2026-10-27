@@ -379,12 +379,60 @@ fn fixture(case_id: &str, name: &str) -> PathBuf {
         .join(name)
 }
 
+const A1_CHECKER_PATH: &str = "xtask/tests/rekordbox_xml_a1.rs";
+const A1_CHECKER_VERSION: &str = "rekordbox-xml-a1-checker-v1";
+const A1_CHECKER_IDENTITY_PATH: &str = "tests/fixtures/rekordbox-a1/checker-identity.json";
+
+fn sha256(bytes: &[u8]) -> String {
+    format!("{:x}", Sha256::digest(bytes))
+}
+
 fn read_json(case_id: &str, name: &str) -> Value {
     serde_json::from_slice(&std::fs::read(fixture(case_id, name)).unwrap()).unwrap()
 }
 
+fn expected_artifacts(case_id: &str) -> &'static [&'static str] {
+    match case_id {
+        "F-02" | "F-07" => &[
+            "case.json",
+            "expected-archive.json",
+            "expected-report.json",
+            "expected-visible.json",
+            "operations.json",
+            "provenance.json",
+            "source.bin",
+        ],
+        "F-10" => &[
+            "case.json",
+            "expected-archive.json",
+            "expected-plan.json",
+            "expected-report.json",
+            "expected-visible.json",
+            "operations.json",
+            "provenance.json",
+            "source.bin",
+        ],
+        _ => panic!("unknown A1 fixture {case_id}"),
+    }
+}
+
 #[test]
 fn a1_fixture_bytes_match_frozen_provenance_and_goldens() {
+    let checker =
+        std::fs::read(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/rekordbox_xml_a1.rs"))
+            .unwrap();
+    let identity = serde_json::from_slice::<Value>(
+        &std::fs::read(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(A1_CHECKER_IDENTITY_PATH))
+            .unwrap(),
+    )
+    .unwrap();
+    let checker_hash = sha256(&checker);
+    assert_eq!(identity["path"], A1_CHECKER_PATH);
+    assert_eq!(identity["version"], A1_CHECKER_VERSION);
+    assert_eq!(
+        identity["sha256"], checker_hash,
+        "checker source identity drift"
+    );
     for (case_id, expected_hash) in [
         (
             "F-02",
@@ -403,8 +451,39 @@ fn a1_fixture_bytes_match_frozen_provenance_and_goldens() {
         let digest = format!("{:x}", Sha256::digest(&source));
         assert_eq!(digest, expected_hash, "{case_id} source bytes changed");
         let provenance = read_json(case_id, "provenance.json");
+        assert_eq!(provenance["checker"], A1_CHECKER_PATH);
+        assert_eq!(provenance["checker_identity"]["path"], A1_CHECKER_PATH);
+        assert_eq!(
+            provenance["checker_identity"]["version"],
+            A1_CHECKER_VERSION
+        );
+        assert_eq!(provenance["checker_identity"]["sha256"], checker_hash);
         assert_eq!(provenance["source_sha256"], json!(digest));
         assert_eq!(provenance["source_length_bytes"], json!(source.len()));
+        let dir = fixture(case_id, "");
+        let mut actual = std::fs::read_dir(&dir)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+            .collect::<Vec<_>>();
+        actual.sort();
+        let mut expected = expected_artifacts(case_id)
+            .iter()
+            .map(|name| (*name).to_owned())
+            .collect::<Vec<_>>();
+        expected.sort();
+        assert_eq!(actual, expected, "{case_id} artifact set drift");
+        for artifact in expected_artifacts(case_id)
+            .iter()
+            .filter(|name| **name != "provenance.json")
+        {
+            let bytes = std::fs::read(dir.join(artifact)).unwrap();
+            assert_eq!(provenance["artifacts"][*artifact]["path"], *artifact);
+            assert_eq!(
+                provenance["artifacts"][*artifact]["length_bytes"],
+                bytes.len()
+            );
+            assert_eq!(provenance["artifacts"][*artifact]["sha256"], sha256(&bytes));
+        }
         assert_eq!(
             provenance["specification_sha256"],
             "2acbe04491bfed8b3c53a977a63e372c1605dfc4d8f8047fe89f28f36151aeeb"

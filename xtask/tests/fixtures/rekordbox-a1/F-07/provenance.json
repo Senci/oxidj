@@ -6,5 +6,42 @@
   "specification_version": "1.0.0",
   "specification_sha256": "2acbe04491bfed8b3c53a977a63e372c1605dfc4d8f8047fe89f28f36151aeeb",
   "source_sha256": "13becb20e52ed3aa4316fa69e95155624d4b53457dd4a1aa3e56beaf10baf5e7",
-  "checker": "xtask/tests/rekordbox_xml_a1.rs"
+  "checker": "xtask/tests/rekordbox_xml_a1.rs",
+  "checker_identity": {
+    "path": "xtask/tests/rekordbox_xml_a1.rs",
+    "version": "rekordbox-xml-a1-checker-v1",
+    "sha256": "790b088e78a5dec78ddba0dae1eae6941bbb975e2c73d45e8ce8007049b37524"
+  },
+  "artifacts": {
+    "case.json": {
+      "path": "case.json",
+      "length_bytes": 331,
+      "sha256": "4fb7b1aa14045a3963bb520f256e467a5011bf3e6c4315d237cc8b6a8e408223"
+    },
+    "expected-archive.json": {
+      "path": "expected-archive.json",
+      "length_bytes": 389,
+      "sha256": "3cce67dbf7b7d1862710ed149b20da6b884285b41a82f15b74b26cf5d1f848cc"
+    },
+    "expected-report.json": {
+      "path": "expected-report.json",
+      "length_bytes": 3,
+      "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570"
+    },
+    "expected-visible.json": {
+      "path": "expected-visible.json",
+      "length_bytes": 242,
+      "sha256": "44181f807e07a17a12366ea2b3ad43323680d57a52aa85871f954b80a1c45cb4"
+    },
+    "operations.json": {
+      "path": "operations.json",
+      "length_bytes": 127,
+      "sha256": "5a6b1281d9d7a22a9a218b992db7f597e0b857cf894ceb8dbaa67e8214db67db"
+    },
+    "source.bin": {
+      "path": "source.bin",
+      "length_bytes": 571,
+      "sha256": "13becb20e52ed3aa4316fa69e95155624d4b53457dd4a1aa3e56beaf10baf5e7"
+    }
+  }
 }

@@ -9,5 +9,47 @@
   "expected_plan_path": "expected-plan.json",
   "expected_plan_length_bytes": 614,
   "expected_plan_sha256": "1344b51c21a0ff797f10681b8a82ea0a82b8d4de44cc89d4c87c0a2276a5817f",
-  "checker": "xtask/tests/rekordbox_xml_a1.rs"
+  "checker": "xtask/tests/rekordbox_xml_a1.rs",
+  "checker_identity": {
+    "path": "xtask/tests/rekordbox_xml_a1.rs",
+    "version": "rekordbox-xml-a1-checker-v1",
+    "sha256": "790b088e78a5dec78ddba0dae1eae6941bbb975e2c73d45e8ce8007049b37524"
+  },
+  "artifacts": {
+    "case.json": {
+      "path": "case.json",
+      "length_bytes": 326,
+      "sha256": "3f25ec9973fd76e2d50bc5666a13fe1b7856ed9263fb02a1945a6a40fbd8f35f"
+    },
+    "expected-archive.json": {
+      "path": "expected-archive.json",
+      "length_bytes": 228,
+      "sha256": "332a77259f2d311775a2f656c246498aa036b73c56442cf27b7b6204c16b2625"
+    },
+    "expected-plan.json": {
+      "path": "expected-plan.json",
+      "length_bytes": 614,
+      "sha256": "1344b51c21a0ff797f10681b8a82ea0a82b8d4de44cc89d4c87c0a2276a5817f"
+    },
+    "expected-report.json": {
+      "path": "expected-report.json",
+      "length_bytes": 3,
+      "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570"
+    },
+    "expected-visible.json": {
+      "path": "expected-visible.json",
+      "length_bytes": 211,
+      "sha256": "4b59871319f414025778d7cff90f6ac6a3643a6d8d3e08417128327c36e41f44"
+    },
+    "operations.json": {
+      "path": "operations.json",
+      "length_bytes": 3,
+      "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570"
+    },
+    "source.bin": {
+      "path": "source.bin",
+      "length_bytes": 564,
+      "sha256": "a0f7c6662eba04bae044033cfff867d04289b44b3bf637d2ee28dcdd223af459"
+    }
+  }
 }
