@@ -1,7 +1,8 @@
 use oxidj_rekordbox as _;
 use quick_xml as _;
 use serde_json::{Value, json};
-use sha2 as _;
+use sha2::{Digest, Sha256};
+use std::collections::BTreeSet;
 use std::path::PathBuf;
 fn f(name: &str) -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -10,6 +11,9 @@ fn f(name: &str) -> PathBuf {
 }
 fn read(name: &str) -> Value {
     serde_json::from_slice(&std::fs::read(f(name)).unwrap()).unwrap()
+}
+fn digest(bytes: &[u8]) -> String {
+    format!("{:x}", Sha256::digest(bytes))
 }
 fn check(
     src: &Value,
@@ -49,8 +53,72 @@ fn check(
     }
     Ok(())
 }
+fn check_provenance(p: &Value, identity: &Value, live_checker: &[u8]) -> Result<(), &'static str> {
+    let expected_identity = json!({"path":"xtask/tests/f06a_logical.rs","version":"f06a-logical-checker-v1","sha256":digest(live_checker)});
+    if identity != &expected_identity
+        || p["checker_identity"] != *identity
+        || p["case_id"] != "F-06a"
+        || p["classification"] != "logical-only-not-A2-evidence"
+        || p["source_citation"] != "docs/adr/005-relationship-fixtures.md §3 F-06"
+    {
+        return Err("checker provenance mismatch");
+    }
+    let expected = [
+        "case.json",
+        "expected-archive.json",
+        "expected-plan.json",
+        "expected-report.json",
+        "expected-visible.json",
+        "operations.json",
+        "source.bin",
+        "checker-identity.json",
+    ]
+    .into_iter()
+    .collect::<BTreeSet<_>>();
+    let artifacts = p["artifacts"]
+        .as_object()
+        .ok_or("provenance artifacts missing")?;
+    if artifacts
+        .keys()
+        .map(String::as_str)
+        .collect::<BTreeSet<_>>()
+        != expected
+    {
+        return Err("provenance artifact set mismatch");
+    }
+    let actual = std::fs::read_dir(f("."))
+        .map_err(|_| "fixture missing")?
+        .map(|e| e.map_err(|_| "entry unreadable"))
+        .collect::<Result<Vec<_>, _>>()?
+        .into_iter()
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .collect::<BTreeSet<_>>();
+    let expected_files = expected
+        .iter()
+        .map(|n| n.to_string())
+        .chain(["provenance.json".to_owned()])
+        .collect::<BTreeSet<_>>();
+    if actual != expected_files {
+        return Err("live fixture artifact set mismatch");
+    }
+    for (name, info) in artifacts {
+        let bytes = std::fs::read(f(name)).map_err(|_| "artifact missing")?;
+        if info["path"] != name.as_str()
+            || info["length_bytes"] != bytes.len()
+            || info["sha256"] != digest(&bytes)
+        {
+            return Err("artifact digest mismatch");
+        }
+    }
+    Ok(())
+}
 #[test]
 fn f06a_frozen_logical_fixture_matches_independent_contract() {
+    let identity = read("checker-identity.json");
+    let live_checker =
+        std::fs::read(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/f06a_logical.rs"))
+            .unwrap();
+    check_provenance(&read("provenance.json"), &identity, &live_checker).unwrap();
     let s = read("source.bin");
     let a = read("expected-archive.json");
     let v = read("expected-visible.json");
@@ -67,6 +135,10 @@ fn f06a_mutations_reject_cue_changes_and_invented_grid_values() {
     let v = read("expected-visible.json");
     let p = read("expected-plan.json");
     let r = read("expected-report.json");
+    let identity = read("checker-identity.json");
+    let live_checker =
+        std::fs::read(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/f06a_logical.rs"))
+            .unwrap();
     let mut moved = v.clone();
     moved["cue"]["start_usec"] = json!(3000001);
     assert!(check(&s, &a, &moved, &p, &r).is_err());
@@ -80,4 +152,17 @@ fn f06a_mutations_reject_cue_changes_and_invented_grid_values() {
     interpolated["beats"][1] =
         json!({"id":"invented","frame":120000,"enabled":true,"source":"ANALYZER"});
     assert!(check(&s, &a, &interpolated, &p, &r).is_err());
+    for (key, value) in [
+        ("path", json!("xtask/tests/other.rs")),
+        ("version", json!("drift")),
+        ("sha256", json!("wrong")),
+    ] {
+        let mut drift = identity.clone();
+        drift[key] = value;
+        assert!(check_provenance(&read("provenance.json"), &drift, &live_checker).is_err());
+    }
+    assert!(check_provenance(&read("provenance.json"), &identity, b"mutated checker").is_err());
+    let mut bad = read("provenance.json");
+    bad["artifacts"]["unexpected.json"] = json!({});
+    assert!(check_provenance(&bad, &identity, &live_checker).is_err());
 }
