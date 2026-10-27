@@ -3,13 +3,14 @@
 use std::path::Path;
 
 pub use oxidj_rekordbox::{
-    Error as RekordboxError, ExportDecision, ExportPreflight, FolderDeleteRequest,
-    FolderRenameChange, FolderRenameRequest, PlaylistClearRequest, PlaylistDeleteRequest,
-    PlaylistMemberAppendRequest, PlaylistMemberDeleteRequest, PlaylistMemberInsertRequest,
-    PlaylistRenameChange, PlaylistRenameRequest, PlaylistReorderRequest, PositionMarkEditChange,
-    PositionMarkEditRequest, PositionMarkEndEditChange, PositionMarkEndEditRequest,
-    PositionMarkNameEditChange, PositionMarkNameEditRequest, PreparedFolderDelete,
-    PreparedFolderRename, PreparedPlaylistDelete, PreparedPlaylistRename, PreparedPlaylistReorder,
+    Error as RekordboxError, ExportDecision, ExportPreflight, FolderCreateRequest,
+    FolderDeleteRequest, FolderRenameChange, FolderRenameRequest, PlaylistClearRequest,
+    PlaylistDeleteRequest, PlaylistMemberAppendRequest, PlaylistMemberDeleteRequest,
+    PlaylistMemberInsertRequest, PlaylistRenameChange, PlaylistRenameRequest,
+    PlaylistReorderRequest, PositionMarkEditChange, PositionMarkEditRequest,
+    PositionMarkEndEditChange, PositionMarkEndEditRequest, PositionMarkNameEditChange,
+    PositionMarkNameEditRequest, PreparedFolderDelete, PreparedFolderRename,
+    PreparedPlaylistDelete, PreparedPlaylistRename, PreparedPlaylistReorder,
     PreparedPositionMarkEdit, PreparedPositionMarkEndEdit, PreparedPositionMarkNameEdit,
     PreparedTempoBeatEdit, PreparedTempoEdit, PreparedTempoMeterEdit, PreparedTempoStartEdit,
     PreparedTrackAlbumEdit, PreparedTrackArtistEdit, PreparedTrackAverageBpmEdit,
@@ -454,6 +455,17 @@ pub fn export_rekordbox_folder_rename(
     let prepared = oxidj_rekordbox::prepare_folder_rename(&source, request)?;
     publish_new_file(&output, &prepared.bytes)?;
     Ok(prepared.change)
+}
+
+/// Export creation of one guarded empty child folder to a new, non-overwriting file.
+pub fn export_rekordbox_folder_create(
+    input: impl AsRef<Path>,
+    output: impl AsRef<Path>,
+    request: &FolderCreateRequest,
+) -> Result<(), RekordboxError> {
+    let (source, output) = read_new_export_source(input, output)?;
+    let prepared = oxidj_rekordbox::prepare_folder_create(&source, request)?;
+    publish_new_file(&output, &prepared.bytes)
 }
 
 /// Export deletion of one guarded empty folder to a new, non-overwriting file.

@@ -196,6 +196,17 @@ pub struct FolderDeleteRequest {
 pub struct PreparedFolderDelete {
     pub bytes: Vec<u8>,
 }
+/// Add one empty child folder under an exact non-root folder guard.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FolderCreateRequest {
+    pub parent_index: usize,
+    pub expected_parent_name: String,
+    pub name: String,
+}
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PreparedFolderCreate {
+    pub bytes: Vec<u8>,
+}
 /// One optimistic, ordinal-scoped tempo edit request.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TempoEditRequest {
@@ -2717,6 +2728,136 @@ pub fn prepare_folder_delete(
         return Err(Error("folder deletion semantic verification failed".into()));
     }
     Ok(PreparedFolderDelete { bytes: output })
+}
+
+/// Prepare creation of one empty child folder; only the selected parent's Count changes.
+pub fn prepare_folder_create(
+    bytes: &[u8],
+    request: &FolderCreateRequest,
+) -> Result<PreparedFolderCreate, Error> {
+    let valid_xml_text = |value: &str| {
+        !value.is_empty() && value.chars().all(|c| matches!(c as u32, 9 | 10 | 13 | 0x20..=0xD7FF | 0xE000..=0xFFFD | 0x10000..=0x10FFFF))
+    };
+    if !valid_xml_text(&request.name) {
+        return Err(Error("invalid folder Name XML text".into()));
+    }
+    let before = preflight_export(bytes)?;
+    let mut reader = Reader::from_reader(bytes);
+    reader.config_mut().check_end_names = true;
+    let mut buf = Vec::new();
+    let mut stack: Vec<(String, Option<std::ops::Range<usize>>, usize)> = Vec::new();
+    let mut ordinal = 0usize;
+    let mut selected: Option<(usize, std::ops::Range<usize>, usize, usize, String)> = None;
+    let mut closing_pos = None;
+    let mut siblings = Vec::new();
+    loop {
+        let start = reader.buffer_position() as usize;
+        let ev = reader
+            .read_event_into(&mut buf)
+            .map_err(|e| Error(format!("malformed XML: {e}")))?;
+        match ev {
+            Event::Start(e) if e.name().as_ref() == b"NODE" => {
+                let ty = attr(&e, "Type")?;
+                let raw = attr(&e, if ty == "0" { "Count" } else { "Entries" })?;
+                let count = raw
+                    .parse::<usize>()
+                    .map_err(|_| Error("invalid NODE Count/Entries".into()))?;
+                if selected.as_ref().is_some_and(|s| stack.len() == s.0 + 1) {
+                    siblings.push(attr(&e, "Name")?);
+                }
+                if ty == "0" && !stack.is_empty() {
+                    let name = attr(&e, "Name")?;
+                    if ordinal == request.parent_index {
+                        if name != request.expected_parent_name {
+                            return Err(Error("parent folder Name changed".into()));
+                        }
+                        if stack.last().is_none_or(|(t, _, _)| t != "0") {
+                            return Err(Error(
+                                "parent folder is root or not nested under folder".into(),
+                            ));
+                        }
+                        if count == usize::MAX {
+                            return Err(Error("parent folder Count overflow".into()));
+                        }
+                        let range = attribute_value_range(&e, start, "Count", &raw)?;
+                        selected = Some((stack.len(), range, count + 1, start, name));
+                    }
+                    ordinal += 1;
+                }
+                let range = if ty == "0" {
+                    Some(attribute_value_range(&e, start, "Count", &raw)?)
+                } else {
+                    None
+                };
+                stack.push((ty, range, count));
+            }
+            Event::Empty(e) if e.name().as_ref() == b"NODE" => {
+                let ty = attr(&e, "Type")?;
+                if selected.as_ref().is_some_and(|s| stack.len() == s.0 + 1) {
+                    siblings.push(attr(&e, "Name")?);
+                }
+                if ty == "0" {
+                    let raw = attr(&e, "Count")?;
+                    raw.parse::<usize>()
+                        .map_err(|_| Error("invalid NODE Count".into()))?;
+                    if !stack.is_empty() {
+                        if ordinal == request.parent_index {
+                            return Err(Error("selected parent folder is empty node".into()));
+                        }
+                        ordinal += 1;
+                    }
+                }
+            }
+            Event::End(e) if e.name().as_ref() == b"NODE" => {
+                if let Some((depth, _, _, _, _)) = selected.as_ref()
+                    && stack.len() == *depth + 1
+                {
+                    closing_pos = Some(start);
+                }
+                stack
+                    .pop()
+                    .ok_or_else(|| Error("unexpected closing NODE".into()))?;
+            }
+            Event::Eof => break,
+            _ => {}
+        }
+        buf.clear();
+    }
+    let (_, count_range, new_count, _, parent_name) = selected.ok_or_else(|| {
+        Error(format!(
+            "no non-root folder at ordinal {}",
+            request.parent_index
+        ))
+    })?;
+    if siblings.iter().any(|n| n == &request.name) {
+        return Err(Error("duplicate sibling playlist/folder Name".into()));
+    }
+    let insert_at = closing_pos.ok_or_else(|| Error("malformed selected parent folder".into()))?;
+    let escaped = request
+        .name
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&apos;");
+    let node = format!("<NODE Type=\"0\" Name=\"{escaped}\" Count=\"0\"/>\n");
+    let mut output = bytes.to_vec();
+    let mut changes = vec![
+        (count_range, new_count.to_string().into_bytes()),
+        (insert_at..insert_at, node.into_bytes()),
+    ];
+    changes.sort_by_key(|(r, _)| std::cmp::Reverse(r.start));
+    for (range, replacement) in changes {
+        output.splice(range, replacement);
+    }
+    let after = preflight_export(&output)?;
+    if after.selected_tracks != before.selected_tracks
+        || after.selected_playlists != before.selected_playlists
+    {
+        return Err(Error("folder creation changed tracks/playlists".into()));
+    }
+    let _ = parent_name;
+    Ok(PreparedFolderCreate { bytes: output })
 }
 
 /// Validate and return unchanged bytes for the frozen synthetic A1 no-edit subset.
@@ -5296,6 +5437,51 @@ pub fn prepare_tempo_meter_edit(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn guarded_folder_create_adds_escaped_child_and_preserves_other_semantics() {
+        let source = include_bytes!("../../../xtask/tests/fixtures/rekordbox-a1/F-02/source.bin");
+        let before = preflight_export(source).unwrap();
+        let result = prepare_folder_create(
+            source,
+            &FolderCreateRequest {
+                parent_index: 0,
+                expected_parent_name: "Sets".into(),
+                name: "R&B <late>".into(),
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            source,
+            include_bytes!("../../../xtask/tests/fixtures/rekordbox-a1/F-02/source.bin")
+        );
+        let output = String::from_utf8(result.bytes).unwrap();
+        assert!(output.contains("Name=\"Sets\" Count=\"3\""));
+        assert!(output.contains("<NODE Type=\"0\" Name=\"R&amp;B &lt;late&gt;\" Count=\"0\"/>"));
+        let after = preflight_export(output.as_bytes()).unwrap();
+        assert_eq!(after.selected_tracks, before.selected_tracks);
+        assert_eq!(after.selected_playlists, before.selected_playlists);
+    }
+
+    #[test]
+    fn guarded_folder_create_rejects_root_stale_invalid_and_sibling_collision() {
+        let source = include_bytes!("../../../xtask/tests/fixtures/rekordbox-a1/F-02/source.bin");
+        let req = |parent_index, expected_parent_name: &str, name: &str| FolderCreateRequest {
+            parent_index,
+            expected_parent_name: expected_parent_name.into(),
+            name: name.into(),
+        };
+        assert!(prepare_folder_create(source, &req(0, "ROOT", "child")).is_err());
+        assert!(prepare_folder_create(source, &req(0, "stale", "child")).is_err());
+        assert!(prepare_folder_create(source, &req(99, "Sets", "child")).is_err());
+        assert!(prepare_folder_create(source, &req(0, "Sets", "House")).is_err());
+        assert!(prepare_folder_create(source, &req(0, "Sets", "bad\u{1}")).is_err());
+        assert!(prepare_folder_create(b"<bad", &req(0, "Sets", "child")).is_err());
+        let bad_count = String::from_utf8(source.to_vec())
+            .unwrap()
+            .replace("Name=\"Sets\" Count=\"2\"", "Name=\"Sets\" Count=\"9\"");
+        assert!(prepare_folder_create(bad_count.as_bytes(), &req(0, "Sets", "child")).is_err());
+    }
 
     #[test]
     fn guarded_empty_folder_delete_preserves_other_semantics_and_source() {

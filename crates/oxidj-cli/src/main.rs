@@ -68,6 +68,43 @@ fn run(args: &[String]) -> i32 {
 }
 
 fn run_rekordbox(args: &[String]) -> i32 {
+    if args.first().is_some_and(|action| action == "create-folder") {
+        if args.len() != 11
+            || args[1] != "--xml"
+            || args[3] != "--output"
+            || args[5] != "--parent-index"
+            || args[7] != "--expected-name"
+            || args[9] != "--name"
+        {
+            eprintln!(
+                "error: expected rekordbox create-folder --xml IN --output NEW --parent-index N --expected-name NAME --name NAME"
+            );
+            return USAGE;
+        }
+        let Ok(parent_index) = args[6].parse::<usize>() else {
+            eprintln!("error: parent index must be a non-negative integer");
+            return USAGE;
+        };
+        let request = oxidj_application::FolderCreateRequest {
+            parent_index,
+            expected_parent_name: args[8].clone(),
+            name: args[10].clone(),
+        };
+        return match oxidj_application::export_rekordbox_folder_create(&args[2], &args[4], &request)
+        {
+            Ok(()) => {
+                println!(
+                    "Created folder under folder[{}]: {:?}",
+                    parent_index, args[10]
+                );
+                OK
+            }
+            Err(error) => {
+                eprintln!("error: folder creation rejected: {error}");
+                DOMAIN
+            }
+        };
+    }
     if args
         .first()
         .is_some_and(|action| action == "delete-empty-folder")
@@ -2060,6 +2097,10 @@ fn print_usage(to_stdout: bool) {
     let _ = writeln!(
         output,
         "  rekordbox rename-folder --xml <in> --output <new> --folder-index <n> --expected-name <old> --name <new>   Export one guarded folder rename"
+    );
+    let _ = writeln!(
+        output,
+        "  rekordbox create-folder --xml <in> --output <new> --parent-index <n> --expected-name <name> --name <name>   Create one guarded empty child folder"
     );
     let _ = writeln!(
         output,
