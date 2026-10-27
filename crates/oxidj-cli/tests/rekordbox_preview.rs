@@ -4,6 +4,73 @@ use oxidj_library as _;
 use std::{fs, process::Command, time::SystemTime};
 
 #[test]
+fn preview_and_export_plan_report_track_date_added_states_and_export_preserves_source_bytes() {
+    let source = fs::read(format!(
+        "{}/../../xtask/tests/fixtures/rekordbox-a1/F-02/source.bin",
+        env!("CARGO_MANIFEST_DIR")
+    ))
+    .unwrap();
+    let source = String::from_utf8(source)
+        .unwrap()
+        .replace(
+            "TrackID=\"100\" Name=\"A\"",
+            "TrackID=\"100\" Name=\"A\" DateAdded=\"2024-02-03\"",
+        )
+        .replace(
+            "TrackID=\"200\" Name=\"B\"",
+            "TrackID=\"200\" Name=\"B\" DateAdded=\"\"",
+        )
+        .into_bytes();
+    let input = temporary_path("date-added-input");
+    let output = temporary_path("date-added-output");
+    fs::write(&input, &source).unwrap();
+    for args in [
+        vec!["rekordbox", "preview", "--xml", input.to_str().unwrap()],
+        vec!["rekordbox", "export-plan", "--xml", input.to_str().unwrap()],
+    ] {
+        let result = Command::new(env!("CARGO_BIN_EXE_oxidj-cli"))
+            .args(args)
+            .output()
+            .unwrap();
+        assert_eq!(
+            result.status.code(),
+            Some(0),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        let stdout = String::from_utf8(result.stdout).unwrap();
+        let lines = stdout.lines().collect::<Vec<_>>();
+        let first = lines.iter().find(|line| line.contains("100\tA\t")).unwrap();
+        let second = lines.iter().find(|line| line.contains("200\tB\t")).unwrap();
+        let third = lines.iter().find(|line| line.contains("300\tC\t")).unwrap();
+        assert!(first.contains("Some(\"2024-02-03\")"));
+        assert!(second.contains("Some(\"\")"));
+        assert!(third.contains("None"));
+    }
+    let result = Command::new(env!("CARGO_BIN_EXE_oxidj-cli"))
+        .args([
+            "rekordbox",
+            "export",
+            "--xml",
+            input.to_str().unwrap(),
+            "--output",
+            output.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(
+        result.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    assert_eq!(fs::read(&output).unwrap(), source);
+    assert_eq!(fs::read(&input).unwrap(), source);
+    let _ = fs::remove_file(input);
+    let _ = fs::remove_file(output);
+}
+
+#[test]
 fn preview_and_export_plan_report_track_kind_states_and_export_preserves_source_bytes() {
     let source = fs::read(format!(
         "{}/../../xtask/tests/fixtures/rekordbox-a1/F-02/source.bin",

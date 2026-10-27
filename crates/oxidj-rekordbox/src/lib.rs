@@ -24,6 +24,7 @@ pub struct Track {
     pub total_time: Option<String>,
     pub bit_rate: Option<String>,
     pub sample_rate: Option<String>,
+    pub date_added: Option<String>,
     pub location: String,
     pub tempos: Vec<Tempo>,
     pub marks: Vec<PositionMark>,
@@ -598,6 +599,7 @@ pub fn parse(bytes: &[u8]) -> Result<Preview, Error> {
                         total_time: optional(&e, "TotalTime")?,
                         bit_rate: optional(&e, "BitRate")?,
                         sample_rate: optional(&e, "SampleRate")?,
+                        date_added: optional(&e, "DateAdded")?,
                         location: attr(&e, "Location")?,
                         tempos: vec![],
                         marks: vec![],
@@ -694,6 +696,7 @@ pub fn parse(bytes: &[u8]) -> Result<Preview, Error> {
                         total_time: optional(&e, "TotalTime")?,
                         bit_rate: optional(&e, "BitRate")?,
                         sample_rate: optional(&e, "SampleRate")?,
+                        date_added: optional(&e, "DateAdded")?,
                         location: attr(&e, "Location")?,
                         tempos: vec![],
                         marks: vec![],
@@ -844,6 +847,7 @@ fn validate_export_element(
             "TotalTime",
             "BitRate",
             "SampleRate",
+            "DateAdded",
             "Location",
         ],
         "TRACK" => &["Key"],
@@ -3747,6 +3751,34 @@ pub fn prepare_tempo_meter_edit(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn date_added_optional_metadata_preserves_present_empty_absent_and_export_bytes() {
+        let source = include_bytes!("../../../xtask/tests/fixtures/rekordbox-a1/F-02/source.bin");
+        let source = String::from_utf8(source.to_vec())
+            .unwrap()
+            .replace(
+                "TrackID=\"100\" Name=\"A\"",
+                "TrackID=\"100\" Name=\"A\" DateAdded=\"2024-02-03\"",
+            )
+            .replace(
+                "TrackID=\"200\" Name=\"B\"",
+                "TrackID=\"200\" Name=\"B\" DateAdded=\"\"",
+            );
+        let source = source.as_bytes();
+        let preview = parse(source).unwrap();
+        assert_eq!(preview.tracks[0].date_added.as_deref(), Some("2024-02-03"));
+        assert_eq!(preview.tracks[1].date_added.as_deref(), Some(""));
+        assert_eq!(preview.tracks[2].date_added, None);
+        let plan = preflight_export(source).unwrap();
+        assert_eq!(
+            plan.selected_tracks[0].date_added.as_deref(),
+            Some("2024-02-03")
+        );
+        assert_eq!(plan.selected_tracks[1].date_added.as_deref(), Some(""));
+        assert_eq!(plan.selected_tracks[2].date_added, None);
+        assert_eq!(export_xml(source).unwrap(), source);
+    }
 
     #[test]
     fn kind_optional_metadata_preserves_present_empty_absent_and_export_bytes() {
