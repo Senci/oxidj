@@ -200,6 +200,15 @@ reference, deleting track 200 without its memberships, and a folder cycle with
 no state change. Explicit removals of both memberships plus deletion are one
 atomic logical mutation. Vendor application acceptance remains NOT DEMONSTRATED.
 
+**Observed synthetic XML edit:** `reorder-playlist` exports House `[100,200,300]`
+to `[300,100,200]` using a playlist ordinal, exact old-order guard and unique
+permutation; it writes to a new path. Adapter tests reject stale and invalid
+orders. A duplicate-name/identical-membership regression proves only the
+selected NODE changes. An independent ElementTree decode confirmed the F-02 CLI
+output, unchanged Techno membership, four collection tracks and declared counts.
+Sol approved commits `812a414` and `a50001d`; `cargo xtask ci-full` passed.
+This remains synthetic-only; vendor application acceptance is NOT DEMONSTRATED.
+
 ### F-03: Constant grid, cues and range unchanged
 
 Mixxx-derived **logical CueInfo DTO**, not a claimed Mixxx library transport.
