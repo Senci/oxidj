@@ -3947,3 +3947,93 @@ fn track_average_bpm_edit_preserves_raw_xml_and_rejects_invalid_requests() {
     let _ = fs::remove_file(output);
     let _ = fs::remove_file(empty_output);
 }
+
+#[test]
+fn track_disc_number_edit_preserves_raw_xml_and_rejects_invalid_requests() {
+    let fixture = format!(
+        "{}/../../xtask/tests/fixtures/rekordbox-a1/F-02/source.bin",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let source = String::from_utf8(fs::read(fixture).unwrap())
+        .unwrap()
+        .replacen(
+            "TrackID=\"100\" Name=\"A\"",
+            "TrackID=\"100\" Name=\"A\" DiscNumber=\"02\"",
+            1,
+        )
+        .into_bytes();
+    let input = temporary_path("track-disc-number-input");
+    let output = temporary_path("track-disc-number-output");
+    fs::write(&input, &source).unwrap();
+    let invoke = |track_id: &str, expected: &str, value: &str, target: &std::path::Path| {
+        Command::new(env!("CARGO_BIN_EXE_oxidj-cli"))
+            .args([
+                "rekordbox",
+                "edit-track-disc-number",
+                "--xml",
+                input.to_str().unwrap(),
+                "--output",
+                target.to_str().unwrap(),
+                "--track-id",
+                track_id,
+                "--expected-disc-number",
+                expected,
+                "--disc-number",
+                value,
+            ])
+            .output()
+            .unwrap()
+    };
+    let success = invoke("100", "02", "raw & <odd>\t", &output);
+    assert_eq!(success.status.code(), Some(0), "{:?}", success.stderr);
+    let expected = String::from_utf8(source.clone()).unwrap().replacen(
+        "DiscNumber=\"02\"",
+        "DiscNumber=\"raw &amp; &lt;odd&gt;&#9;\"",
+        1,
+    );
+    assert_eq!(fs::read(&output).unwrap(), expected.as_bytes());
+    assert_eq!(fs::read(&input).unwrap(), source);
+
+    let missing_field = String::from_utf8(source.clone())
+        .unwrap()
+        .replacen(" DiscNumber=\"02\"", "", 1)
+        .into_bytes();
+    let cases: [(&str, Vec<u8>, &str, &str, &str); 5] = [
+        ("stale", source.clone(), "100", "stale", "new"),
+        ("missing-track", source.clone(), "999", "02", "new"),
+        ("missing-field", missing_field, "100", "", "new"),
+        ("invalid-xml-text", source.clone(), "100", "02", "bad\u{1}"),
+        (
+            "malformed-xml",
+            b"<DJ_PLAYLISTS><COLLECTION><TRACK TrackID=\"100\"".to_vec(),
+            "100",
+            "02",
+            "new",
+        ),
+    ];
+    for (label, bytes, track_id, old, new) in cases {
+        fs::write(&input, bytes).unwrap();
+        let rejected_output = temporary_path(&format!("track-disc-number-{label}"));
+        let result = invoke(track_id, old, new, &rejected_output);
+        assert_ne!(result.status.code(), Some(0), "{label} accepted");
+        assert!(!rejected_output.exists(), "{label} created output");
+        let _ = fs::remove_file(rejected_output);
+    }
+
+    let empty_source =
+        String::from_utf8(source)
+            .unwrap()
+            .replacen(" DiscNumber=\"02\"", " DiscNumber=\"\"", 1);
+    fs::write(&input, empty_source.as_bytes()).unwrap();
+    let empty_output = temporary_path("track-disc-number-empty");
+    let empty = invoke("100", "", "still raw", &empty_output);
+    assert_eq!(empty.status.code(), Some(0), "{:?}", empty.stderr);
+    assert!(
+        String::from_utf8(fs::read(&empty_output).unwrap())
+            .unwrap()
+            .contains("DiscNumber=\"still raw\"")
+    );
+    let _ = fs::remove_file(input);
+    let _ = fs::remove_file(output);
+    let _ = fs::remove_file(empty_output);
+}

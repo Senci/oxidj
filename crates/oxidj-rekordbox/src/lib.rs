@@ -494,6 +494,23 @@ pub struct TrackAverageBpmEditRequest {
     pub new_average_bpm: String,
 }
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TrackDiscNumberEditRequest {
+    pub track_id: String,
+    pub expected_old_disc_number: String,
+    pub new_disc_number: String,
+}
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TrackDiscNumberEditChange {
+    pub track_id: String,
+    pub old_disc_number: String,
+    pub new_disc_number: String,
+}
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PreparedTrackDiscNumberEdit {
+    pub bytes: Vec<u8>,
+    pub change: TrackDiscNumberEditChange,
+}
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TrackAverageBpmEditChange {
     pub track_id: String,
     pub old_average_bpm: String,
@@ -3523,6 +3540,71 @@ pub fn prepare_track_average_bpm_edit(
             track_id: request.track_id.clone(),
             old_average_bpm: old.to_owned(),
             new_average_bpm: request.new_average_bpm.clone(),
+        },
+    })
+}
+
+pub fn prepare_track_disc_number_edit(
+    bytes: &[u8],
+    request: &TrackDiscNumberEditRequest,
+) -> Result<PreparedTrackDiscNumberEdit, Error> {
+    let before = preflight_export(bytes)?;
+    let matches: Vec<_> = before
+        .selected_tracks
+        .iter()
+        .filter(|t| t.id == request.track_id)
+        .collect();
+    let track = match matches.as_slice() {
+        [] => return Err(Error(format!("unknown TrackID {}", request.track_id))),
+        [track] => *track,
+        _ => return Err(Error(format!("duplicate TrackID {}", request.track_id))),
+    };
+    let old = track
+        .disc_number
+        .as_deref()
+        .ok_or_else(|| Error("track DiscNumber missing".into()))?;
+    if old != request.expected_old_disc_number {
+        return Err(Error("track DiscNumber changed".into()));
+    }
+    if !request.new_disc_number.chars().all(
+        |c| matches!(c as u32, 9 | 10 | 13 | 0x20..=0xD7FF | 0xE000..=0xFFFD | 0x10000..=0x10FFFF),
+    ) {
+        return Err(Error("new DiscNumber contains invalid XML 1.0 text".into()));
+    }
+    let range = track_attribute_range(
+        bytes,
+        &request.track_id,
+        "DiscNumber",
+        &request.expected_old_disc_number,
+    )?;
+    let escaped = request
+        .new_disc_number
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&apos;")
+        .replace('\t', "&#9;")
+        .replace('\n', "&#10;")
+        .replace('\r', "&#13;");
+    let mut output = bytes.to_vec();
+    output.splice(range, escaped.bytes());
+    let after = preflight_export(&output)?;
+    let mut expected = before.selected_tracks.clone();
+    expected
+        .iter_mut()
+        .find(|t| t.id == request.track_id)
+        .unwrap()
+        .disc_number = Some(request.new_disc_number.clone());
+    if after.selected_tracks != expected {
+        return Err(Error("track DiscNumber edit verification failed".into()));
+    }
+    Ok(PreparedTrackDiscNumberEdit {
+        bytes: output,
+        change: TrackDiscNumberEditChange {
+            track_id: request.track_id.clone(),
+            old_disc_number: old.to_owned(),
+            new_disc_number: request.new_disc_number.clone(),
         },
     })
 }
