@@ -135,7 +135,7 @@ fn export_plan_shows_ordered_f10_units_without_writing() {
         concat!(
             "Decision: ALLOW_EXPORT\n",
             "Selected units:\n",
-            "Track\t1000\tVariable tempo\tNone\tNone\tNone\tNone\tNone\tNone\tfile://localhost/music/variable.flac\n",
+            "Track\t1000\tVariable tempo\tNone\tNone\tNone\tNone\tNone\tNone\tNone\tNone\tfile://localhost/music/variable.flac\n",
             "TEMPO\t1000\t0\t120\t4/4\t1\n",
             "TEMPO\t1000\t8\t128\t4/4\t1\n",
             "TEMPO\t1000\t16\t132\t7/8\t3\n",
@@ -1786,6 +1786,131 @@ fn track_label_edit_exports_one_guarded_value_and_rejects_without_mutation() {
         Some(0)
     );
     let existing = temporary_path("label-existing");
+    fs::write(&existing, b"keep").unwrap();
+    assert_ne!(
+        invoke("100", "old & note", "x", &existing).status.code(),
+        Some(0)
+    );
+    assert_eq!(fs::read(&existing).unwrap(), b"keep");
+    assert_eq!(fs::read(&input).unwrap(), source);
+    for path in [&input, &output, &existing, &duplicate_output] {
+        let _ = fs::remove_file(path);
+    }
+}
+
+#[test]
+fn track_composer_edit_exports_one_guarded_value_and_rejects_without_mutation() {
+    let fixture = format!(
+        "{}/../../xtask/tests/fixtures/rekordbox-a1/F-02/source.bin",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let base = String::from_utf8(fs::read(fixture).unwrap()).unwrap();
+    let source = base
+        .replacen(
+            "TrackID=\"100\" Name=\"A\"",
+            "TrackID=\"100\" Name=\"A\" Composer=\"old &amp; note\"",
+            1,
+        )
+        .into_bytes();
+    let input = temporary_path("track-composer-input");
+    let output = temporary_path("track-composer-output");
+    fs::write(&input, &source).unwrap();
+    let preview = Command::new(env!("CARGO_BIN_EXE_oxidj-cli"))
+        .args(["rekordbox", "export-plan", "--xml", input.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert_eq!(preview.status.code(), Some(0));
+    let preview_text = String::from_utf8_lossy(&preview.stdout);
+    assert!(preview_text.contains("Some(\"old & note\")"));
+    let empty_input = temporary_path("composer-empty-preview");
+    let empty_source = String::from_utf8(source.clone())
+        .unwrap()
+        .replace("Composer=\"old &amp; note\"", "Composer=\"\"");
+    fs::write(&empty_input, empty_source).unwrap();
+    let empty_preview = Command::new(env!("CARGO_BIN_EXE_oxidj-cli"))
+        .args([
+            "rekordbox",
+            "export-plan",
+            "--xml",
+            empty_input.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(empty_preview.status.code(), Some(0));
+    assert!(String::from_utf8_lossy(&empty_preview.stdout).contains("Some(\"\")"));
+    let _ = fs::remove_file(empty_input);
+    let invoke = |id: &str, old: &str, new: &str, target: &std::path::Path| {
+        Command::new(env!("CARGO_BIN_EXE_oxidj-cli"))
+            .args([
+                "rekordbox",
+                "edit-track-composer",
+                "--xml",
+                input.to_str().unwrap(),
+                "--output",
+                target.to_str().unwrap(),
+                "--track-id",
+                id,
+                "--expected-composer",
+                old,
+                "--composer",
+                new,
+            ])
+            .output()
+            .unwrap()
+    };
+    let success = invoke("100", "old & note", "A\tB\nC\rD & <x>", &output);
+    assert_eq!(
+        success.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&success.stderr)
+    );
+    let output_bytes = fs::read(&output).unwrap();
+    assert!(
+        String::from_utf8(output_bytes.clone())
+            .unwrap()
+            .contains("Composer=\"A&#9;B&#10;C&#13;D &amp; &lt;x&gt;\"")
+    );
+    assert_eq!(fs::read(&input).unwrap(), source);
+    let decoded = Command::new("python3")
+        .args([
+            "-c",
+            "import sys,xml.etree.ElementTree as E; r=E.parse(sys.argv[1]).getroot(); t=next(x for x in r.find('COLLECTION') if x.get('TrackID')=='100'); assert t.get('Composer')=='A\\tB\\nC\\rD & <x>'; assert next(x for x in r.find('COLLECTION') if x.get('TrackID')=='200').get('Composer') is None",
+            output.to_str().unwrap(),
+        ])
+        .status()
+        .unwrap();
+    assert!(decoded.success(), "independent ElementTree decode failed");
+    for (case, id, old, new) in [
+        ("absent", "200", "", "x"),
+        ("unknown", "999", "x", "y"),
+        ("stale", "100", "bad", "x"),
+        ("invalid", "100", "old & note", "bad\u{1}"),
+    ] {
+        let target = temporary_path(&format!("composer-{case}"));
+        assert_ne!(invoke(id, old, new, &target).status.code(), Some(0));
+        assert!(!target.exists(), "{case} created output");
+    }
+    let duplicate = String::from_utf8(source.clone())
+        .unwrap()
+        .replacen("TrackID=\"200\"", "TrackID=\"100\"", 1)
+        .into_bytes();
+    fs::write(&input, &duplicate).unwrap();
+    let duplicate_output = temporary_path("composer-duplicate");
+    assert_ne!(
+        invoke("100", "old & note", "x", &duplicate_output)
+            .status
+            .code(),
+        Some(0)
+    );
+    assert!(!duplicate_output.exists());
+    assert_eq!(fs::read(&input).unwrap(), duplicate);
+    fs::write(&input, &source).unwrap();
+    assert_ne!(
+        invoke("100", "old & note", "x", &input).status.code(),
+        Some(0)
+    );
+    let existing = temporary_path("composer-existing");
     fs::write(&existing, b"keep").unwrap();
     assert_ne!(
         invoke("100", "old & note", "x", &existing).status.code(),

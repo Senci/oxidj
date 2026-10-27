@@ -11,6 +11,7 @@ pub struct Track {
     pub album: Option<String>,
     pub genre: Option<String>,
     pub label: Option<String>,
+    pub composer: Option<String>,
     pub tonality: Option<String>,
     pub location: String,
     pub tempos: Vec<Tempo>,
@@ -371,6 +372,23 @@ pub struct PreparedTrackLabelEdit {
     pub bytes: Vec<u8>,
     pub change: TrackLabelEditChange,
 }
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TrackComposerEditRequest {
+    pub track_id: String,
+    pub expected_old_composer: String,
+    pub new_composer: String,
+}
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TrackComposerEditChange {
+    pub track_id: String,
+    pub old_composer: String,
+    pub new_composer: String,
+}
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PreparedTrackComposerEdit {
+    pub bytes: Vec<u8>,
+    pub change: TrackComposerEditChange,
+}
 /// Raw Tonality is preserved as supplied; no key notation is inferred.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TrackTonalityEditRequest {
@@ -505,6 +523,7 @@ pub fn parse(bytes: &[u8]) -> Result<Preview, Error> {
                         album: optional(&e, "Album")?,
                         genre: optional(&e, "Genre")?,
                         label: optional(&e, "Label")?,
+                        composer: optional(&e, "Composer")?,
                         tonality: optional(&e, "Tonality")?,
                         location: attr(&e, "Location")?,
                         tempos: vec![],
@@ -589,6 +608,7 @@ pub fn parse(bytes: &[u8]) -> Result<Preview, Error> {
                         album: optional(&e, "Album")?,
                         genre: optional(&e, "Genre")?,
                         label: optional(&e, "Label")?,
+                        composer: optional(&e, "Composer")?,
                         tonality: optional(&e, "Tonality")?,
                         location: attr(&e, "Location")?,
                         tempos: vec![],
@@ -720,8 +740,8 @@ fn validate_export_element(
         "PRODUCT" => &["Name", "Version", "Company"],
         "COLLECTION" => &["Entries"],
         "TRACK" if parent == Some("COLLECTION") => &[
-            "TrackID", "Name", "Artist", "Comments", "Album", "Genre", "Label", "Tonality",
-            "Location",
+            "TrackID", "Name", "Artist", "Comments", "Album", "Genre", "Label", "Composer",
+            "Tonality", "Location",
         ],
         "TRACK" => &["Key"],
         "TEMPO" => &["Inizio", "Bpm", "Metro", "Battito"],
@@ -2382,6 +2402,72 @@ pub fn prepare_track_label_edit(
     })
 }
 
+/// Prepare one exact-old-value guarded Track Composer edit.
+pub fn prepare_track_composer_edit(
+    bytes: &[u8],
+    request: &TrackComposerEditRequest,
+) -> Result<PreparedTrackComposerEdit, Error> {
+    let before = preflight_export(bytes)?;
+    let matches: Vec<_> = before
+        .selected_tracks
+        .iter()
+        .filter(|t| t.id == request.track_id)
+        .collect();
+    let track = match matches.as_slice() {
+        [] => return Err(Error(format!("unknown TrackID {}", request.track_id))),
+        [track] => *track,
+        _ => return Err(Error(format!("duplicate TrackID {}", request.track_id))),
+    };
+    let old_composer = track
+        .composer
+        .as_deref()
+        .ok_or_else(|| Error("track Composer missing".into()))?;
+    if old_composer != request.expected_old_composer {
+        return Err(Error("track Composer changed".into()));
+    }
+    if !request.new_composer.chars().all(
+        |c| matches!(c as u32, 9 | 10 | 13 | 0x20..=0xD7FF | 0xE000..=0xFFFD | 0x10000..=0x10FFFF),
+    ) {
+        return Err(Error("new Composer contains invalid XML 1.0 text".into()));
+    }
+    let range = track_attribute_range(
+        bytes,
+        &request.track_id,
+        "Composer",
+        &request.expected_old_composer,
+    )?;
+    let escaped = request
+        .new_composer
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&apos;")
+        .replace('\t', "&#9;")
+        .replace('\n', "&#10;")
+        .replace('\r', "&#13;");
+    let mut output = bytes.to_vec();
+    output.splice(range, escaped.bytes());
+    let after = preflight_export(&output)?;
+    let mut expected = before.selected_tracks.clone();
+    expected
+        .iter_mut()
+        .find(|t| t.id == request.track_id)
+        .unwrap()
+        .composer = Some(request.new_composer.clone());
+    if after.selected_tracks != expected {
+        return Err(Error("track Composer edit verification failed".into()));
+    }
+    Ok(PreparedTrackComposerEdit {
+        bytes: output,
+        change: TrackComposerEditChange {
+            track_id: request.track_id.clone(),
+            old_composer: old_composer.to_owned(),
+            new_composer: request.new_composer.clone(),
+        },
+    })
+}
+
 /// Prepare one exact-old-value guarded Track Tonality edit.
 pub fn prepare_track_tonality_edit(
     bytes: &[u8],
@@ -3937,6 +4023,83 @@ mod tests {
         let empty = source.replacen("Label=\"old &amp; note\"", "Label=\"\"", 1);
         assert_eq!(
             parse(empty.as_bytes()).unwrap().tracks[0].label.as_deref(),
+            Some("")
+        );
+    }
+
+    #[test]
+    fn guarded_track_composer_edit_preserves_optional_state_and_xml_whitespace() {
+        let base = include_bytes!("../../../xtask/tests/fixtures/rekordbox-a1/F-02/source.bin");
+        let source = String::from_utf8(base.to_vec()).unwrap().replacen(
+            "TrackID=\"100\" Name=\"A\"",
+            "TrackID=\"100\" Name=\"A\" Composer=\"old &amp; note\"",
+            1,
+        );
+        let parsed = parse(source.as_bytes()).unwrap();
+        assert_eq!(parsed.tracks[0].composer.as_deref(), Some("old & note"));
+        assert_eq!(parsed.tracks[1].composer, None);
+        let request = TrackComposerEditRequest {
+            track_id: "100".into(),
+            expected_old_composer: "old & note".into(),
+            new_composer: "A\tB\nC\rD & <x>".into(),
+        };
+        let prepared = prepare_track_composer_edit(source.as_bytes(), &request).unwrap();
+        assert!(
+            String::from_utf8(prepared.bytes.clone())
+                .unwrap()
+                .contains("Composer=\"A&#9;B&#10;C&#13;D &amp; &lt;x&gt;\"")
+        );
+        assert_eq!(
+            parse(&prepared.bytes).unwrap().tracks[0]
+                .composer
+                .as_deref(),
+            Some("A\tB\nC\rD & <x>")
+        );
+        let expected = source.replacen(
+            "Composer=\"old &amp; note\"",
+            "Composer=\"A&#9;B&#10;C&#13;D &amp; &lt;x&gt;\"",
+            1,
+        );
+        assert_eq!(prepared.bytes, expected.as_bytes());
+        let xml = String::from_utf8(prepared.bytes.clone()).unwrap();
+        let decoded = std::process::Command::new("python3")
+            .args([
+                "-c",
+                "import sys,xml.etree.ElementTree as E; r=E.fromstring(sys.argv[1]); t=next(x for x in r.find('COLLECTION') if x.get('TrackID')=='100'); assert t.get('Composer')=='A\\tB\\nC\\rD & <x>'; assert next(x for x in r.find('COLLECTION') if x.get('TrackID')=='200').get('Composer') is None",
+                &xml,
+            ])
+            .status()
+            .unwrap();
+        assert!(decoded.success(), "independent ElementTree decode failed");
+        for request in [
+            TrackComposerEditRequest {
+                track_id: "200".into(),
+                expected_old_composer: "".into(),
+                new_composer: "x".into(),
+            },
+            TrackComposerEditRequest {
+                track_id: "999".into(),
+                expected_old_composer: "x".into(),
+                new_composer: "y".into(),
+            },
+            TrackComposerEditRequest {
+                track_id: "100".into(),
+                expected_old_composer: "stale".into(),
+                new_composer: "y".into(),
+            },
+            TrackComposerEditRequest {
+                track_id: "100".into(),
+                expected_old_composer: "old & note".into(),
+                new_composer: "bad\u{1}".into(),
+            },
+        ] {
+            assert!(prepare_track_composer_edit(source.as_bytes(), &request).is_err());
+        }
+        let empty = source.replacen("Composer=\"old &amp; note\"", "Composer=\"\"", 1);
+        assert_eq!(
+            parse(empty.as_bytes()).unwrap().tracks[0]
+                .composer
+                .as_deref(),
             Some("")
         );
     }
