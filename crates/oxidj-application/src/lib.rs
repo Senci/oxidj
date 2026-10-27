@@ -8,13 +8,26 @@ pub use oxidj_rekordbox::{
     PositionMarkEditRequest, PositionMarkEndEditChange, PositionMarkEndEditRequest,
     PositionMarkNameEditChange, PositionMarkNameEditRequest, PreparedFolderRename,
     PreparedPlaylistRename, PreparedPositionMarkEdit, PreparedPositionMarkEndEdit,
-    PreparedPositionMarkNameEdit, PreparedTempoEdit, PreparedTempoStartEdit, Preview,
-    TempoEditChange, TempoEditRequest, TempoStartEditChange, TempoStartEditRequest,
+    PreparedPositionMarkNameEdit, PreparedTempoEdit, PreparedTempoStartEdit, PreparedTrackNameEdit,
+    Preview, TempoEditChange, TempoEditRequest, TempoStartEditChange, TempoStartEditRequest,
+    TrackNameEditChange, TrackNameEditRequest,
 };
 
 /// Read-only preview handler; parsing and vendor-specific semantics stay in the adapter.
 pub fn preview_rekordbox_xml(path: impl AsRef<Path>) -> Result<Preview, RekordboxError> {
     oxidj_rekordbox::parse_file(path)
+}
+
+/// Export one guarded track Name edit to a new, non-overwriting file.
+pub fn export_rekordbox_track_name_edit(
+    input: impl AsRef<Path>,
+    output: impl AsRef<Path>,
+    request: &TrackNameEditRequest,
+) -> Result<TrackNameEditChange, RekordboxError> {
+    let (source, output) = read_new_export_source(input, output)?;
+    let prepared = oxidj_rekordbox::prepare_track_name_edit(&source, request)?;
+    publish_new_file(&output, &prepared.bytes)?;
+    Ok(prepared.change)
 }
 
 /// Read-only eligibility plan for the bounded no-edit Rekordbox XML exporter.

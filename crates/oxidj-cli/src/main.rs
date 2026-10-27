@@ -68,6 +68,43 @@ fn run(args: &[String]) -> i32 {
 }
 
 fn run_rekordbox(args: &[String]) -> i32 {
+    if args
+        .first()
+        .is_some_and(|action| action == "edit-track-name")
+    {
+        if args.len() != 11
+            || args[1] != "--xml"
+            || args[3] != "--output"
+            || args[5] != "--track-id"
+            || args[7] != "--expected-name"
+            || args[9] != "--name"
+        {
+            eprintln!(
+                "error: expected rekordbox edit-track-name --xml IN --output NEW --track-id ID --expected-name OLD --name NEW"
+            );
+            return USAGE;
+        }
+        let request = oxidj_application::TrackNameEditRequest {
+            track_id: args[6].clone(),
+            expected_old_name: args[8].clone(),
+            new_name: args[10].clone(),
+        };
+        return match oxidj_application::export_rekordbox_track_name_edit(
+            &args[2], &args[4], &request,
+        ) {
+            Ok(change) => {
+                println!(
+                    "Renamed track[{}]: {:?} to {:?}",
+                    change.track_id, change.old_name, change.new_name
+                );
+                OK
+            }
+            Err(error) => {
+                eprintln!("error: track name edit rejected: {error}");
+                DOMAIN
+            }
+        };
+    }
     if args.first().is_some_and(|action| action == "rename-folder") {
         if args.len() != 11
             || args[1] != "--xml"
@@ -632,6 +669,10 @@ fn print_usage(to_stdout: bool) {
     let _ = writeln!(
         output,
         "  rekordbox rename-playlist --xml <in> --output <new> --playlist-index <n> --expected-name <old> --name <new>   Export one guarded playlist rename"
+    );
+    let _ = writeln!(
+        output,
+        "  rekordbox edit-track-name --xml <in> --output <new> --track-id <id> --expected-name <old> --name <new>   Export one guarded track Name edit"
     );
     let _ = writeln!(
         output,

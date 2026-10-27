@@ -169,6 +169,23 @@ pub struct PreparedPositionMarkNameEdit {
     pub change: PositionMarkNameEditChange,
 }
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TrackNameEditRequest {
+    pub track_id: String,
+    pub expected_old_name: String,
+    pub new_name: String,
+}
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TrackNameEditChange {
+    pub track_id: String,
+    pub old_name: String,
+    pub new_name: String,
+}
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PreparedTrackNameEdit {
+    pub bytes: Vec<u8>,
+    pub change: TrackNameEditChange,
+}
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PositionMarkEndEditRequest {
     pub track_id: String,
     pub mark_index: usize,
@@ -976,6 +993,99 @@ pub fn export_xml(bytes: &[u8]) -> Result<Vec<u8>, Error> {
     Ok(bytes.to_vec())
 }
 
+fn track_name_range(
+    bytes: &[u8],
+    id: &str,
+    expected: &str,
+) -> Result<std::ops::Range<usize>, Error> {
+    let mut reader = Reader::from_reader(bytes);
+    let mut buf = Vec::new();
+    let mut stack: Vec<String> = Vec::new();
+    let mut result = None;
+    loop {
+        let start = reader.buffer_position() as usize;
+        match reader
+            .read_event_into(&mut buf)
+            .map_err(|e| Error(format!("malformed XML: {e}")))?
+        {
+            Event::Start(e)
+                if e.name().as_ref() == b"TRACK"
+                    && stack.last().is_some_and(|p| p == "COLLECTION") =>
+            {
+                if attr(&e, "TrackID")? == id {
+                    result = Some(attribute_value_range(&e, start, "Name", expected)?);
+                }
+                stack.push("TRACK".into());
+            }
+            Event::Empty(e)
+                if e.name().as_ref() == b"TRACK"
+                    && stack.last().is_some_and(|p| p == "COLLECTION") =>
+            {
+                if attr(&e, "TrackID")? == id {
+                    result = Some(attribute_value_range(&e, start, "Name", expected)?);
+                }
+            }
+            Event::Start(e) => stack.push(String::from_utf8_lossy(e.name().as_ref()).into_owned()),
+            Event::End(_) => {
+                stack.pop();
+            }
+            Event::Eof => break,
+            _ => {}
+        }
+        buf.clear();
+    }
+    result.ok_or_else(|| Error("Track Name location missing".into()))
+}
+
+/// Prepare one exact-old-name guarded TrackID edit with byte-preserving XML output.
+pub fn prepare_track_name_edit(
+    bytes: &[u8],
+    request: &TrackNameEditRequest,
+) -> Result<PreparedTrackNameEdit, Error> {
+    let before = preflight_export(bytes)?;
+    let track = before
+        .selected_tracks
+        .iter()
+        .find(|t| t.id == request.track_id)
+        .ok_or_else(|| Error(format!("unknown TrackID {}", request.track_id)))?;
+    if track.name != request.expected_old_name {
+        return Err(Error("track Name changed".into()));
+    }
+    if !request.new_name.chars().all(
+        |c| matches!(c as u32, 9 | 10 | 13 | 0x20..=0xD7FF | 0xE000..=0xFFFD | 0x10000..=0x10FFFF),
+    ) {
+        return Err(Error("new Name contains invalid XML 1.0 text".into()));
+    }
+    let range = track_name_range(bytes, &request.track_id, &request.expected_old_name)?;
+    let escaped = request
+        .new_name
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&apos;");
+    let mut output = bytes.to_vec();
+    output.splice(range, escaped.bytes());
+    let after = preflight_export(&output)?;
+    let mut expected = before.selected_tracks.clone();
+    expected
+        .iter_mut()
+        .find(|t| t.id == request.track_id)
+        .unwrap()
+        .name = request.new_name.clone();
+    if after.selected_tracks != expected {
+        return Err(Error("track Name edit verification failed".into()));
+    }
+    Ok(PreparedTrackNameEdit {
+        bytes: output,
+        change: TrackNameEditChange {
+            track_id: request.track_id.clone(),
+            old_name: request.expected_old_name.clone(),
+            new_name: request.new_name.clone(),
+        },
+    })
+}
+
 fn tempo_bpm_range(
     bytes: &[u8],
     request: &TempoEditRequest,
@@ -1650,6 +1760,33 @@ pub fn prepare_tempo_start_edit(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn guarded_track_name_edit_changes_only_selected_attribute_and_checks_xml_text() {
+        let source = include_bytes!("../../../xtask/tests/fixtures/rekordbox-a1/F-02/source.bin");
+        let request = TrackNameEditRequest {
+            track_id: "100".into(),
+            expected_old_name: "A".into(),
+            new_name: "New < title".into(),
+        };
+        let prepared = prepare_track_name_edit(source, &request).unwrap();
+        let expected = String::from_utf8(source.to_vec()).unwrap().replacen(
+            "TrackID=\"100\" Name=\"A\"",
+            "TrackID=\"100\" Name=\"New &lt; title\"",
+            1,
+        );
+        assert_eq!(prepared.bytes, expected.as_bytes());
+        let stale = TrackNameEditRequest {
+            expected_old_name: "stale".into(),
+            ..request.clone()
+        };
+        assert!(prepare_track_name_edit(source, &stale).is_err());
+        let invalid = TrackNameEditRequest {
+            new_name: "bad\u{1}".into(),
+            ..request
+        };
+        assert!(prepare_track_name_edit(source, &invalid).is_err());
+    }
 
     #[test]
     fn export_accepts_frozen_fixtures_byte_exact_and_rejects_unknown_attributes() {
