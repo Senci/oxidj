@@ -14,11 +14,11 @@ fn preview_and_export_plan_report_raw_play_count_states_and_preserve_source_byte
         .unwrap()
         .replace(
             "TrackID=\"100\" Name=\"A\"",
-            "TrackID=\"100\" Name=\"A\" DateAdded=\"2024-02-03\" DateModified=\"2024-02-04\" LastPlayed=\"2024-02-05\" PlayCount=\"not-a-number\" Rating=\"-1\"",
+            "TrackID=\"100\" Name=\"A\" DateAdded=\"2024-02-03\" DateModified=\"2024-02-04\" LastPlayed=\"2024-02-05\" PlayCount=\"not-a-number\" Rating=\"-1\" AverageBpm=\"126.12500000000001\"",
         )
         .replace(
             "TrackID=\"200\" Name=\"B\"",
-            "TrackID=\"200\" Name=\"B\" DateAdded=\"\" DateModified=\"\" LastPlayed=\"\" PlayCount=\"\" Rating=\"\"",
+            "TrackID=\"200\" Name=\"B\" DateAdded=\"\" DateModified=\"\" LastPlayed=\"\" PlayCount=\"\" Rating=\"\" AverageBpm=\"\"",
         )
         .into_bytes();
     let input = temporary_path("raw-dates-input");
@@ -43,7 +43,7 @@ fn preview_and_export_plan_report_raw_play_count_states_and_preserve_source_byte
         let first = lines.iter().find(|line| line.contains("100\tA\t")).unwrap();
         let second = lines.iter().find(|line| line.contains("200\tB\t")).unwrap();
         let third = lines.iter().find(|line| line.contains("300\tC\t")).unwrap();
-        for (row, added, modified, last_played, play_count, rating) in [
+        for (row, added, modified, last_played, play_count, rating, average_bpm) in [
             (
                 first,
                 "Some(\"2024-02-03\")",
@@ -51,6 +51,7 @@ fn preview_and_export_plan_report_raw_play_count_states_and_preserve_source_byte
                 "Some(\"2024-02-05\")",
                 "Some(\"not-a-number\")",
                 "Some(\"-1\")",
+                "Some(\"126.12500000000001\")",
             ),
             (
                 second,
@@ -59,13 +60,24 @@ fn preview_and_export_plan_report_raw_play_count_states_and_preserve_source_byte
                 "Some(\"\")",
                 "Some(\"\")",
                 "Some(\"\")",
+                "Some(\"\")",
             ),
-            (third, "None", "None", "None", "None", "None"),
+            (third, "None", "None", "None", "None", "None", "None"),
         ] {
             let fields = row.split('\t').collect::<Vec<_>>();
-            let suffix = [added, modified, last_played, play_count, rating, "None"].join("\t");
+            let suffix = [
+                added,
+                modified,
+                last_played,
+                play_count,
+                rating,
+                "None",
+                average_bpm,
+            ]
+            .join("\t");
             assert!(row.ends_with(&suffix), "{row}");
-            assert_eq!(fields[fields.len() - 2], rating, "{row}");
+            assert!(row.contains(average_bpm), "{row}");
+            assert_eq!(fields[fields.len() - 3], rating, "{row}");
         }
     }
     let result = Command::new(env!("CARGO_BIN_EXE_oxidj-cli"))
@@ -139,7 +151,7 @@ fn preview_and_export_plan_report_raw_colour_states_and_export_preserves_source_
                         || line.starts_with(&format!("Track\t{id}\t"))
                 })
                 .unwrap();
-            assert_eq!(row.split('\t').next_back(), Some(colour), "{row}");
+            assert_eq!(row.split('\t').rev().nth(1), Some(colour), "{row}");
         }
     }
     let result = Command::new(env!("CARGO_BIN_EXE_oxidj-cli"))
@@ -277,7 +289,7 @@ fn preview_and_export_plan_report_track_year_states_and_export_preserves_source_
                 })
                 .unwrap_or_else(|| panic!("missing TrackID {track_id} row in:\\n{stdout}"));
             assert_eq!(
-                row.split('\t').rev().nth(10),
+                row.split('\t').rev().nth(11),
                 Some(expected_track_number),
                 "{row}"
             );
@@ -287,7 +299,7 @@ fn preview_and_export_plan_report_track_year_states_and_export_preserves_source_
                 _ => "None",
             };
             assert_eq!(
-                row.split('\t').rev().nth(7),
+                row.split('\t').rev().nth(8),
                 Some(match track_id {
                     "100" => "Some(\"-2147483648\")",
                     "200" => "Some(\"\")",
@@ -465,7 +477,7 @@ fn export_plan_shows_ordered_f10_units_without_writing() {
         concat!(
             "Decision: ALLOW_EXPORT\n",
             "Selected units:\n",
-            "Track\t1000\tVariable tempo\tNone\tNone\tNone\tNone\tNone\tNone\tNone\tNone\tNone\tNone\tfile://localhost/music/variable.flac\tNone\tNone\tNone\tNone\tNone\tNone\tNone\tNone\tNone\tNone\tNone\tNone\tNone\tNone\n",
+            "Track\t1000\tVariable tempo\tNone\tNone\tNone\tNone\tNone\tNone\tNone\tNone\tNone\tNone\tfile://localhost/music/variable.flac\tNone\tNone\tNone\tNone\tNone\tNone\tNone\tNone\tNone\tNone\tNone\tNone\tNone\tNone\tNone\n",
             "TEMPO\t1000\t0\t120\t4/4\t1\n",
             "TEMPO\t1000\t8\t128\t4/4\t1\n",
             "TEMPO\t1000\t16\t132\t7/8\t3\n",

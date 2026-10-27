@@ -30,6 +30,7 @@ pub struct Track {
     pub play_count: Option<String>,
     pub rating: Option<String>,
     pub colour: Option<String>,
+    pub average_bpm: Option<String>,
     pub location: String,
     pub tempos: Vec<Tempo>,
     pub marks: Vec<PositionMark>,
@@ -610,6 +611,7 @@ pub fn parse(bytes: &[u8]) -> Result<Preview, Error> {
                         play_count: optional(&e, "PlayCount")?,
                         rating: optional(&e, "Rating")?,
                         colour: optional(&e, "Colour")?,
+                        average_bpm: optional(&e, "AverageBpm")?,
                         location: attr(&e, "Location")?,
                         tempos: vec![],
                         marks: vec![],
@@ -712,6 +714,7 @@ pub fn parse(bytes: &[u8]) -> Result<Preview, Error> {
                         play_count: optional(&e, "PlayCount")?,
                         rating: optional(&e, "Rating")?,
                         colour: optional(&e, "Colour")?,
+                        average_bpm: optional(&e, "AverageBpm")?,
                         location: attr(&e, "Location")?,
                         tempos: vec![],
                         marks: vec![],
@@ -868,6 +871,7 @@ fn validate_export_element(
             "PlayCount",
             "Rating",
             "Colour",
+            "AverageBpm",
             "Location",
         ],
         "TRACK" => &["Key"],
@@ -3865,21 +3869,33 @@ mod tests {
             .unwrap()
             .replace(
                 "TrackID=\"100\" Name=\"A\"",
-                "TrackID=\"100\" Name=\"A\" Colour=\"#12aBcF\"",
+                "TrackID=\"100\" Name=\"A\" Colour=\"#12aBcF\" AverageBpm=\"126.12500000000001\"",
             )
             .replace(
                 "TrackID=\"200\" Name=\"B\"",
-                "TrackID=\"200\" Name=\"B\" Colour=\"\"",
+                "TrackID=\"200\" Name=\"B\" Colour=\"\" AverageBpm=\"\"",
             );
         let source = source.as_bytes();
         let preview = parse(source).unwrap();
         assert_eq!(preview.tracks[0].colour.as_deref(), Some("#12aBcF"));
         assert_eq!(preview.tracks[1].colour.as_deref(), Some(""));
         assert_eq!(preview.tracks[2].colour, None);
+        assert_eq!(
+            preview.tracks[0].average_bpm.as_deref(),
+            Some("126.12500000000001")
+        );
+        assert_eq!(preview.tracks[1].average_bpm.as_deref(), Some(""));
+        assert_eq!(preview.tracks[2].average_bpm, None);
         let plan = preflight_export(source).unwrap();
         assert_eq!(plan.selected_tracks[0].colour.as_deref(), Some("#12aBcF"));
         assert_eq!(plan.selected_tracks[1].colour.as_deref(), Some(""));
         assert_eq!(plan.selected_tracks[2].colour, None);
+        assert_eq!(
+            plan.selected_tracks[0].average_bpm.as_deref(),
+            Some("126.12500000000001")
+        );
+        assert_eq!(plan.selected_tracks[1].average_bpm.as_deref(), Some(""));
+        assert_eq!(plan.selected_tracks[2].average_bpm, None);
         assert_eq!(export_xml(source).unwrap(), source);
     }
 
