@@ -316,6 +316,43 @@ fn run_rekordbox(args: &[String]) -> i32 {
     }
     if args
         .first()
+        .is_some_and(|action| action == "edit-track-comments")
+    {
+        if args.len() != 11
+            || args[1] != "--xml"
+            || args[3] != "--output"
+            || args[5] != "--track-id"
+            || args[7] != "--expected-comments"
+            || args[9] != "--comments"
+        {
+            eprintln!(
+                "error: expected rekordbox edit-track-comments --xml IN --output NEW --track-id ID --expected-comments OLD --comments NEW"
+            );
+            return USAGE;
+        }
+        let request = oxidj_application::TrackCommentsEditRequest {
+            track_id: args[6].clone(),
+            expected_old_comments: args[8].clone(),
+            new_comments: args[10].clone(),
+        };
+        return match oxidj_application::export_rekordbox_track_comments_edit(
+            &args[2], &args[4], &request,
+        ) {
+            Ok(change) => {
+                println!(
+                    "Changed Comments for track[{}]: {:?} to {:?}",
+                    change.track_id, change.old_comments, change.new_comments
+                );
+                OK
+            }
+            Err(error) => {
+                eprintln!("error: track Comments edit rejected: {error}");
+                DOMAIN
+            }
+        };
+    }
+    if args
+        .first()
         .is_some_and(|action| action == "edit-track-artist")
     {
         if args.len() != 11
@@ -805,8 +842,8 @@ fn run_rekordbox(args: &[String]) -> i32 {
                 println!("Selected units:");
                 for track in plan.selected_tracks {
                     println!(
-                        "Track\t{}\t{}\t{:?}\t{}",
-                        track.id, track.name, track.artist, track.location
+                        "Track\t{}\t{}\t{:?}\t{:?}\t{}",
+                        track.id, track.name, track.artist, track.comments, track.location
                     );
                     for tempo in track.tempos {
                         println!(
@@ -1065,7 +1102,7 @@ fn print_usage(to_stdout: bool) {
     );
     let _ = writeln!(
         output,
-        "  rekordbox edit-track-artist --xml <in> --output <new> --track-id <id> --expected-artist <old> --artist <new>   Export one guarded track Artist edit"
+        "  rekordbox edit-track-comments --xml <in> --output <new> --track-id <id> --expected-comments <old> --comments <new>   Export one guarded track Comments edit\n  rekordbox edit-track-artist --xml <in> --output <new> --track-id <id> --expected-artist <old> --artist <new>   Export one guarded track Artist edit"
     );
     let _ = writeln!(
         output,

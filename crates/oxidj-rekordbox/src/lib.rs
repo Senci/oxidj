@@ -7,6 +7,7 @@ pub struct Track {
     pub id: String,
     pub name: String,
     pub artist: Option<String>,
+    pub comments: Option<String>,
     pub location: String,
     pub tempos: Vec<Tempo>,
     pub marks: Vec<PositionMark>,
@@ -304,6 +305,23 @@ pub struct PreparedTrackArtistEdit {
     pub change: TrackArtistEditChange,
 }
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TrackCommentsEditRequest {
+    pub track_id: String,
+    pub expected_old_comments: String,
+    pub new_comments: String,
+}
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TrackCommentsEditChange {
+    pub track_id: String,
+    pub old_comments: String,
+    pub new_comments: String,
+}
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PreparedTrackCommentsEdit {
+    pub bytes: Vec<u8>,
+    pub change: TrackCommentsEditChange,
+}
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PreparedTrackNameEdit {
     pub bytes: Vec<u8>,
     pub change: TrackNameEditChange,
@@ -409,6 +427,7 @@ pub fn parse(bytes: &[u8]) -> Result<Preview, Error> {
                         id,
                         name: attr(&e, "Name")?,
                         artist: optional(&e, "Artist")?,
+                        comments: optional(&e, "Comments")?,
                         location: attr(&e, "Location")?,
                         tempos: vec![],
                         marks: vec![],
@@ -488,6 +507,7 @@ pub fn parse(bytes: &[u8]) -> Result<Preview, Error> {
                         id,
                         name: attr(&e, "Name")?,
                         artist: optional(&e, "Artist")?,
+                        comments: optional(&e, "Comments")?,
                         location: attr(&e, "Location")?,
                         tempos: vec![],
                         marks: vec![],
@@ -617,7 +637,9 @@ fn validate_export_element(
         "DJ_PLAYLISTS" => &["Version"],
         "PRODUCT" => &["Name", "Version", "Company"],
         "COLLECTION" => &["Entries"],
-        "TRACK" if parent == Some("COLLECTION") => &["TrackID", "Name", "Artist", "Location"],
+        "TRACK" if parent == Some("COLLECTION") => {
+            &["TrackID", "Name", "Artist", "Comments", "Location"]
+        }
         "TRACK" => &["Key"],
         "TEMPO" => &["Inizio", "Bpm", "Metro", "Battito"],
         "POSITION_MARK" => &["Name", "Type", "Start", "Num", "End"],
@@ -2013,6 +2035,72 @@ pub fn prepare_track_name_edit(
     })
 }
 
+/// Prepare one exact-old-value guarded Track Comments edit.
+pub fn prepare_track_comments_edit(
+    bytes: &[u8],
+    request: &TrackCommentsEditRequest,
+) -> Result<PreparedTrackCommentsEdit, Error> {
+    let before = preflight_export(bytes)?;
+    let matches: Vec<_> = before
+        .selected_tracks
+        .iter()
+        .filter(|t| t.id == request.track_id)
+        .collect();
+    let track = match matches.as_slice() {
+        [] => return Err(Error(format!("unknown TrackID {}", request.track_id))),
+        [track] => *track,
+        _ => return Err(Error(format!("duplicate TrackID {}", request.track_id))),
+    };
+    let old_comments = track
+        .comments
+        .as_deref()
+        .ok_or_else(|| Error("track Comments missing".into()))?;
+    if old_comments != request.expected_old_comments {
+        return Err(Error("track Comments changed".into()));
+    }
+    if !request.new_comments.chars().all(
+        |c| matches!(c as u32, 9 | 10 | 13 | 0x20..=0xD7FF | 0xE000..=0xFFFD | 0x10000..=0x10FFFF),
+    ) {
+        return Err(Error("new Comments contains invalid XML 1.0 text".into()));
+    }
+    let range = track_attribute_range(
+        bytes,
+        &request.track_id,
+        "Comments",
+        &request.expected_old_comments,
+    )?;
+    let escaped = request
+        .new_comments
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&apos;")
+        .replace('\t', "&#9;")
+        .replace('\n', "&#10;")
+        .replace('\r', "&#13;");
+    let mut output = bytes.to_vec();
+    output.splice(range, escaped.bytes());
+    let after = preflight_export(&output)?;
+    let mut expected = before.selected_tracks.clone();
+    expected
+        .iter_mut()
+        .find(|t| t.id == request.track_id)
+        .unwrap()
+        .comments = Some(request.new_comments.clone());
+    if after.selected_tracks != expected {
+        return Err(Error("track Comments edit verification failed".into()));
+    }
+    Ok(PreparedTrackCommentsEdit {
+        bytes: output,
+        change: TrackCommentsEditChange {
+            track_id: request.track_id.clone(),
+            old_comments: old_comments.to_owned(),
+            new_comments: request.new_comments.clone(),
+        },
+    })
+}
+
 /// Prepare one exact-old-value guarded Track Artist edit.
 pub fn prepare_track_artist_edit(
     bytes: &[u8],
@@ -3378,6 +3466,73 @@ mod tests {
             ..request
         };
         assert!(prepare_track_name_edit(source, &invalid).is_err());
+    }
+
+    #[test]
+    fn guarded_track_comments_edit_preserves_optional_state_and_xml_whitespace() {
+        let base = include_bytes!("../../../xtask/tests/fixtures/rekordbox-a1/F-02/source.bin");
+        let source = String::from_utf8(base.to_vec()).unwrap().replacen(
+            "TrackID=\"100\" Name=\"A\"",
+            "TrackID=\"100\" Name=\"A\" Comments=\"old &amp; note\"",
+            1,
+        );
+        let parsed = parse(source.as_bytes()).unwrap();
+        assert_eq!(parsed.tracks[0].comments.as_deref(), Some("old & note"));
+        assert_eq!(parsed.tracks[1].comments, None);
+        let request = TrackCommentsEditRequest {
+            track_id: "100".into(),
+            expected_old_comments: "old & note".into(),
+            new_comments: "A\tB\nC\rD & <x>".into(),
+        };
+        let prepared = prepare_track_comments_edit(source.as_bytes(), &request).unwrap();
+        assert!(
+            String::from_utf8(prepared.bytes.clone())
+                .unwrap()
+                .contains("Comments=\"A&#9;B&#10;C&#13;D &amp; &lt;x&gt;\"")
+        );
+        assert_eq!(
+            parse(&prepared.bytes).unwrap().tracks[0]
+                .comments
+                .as_deref(),
+            Some("A\tB\nC\rD & <x>")
+        );
+        let expected = source.replacen(
+            "Comments=\"old &amp; note\"",
+            "Comments=\"A&#9;B&#10;C&#13;D &amp; &lt;x&gt;\"",
+            1,
+        );
+        assert_eq!(prepared.bytes, expected.as_bytes());
+        for request in [
+            TrackCommentsEditRequest {
+                track_id: "200".into(),
+                expected_old_comments: "".into(),
+                new_comments: "x".into(),
+            },
+            TrackCommentsEditRequest {
+                track_id: "999".into(),
+                expected_old_comments: "x".into(),
+                new_comments: "y".into(),
+            },
+            TrackCommentsEditRequest {
+                track_id: "100".into(),
+                expected_old_comments: "stale".into(),
+                new_comments: "y".into(),
+            },
+            TrackCommentsEditRequest {
+                track_id: "100".into(),
+                expected_old_comments: "old & note".into(),
+                new_comments: "bad\u{1}".into(),
+            },
+        ] {
+            assert!(prepare_track_comments_edit(source.as_bytes(), &request).is_err());
+        }
+        let empty = source.replacen("Comments=\"old &amp; note\"", "Comments=\"\"", 1);
+        assert_eq!(
+            parse(empty.as_bytes()).unwrap().tracks[0]
+                .comments
+                .as_deref(),
+            Some("")
+        );
     }
 
     #[test]

@@ -11,10 +11,11 @@ pub use oxidj_rekordbox::{
     PositionMarkNameEditRequest, PreparedFolderRename, PreparedPlaylistRename,
     PreparedPlaylistReorder, PreparedPositionMarkEdit, PreparedPositionMarkEndEdit,
     PreparedPositionMarkNameEdit, PreparedTempoBeatEdit, PreparedTempoEdit, PreparedTempoMeterEdit,
-    PreparedTempoStartEdit, PreparedTrackArtistEdit, PreparedTrackDelete, PreparedTrackNameEdit,
-    Preview, TempoBeatEditChange, TempoBeatEditRequest, TempoEditChange, TempoEditRequest,
-    TempoMeterEditChange, TempoMeterEditRequest, TempoStartEditChange, TempoStartEditRequest,
-    TrackArtistEditChange, TrackArtistEditRequest, TrackDeleteRequest, TrackNameEditChange,
+    PreparedTempoStartEdit, PreparedTrackArtistEdit, PreparedTrackCommentsEdit,
+    PreparedTrackDelete, PreparedTrackNameEdit, Preview, TempoBeatEditChange, TempoBeatEditRequest,
+    TempoEditChange, TempoEditRequest, TempoMeterEditChange, TempoMeterEditRequest,
+    TempoStartEditChange, TempoStartEditRequest, TrackArtistEditChange, TrackArtistEditRequest,
+    TrackCommentsEditChange, TrackCommentsEditRequest, TrackDeleteRequest, TrackNameEditChange,
     TrackNameEditRequest,
 };
 
@@ -31,6 +32,18 @@ pub fn export_rekordbox_track_name_edit(
 ) -> Result<TrackNameEditChange, RekordboxError> {
     let (source, output) = read_new_export_source(input, output)?;
     let prepared = oxidj_rekordbox::prepare_track_name_edit(&source, request)?;
+    publish_new_file(&output, &prepared.bytes)?;
+    Ok(prepared.change)
+}
+
+/// Export one guarded track Comments edit to a new, non-overwriting file.
+pub fn export_rekordbox_track_comments_edit(
+    input: impl AsRef<Path>,
+    output: impl AsRef<Path>,
+    request: &TrackCommentsEditRequest,
+) -> Result<TrackCommentsEditChange, RekordboxError> {
+    let (source, output) = read_new_export_source(input, output)?;
+    let prepared = oxidj_rekordbox::prepare_track_comments_edit(&source, request)?;
     publish_new_file(&output, &prepared.bytes)?;
     Ok(prepared.change)
 }
