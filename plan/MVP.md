@@ -65,7 +65,6 @@
 - The CLI no-edit export regression preserves raw Comments bytes across entity-escaped present, empty, and absent synthetic attribute states and verifies input immutability. This is not Rekordbox compatibility evidence; global F-09 and ADR-005 qualification remain NOT DEMONSTRATED.
 - The CLI no-edit export regression preserves absent POSITION_MARK `End` separately from raw `End="0"` in synthetic F-07 XML and verifies byte-identical output plus input immutability. Rekordbox compatibility, global F-09, and ADR-005 qualification remain NOT DEMONSTRATED.
 - The CLI preview rejects synthetic present-empty `POSITION_MARK End` with `invalid position mark End value`; absent End and raw zero remain distinct. This records the current parser boundary, not Rekordbox compatibility; ADR-005 qualification remains NOT DEMONSTRATED.
-- Synthetic F-07 preview now distinguishes `POSITION_MARK End` absent, present-empty, and raw zero as `None`, `Some("")`, and `Some("0")`. This is local preview evidence only; Rekordbox/OneLibrary compatibility, global F-09, and ADR-005 qualification remain NOT DEMONSTRATED.
 - M5 DJ metadata; M6 Analysis; M7 MVP interoperability proof — unchanged wider-product milestones.
 
 ### Pre-alpha visual evidence archive (2026-10-27)
