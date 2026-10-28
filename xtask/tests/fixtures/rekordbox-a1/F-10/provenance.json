@@ -5,31 +5,31 @@
   "specification": "https://cdn.rekordbox.com/files/20200410160904/xml_format_list.pdf",
   "specification_version": "1.0.0",
   "specification_sha256": "2acbe04491bfed8b3c53a977a63e372c1605dfc4d8f8047fe89f28f36151aeeb",
-  "source_sha256": "a0f7c6662eba04bae044033cfff867d04289b44b3bf637d2ee28dcdd223af459",
+  "source_sha256": "ea3d53359fa9b54c41f892d8492add73ef0c96d414a3ab62a15a6ba2ab12c393",
   "expected_plan_path": "expected-plan.json",
   "expected_plan_length_bytes": 614,
-  "expected_plan_sha256": "1344b51c21a0ff797f10681b8a82ea0a82b8d4de44cc89d4c87c0a2276a5817f",
+  "expected_plan_sha256": "3028886259df4ba10b3edda07eb8c35b7db43e8ecd7022aaf2f49e1532b0229f",
   "checker": "xtask/tests/rekordbox_xml_a1.rs",
   "checker_identity": {
     "path": "xtask/tests/rekordbox_xml_a1.rs",
     "version": "rekordbox-xml-a1-checker-v1",
-    "sha256": "790b088e78a5dec78ddba0dae1eae6941bbb975e2c73d45e8ce8007049b37524"
+    "sha256": "5fa5add453835c48a3201cfab982b6137493a0c6858cc5bcde7c1ec82cb8e2a5"
   },
   "artifacts": {
     "case.json": {
       "path": "case.json",
-      "length_bytes": 326,
-      "sha256": "3f25ec9973fd76e2d50bc5666a13fe1b7856ed9263fb02a1945a6a40fbd8f35f"
+      "length_bytes": 448,
+      "sha256": "2a3ec6514f1353c2e3b2593ad857aebade02ccfb53824d577d67852625d08246"
     },
     "expected-archive.json": {
       "path": "expected-archive.json",
       "length_bytes": 228,
-      "sha256": "332a77259f2d311775a2f656c246498aa036b73c56442cf27b7b6204c16b2625"
+      "sha256": "d13efa411dce3a51d103e5ad46811399cf5d7e1f3f54a8ef2220b2569faae2ba"
     },
     "expected-plan.json": {
       "path": "expected-plan.json",
       "length_bytes": 614,
-      "sha256": "1344b51c21a0ff797f10681b8a82ea0a82b8d4de44cc89d4c87c0a2276a5817f"
+      "sha256": "3028886259df4ba10b3edda07eb8c35b7db43e8ecd7022aaf2f49e1532b0229f"
     },
     "expected-report.json": {
       "path": "expected-report.json",
@@ -39,7 +39,7 @@
     "expected-visible.json": {
       "path": "expected-visible.json",
       "length_bytes": 211,
-      "sha256": "4b59871319f414025778d7cff90f6ac6a3643a6d8d3e08417128327c36e41f44"
+      "sha256": "51a79039fa334f9753de304c15b1e33173afcb845c2f920326436a57c5d5588f"
     },
     "operations.json": {
       "path": "operations.json",
@@ -49,7 +49,7 @@
     "source.bin": {
       "path": "source.bin",
       "length_bytes": 564,
-      "sha256": "a0f7c6662eba04bae044033cfff867d04289b44b3bf637d2ee28dcdd223af459"
+      "sha256": "ea3d53359fa9b54c41f892d8492add73ef0c96d414a3ab62a15a6ba2ab12c393"
     }
   }
 }

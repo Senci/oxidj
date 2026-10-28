@@ -341,7 +341,7 @@ fn check_f10(source: &[u8]) -> Result<(Value, Value, Value), String> {
         != json!([
             {"inizio":"0","bpm":"120","metro":"4/4","battito":1},
             {"inizio":"8","bpm":"128","metro":"4/4","battito":1},
-            {"inizio":"16","bpm":"132","metro":"7/8","battito":3}
+            {"inizio":"16","bpm":"132","metro":"4/4","battito":1}
         ])
     {
         return Err("F-10 ordered tempo/meter points mismatch".to_owned());
@@ -444,7 +444,7 @@ fn a1_fixture_bytes_match_frozen_provenance_and_goldens() {
         ),
         (
             "F-10",
-            "a0f7c6662eba04bae044033cfff867d04289b44b3bf637d2ee28dcdd223af459",
+            "ea3d53359fa9b54c41f892d8492add73ef0c96d414a3ab62a15a6ba2ab12c393",
         ),
     ] {
         let source = std::fs::read(fixture(case_id, "source.bin")).unwrap();

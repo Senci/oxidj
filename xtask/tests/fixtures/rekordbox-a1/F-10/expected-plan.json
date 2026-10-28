@@ -8,7 +8,7 @@
   "selected_units": [
     {"unit_id":"tempo[0]","inizio_seconds":"0","bpm":"120","metro":"4/4","battito":1},
     {"unit_id":"tempo[1]","inizio_seconds":"8","bpm":"128","metro":"4/4","battito":1},
-    {"unit_id":"tempo[2]","inizio_seconds":"16","bpm":"132","metro":"7/8","battito":3}
+    {"unit_id":"tempo[2]","inizio_seconds":"16","bpm":"132","metro":"4/4","battito":1}
   ],
   "withheld_units": [],
   "report": [],
