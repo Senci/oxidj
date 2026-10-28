@@ -78,6 +78,14 @@ fn decode(b: &[u8]) -> N {
 fn expected() -> N {
     decode(SOURCE)
 }
+fn attr<'a>(n: &'a N, key: &str) -> &'a str {
+    n.attrs
+        .iter()
+        .find(|(name, _)| name == key)
+        .unwrap()
+        .1
+        .as_str()
+}
 fn check(bytes: &[u8]) -> Result<(), String> {
     let actual = decode(bytes);
     let mut expected = expected();
@@ -91,11 +99,37 @@ fn check(bytes: &[u8]) -> Result<(), String> {
         .iter_mut()
         .find(|n| n.name == "TRACK")
         .unwrap();
-    let target = track
+    assert_eq!(
+        track.attrs.iter().find(|(n, _)| n == "TrackID").unwrap().1,
+        "700"
+    );
+    let mut marks: Vec<_> = track
         .children
         .iter_mut()
-        .find(|n| n.name == "POSITION_MARK")
-        .unwrap();
+        .filter(|n| n.name == "POSITION_MARK")
+        .collect();
+    assert_eq!(marks.len(), 2, "fixture must contain exactly two marks");
+    assert_eq!(
+        (
+            attr(marks[0], "Type"),
+            attr(marks[0], "Num"),
+            attr(marks[0], "Name"),
+            attr(marks[0], "End"),
+            attr(marks[0], "Start")
+        ),
+        ("4", "0", "Delete me", "10", "5")
+    );
+    assert_eq!(
+        (
+            attr(marks[1], "Type"),
+            attr(marks[1], "Num"),
+            attr(marks[1], "Name"),
+            attr(marks[1], "Start"),
+            attr(marks[1], "End")
+        ),
+        ("0", "1", "Keep me", "0", "0")
+    );
+    let target = &mut *marks[0];
     target
         .attrs
         .iter_mut()
@@ -119,6 +153,15 @@ fn independently_verifies_guarded_start_edit_and_rejects_mutations() {
     let output = prepare_position_mark_edit(SOURCE, &req).unwrap().bytes;
     assert_eq!(SOURCE, frozen.as_slice());
     check(&output).unwrap();
+    let edited_other =
+        String::from_utf8(output.clone())
+            .unwrap()
+            .replacen("Start=\"0\"", "Start=\"6\"", 1);
+    assert_ne!(edited_other, String::from_utf8(output.clone()).unwrap());
+    assert!(
+        check(edited_other.as_bytes()).is_err(),
+        "oracle accepted an edit to ordinal 1"
+    );
     for (mark_index, expected_old_start_seconds) in [(0, "4"), (1, "5")] {
         let bad = PositionMarkEditRequest {
             mark_index,
