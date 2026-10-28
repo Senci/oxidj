@@ -1,0 +1,8 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><title>F-09 — Guarded raw TRACK.LastPlayed edit</title>
+<style>
+:root{color-scheme:dark;font:16px/1.55 system-ui,sans-serif;background:#101018;color:#e9e6f5}body{max-width:1080px;margin:6vh auto;padding:0 4vw}h1{color:#c7a8ff;font-size:2.4rem}h2{color:#66e3e8}.card{background:#1b1a29;border:1px solid #4b4168;border-radius:18px;padding:28px;margin:22px 0;box-shadow:0 12px 38px #07070b}code{color:#92e7df;background:#11111a;padding:3px 7px;border-radius:5px}.pill{display:inline-block;border:1px solid #7762a8;border-radius:99px;padding:4px 12px;color:#d1bdff}li{margin:8px 0}.muted{color:#aaa6bb}</style>
+<body><span class="pill">M4 · ADR-005 F-09 · synthetic only</span><h1>Guarded raw <code>TRACK.LastPlayed</code></h1><p class="muted">Post-edit independent oracle · frozen F-02 source · no production behavior change</p>
+<section class="card"><h2>Exact-old edit</h2><p>TrackID <code>100</code>: <code>old &amp; play</code> → <code>new &lt; play</code></p><p>TrackID <code>200</code>: LastPlayed absent before and after.</p><p>Raw text only — no date parsing, timezone conversion, or semantic claims.</p></section>
+<section class="card"><h2>Independent checks</h2><ul><li>Test-only <code>quick-xml</code> reader compares the complete decoded tree.</li><li>Only the target LastPlayed value differs.</li><li>Frozen source bytes remain unchanged.</li><li>Stale/wrong-target guards and semantic mutations are rejected.</li></ul></section>
+<p class="muted">One bounded synthetic case. Global F-09, Rekordbox compatibility, and ADR-005 qualification remain NOT DEMONSTRATED.</p></body></html>
