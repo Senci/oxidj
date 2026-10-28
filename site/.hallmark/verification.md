@@ -2,8 +2,8 @@
 
 2026-10-26. Scope: home, roadmap, playful dossier, shared chrome and styled 404.
 Implements the owner's content/IA brief supplied on task `t_c5d4948d`.
-No product code or dependency changes. Lead review/integration precedes publication;
-these are local results, not evidence of a live deployment.
+No product code or dependency changes. Lead review, integration and publication are
+recorded below; product and qualification limits remain unchanged.
 
 ## Content and material
 
