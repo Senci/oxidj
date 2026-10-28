@@ -461,9 +461,15 @@ Applies to **all F-01–F-12 subcases**, including F-09's own checker controls:
    changed opaque byte, and an absent required report entry. A production parser
    shared with its checker cannot satisfy this requirement even in a fresh process.
 
-No checker or self-test has run on this card. If independent expected states or
-bindings are missing, result is NOT DEMONSTRATED. Do not bootstrap a golden by
-accepting matching output from two paths that share the same bug.
+Bounded synthetic checker and mutation tests exist for individual F-01–F-12
+subcases, including A1 F-02/F-07/F-10, F-04 cue edits, F-08b withholding, and
+F-12 capacity/report controls; see the observed evidence entries below and
+`plan/STATUS.md`. These per-case results do not demonstrate completion of this
+cross-case F-09 acceptance: independently authored expected states, direct
+output checks, and all required self-tests must be evidenced across the full
+fixture set. Missing independent expected states or bindings remain NOT
+DEMONSTRATED. Do not bootstrap a golden by accepting matching output from two
+paths that share the same bug.
 
 ### F-10: Variable tempo without invented interpolation
 
