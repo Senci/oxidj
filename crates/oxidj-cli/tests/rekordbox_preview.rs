@@ -692,6 +692,55 @@ fn preview_lists_raw_marks_with_track_local_ordinals_and_end_presence() {
 }
 
 #[test]
+fn no_edit_export_preserves_position_mark_num_spellings_and_source_bytes() {
+    let fixture = format!(
+        "{}/../../xtask/tests/fixtures/rekordbox-a1/F-07/source.bin",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let source = fs::read_to_string(fixture)
+        .unwrap()
+        .replace(
+            "<POSITION_MARK Name=\"Intro\" Type=\"0\" Start=\"5\" Num=\"0\"/>",
+            "<POSITION_MARK Name=\"Intro\" Type=\"0\" Start=\"5\" Num=\"00\"/>\n      <POSITION_MARK Name=\"Second\" Type=\"0\" Start=\"6\" Num=\"01\"/>",
+        )
+        .into_bytes();
+    let input = temporary_path("position-mark-num-no-edit-input");
+    let output = temporary_path("position-mark-num-no-edit-output");
+    fs::write(&input, &source).unwrap();
+    let result = Command::new(env!("CARGO_BIN_EXE_oxidj-cli"))
+        .args([
+            "rekordbox",
+            "export",
+            "--xml",
+            input.to_str().unwrap(),
+            "--output",
+            output.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(
+        result.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    assert!(
+        source
+            .windows(br#"Num="00""#.len())
+            .any(|w| w == br#"Num="00""#)
+    );
+    assert!(
+        source
+            .windows(br#"Num="01""#.len())
+            .any(|w| w == br#"Num="01""#)
+    );
+    assert_eq!(fs::read(&output).unwrap(), source);
+    assert_eq!(fs::read(&input).unwrap(), source);
+    let _ = fs::remove_file(input);
+    let _ = fs::remove_file(output);
+}
+
+#[test]
 fn preview_rejects_present_empty_position_mark_end() {
     let fixture = format!(
         "{}/../../xtask/tests/fixtures/rekordbox-a1/F-07/source.bin",
