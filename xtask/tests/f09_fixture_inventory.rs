@@ -217,20 +217,55 @@ fn f09_required_negative_controls_have_executable_regressions() {
     // ADR-005 §2 F-09: index zero; units; House order; original Intro; omitted
     // F-10 point; restored withheld c38; opaque byte; missing required report.
     let tests = [
-        ("index-zero", "f03_logical"),
-        ("unit-swap", "f03_logical"),
-        ("House-order", "f02_sibling_playlist_reorder_oracle"),
-        ("original-Intro", "f04_cue_order_logical"),
-        ("F-10-omitted-point", "rekordbox_xml_a1"),
-        ("restored-c38", "f12_logical"),
-        ("opaque-byte", "f05_logical"),
-        ("missing-report-entry", "f06b_logical"),
+        (
+            "index-zero",
+            "f03_logical",
+            "f03_mutation_controls_reject_index_end_collapse_and_grid",
+        ),
+        (
+            "unit-swap",
+            "f03_logical",
+            "f03_mutation_controls_reject_index_end_collapse_and_grid",
+        ),
+        (
+            "House-order",
+            "f02_sibling_playlist_reorder_oracle",
+            "independently_decodes_sibling_reorder_and_rejects_output_mutations",
+        ),
+        (
+            "original-Intro",
+            "f04_cue_order_logical",
+            "frozen_artifacts_independent_checker_and_mutation_controls",
+        ),
+        (
+            "F-10-omitted-point",
+            "rekordbox_xml_a1",
+            "f10_checker_rejects_changed_missing_or_reordered_tempo_points",
+        ),
+        (
+            "restored-c38",
+            "f12_logical",
+            "f12_mutations_reject_archive_renumber_resurrection_and_bad_loss_entries",
+        ),
+        (
+            "opaque-byte",
+            "f05_logical",
+            "f05_checker_rejects_loop_inference_raw_mutation_and_missing_block_entry",
+        ),
+        (
+            "missing-report-entry",
+            "f06b_logical",
+            "f06b_mutations_reject_loss_report_changes_and_resurrection",
+        ),
     ];
     let source_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests");
-    for (control, test) in tests {
+    for (control, test, identifier) in tests {
+        let source = fs::read_to_string(source_root.join(format!("{test}.rs")))
+            .unwrap_or_else(|_| panic!("missing executable {control} control source: {test}"));
+        let test_declaration = format!("#[test]\nfn {identifier}()");
         assert!(
-            source_root.join(format!("{test}.rs")).is_file(),
-            "missing executable {control} control: {test}"
+            source.contains(&test_declaration),
+            "missing executable {control} control test {test}::{identifier}"
         );
     }
 }
