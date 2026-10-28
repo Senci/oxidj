@@ -1244,7 +1244,7 @@ pub fn parse(bytes: &[u8]) -> Result<Preview, Error> {
                 .parse::<u8>()
                 .map_err(|_| Error(format!("invalid position mark Type {}", mark.kind)))?;
             mark.number
-                .parse::<u32>()
+                .parse::<i32>()
                 .map_err(|_| Error(format!("invalid position mark Num {}", mark.number)))?;
             validate_decimal("position mark Start", &mark.start_seconds, false)?;
             if let Some(end) = &mark.end_seconds {

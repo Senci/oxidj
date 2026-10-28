@@ -19,9 +19,13 @@ review_status: "2026-10-16 advisory completed (t_4d01d430, comment 129); revised
 
 > **Scope clarification (2026-10-23):** the revised, separately versioned `local-catalog-alpha-v1` schema is outside this proposed vendor-schema decision and does not accept ADR-005. This ADR remains Proposed; its historical vendor-schema fixtures and A1–A3/C1–C6 remain preserved, open, and unpassed. The local alpha does not admit those fixtures as evidence or change their qualification status.
 
+## Synthetic POSITION_MARK Num boundary (2026-10-28)
+
+The official rekordbox XML format list documents `POSITION_MARK.Num` as a signed 32-bit integer and lists Memory Cue as `-1` (https://cdn.rekordbox.com/files/20200410160904/xml_format_list.pdf). The synthetic parser now validates that range with Rust `i32`: `-2147483648`, `-1`, and `2147483647` are accepted; empty values and values outside the range are rejected. CLI preview exposes the raw text, while no-edit export preserves the entire synthetic source byte-for-byte, including `Num="-1"`. No cue-index interpretation or renumbering is added. This is synthetic parser/retention evidence only; vendor compatibility, global F-09, and ADR-005 qualification remain NOT DEMONSTRATED. ADR-005 remains Proposed.
+
 ## Synthetic parser-boundary note (2026-10-28)
 
-The synthetic F-07 CLI preview rejects present-empty `POSITION_MARK Num` with a clear diagnostic and nonzero exit; regression coverage verifies the original input bytes remain unchanged. This retains only the existing `u32` validation boundary. It assigns no cue-index or ordering semantics, performs no cue renumbering, and establishes no Rekordbox/OneLibrary behavior. This is parser regression evidence only—not decision-bearing fixture validation, compatibility, or qualification. ADR-005 remains Proposed.
+The synthetic F-07 CLI preview rejects present-empty `POSITION_MARK Num` with a clear diagnostic and nonzero exit; regression coverage verifies the original input bytes remain unchanged. This is a historical parser-boundary observation predating the signed-i32 acceptance documented above. It assigns no cue-index or ordering semantics, performs no cue renumbering, and establishes no Rekordbox/OneLibrary behavior. It is not decision-bearing fixture validation, compatibility, or qualification. ADR-005 remains Proposed.
 
 ## Context
 

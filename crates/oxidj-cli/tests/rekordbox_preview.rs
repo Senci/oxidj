@@ -701,7 +701,7 @@ fn no_edit_export_preserves_position_mark_num_spellings_and_source_bytes() {
         .unwrap()
         .replace(
             "<POSITION_MARK Name=\"Intro\" Type=\"0\" Start=\"5\" Num=\"0\"/>",
-            "<POSITION_MARK Name=\"Intro\" Type=\"0\" Start=\"5\" Num=\"00\"/>\n      <POSITION_MARK Name=\"Second\" Type=\"0\" Start=\"6\" Num=\"01\"/>",
+            "<POSITION_MARK Name=\"Intro\" Type=\"0\" Start=\"5\" Num=\"00\"/>\n      <POSITION_MARK Name=\"Second\" Type=\"0\" Start=\"6\" Num=\"01\"/>\n      <POSITION_MARK Name=\"Memory cue\" Type=\"0\" Start=\"7\" Num=\"-1\"/>",
         )
         .into_bytes();
     let input = temporary_path("position-mark-num-no-edit-input");
@@ -733,6 +733,11 @@ fn no_edit_export_preserves_position_mark_num_spellings_and_source_bytes() {
         source
             .windows(br#"Num="01""#.len())
             .any(|w| w == br#"Num="01""#)
+    );
+    assert!(
+        source
+            .windows(br#"Num="-1""#.len())
+            .any(|w| w == br#"Num="-1""#)
     );
     assert_eq!(fs::read(&output).unwrap(), source);
     assert_eq!(fs::read(&input).unwrap(), source);
@@ -780,6 +785,46 @@ fn preview_rejects_present_empty_position_mark_num() {
     assert!(String::from_utf8_lossy(&result.stderr).contains("invalid position mark Num"));
     assert_eq!(fs::read(&input).unwrap(), xml.as_bytes());
     let _ = fs::remove_file(input);
+}
+
+#[test]
+fn preview_accepts_signed_i32_position_mark_num_bounds_and_memory_cue() {
+    let fixture = format!(
+        "{}/../../xtask/tests/fixtures/rekordbox-a1/F-07/source.bin",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let original = fs::read_to_string(fixture).unwrap();
+    for num in ["-2147483648", "-1", "2147483647"] {
+        let xml = original.replace("Num=\"0\"", &format!("Num=\"{num}\""));
+        let input = temporary_path("signed-position-mark-num");
+        fs::write(&input, xml.as_bytes()).unwrap();
+        let result = Command::new(env!("CARGO_BIN_EXE_oxidj-cli"))
+            .args(["rekordbox", "preview", "--xml", input.to_str().unwrap()])
+            .output()
+            .unwrap();
+        assert_eq!(
+            result.status.code(),
+            Some(0),
+            "Num={num}: {}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        assert!(String::from_utf8_lossy(&result.stdout).contains(&format!("Num={num}")));
+        assert_eq!(fs::read(&input).unwrap(), xml.as_bytes());
+        let _ = fs::remove_file(input);
+    }
+    for num in ["2147483648", "-2147483649"] {
+        let xml = original.replace("Num=\"0\"", &format!("Num=\"{num}\""));
+        let input = temporary_path("overflow-position-mark-num");
+        fs::write(&input, xml.as_bytes()).unwrap();
+        let result = Command::new(env!("CARGO_BIN_EXE_oxidj-cli"))
+            .args(["rekordbox", "preview", "--xml", input.to_str().unwrap()])
+            .output()
+            .unwrap();
+        assert_eq!(result.status.code(), Some(1), "Num={num}");
+        assert!(String::from_utf8_lossy(&result.stderr).contains("invalid position mark Num"));
+        assert_eq!(fs::read(&input).unwrap(), xml.as_bytes());
+        let _ = fs::remove_file(input);
+    }
 }
 
 #[test]
