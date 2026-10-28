@@ -219,8 +219,8 @@ fn f09_required_negative_controls_have_executable_regressions() {
     let tests = [
         (
             "index-zero",
-            "f03_logical",
-            "f03_mutation_controls_reject_index_end_collapse_and_grid",
+            "f12_logical",
+            "f12_checker_rejects_source_missing_index_zero",
         ),
         (
             "unit-swap",
@@ -249,8 +249,8 @@ fn f09_required_negative_controls_have_executable_regressions() {
         ),
         (
             "opaque-byte",
-            "f05_logical",
-            "f05_checker_rejects_loop_inference_raw_mutation_and_missing_block_entry",
+            "f08_logical",
+            "f08_checker_rejects_opaque_byte_changes_and_invented_conversions",
         ),
         (
             "missing-report-entry",
