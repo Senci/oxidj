@@ -458,3 +458,5 @@ The CLI no-edit export regression also preserves synthetic raw TRACK.AverageBpm 
 The CLI no-edit export regression also preserves synthetic raw TRACK.Colour bytes across present, empty, and absent states, including entity-escaped text. It checks exact output bytes and source immutability; Colour remains uninterpreted raw text and no Rekordbox compatibility or ADR-005 qualification is claimed.
 
 The CLI no-edit export regression also preserves synthetic raw TRACK.Rating bytes across present, empty, and absent states, including entity-escaped text. It checks exact output bytes and source immutability; Rating remains uninterpreted raw text and no Rekordbox compatibility or ADR-005 qualification is claimed.
+
+The CLI no-edit export regression also preserves synthetic raw TRACK.Kind bytes across present, empty, and absent states, including entity-escaped text. It checks exact output bytes and source immutability; Kind remains uninterpreted raw text and no Rekordbox compatibility or ADR-005 qualification is claimed.
