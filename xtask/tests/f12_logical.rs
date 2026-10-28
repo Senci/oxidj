@@ -185,6 +185,27 @@ fn f12_mutations_reject_archive_renumber_resurrection_and_bad_loss_entries() {
     assert!(check(&s, &a, &v, &p, &r, &x).is_err());
 }
 #[test]
+fn f12_checker_rejects_source_missing_index_zero() {
+    let mut source = read("source.bin");
+    let cues = source["cues"].as_array_mut().unwrap();
+    assert_eq!(cues[0]["id"], "c0");
+    assert_eq!(cues[0]["index"], 0);
+    cues.remove(0);
+
+    assert!(
+        check(
+            &source,
+            &read("expected-archive.json"),
+            &read("expected-visible.json"),
+            &read("expected-plan.json"),
+            &read("expected-report.json"),
+            &read("vendor-reimport.json"),
+        )
+        .is_err()
+    );
+}
+
+#[test]
 fn f12_provenance_rejects_checker_identity_and_artifact_drift() {
     let source = std::fs::read(fixture("source.bin")).unwrap();
     let provenance = read("provenance.json");
