@@ -60,6 +60,7 @@
 - The CLI no-edit export regression also preserves raw Rating bytes across present, empty, and absent synthetic attribute states and verifies input immutability. Rating remains uninterpreted raw text; global F-09, Rekordbox compatibility, and ADR-005 qualification remain NOT DEMONSTRATED.
 - The CLI no-edit export regression also preserves raw Kind bytes across present, empty, and absent synthetic attribute states and verifies input immutability. Kind remains uninterpreted raw text; global F-09, Rekordbox compatibility, and ADR-005 qualification remain NOT DEMONSTRATED.
 - The CLI no-edit export regression also preserves raw PlayCount bytes across present, empty, and absent synthetic attribute states and verifies input immutability. PlayCount remains uninterpreted raw text; global F-09, Rekordbox compatibility, and ADR-005 qualification remain NOT DEMONSTRATED.
+- The CLI no-edit export regression preserves raw Album bytes across entity-escaped present, empty, and absent synthetic attribute states and verifies input immutability. This is not Rekordbox compatibility evidence; global F-09 and ADR-005 qualification remain NOT DEMONSTRATED.
 - M5 DJ metadata; M6 Analysis; M7 MVP interoperability proof — unchanged wider-product milestones.
 
 ### Pre-alpha visual evidence archive (2026-10-27)
