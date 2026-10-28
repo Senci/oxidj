@@ -417,3 +417,7 @@ decision. No benchmark, fault campaign, or persistence dependency.
 ### Bounded raw TRACK.Kind post-edit evidence (M4)
 
 One synthetic F-02 guarded TRACK.Kind edit has a test-only independent quick-xml whole-tree oracle in `xtask/tests/f02_track_kind_edit_oracle.rs`, with frozen input under `xtask/tests/fixtures/f02-track-kind-edit/`. It checks exact-old editing on TrackID 100, absent Kind on TrackID 200, source-byte preservation, and stale/wrong-target and semantic mutation rejection. This is a bounded implementation evidence case only: Kind is raw text; global F-09 and ADR-005 qualification remain unpassed, with no Rekordbox compatibility claim.
+
+### Bounded raw TRACK.Colour post-edit evidence (M4)
+
+One synthetic F-02 guarded TRACK.Colour edit has a test-only independent `quick-xml` whole-tree oracle in `xtask/tests/f02_track_colour_edit_oracle.rs`, with frozen input under `xtask/tests/fixtures/f02-track-colour-edit/`. It checks exact-old `old & palette`→`new < palette` editing on TrackID 100, absent Colour on TrackID 200, source-byte preservation, and stale/wrong-target plus semantic mutation rejection. Colour remains uninterpreted raw text: no palette/index mapping. This is one bounded implementation evidence case only; global F-09 and ADR-005 qualification remain unpassed, with no Rekordbox compatibility claim.
