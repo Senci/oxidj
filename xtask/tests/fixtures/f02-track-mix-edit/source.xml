@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<DJ_PLAYLISTS Version="1.0.0">
+  <PRODUCT Name="OxiDJ synthetic F-02 Mix fixture" Version="0" Company="OxiDJ"/>
+  <COLLECTION Entries="2">
+    <TRACK TrackID="100" Name="A" Mix="old &amp; set" Location="file://localhost/music/a.flac"/>
+    <TRACK TrackID="200" Name="B" Location="file://localhost/music/b.flac"/>
+  </COLLECTION>
+  <PLAYLISTS>
+    <NODE Type="0" Name="ROOT" Count="1">
+      <NODE Type="0" Name="Sets" Count="1">
+        <NODE Type="1" Name="House" Entries="2" KeyType="0">
+          <TRACK Key="100"/>
+          <TRACK Key="200"/>
+        </NODE>
+      </NODE>
+    </NODE>
+  </PLAYLISTS>
+</DJ_PLAYLISTS>
