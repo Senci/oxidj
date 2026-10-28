@@ -422,6 +422,8 @@ mutation. This is synthetic logical evidence only. Real OneLibrary export remain
 blocked as F-05 until A3; byte retention alone establishes neither semantic
 compatibility nor synchronization.
 
+**Observed F-09 post-edit independent evidence for one synthetic F-02 guarded Track Tonality edit:** Frozen source `xtask/tests/fixtures/f02-track-tonality-edit/source.xml` contains Tonality `old & key` on TrackID 100 and no Tonality on TrackID 200. The existing exact-old guarded adapter changes only TrackID 100 Tonality to `new < key`; `xtask/tests/f02_track_tonality_edit_oracle.rs` independently decodes the output with test-only `quick-xml` (not the production importer) and compares the complete decoded tree with only that target attribute changed. Frozen source bytes and absent state remain exact; stale/wrong-target requests and target Tonality, identity, location, playlist-entry, membership, and absent-state mutations are rejected. This is one bounded synthetic case only; key notation/detection/normalization semantics, Rekordbox compatibility, global F-09, and ADR-005 qualification remain **NOT DEMONSTRATED**.
+
 ### F-09: Independent, post-edit and loss-aware oracle
 
 Applies to **all F-01–F-12 subcases**, including F-09's own checker controls:
