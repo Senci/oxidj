@@ -466,3 +466,5 @@ The CLI no-edit export regression also preserves synthetic raw TRACK.PlayCount b
 The CLI no-edit export regression also preserves synthetic raw playlist NODE `Entries` bytes exactly for accepted values `03` (three members) and `0` (empty playlist), with the required `KeyType="0"` bytes unchanged. It checks exact output bytes and source immutability. Export still requires numeric, structurally matching Entries and KeyType `0`; empty/absent Entries and other KeyType values remain unsupported. No Rekordbox compatibility or ADR-005 qualification is claimed.
 
 The CLI no-edit export regression also preserves synthetic raw TRACK.Album bytes across entity-escaped present, empty, and absent states. It checks exact output bytes and source immutability; no Rekordbox compatibility or ADR-005 qualification is claimed.
+
+The CLI no-edit export regression also preserves synthetic raw TRACK.Artist bytes across entity-escaped present, empty, and absent states. It checks exact output bytes and source immutability; no Rekordbox compatibility or ADR-005 qualification is claimed.
