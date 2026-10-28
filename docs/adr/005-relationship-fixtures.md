@@ -528,6 +528,13 @@ those controls or restores and defines no product media/retention policy.
 
 ## 5. Unresolved artifact and qualification gates
 
+### Synthetic-only B1/B2 logical snapshots (2026-10-28)
+
+`xtask/tests/fixtures/b1-b2-logical/` now freezes hand-authored canonical B1/B2 logical snapshots with both required track records, live `RG-ASSET-STUB` endpoints, and the committed B1→B2 operation history. Exact protocol asset sentinel payloads/manifests, witness commit markers and snapshot/manifest digests, artifact byte lengths/digests, and the independent checker identity are bound by the fixture; `xtask/tests/b1_b2_logical_snapshots.rs` checks the literal boundary snapshots and rejects mismatched boundary records, endpoints/history, manifest/payload integrity, and checker identity drift. This is logical synthetic evidence only: no physical bundle, backup/restore, recovery controls, C6 IDs, vendor compatibility, or qualification is demonstrated.
+
+Two synthetic-only illustrations are archived in `docs/milestones/pre-alpha-51/b1-boundary.png` and `b2-boundary.png`; these are designed cards, not runtime captures or restore evidence.
+
+
 - **A1 XML binding — synthetic fixture set frozen:**
   [`xtask/tests/fixtures/rekordbox-a1/`](../../xtask/tests/fixtures/rekordbox-a1/)
   contains complete synthetic XML byte documents (`source.bin`) for F-02/F-07/F-10,
@@ -571,7 +578,7 @@ those controls or restores and defines no product media/retention policy.
 | F-10 | Ordered variable tempo/meter preservation | PASS — synthetic A1 checker/tests |
 | F-11 | Point/range/optional-end distinctions | PASS — logical-only fixture/checker and mutation controls; A2 NOT DEMONSTRATED |
 | F-12 | 40 archived, 38 visible, exact two-entry loss report | PASS — synthetic logical-only fixture/checker and mutation controls; A2 NOT DEMONSTRATED |
-| B1/B2 | Atomic test-only reference transition and boundary snapshots | NOT DEMONSTRATED |
+| B1/B2 | Atomic test-only reference transition and boundary snapshots | Logical in-memory transition and frozen B1/B2 snapshot/checker PASS — synthetic-only; physical bundle verification/restore, recovery controls, C6 bindings and qualification remain NOT DEMONSTRATED |
 
 PASS means observed equality on every required surface and checker control, with
 real-format subclaims bounded by their qualified artifacts. FAIL is a demonstrated

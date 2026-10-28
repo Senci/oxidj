@@ -1,0 +1,1 @@
+{"boundary_id":"B1","contract_version":"logical-v1","fixture_id":"oxidj-m1-asset-stubs-v1","history":[],"live_references":[{"asset_id":"stub-a","reference_id":"ref-1","track_id":"asset-track-1"},{"asset_id":"stub-b","reference_id":"ref-2","track_id":"asset-track-2"}],"revision":0,"tracks":[{"track_id":"asset-track-1"},{"track_id":"asset-track-2"}]}
