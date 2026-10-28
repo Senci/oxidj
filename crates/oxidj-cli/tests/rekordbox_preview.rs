@@ -97,6 +97,52 @@ fn preview_displays_raw_playlist_node_attribute_states_for_empty_nodes() {
 }
 
 #[test]
+fn no_edit_export_preserves_raw_playlist_node_attribute_bytes() {
+    let fixture = format!(
+        "{}/../../xtask/tests/fixtures/rekordbox-a1/F-02/source.bin",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let source = String::from_utf8(fs::read(fixture).unwrap())
+        .unwrap()
+        .replace(
+            r#"        <NODE Type="1" Name="House" Entries="3" KeyType="0">"#,
+            r#"        <NODE Type="1" Name="House" Entries="03" KeyType="0">"#,
+        )
+        .replace(
+            r#"        <NODE Type="1" Name="Techno" Entries="2" KeyType="0">
+          <TRACK Key="200"/>
+          <TRACK Key="400"/>
+        </NODE>"#,
+            r#"        <NODE Type="1" Name="Techno" Entries="0" KeyType="0"/>"#,
+        )
+        .into_bytes();
+    let input = temporary_path("playlist-node-no-edit-input");
+    let output = temporary_path("playlist-node-no-edit-output");
+    fs::write(&input, &source).unwrap();
+    let result = Command::new(env!("CARGO_BIN_EXE_oxidj-cli"))
+        .args([
+            "rekordbox",
+            "export",
+            "--xml",
+            input.to_str().unwrap(),
+            "--output",
+            output.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(
+        result.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    assert_eq!(fs::read(&output).unwrap(), source);
+    assert_eq!(fs::read(&input).unwrap(), source);
+    let _ = fs::remove_file(input);
+    let _ = fs::remove_file(output);
+}
+
+#[test]
 fn preview_reports_raw_composer_states_without_changing_source_bytes() {
     let source = fs::read(format!(
         "{}/../../xtask/tests/fixtures/rekordbox-a1/F-02/source.bin",
