@@ -1,0 +1,1016 @@
+{
+  "schema_version": 1,
+  "scope": "synthetic-only; global F-09 and A2/A3 NOT DEMONSTRATED",
+  "bindings": [
+    {
+      "case": "F-02",
+      "checker": {
+        "path": "xtask/tests/f02_empty_folder_create_oracle.rs",
+        "version": "f09-operation-oracle-v1",
+        "sha256": "64c6cb125976e7682e8bd411e1536bc73559ead81def528c9d1fa9cbc3f32ff1",
+        "tests": [
+          "independently_decodes_empty_folder_creation_and_rejects_structural_mutations"
+        ]
+      },
+      "source": "xtask/tests/fixtures/f02-empty-folder-create/source.xml",
+      "artifacts": [
+        "xtask/tests/fixtures/f02-empty-folder-create/source.xml"
+      ]
+    },
+    {
+      "case": "F-02",
+      "checker": {
+        "path": "xtask/tests/f02_empty_folder_delete_oracle.rs",
+        "version": "f09-operation-oracle-v1",
+        "sha256": "e93f650ef06fbc3be86e7ac23a8e5eb7db88d6eeb14e15f7792e08cf8bc93a4f",
+        "tests": [
+          "independently_decodes_empty_folder_deletion_and_rejects_structural_mutations"
+        ]
+      },
+      "source": "xtask/tests/fixtures/f02-empty-folder-delete/source.xml",
+      "artifacts": [
+        "xtask/tests/fixtures/f02-empty-folder-delete/source.xml"
+      ]
+    },
+    {
+      "case": "F-02",
+      "checker": {
+        "path": "xtask/tests/f02_empty_playlist_create_oracle.rs",
+        "version": "f09-operation-oracle-v1",
+        "sha256": "65f0e6e7f4a38f794889ab8a51eaded99db11615759005f25c8228e32d6de91d",
+        "tests": [
+          "independently_decodes_empty_playlist_creation_and_rejects_structural_mutations"
+        ]
+      },
+      "source": "xtask/tests/fixtures/f02-empty-playlist-create/source.xml",
+      "artifacts": [
+        "xtask/tests/fixtures/f02-empty-playlist-create/source.xml"
+      ]
+    },
+    {
+      "case": "F-02",
+      "checker": {
+        "path": "xtask/tests/f02_folder_move_oracle.rs",
+        "version": "f09-operation-oracle-v1",
+        "sha256": "5d023a4b551e66a25e10766e866f76b1a45573b7b0edb52e37398f7c64911024",
+        "tests": [
+          "independently_decodes_folder_subtree_move_and_rejects_order_count_subtree_mutations"
+        ]
+      },
+      "source": "xtask/tests/fixtures/f02-folder-move/source.xml",
+      "artifacts": [
+        "xtask/tests/fixtures/f02-folder-move/source.xml"
+      ]
+    },
+    {
+      "case": "F-02",
+      "checker": {
+        "path": "xtask/tests/f02_folder_rename_oracle.rs",
+        "version": "f09-operation-oracle-v1",
+        "sha256": "35a014b7392cc038095ae0ee1bc55352f9a64cd88d9bc732c6a731216d7c4054",
+        "tests": [
+          "independently_decodes_guarded_folder_rename_and_rejects_mutations"
+        ]
+      },
+      "source": "xtask/tests/fixtures/f02-folder-rename/source.xml",
+      "artifacts": [
+        "xtask/tests/fixtures/f02-folder-rename/source.xml"
+      ]
+    },
+    {
+      "case": "F-02",
+      "checker": {
+        "path": "xtask/tests/f02_playlist_clear_oracle.rs",
+        "version": "f09-operation-oracle-v1",
+        "sha256": "6f4ea8ceb6257f2bd8b9d5a67381ea3ca0a7bb2eb215da47aaac24bc841622d5",
+        "tests": [
+          "independently_decodes_playlist_clear_and_rejects_structural_mutations"
+        ]
+      },
+      "source": "xtask/tests/fixtures/f02-playlist-clear/source.xml",
+      "artifacts": [
+        "xtask/tests/fixtures/f02-playlist-clear/source.xml"
+      ]
+    },
+    {
+      "case": "F-02",
+      "checker": {
+        "path": "xtask/tests/f02_playlist_delete_oracle.rs",
+        "version": "f09-operation-oracle-v1",
+        "sha256": "ec14392672f60c0d93abec8002f7b5cedfbf379be6b1be5761b36710e9c0383b",
+        "tests": [
+          "independently_decodes_playlist_deletion_and_rejects_structural_mutations"
+        ]
+      },
+      "source": "xtask/tests/fixtures/f02-playlist-delete/source.xml",
+      "artifacts": [
+        "xtask/tests/fixtures/f02-playlist-delete/source.xml"
+      ]
+    },
+    {
+      "case": "F-02",
+      "checker": {
+        "path": "xtask/tests/f02_playlist_member_append_oracle.rs",
+        "version": "f09-operation-oracle-v1",
+        "sha256": "f89efc66450ee2f5240062cafd2a5dc85bf02d4a57de6ac763eefe3f2df94194",
+        "tests": [
+          "independently_decodes_member_append_and_rejects_semantic_mutations"
+        ]
+      },
+      "source": "xtask/tests/fixtures/f02-playlist-member-append/source.xml",
+      "artifacts": [
+        "xtask/tests/fixtures/f02-playlist-member-append/source.xml"
+      ]
+    },
+    {
+      "case": "F-02",
+      "checker": {
+        "path": "xtask/tests/f02_playlist_member_delete_oracle.rs",
+        "version": "f09-operation-oracle-v1",
+        "sha256": "d850939077666e75d4be1fde8d130dc50dc732273c959d7cee2046d9d3e7b6b7",
+        "tests": [
+          "independently_decodes_member_removal_and_rejects_semantic_mutations"
+        ]
+      },
+      "source": "xtask/tests/fixtures/f02-playlist-member-delete/source.xml",
+      "artifacts": [
+        "xtask/tests/fixtures/f02-playlist-member-delete/source.xml"
+      ]
+    },
+    {
+      "case": "F-02",
+      "checker": {
+        "path": "xtask/tests/f02_playlist_member_insert_oracle.rs",
+        "version": "f09-operation-oracle-v1",
+        "sha256": "962f5aba8611db4d1a34c71b1d388ec8affe38907cdd589c78c7d0c0df17692e",
+        "tests": [
+          "independently_decodes_member_insertion_and_rejects_semantic_mutations"
+        ]
+      },
+      "source": "xtask/tests/fixtures/f02-playlist-member-insert/source.xml",
+      "artifacts": [
+        "xtask/tests/fixtures/f02-playlist-member-insert/source.xml"
+      ]
+    },
+    {
+      "case": "F-02",
+      "checker": {
+        "path": "xtask/tests/f02_playlist_member_reorder_oracle.rs",
+        "version": "f09-operation-oracle-v1",
+        "sha256": "757999d453963d55799f319b567f2cf86905bb6e336a6886e11673f5a14efb96",
+        "tests": [
+          "independently_decodes_member_reorder_and_rejects_semantic_mutations"
+        ]
+      },
+      "source": "xtask/tests/fixtures/f02-playlist-member-reorder/source.xml",
+      "artifacts": [
+        "xtask/tests/fixtures/f02-playlist-member-reorder/source.xml"
+      ]
+    },
+    {
+      "case": "F-02",
+      "checker": {
+        "path": "xtask/tests/f02_playlist_move_oracle.rs",
+        "version": "f09-operation-oracle-v1",
+        "sha256": "eedbbd106c2f6af604f8315ccb5e65223025269a9ca04a153d65a10e8d5cd512",
+        "tests": [
+          "independently_decodes_playlist_move_and_rejects_order_count_membership_mutations"
+        ]
+      },
+      "source": "xtask/tests/fixtures/f02-playlist-move/source.xml",
+      "artifacts": [
+        "xtask/tests/fixtures/f02-playlist-move/source.xml"
+      ]
+    },
+    {
+      "case": "F-02",
+      "checker": {
+        "path": "xtask/tests/f02_playlist_rename_oracle.rs",
+        "version": "f09-operation-oracle-v1",
+        "sha256": "aceed18063b3fcdc14f75bfd533e1e68c647eb0554144c1acbf11af3ad77aea5",
+        "tests": [
+          "independently_decodes_guarded_playlist_rename_and_rejects_mutations"
+        ]
+      },
+      "source": "xtask/tests/fixtures/f02-playlist-rename/source.xml",
+      "artifacts": [
+        "xtask/tests/fixtures/f02-playlist-rename/source.xml"
+      ]
+    },
+    {
+      "case": "F-02",
+      "checker": {
+        "path": "xtask/tests/f02_sibling_folder_reorder_oracle.rs",
+        "version": "f09-operation-oracle-v1",
+        "sha256": "9eb483d4b50d8bc62eb73b4e33320d44d1d0b724aa1cd5970ca04d6f21fe1009",
+        "tests": [
+          "independently_decodes_folder_reorder_and_rejects_complete_node_mutations"
+        ]
+      },
+      "source": "xtask/tests/fixtures/f02-sibling-folder-reorder/source.xml",
+      "artifacts": [
+        "xtask/tests/fixtures/f02-sibling-folder-reorder/source.xml"
+      ]
+    },
+    {
+      "case": "F-02",
+      "checker": {
+        "path": "xtask/tests/f02_sibling_playlist_reorder_oracle.rs",
+        "version": "f09-operation-oracle-v1",
+        "sha256": "180db7316b524a81208d82f25c1260462f403349ccbdaf1a7ae6c4c3aa5685ac",
+        "tests": [
+          "independently_decodes_sibling_reorder_and_rejects_output_mutations"
+        ]
+      },
+      "source": "xtask/tests/fixtures/f02-sibling-playlist-reorder/source.xml",
+      "artifacts": [
+        "xtask/tests/fixtures/f02-sibling-playlist-reorder/source.xml"
+      ]
+    },
+    {
+      "case": "F-02",
+      "checker": {
+        "path": "xtask/tests/f02_track_album_edit_oracle.rs",
+        "version": "f09-operation-oracle-v1",
+        "sha256": "0b78e8a539e0dfe980b02850bc94f8acbe960af9bd62b1ba6c7d53cba29bed69",
+        "tests": [
+          "independently_verifies_guarded_track_album_edit_and_rejects_mutations"
+        ]
+      },
+      "source": "xtask/tests/fixtures/f02-track-album-edit/source.xml",
+      "artifacts": [
+        "xtask/tests/fixtures/f02-track-album-edit/source.xml"
+      ]
+    },
+    {
+      "case": "F-02",
+      "checker": {
+        "path": "xtask/tests/f02_track_artist_edit_oracle.rs",
+        "version": "f09-operation-oracle-v1",
+        "sha256": "cbc548bea397412482f0b4772f72f1bbc4718212df1e6c75a8c8704c05bb8a72",
+        "tests": [
+          "independently_verifies_guarded_track_artist_edit_and_rejects_mutations"
+        ]
+      },
+      "source": "xtask/tests/fixtures/f02-track-artist-edit/source.xml",
+      "artifacts": [
+        "xtask/tests/fixtures/f02-track-artist-edit/source.xml"
+      ]
+    },
+    {
+      "case": "F-02",
+      "checker": {
+        "path": "xtask/tests/f02_track_average_bpm_edit_oracle.rs",
+        "version": "f09-operation-oracle-v1",
+        "sha256": "e9d04d2ff557232081787bb549a23bbc1cc807d1c5a5fa6513044f373369da20",
+        "tests": [
+          "independently_verifies_guarded_track_play_bpm_edit_and_rejects_mutations"
+        ]
+      },
+      "source": "xtask/tests/fixtures/f02-track-average-bpm-edit/source.xml",
+      "artifacts": [
+        "xtask/tests/fixtures/f02-track-average-bpm-edit/source.xml"
+      ]
+    },
+    {
+      "case": "F-02",
+      "checker": {
+        "path": "xtask/tests/f02_track_bit_rate_edit_oracle.rs",
+        "version": "f09-operation-oracle-v1",
+        "sha256": "7e8cc10d47dfbc1070d28711c8e748acc5e4fcc45e123a86b16840117eb38fcd",
+        "tests": [
+          "independently_verifies_guarded_track_bit_rate_edit_and_rejects_mutations"
+        ]
+      },
+      "source": "xtask/tests/fixtures/f02-track-bitrate-edit/source.xml",
+      "artifacts": [
+        "xtask/tests/fixtures/f02-track-bitrate-edit/source.xml"
+      ]
+    },
+    {
+      "case": "F-02",
+      "checker": {
+        "path": "xtask/tests/f02_track_colour_edit_oracle.rs",
+        "version": "f09-operation-oracle-v1",
+        "sha256": "7afcfa30a22479a7b78b0fd285cc8b80c1732bfa5d90b1f167c7f4216efbd262",
+        "tests": [
+          "independently_verifies_guarded_track_colour_edit_and_rejects_mutations"
+        ]
+      },
+      "source": "xtask/tests/fixtures/f02-track-colour-edit/source.xml",
+      "artifacts": [
+        "xtask/tests/fixtures/f02-track-colour-edit/source.xml"
+      ]
+    },
+    {
+      "case": "F-02",
+      "checker": {
+        "path": "xtask/tests/f02_track_comments_edit_oracle.rs",
+        "version": "f09-operation-oracle-v1",
+        "sha256": "d76bb263925aa3ef6ca66fde22af9d9d5be1e3f5d7da86ac02a2c7886b4d4ced",
+        "tests": [
+          "independently_verifies_guarded_track_comments_edit_and_rejects_mutations"
+        ]
+      },
+      "source": "xtask/tests/fixtures/f02-track-comments-edit/source.xml",
+      "artifacts": [
+        "xtask/tests/fixtures/f02-track-comments-edit/source.xml"
+      ]
+    },
+    {
+      "case": "F-02",
+      "checker": {
+        "path": "xtask/tests/f02_track_composer_edit_oracle.rs",
+        "version": "f09-operation-oracle-v1",
+        "sha256": "1e71560bc641c7d58a44917c6ecd32f34f50d18dfdf9dd6a88510dd854b4036d",
+        "tests": [
+          "independently_verifies_guarded_track_composer_edit_and_rejects_mutations"
+        ]
+      },
+      "source": "xtask/tests/fixtures/f02-track-composer-edit/source.xml",
+      "artifacts": [
+        "xtask/tests/fixtures/f02-track-composer-edit/source.xml"
+      ]
+    },
+    {
+      "case": "F-02",
+      "checker": {
+        "path": "xtask/tests/f02_track_date_added_edit_oracle.rs",
+        "version": "f09-operation-oracle-v1",
+        "sha256": "3ed17351bc17e9b76a990cb5de17fe35ef1c42361a345ca10ec55e2425dc6f4c",
+        "tests": [
+          "independently_verifies_guarded_track_date_added_edit_and_rejects_mutations"
+        ]
+      },
+      "source": "xtask/tests/fixtures/f02-track-date_added-edit/source.xml",
+      "artifacts": [
+        "xtask/tests/fixtures/f02-track-date_added-edit/source.xml"
+      ]
+    },
+    {
+      "case": "F-02",
+      "checker": {
+        "path": "xtask/tests/f02_track_date_modified_edit_oracle.rs",
+        "version": "f09-operation-oracle-v1",
+        "sha256": "62e62409028de67653161a1894f3ba955faf281e51e87751728831b7e3989e7c",
+        "tests": [
+          "independently_verifies_guarded_track_date_modified_edit_and_rejects_mutations"
+        ]
+      },
+      "source": "xtask/tests/fixtures/f02-track-datemodified-edit/source.xml",
+      "artifacts": [
+        "xtask/tests/fixtures/f02-track-datemodified-edit/source.xml"
+      ]
+    },
+    {
+      "case": "F-02",
+      "checker": {
+        "path": "xtask/tests/f02_track_delete_oracle.rs",
+        "version": "f09-operation-oracle-v1",
+        "sha256": "7bd3988748b22b0e61770c9530ba71679568f36cdb2e3642aadc8b4d77fd1978",
+        "tests": [
+          "independently_decodes_shared_track_deletion_and_rejects_membership_collection_and_order_mutations"
+        ]
+      },
+      "source": "xtask/tests/fixtures/f02-track-delete/source.xml",
+      "artifacts": [
+        "xtask/tests/fixtures/f02-track-delete/source.xml"
+      ]
+    },
+    {
+      "case": "F-02",
+      "checker": {
+        "path": "xtask/tests/f02_track_disc_number_edit_oracle.rs",
+        "version": "f09-operation-oracle-v1",
+        "sha256": "0164c0973c908c11dcdae1c66f38e643c12ec1a88d8e3dddd1c30018a2342714",
+        "tests": [
+          "independently_verifies_guarded_track_disc_number_edit_and_rejects_mutations"
+        ]
+      },
+      "source": "xtask/tests/fixtures/f02-track-disc-number-edit/source.xml",
+      "artifacts": [
+        "xtask/tests/fixtures/f02-track-disc-number-edit/source.xml"
+      ]
+    },
+    {
+      "case": "F-02",
+      "checker": {
+        "path": "xtask/tests/f02_track_genre_edit_oracle.rs",
+        "version": "f09-operation-oracle-v1",
+        "sha256": "2fc2a56e463d2f7a79812082f1775b0e7b7adbc8c2a6a3d9a8cd3e7c4740016f",
+        "tests": [
+          "independently_verifies_guarded_track_genre_edit_and_rejects_mutations"
+        ]
+      },
+      "source": "xtask/tests/fixtures/f02-track-genre-edit/source.xml",
+      "artifacts": [
+        "xtask/tests/fixtures/f02-track-genre-edit/source.xml"
+      ]
+    },
+    {
+      "case": "F-02",
+      "checker": {
+        "path": "xtask/tests/f02_track_grouping_edit_oracle.rs",
+        "version": "f09-operation-oracle-v1",
+        "sha256": "b349d399abaf1b8f5d0589e0e6f82d9343959764635ef0196510679e9de14186",
+        "tests": [
+          "independently_verifies_guarded_track_grouping_edit_and_rejects_mutations"
+        ]
+      },
+      "source": "xtask/tests/fixtures/f02-track-grouping-edit/source.xml",
+      "artifacts": [
+        "xtask/tests/fixtures/f02-track-grouping-edit/source.xml"
+      ]
+    },
+    {
+      "case": "F-02",
+      "checker": {
+        "path": "xtask/tests/f02_track_kind_edit_oracle.rs",
+        "version": "f09-operation-oracle-v1",
+        "sha256": "161c1f34246c6d381e314b890516268223fa906173acc2929b68d503e51579ff",
+        "tests": [
+          "independently_verifies_guarded_track_kind_edit_and_rejects_mutations"
+        ]
+      },
+      "source": "xtask/tests/fixtures/f02-track-kind-edit/source.xml",
+      "artifacts": [
+        "xtask/tests/fixtures/f02-track-kind-edit/source.xml"
+      ]
+    },
+    {
+      "case": "F-02",
+      "checker": {
+        "path": "xtask/tests/f02_track_label_edit_oracle.rs",
+        "version": "f09-operation-oracle-v1",
+        "sha256": "09d5a7a7f298ff144cd972eed256f97bbd15622cea2908c92a6dc1156b2f5bba",
+        "tests": [
+          "independently_verifies_guarded_track_label_edit_and_rejects_mutations"
+        ]
+      },
+      "source": "xtask/tests/fixtures/f02-track-label-edit/source.xml",
+      "artifacts": [
+        "xtask/tests/fixtures/f02-track-label-edit/source.xml"
+      ]
+    },
+    {
+      "case": "F-02",
+      "checker": {
+        "path": "xtask/tests/f02_track_last_played_edit_oracle.rs",
+        "version": "f09-operation-oracle-v1",
+        "sha256": "555da5ca9a3311e37ae108a0997f4bc43bd35c1e3a43e8b97b2dbc977d0d9ad5",
+        "tests": [
+          "independently_verifies_guarded_track_last_played_edit_and_rejects_mutations"
+        ]
+      },
+      "source": "xtask/tests/fixtures/f02-track-lastplayed-edit/source.xml",
+      "artifacts": [
+        "xtask/tests/fixtures/f02-track-lastplayed-edit/source.xml"
+      ]
+    },
+    {
+      "case": "F-02",
+      "checker": {
+        "path": "xtask/tests/f02_track_mix_edit_oracle.rs",
+        "version": "f09-operation-oracle-v1",
+        "sha256": "258d9cf34d404b046b180729f2caa782d032e57803a165de4c823356a2e1f94f",
+        "tests": [
+          "independently_verifies_guarded_track_mix_edit_and_rejects_mutations"
+        ]
+      },
+      "source": "xtask/tests/fixtures/f02-track-mix-edit/source.xml",
+      "artifacts": [
+        "xtask/tests/fixtures/f02-track-mix-edit/source.xml"
+      ]
+    },
+    {
+      "case": "F-02",
+      "checker": {
+        "path": "xtask/tests/f02_track_name_edit_oracle.rs",
+        "version": "f09-operation-oracle-v1",
+        "sha256": "dae054d9ead15cd3b707cf617e5d8da72c828a6d421bbe23f41966c420a28aaa",
+        "tests": [
+          "independently_verifies_guarded_track_name_edit_and_rejects_mutations"
+        ]
+      },
+      "source": "xtask/tests/fixtures/rekordbox-a1/F-02/source.bin",
+      "artifacts": [
+        "xtask/tests/fixtures/rekordbox-a1/F-02/case.json",
+        "xtask/tests/fixtures/rekordbox-a1/F-02/expected-archive.json",
+        "xtask/tests/fixtures/rekordbox-a1/F-02/expected-report.json",
+        "xtask/tests/fixtures/rekordbox-a1/F-02/expected-visible.json",
+        "xtask/tests/fixtures/rekordbox-a1/F-02/operations.json",
+        "xtask/tests/fixtures/rekordbox-a1/F-02/provenance.json",
+        "xtask/tests/fixtures/rekordbox-a1/F-02/source.bin"
+      ]
+    },
+    {
+      "case": "F-02",
+      "checker": {
+        "path": "xtask/tests/f02_track_number_edit_oracle.rs",
+        "version": "f09-operation-oracle-v1",
+        "sha256": "88b1a4f9b8a7584dbd98c8590f51a75952f04c8b03f4bb378d18d289d4b4c1de",
+        "tests": [
+          "independently_verifies_guarded_track_number_edit_and_rejects_mutations"
+        ]
+      },
+      "source": "xtask/tests/fixtures/f02-track-number-edit/source.xml",
+      "artifacts": [
+        "xtask/tests/fixtures/f02-track-number-edit/source.xml"
+      ]
+    },
+    {
+      "case": "F-02",
+      "checker": {
+        "path": "xtask/tests/f02_track_play_count_edit_oracle.rs",
+        "version": "f09-operation-oracle-v1",
+        "sha256": "07ae1f90863dbd93f9147f8df30a0ec701e888f01d716a2ab4f22efdab2b3b2f",
+        "tests": [
+          "independently_verifies_guarded_track_play_count_edit_and_rejects_mutations"
+        ]
+      },
+      "source": "xtask/tests/fixtures/f02-track-playcount-edit/source.xml",
+      "artifacts": [
+        "xtask/tests/fixtures/f02-track-playcount-edit/source.xml"
+      ]
+    },
+    {
+      "case": "F-02",
+      "checker": {
+        "path": "xtask/tests/f02_track_rating_edit_oracle.rs",
+        "version": "f09-operation-oracle-v1",
+        "sha256": "78c507d6ed75e279b7551f186f23daf80d858be3b4a40f17a2be3959b4ac9bfb",
+        "tests": [
+          "independently_verifies_guarded_track_rating_edit_and_rejects_mutations"
+        ]
+      },
+      "source": "xtask/tests/fixtures/f02-track-rating-edit/source.xml",
+      "artifacts": [
+        "xtask/tests/fixtures/f02-track-rating-edit/source.xml"
+      ]
+    },
+    {
+      "case": "F-02",
+      "checker": {
+        "path": "xtask/tests/f02_track_remixer_edit_oracle.rs",
+        "version": "f09-operation-oracle-v1",
+        "sha256": "873c8f3a1b4f24c7609c7fa1fda57b0557368857fe13c5d96e44b13433c1ce20",
+        "tests": [
+          "independently_verifies_guarded_track_remixer_edit_and_rejects_mutations"
+        ]
+      },
+      "source": "xtask/tests/fixtures/f02-track-remixer-edit/source.xml",
+      "artifacts": [
+        "xtask/tests/fixtures/f02-track-remixer-edit/source.xml"
+      ]
+    },
+    {
+      "case": "F-02",
+      "checker": {
+        "path": "xtask/tests/f02_track_sample_rate_edit_oracle.rs",
+        "version": "f09-operation-oracle-v1",
+        "sha256": "c510f23b3ce2b29c34d05840f8ded7354029ba1e12b127570f05029cff134ea4",
+        "tests": [
+          "independently_verifies_guarded_raw_track_sample_rate_edit_and_rejects_mutations"
+        ]
+      },
+      "source": "xtask/tests/fixtures/f02-track-sample-rate-edit/source.xml",
+      "artifacts": [
+        "xtask/tests/fixtures/f02-track-sample-rate-edit/source.xml"
+      ]
+    },
+    {
+      "case": "F-02",
+      "checker": {
+        "path": "xtask/tests/f02_track_size_edit_oracle.rs",
+        "version": "f09-operation-oracle-v1",
+        "sha256": "2c1b0ba7c8deebf07350c6ae0b2bc9dc680c216017af2877ca3e351a2079e722",
+        "tests": [
+          "independently_verifies_guarded_track_size_edit_and_rejects_mutations"
+        ]
+      },
+      "source": "xtask/tests/fixtures/f02-track-size-edit/source.xml",
+      "artifacts": [
+        "xtask/tests/fixtures/f02-track-size-edit/source.xml"
+      ]
+    },
+    {
+      "case": "F-02",
+      "checker": {
+        "path": "xtask/tests/f02_track_tonality_edit_oracle.rs",
+        "version": "f09-operation-oracle-v1",
+        "sha256": "1257fd4dad75eb5a848d0d8e87a14d05aef43d1e7a28f6ba0382a92ca5bdca56",
+        "tests": [
+          "independently_verifies_guarded_track_tonality_edit_and_rejects_mutations"
+        ]
+      },
+      "source": "xtask/tests/fixtures/f02-track-tonality-edit/source.xml",
+      "artifacts": [
+        "xtask/tests/fixtures/f02-track-tonality-edit/source.xml"
+      ]
+    },
+    {
+      "case": "F-02",
+      "checker": {
+        "path": "xtask/tests/f02_track_total_time_edit_oracle.rs",
+        "version": "f09-operation-oracle-v1",
+        "sha256": "fd34e4a0cefaa1407e3105948a80cc832340df0a852891bf53028b1f20a136a0",
+        "tests": [
+          "independently_verifies_guarded_track_total_time_edit_and_rejects_mutations"
+        ]
+      },
+      "source": "xtask/tests/fixtures/f02-track-total-time-edit/source.xml",
+      "artifacts": [
+        "xtask/tests/fixtures/f02-track-total-time-edit/source.xml"
+      ]
+    },
+    {
+      "case": "F-02",
+      "checker": {
+        "path": "xtask/tests/f02_track_year_edit_oracle.rs",
+        "version": "f09-operation-oracle-v1",
+        "sha256": "7c70d468f2c4db59d35e2fc0d32c897df2c615134bcffa7f86949d9f2e1feb3f",
+        "tests": [
+          "independently_verifies_guarded_track_year_edit_and_rejects_mutations"
+        ]
+      },
+      "source": "xtask/tests/fixtures/f02-track-year-edit/source.xml",
+      "artifacts": [
+        "xtask/tests/fixtures/f02-track-year-edit/source.xml"
+      ]
+    },
+    {
+      "case": "F-07",
+      "checker": {
+        "path": "xtask/tests/f07_position_mark_delete_oracle.rs",
+        "version": "f09-operation-oracle-v1",
+        "sha256": "d79a6df16cf00422b630e1220563852493566d19aafc0a2cbd0fffc108a50ca6",
+        "tests": [
+          "independently_verifies_guarded_deletion_and_rejects_mutations"
+        ]
+      },
+      "source": "xtask/tests/fixtures/f07-position-mark-delete/source.xml",
+      "artifacts": [
+        "xtask/tests/fixtures/f07-position-mark-delete/source.xml"
+      ]
+    },
+    {
+      "case": "F-07",
+      "checker": {
+        "path": "xtask/tests/f07_position_mark_end_edit_oracle.rs",
+        "version": "f09-operation-oracle-v1",
+        "sha256": "5fd0ad75de8bcf64836c1e70dbc3a127e549bfcb8215f8b043f3f83b6e46ab25",
+        "tests": [
+          "independently_verifies_guarded_end_edit_and_rejects_mutations"
+        ]
+      },
+      "source": "xtask/tests/fixtures/f07-position-mark-start-edit/source.xml",
+      "artifacts": [
+        "xtask/tests/fixtures/f07-position-mark-start-edit/source.xml"
+      ]
+    },
+    {
+      "case": "F-07",
+      "checker": {
+        "path": "xtask/tests/f07_position_mark_name_edit_oracle.rs",
+        "version": "f09-operation-oracle-v1",
+        "sha256": "910867180af8139602eb177f70135a74a1d5236c2a13f37f788942ece8c71a5c",
+        "tests": [
+          "independently_verifies_guarded_name_edit_and_rejects_mutations"
+        ]
+      },
+      "source": "xtask/tests/fixtures/f07-position-mark-start-edit/source.xml",
+      "artifacts": [
+        "xtask/tests/fixtures/f07-position-mark-start-edit/source.xml"
+      ]
+    },
+    {
+      "case": "F-07",
+      "checker": {
+        "path": "xtask/tests/f07_position_mark_start_edit_oracle.rs",
+        "version": "f09-operation-oracle-v1",
+        "sha256": "9ad8d1153e27cf97cb407840eb87bc52b8ab4c083144a66769cebee4a3c583ba",
+        "tests": [
+          "independently_verifies_guarded_start_edit_and_rejects_mutations"
+        ]
+      },
+      "source": "xtask/tests/fixtures/f07-position-mark-start-edit/source.xml",
+      "artifacts": [
+        "xtask/tests/fixtures/f07-position-mark-start-edit/source.xml"
+      ]
+    },
+    {
+      "case": "F-07",
+      "checker": {
+        "path": "xtask/tests/f07_tempo_battito_edit_oracle.rs",
+        "version": "f09-operation-oracle-v1",
+        "sha256": "2bf5dd91fb9e37288062dad50be76727e6848f56f2f38055f57c7040db3343c6",
+        "tests": [
+          "independently_verifies_guarded_battito_edit_and_rejects_mutations"
+        ]
+      },
+      "source": "xtask/tests/fixtures/rekordbox-a1/F-07/source.bin",
+      "artifacts": [
+        "xtask/tests/fixtures/rekordbox-a1/F-07/case.json",
+        "xtask/tests/fixtures/rekordbox-a1/F-07/expected-archive.json",
+        "xtask/tests/fixtures/rekordbox-a1/F-07/expected-report.json",
+        "xtask/tests/fixtures/rekordbox-a1/F-07/expected-visible.json",
+        "xtask/tests/fixtures/rekordbox-a1/F-07/operations.json",
+        "xtask/tests/fixtures/rekordbox-a1/F-07/provenance.json",
+        "xtask/tests/fixtures/rekordbox-a1/F-07/source.bin"
+      ]
+    },
+    {
+      "case": "F-07",
+      "checker": {
+        "path": "xtask/tests/f07_tempo_bpm_edit_oracle.rs",
+        "version": "f09-operation-oracle-v1",
+        "sha256": "bacdfdb0bf9fa51a1ec758e0f556e352402374c1efdcf71ffbeac20aa06d6a9d",
+        "tests": [
+          "independently_verifies_guarded_bpm_edit_and_rejects_mutations"
+        ]
+      },
+      "source": "xtask/tests/fixtures/rekordbox-a1/F-07/source.bin",
+      "artifacts": [
+        "xtask/tests/fixtures/rekordbox-a1/F-07/case.json",
+        "xtask/tests/fixtures/rekordbox-a1/F-07/expected-archive.json",
+        "xtask/tests/fixtures/rekordbox-a1/F-07/expected-report.json",
+        "xtask/tests/fixtures/rekordbox-a1/F-07/expected-visible.json",
+        "xtask/tests/fixtures/rekordbox-a1/F-07/operations.json",
+        "xtask/tests/fixtures/rekordbox-a1/F-07/provenance.json",
+        "xtask/tests/fixtures/rekordbox-a1/F-07/source.bin"
+      ]
+    },
+    {
+      "case": "F-07",
+      "checker": {
+        "path": "xtask/tests/f07_tempo_inizio_edit_oracle.rs",
+        "version": "f09-operation-oracle-v1",
+        "sha256": "97a90d06be279c2b4aeb1598a10473c0df6b907e9f2e6aa593e07ec414099efb",
+        "tests": [
+          "independently_verifies_guarded_inizio_edit_and_rejects_mutations"
+        ]
+      },
+      "source": "xtask/tests/fixtures/rekordbox-a1/F-07/source.bin",
+      "artifacts": [
+        "xtask/tests/fixtures/rekordbox-a1/F-07/case.json",
+        "xtask/tests/fixtures/rekordbox-a1/F-07/expected-archive.json",
+        "xtask/tests/fixtures/rekordbox-a1/F-07/expected-report.json",
+        "xtask/tests/fixtures/rekordbox-a1/F-07/expected-visible.json",
+        "xtask/tests/fixtures/rekordbox-a1/F-07/operations.json",
+        "xtask/tests/fixtures/rekordbox-a1/F-07/provenance.json",
+        "xtask/tests/fixtures/rekordbox-a1/F-07/source.bin"
+      ]
+    },
+    {
+      "case": "F-07",
+      "checker": {
+        "path": "xtask/tests/f07_tempo_metro_edit_oracle.rs",
+        "version": "f09-operation-oracle-v1",
+        "sha256": "8f96777cedcb7b8945bde7b596c93e9ad01301a198fd817bd2fdedd323ae03ca",
+        "tests": [
+          "independently_verifies_guarded_metro_edit_and_rejects_mutations"
+        ]
+      },
+      "source": "xtask/tests/fixtures/rekordbox-a1/F-07/source.bin",
+      "artifacts": [
+        "xtask/tests/fixtures/rekordbox-a1/F-07/case.json",
+        "xtask/tests/fixtures/rekordbox-a1/F-07/expected-archive.json",
+        "xtask/tests/fixtures/rekordbox-a1/F-07/expected-report.json",
+        "xtask/tests/fixtures/rekordbox-a1/F-07/expected-visible.json",
+        "xtask/tests/fixtures/rekordbox-a1/F-07/operations.json",
+        "xtask/tests/fixtures/rekordbox-a1/F-07/provenance.json",
+        "xtask/tests/fixtures/rekordbox-a1/F-07/source.bin"
+      ]
+    }
+  ],
+  "artifacts": {
+    "xtask/tests/fixtures/f02-empty-folder-create/source.xml": {
+      "length_bytes": 950,
+      "sha256": "4304e6df3de22a0f718ca3e23e3a577ae361d45b946c161f7e3557767587ee9f"
+    },
+    "xtask/tests/fixtures/f02-empty-folder-delete/source.xml": {
+      "length_bytes": 998,
+      "sha256": "40a8ac4baaf34d2d41413a0472c461fe85e016afa30a13847b9ee9ce75cbdee4"
+    },
+    "xtask/tests/fixtures/f02-empty-playlist-create/source.xml": {
+      "length_bytes": 632,
+      "sha256": "1fe1261a6f1a89f2c98ddf56096fed972f4c20b6b2f1a2d5231056a29801fc29"
+    },
+    "xtask/tests/fixtures/f02-folder-move/source.xml": {
+      "length_bytes": 877,
+      "sha256": "87a2ff5fc625ecd8aa5d883be1af046a16f09a128b49144a1bfba606648437dd"
+    },
+    "xtask/tests/fixtures/f02-folder-rename/source.xml": {
+      "length_bytes": 950,
+      "sha256": "4304e6df3de22a0f718ca3e23e3a577ae361d45b946c161f7e3557767587ee9f"
+    },
+    "xtask/tests/fixtures/f02-playlist-clear/source.xml": {
+      "length_bytes": 998,
+      "sha256": "40a8ac4baaf34d2d41413a0472c461fe85e016afa30a13847b9ee9ce75cbdee4"
+    },
+    "xtask/tests/fixtures/f02-playlist-delete/source.xml": {
+      "length_bytes": 998,
+      "sha256": "40a8ac4baaf34d2d41413a0472c461fe85e016afa30a13847b9ee9ce75cbdee4"
+    },
+    "xtask/tests/fixtures/f02-playlist-member-append/source.xml": {
+      "length_bytes": 950,
+      "sha256": "4304e6df3de22a0f718ca3e23e3a577ae361d45b946c161f7e3557767587ee9f"
+    },
+    "xtask/tests/fixtures/f02-playlist-member-delete/source.xml": {
+      "length_bytes": 950,
+      "sha256": "4304e6df3de22a0f718ca3e23e3a577ae361d45b946c161f7e3557767587ee9f"
+    },
+    "xtask/tests/fixtures/f02-playlist-member-insert/source.xml": {
+      "length_bytes": 950,
+      "sha256": "4304e6df3de22a0f718ca3e23e3a577ae361d45b946c161f7e3557767587ee9f"
+    },
+    "xtask/tests/fixtures/f02-playlist-member-reorder/source.xml": {
+      "length_bytes": 950,
+      "sha256": "4304e6df3de22a0f718ca3e23e3a577ae361d45b946c161f7e3557767587ee9f"
+    },
+    "xtask/tests/fixtures/f02-playlist-move/source.xml": {
+      "length_bytes": 922,
+      "sha256": "433197ca38b96fdbc725ae35faf549e15700ea2a8d648312bcaa53f0c259a5f8"
+    },
+    "xtask/tests/fixtures/f02-playlist-rename/source.xml": {
+      "length_bytes": 950,
+      "sha256": "4304e6df3de22a0f718ca3e23e3a577ae361d45b946c161f7e3557767587ee9f"
+    },
+    "xtask/tests/fixtures/f02-sibling-folder-reorder/source.xml": {
+      "length_bytes": 1091,
+      "sha256": "0fc05144856e7820e85afa40f5b09b92b1e2df1510023b2022b43b2e48154b8d"
+    },
+    "xtask/tests/fixtures/f02-sibling-playlist-reorder/source.xml": {
+      "length_bytes": 927,
+      "sha256": "41a6ece8632b1bc0c6e95021d34edf41e208d6517dc847474340e20e092c5084"
+    },
+    "xtask/tests/fixtures/f02-track-album-edit/source.xml": {
+      "length_bytes": 667,
+      "sha256": "1598e3736ad62c05ebf2576ba6855a04ab47619ae3e9fa40c34c0848f53cde73"
+    },
+    "xtask/tests/fixtures/f02-track-artist-edit/source.xml": {
+      "length_bytes": 668,
+      "sha256": "e81564992f8273cb0abe102b146097862a87aaf6f57f431a0cb5e8885c35389f"
+    },
+    "xtask/tests/fixtures/f02-track-average-bpm-edit/source.xml": {
+      "length_bytes": 672,
+      "sha256": "9f7763b1f458f365cbc50d5404427e54f9ed557f9b52ca188179dcbbd6793158"
+    },
+    "xtask/tests/fixtures/f02-track-bitrate-edit/source.xml": {
+      "length_bytes": 669,
+      "sha256": "d533209e8a7b30c339e30d7abed6ceb9cf68b325aa7ef8daec8cc723b94afd7c"
+    },
+    "xtask/tests/fixtures/f02-track-colour-edit/source.xml": {
+      "length_bytes": 670,
+      "sha256": "fcca088bd02d3a2ea38fd0614980132de016a083ff160eb287b118cbcc173c9b"
+    },
+    "xtask/tests/fixtures/f02-track-comments-edit/source.xml": {
+      "length_bytes": 671,
+      "sha256": "e4b7206de5f0c35c0e7809176e15e8a3c0bbe1a864e77c7307824d0451823a61"
+    },
+    "xtask/tests/fixtures/f02-track-composer-edit/source.xml": {
+      "length_bytes": 675,
+      "sha256": "e0e94485c024c87a096e9a7f1573ae7f715a13cea1d3b5930dbab01aaa3f66ac"
+    },
+    "xtask/tests/fixtures/f02-track-date_added-edit/source.xml": {
+      "length_bytes": 671,
+      "sha256": "611241deaa0ec2bbd4ed18dcd754ff0002a7541f1689b32b36c8d0f9550923f9"
+    },
+    "xtask/tests/fixtures/f02-track-datemodified-edit/source.xml": {
+      "length_bytes": 679,
+      "sha256": "bf50641ae4417f076270de8d1b9f4a5965adc4df76de83594db325410c8d153e"
+    },
+    "xtask/tests/fixtures/f02-track-delete/source.xml": {
+      "length_bytes": 950,
+      "sha256": "4304e6df3de22a0f718ca3e23e3a577ae361d45b946c161f7e3557767587ee9f"
+    },
+    "xtask/tests/fixtures/f02-track-disc-number-edit/source.xml": {
+      "length_bytes": 674,
+      "sha256": "7f1c8d02d6260d2349849540a8bc8d07b090a1d64b33cf1526152d4ada192944"
+    },
+    "xtask/tests/fixtures/f02-track-genre-edit/source.xml": {
+      "length_bytes": 666,
+      "sha256": "67ae468a60e70a1f7832c9a73531fafa83d78643e18f7d04771a3bf2341382a4"
+    },
+    "xtask/tests/fixtures/f02-track-grouping-edit/source.xml": {
+      "length_bytes": 672,
+      "sha256": "6e519c192f1c685d1244d1263424f932a030ffd1d0a076415074ac8bf54c5ce9"
+    },
+    "xtask/tests/fixtures/f02-track-kind-edit/source.xml": {
+      "length_bytes": 663,
+      "sha256": "15712530e495c134c688dcc00aed5798d0548d7ead41c87985af9ea1bac8b709"
+    },
+    "xtask/tests/fixtures/f02-track-label-edit/source.xml": {
+      "length_bytes": 668,
+      "sha256": "e6dd9e5740ecd1d5f912def88ea95a6e48ab5d36a61afc07da81ed68bd3c0b11"
+    },
+    "xtask/tests/fixtures/f02-track-lastplayed-edit/source.xml": {
+      "length_bytes": 675,
+      "sha256": "6ca1d42066ace599788217a0aca31045bbe715f6d75ba5afbd158f01bfeebfb8"
+    },
+    "xtask/tests/fixtures/f02-track-mix-edit/source.xml": {
+      "length_bytes": 660,
+      "sha256": "8031e2d9e1b605278a75c91f7837401a5536cabdc82f62a7479e9a0f1c888d84"
+    },
+    "xtask/tests/fixtures/rekordbox-a1/F-02/case.json": {
+      "length_bytes": 365,
+      "sha256": "c0c1f4f76f836b5ef420a24f6e84a96d6f4c18247542a3d8dbfb9456dab0885c"
+    },
+    "xtask/tests/fixtures/rekordbox-a1/F-02/expected-archive.json": {
+      "length_bytes": 484,
+      "sha256": "0793967c0da5f4f1bdc4069b55e7a7d86254186649ebeadeead76b94474c5815"
+    },
+    "xtask/tests/fixtures/rekordbox-a1/F-02/expected-report.json": {
+      "length_bytes": 3,
+      "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570"
+    },
+    "xtask/tests/fixtures/rekordbox-a1/F-02/expected-visible.json": {
+      "length_bytes": 180,
+      "sha256": "1fd5cfa30221a900fc7fa79b0ceee522032a65d535b1099d39b3a17d469d8985"
+    },
+    "xtask/tests/fixtures/rekordbox-a1/F-02/operations.json": {
+      "length_bytes": 3,
+      "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570"
+    },
+    "xtask/tests/fixtures/rekordbox-a1/F-02/provenance.json": {
+      "length_bytes": 1768,
+      "sha256": "5ad5b7d4f935d22a8a2122ae748d6fa0a53baaaa79658fd895cf4cf6cbc2e5a4"
+    },
+    "xtask/tests/fixtures/rekordbox-a1/F-02/source.bin": {
+      "length_bytes": 950,
+      "sha256": "4304e6df3de22a0f718ca3e23e3a577ae361d45b946c161f7e3557767587ee9f"
+    },
+    "xtask/tests/fixtures/f02-track-number-edit/source.xml": {
+      "length_bytes": 677,
+      "sha256": "8c352357946aa51179f577eb3d4d02c0a802cf1d5c8a80a45053b15a61ad9451"
+    },
+    "xtask/tests/fixtures/f02-track-playcount-edit/source.xml": {
+      "length_bytes": 673,
+      "sha256": "684065f94d5ed5748bee239ac967ccf48bd67397ccd870fb1f52f4091cb19bc6"
+    },
+    "xtask/tests/fixtures/f02-track-rating-edit/source.xml": {
+      "length_bytes": 668,
+      "sha256": "62da827cd60ae238f3a80111e66b04a321e6a7b3b6634a1349a2503f0ff9fb44"
+    },
+    "xtask/tests/fixtures/f02-track-remixer-edit/source.xml": {
+      "length_bytes": 668,
+      "sha256": "8336ca394c03ccbd8ad5ad9ac60b15bc3e3271ee5354ec20f9063179554c10a3"
+    },
+    "xtask/tests/fixtures/f02-track-sample-rate-edit/source.xml": {
+      "length_bytes": 675,
+      "sha256": "e9b5ebdd4b762d08324bf82774f0dd729b27333bda4a6cb40767d9656fe959b1"
+    },
+    "xtask/tests/fixtures/f02-track-size-edit/source.xml": {
+      "length_bytes": 663,
+      "sha256": "86d50a0fcdf24fa989c10b981b4c6d2e874ec9c881c89934c6b80bb57c2f3901"
+    },
+    "xtask/tests/fixtures/f02-track-tonality-edit/source.xml": {
+      "length_bytes": 670,
+      "sha256": "39529ad45d7cc02be0e0e74aef533f28b536604ffd71e12ec183dd761d7c97a3"
+    },
+    "xtask/tests/fixtures/f02-track-total-time-edit/source.xml": {
+      "length_bytes": 673,
+      "sha256": "1cb9e02a4c7dfae1a9c27574b4e1bbcc3d344caddae1a040069a6b206e12325a"
+    },
+    "xtask/tests/fixtures/f02-track-year-edit/source.xml": {
+      "length_bytes": 658,
+      "sha256": "930fee7527d99769df679be6cec3c391609cdf84cf45be56ae83384125bc93ac"
+    },
+    "xtask/tests/fixtures/f07-position-mark-delete/source.xml": {
+      "length_bytes": 721,
+      "sha256": "782834868fd7c08d3a09f58acee280a42d5429e60d038e1d1c4457516d6ae967"
+    },
+    "xtask/tests/fixtures/f07-position-mark-start-edit/source.xml": {
+      "length_bytes": 722,
+      "sha256": "c96ab5f670e6bbc9a57588902c4087ca986b1f0b9b6e3088c71c0ed35938710a"
+    },
+    "xtask/tests/fixtures/rekordbox-a1/F-07/case.json": {
+      "length_bytes": 331,
+      "sha256": "4fb7b1aa14045a3963bb520f256e467a5011bf3e6c4315d237cc8b6a8e408223"
+    },
+    "xtask/tests/fixtures/rekordbox-a1/F-07/expected-archive.json": {
+      "length_bytes": 389,
+      "sha256": "3cce67dbf7b7d1862710ed149b20da6b884285b41a82f15b74b26cf5d1f848cc"
+    },
+    "xtask/tests/fixtures/rekordbox-a1/F-07/expected-report.json": {
+      "length_bytes": 3,
+      "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570"
+    },
+    "xtask/tests/fixtures/rekordbox-a1/F-07/expected-visible.json": {
+      "length_bytes": 242,
+      "sha256": "44181f807e07a17a12366ea2b3ad43323680d57a52aa85871f954b80a1c45cb4"
+    },
+    "xtask/tests/fixtures/rekordbox-a1/F-07/operations.json": {
+      "length_bytes": 127,
+      "sha256": "5a6b1281d9d7a22a9a218b992db7f597e0b857cf894ceb8dbaa67e8214db67db"
+    },
+    "xtask/tests/fixtures/rekordbox-a1/F-07/provenance.json": {
+      "length_bytes": 1770,
+      "sha256": "9468c00417367e42fb3523413f6baef723315d5dfdf92845386ba74537793af8"
+    },
+    "xtask/tests/fixtures/rekordbox-a1/F-07/source.bin": {
+      "length_bytes": 571,
+      "sha256": "13becb20e52ed3aa4316fa69e95155624d4b53457dd4a1aa3e56beaf10baf5e7"
+    }
+  }
+}

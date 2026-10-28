@@ -15,6 +15,8 @@
 
 ### M4 — IN PROGRESS (verified on master, 2026-10-28)
 
+**F-09 operation provenance (2026-10-28):** `xtask/tests/f09_operation_provenance.rs` and its digest-pinned manifest bind all 50 existing F-02/F-07 operation oracles to checker path/version/digest, exact executable tests, 45 frozen synthetic sources and the complete 57-artifact set. Existing independent decoders and expected values are unchanged. Disposable controls reject missing/duplicate/wrong bindings and byte/artifact drift. See [binding scope and commands](../docs/f09-operation-provenance.md). Independent Sol review is pending on task `t_2aa5aaeb`; global F-09 and A2/A3 qualification remain NOT DEMONSTRATED. Next step: review this bounded binding evidence; wider F-09 archive/plan/qualification acceptance remains separate.
+
 Bounded Rekordbox XML groundwork is implemented; review status is listed per capability:
 
 - **Read-only folder preview:** commit `61f6ae6` preserves Type=0 NODE source order, zero-based ordinal, full path, exact Name, and optional raw Count, including nested duplicate names and paired/self-closing empty folders. Parser and CLI regressions pass on synthetic F-02 XML. Sol approved and independently passed `cargo xtask ci-full` (exit 0; `ci=ok test=ok deny=ok`). Rekordbox/OneLibrary compatibility and ADR-005 qualification remain unproven.
