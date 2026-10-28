@@ -452,3 +452,5 @@ The CLI no-edit export regression also preserves synthetic raw TRACK.DiscNumber 
 The CLI no-edit export regression also preserves synthetic raw TRACK.TotalTime bytes across present, empty, and absent states, including entity-escaped text. It checks exact output bytes and source immutability; TotalTime remains uninterpreted raw text and no Rekordbox compatibility or ADR-005 qualification is claimed.
 
 The CLI no-edit export regression also preserves synthetic raw TRACK.Year bytes across present, empty, and absent states, including entity-escaped text. It checks exact output bytes and source immutability; Year remains uninterpreted raw text and no Rekordbox compatibility or ADR-005 qualification is claimed.
+
+The CLI no-edit export regression also preserves synthetic raw TRACK.AverageBpm bytes across present, empty, and absent states, including entity-escaped text. It checks exact output bytes and source immutability; AverageBpm remains uninterpreted raw text and no Rekordbox compatibility or ADR-005 qualification is claimed.
