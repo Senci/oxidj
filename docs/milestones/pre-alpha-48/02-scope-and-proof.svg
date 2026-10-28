@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720">
+  <rect width="1280" height="720" fill="#11131a"/>
+  <rect x="134" y="112" width="1012" height="496" rx="28" fill="#191a24" stroke="#444157" stroke-width="2"/>
+  <text x="190" y="190" fill="#7de3e0" font-family="sans-serif" font-size="20" letter-spacing="4">OXIDJ · SYNTHETIC EVIDENCE</text>
+  <text x="190" y="270" fill="#f0eef8" font-family="sans-serif" font-size="46" font-weight="700">Exact no-edit preservation</text>
+  <g fill="#c8c5d5" font-family="sans-serif" font-size="24">
+    <circle cx="205" cy="344" r="6" fill="#7de3e0"/><text x="230" y="352">Frozen two-mark synthetic F-07 source.</text>
+    <circle cx="205" cy="402" r="6" fill="#7de3e0"/><text x="230" y="410">One mark has no End; second keeps End="0".</text>
+    <circle cx="205" cy="460" r="6" fill="#7de3e0"/><text x="230" y="468">Output and input bytes stay unchanged.</text>
+    <circle cx="205" cy="518" r="6" fill="#e3a969"/><text x="230" y="526">Not vendor compatibility or qualification evidence.</text>
+  </g>
+</svg>

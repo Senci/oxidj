@@ -5148,6 +5148,57 @@ fn no_edit_export_preserves_raw_comments_present_empty_and_absent_bytes() {
     let _ = fs::remove_file(output);
 }
 
+#[test]
+fn no_edit_export_preserves_position_mark_end_absence_vs_raw_zero() {
+    let fixture = format!(
+        "{}/../../xtask/tests/fixtures/f07-position-mark-start-edit/source.xml",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let source = fs::read_to_string(fixture)
+        .unwrap()
+        .replacen(" End=\"10\"", "", 1)
+        .into_bytes();
+    assert!(
+        source
+            .windows(b"Name=\"Delete me\"".len())
+            .any(|window| { window == b"Name=\"Delete me\"" })
+    );
+    assert!(
+        !source
+            .windows(b"Name=\"Delete me\" End=".len())
+            .any(|window| window == b"Name=\"Delete me\" End=")
+    );
+    assert!(
+        source
+            .windows(b"End=\"0\"".len())
+            .any(|window| window == b"End=\"0\"")
+    );
+    let input = temporary_path("position-mark-end-optionality-input");
+    let output = temporary_path("position-mark-end-optionality-output");
+    fs::write(&input, &source).unwrap();
+    let result = Command::new(env!("CARGO_BIN_EXE_oxidj-cli"))
+        .args([
+            "rekordbox",
+            "export",
+            "--xml",
+            input.to_str().unwrap(),
+            "--output",
+            output.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(
+        result.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    assert_eq!(fs::read(&output).unwrap(), source);
+    assert_eq!(fs::read(&input).unwrap(), source);
+    let _ = fs::remove_file(input);
+    let _ = fs::remove_file(output);
+}
+
 fn temporary_path(label: &str) -> std::path::PathBuf {
     let stamp = SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)
