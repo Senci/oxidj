@@ -750,6 +750,82 @@ fn preview_lists_raw_marks_with_track_local_ordinals_and_end_presence() {
 }
 
 #[test]
+fn preview_and_no_edit_export_retain_accepted_battito_lexemes_byte_for_byte() {
+    let fixture = format!(
+        "{}/../../xtask/tests/fixtures/rekordbox-a1/F-07/source.bin",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let original = fs::read_to_string(fixture).unwrap();
+    let cases = [
+        (
+            "four-four-leading-zero",
+            original.replacen(
+                "Metro=\"4/4\" Battito=\"1\"",
+                "Metro=\"4/4\" Battito=\"01\"",
+                1,
+            ),
+            "Battito=\"01\"",
+            "\t4/4\t01",
+        ),
+        (
+            "other-meter-signed-minimum",
+            original.replacen(
+                "Inizio=\"10\" Bpm=\"128\" Metro=\"4/4\" Battito=\"1\"",
+                "Inizio=\"10\" Bpm=\"128\" Metro=\"7/8\" Battito=\"-2147483648\"",
+                1,
+            ),
+            "Battito=\"-2147483648\"",
+            "\t7/8\t-2147483648",
+        ),
+    ];
+    for (label, source, lexeme, preview_row) in cases {
+        assert!(source.contains(lexeme), "{label}: fixture edit applied");
+        let input = temporary_path(&format!("battito-no-edit-{label}-input"));
+        let output = temporary_path(&format!("battito-no-edit-{label}-output"));
+        fs::write(&input, source.as_bytes()).unwrap();
+
+        let preview = Command::new(env!("CARGO_BIN_EXE_oxidj-cli"))
+            .args(["rekordbox", "preview", "--xml", input.to_str().unwrap()])
+            .output()
+            .unwrap();
+        assert_eq!(
+            preview.status.code(),
+            Some(0),
+            "{label}: {}",
+            String::from_utf8_lossy(&preview.stderr)
+        );
+        let preview_text = String::from_utf8_lossy(&preview.stdout);
+        assert!(
+            preview_text.contains(preview_row),
+            "{label}: {preview_text}"
+        );
+        assert_eq!(fs::read(&input).unwrap(), source.as_bytes());
+
+        let export = Command::new(env!("CARGO_BIN_EXE_oxidj-cli"))
+            .args([
+                "rekordbox",
+                "export",
+                "--xml",
+                input.to_str().unwrap(),
+                "--output",
+                output.to_str().unwrap(),
+            ])
+            .output()
+            .unwrap();
+        assert_eq!(
+            export.status.code(),
+            Some(0),
+            "{label}: {}",
+            String::from_utf8_lossy(&export.stderr)
+        );
+        assert_eq!(fs::read(&output).unwrap(), source.as_bytes(), "{label}");
+        assert_eq!(fs::read(&input).unwrap(), source.as_bytes(), "{label}");
+        let _ = fs::remove_file(input);
+        let _ = fs::remove_file(output);
+    }
+}
+
+#[test]
 fn no_edit_export_preserves_position_mark_num_spellings_and_source_bytes() {
     let fixture = format!(
         "{}/../../xtask/tests/fixtures/rekordbox-a1/F-07/source.bin",
