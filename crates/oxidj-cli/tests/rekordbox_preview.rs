@@ -4787,6 +4787,51 @@ fn no_edit_export_preserves_raw_average_bpm_present_empty_and_absent_bytes() {
     let _ = fs::remove_file(output);
 }
 
+#[test]
+fn no_edit_export_preserves_raw_colour_present_empty_and_absent_bytes() {
+    let fixture = format!(
+        "{}/../../xtask/tests/fixtures/rekordbox-a1/F-02/source.bin",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let source = String::from_utf8(fs::read(fixture).unwrap())
+        .unwrap()
+        .replacen(
+            "TrackID=\"100\" Name=\"A\"",
+            "TrackID=\"100\" Name=\"A\" Colour=\"old &amp; palette\"",
+            1,
+        )
+        .replacen(
+            "TrackID=\"200\" Name=\"B\"",
+            "TrackID=\"200\" Name=\"B\" Colour=\"\"",
+            1,
+        )
+        .into_bytes();
+    let input = temporary_path("colour-no-edit-input");
+    let output = temporary_path("colour-no-edit-output");
+    fs::write(&input, &source).unwrap();
+    let result = Command::new(env!("CARGO_BIN_EXE_oxidj-cli"))
+        .args([
+            "rekordbox",
+            "export",
+            "--xml",
+            input.to_str().unwrap(),
+            "--output",
+            output.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(
+        result.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    assert_eq!(fs::read(&output).unwrap(), source);
+    assert_eq!(fs::read(&input).unwrap(), source);
+    let _ = fs::remove_file(input);
+    let _ = fs::remove_file(output);
+}
+
 fn temporary_path(label: &str) -> std::path::PathBuf {
     let stamp = SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)

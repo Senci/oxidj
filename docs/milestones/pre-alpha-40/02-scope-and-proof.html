@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>Pre-alpha 40 — scope and proof</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; width: 1280px; height: 720px; padding: 76px 88px; background: #10101b; color: #f0efff; font: 23px/1.5 system-ui, sans-serif; }
+  .tag { color: #59d9f4; letter-spacing: .14em; text-transform: uppercase; font-size: 17px; }
+  h1 { margin: 28px 0 14px; font-size: 46px; line-height: 1.12; }
+  p { color: #c3c0d7; max-width: 1040px; }
+  .proof { margin-top: 38px; padding: 28px 32px; border-left: 4px solid #c8a4ff; background: #191827; }
+  .proof code { color: #d8f7ff; font: 18px ui-monospace, monospace; }
+  ul { color: #c3c0d7; padding-left: 28px; }
+  li { margin: 9px 0; }
+  .note { margin-top: 42px; color: #ffcf80; }
+  footer { margin-top: 30px; color: #8d89a5; font-size: 16px; }
+</style>
+<body>
+  <div class="tag">OxiDJ · interoperability evidence · pre-alpha 40</div>
+  <h1>Byte-preservation proof, narrowly scoped</h1>
+  <p>One CLI regression exercises the existing synthetic Rekordbox XML export path without interpreting Colour.</p>
+  <div class="proof"><code>no_edit_export_preserves_raw_colour_present_empty_and_absent_bytes</code></div>
+  <ul>
+    <li>Output bytes equal input bytes after export.</li>
+    <li>Input file remains unchanged.</li>
+    <li>Present, empty, absent, and entity-escaped raw values stay distinct.</li>
+  </ul>
+  <p class="note">NOT DEMONSTRATED: global F-09, Rekordbox compatibility, and ADR-005 qualification.</p>
+  <footer>One focused regression · no private library data or audio used</footer>
+</body>
+</html>

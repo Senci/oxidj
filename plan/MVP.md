@@ -56,6 +56,7 @@
 - The CLI no-edit export regression also preserves raw TotalTime bytes across present, empty, and absent synthetic attribute states and verifies input immutability. TotalTime remains uninterpreted raw text; global F-09, Rekordbox compatibility, and ADR-005 qualification remain NOT DEMONSTRATED.
 - The CLI no-edit export regression also preserves raw Year bytes across present, empty, and absent synthetic attribute states and verifies input immutability. Year remains uninterpreted raw text; global F-09, Rekordbox compatibility, and ADR-005 qualification remain NOT DEMONSTRATED.
 - The CLI no-edit export regression also preserves raw AverageBpm bytes across present, empty, and absent synthetic attribute states and verifies input immutability. AverageBpm remains uninterpreted raw text; global F-09, Rekordbox compatibility, and ADR-005 qualification remain NOT DEMONSTRATED.
+- The CLI no-edit export regression also preserves raw Colour bytes across present, empty, and absent synthetic attribute states and verifies input immutability. Colour remains uninterpreted raw text; global F-09, Rekordbox compatibility, and ADR-005 qualification remain NOT DEMONSTRATED.
 - M5 DJ metadata; M6 Analysis; M7 MVP interoperability proof — unchanged wider-product milestones.
 
 ### Pre-alpha visual evidence archive (2026-10-27)
