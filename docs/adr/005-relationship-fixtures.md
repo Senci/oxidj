@@ -461,15 +461,36 @@ Applies to **all F-01–F-12 subcases**, including F-09's own checker controls:
    changed opaque byte, and an absent required report entry. A production parser
    shared with its checker cannot satisfy this requirement even in a fresh process.
 
-Bounded synthetic checker and mutation tests exist for individual F-01–F-12
-subcases, including A1 F-02/F-07/F-10, F-04 cue edits, F-08b withholding, and
-F-12 capacity/report controls; see the observed evidence entries below and
-`plan/STATUS.md`. These per-case results do not demonstrate completion of this
-cross-case F-09 acceptance: independently authored expected states, direct
-output checks, and all required self-tests must be evidenced across the full
-fixture set. Missing independent expected states or bindings remain NOT
-DEMONSTRATED. Do not bootstrap a golden by accepting matching output from two
-paths that share the same bug.
+**Synthetic cross-case result — PASS (2026-10-28), not vendor qualification.**
+`xtask/tests/f09_fixture_inventory.rs` binds the 20 frozen F-01–F-12 baseline
+cases to their exact independent checker source and executable test, external
+checker identity/version/digest, provenance and complete artifact sets. This
+includes synthetic A1 F-02/F-07/F-10 and the logical-only cases; it does not turn
+logical witnesses into production storage or vendor-transport evidence.
+`xtask/tests/f09_operation_provenance.rs` additionally binds all 50 current
+F-02/F-07 operation oracles (42 F-02, eight F-07) to exact executable tests,
+checker path/version/digest, 45 synthetic input sources and 57 fixture artifacts;
+see [operation binding scope](../f09-operation-provenance.md). The existing
+independent decoders and manually specified expected states are unchanged.
+
+The baseline inventory maps all eight required disposable mutation controls to
+exact executable regressions: missing index0, seconds/milliseconds unit swap,
+reordered House memberships, original `Intro` after F-04, omitted F-10 tempo
+point, restored withheld F-12 c38, changed opaque byte and missing required
+report entry. The inventory checks the source/test bindings; running the whole
+suite executes those controls and the bound baseline/operation checkers, rather
+than treating test-name existence alone as a passing oracle.
+
+Fresh verification: `cargo test -p xtask --tests` exited 0 (121 passed, zero
+failed across 74 test targets, including both F-09 inventories and all bound
+checkers/controls). `cargo xtask ci` exited 0 with
+`layers=ok fmt=ok clippy=ok check=ok [all pass]`. This PASS is limited to the
+current frozen synthetic cross-case verification. Global F-09, real Mixxx A2,
+real OneLibrary A3 and overall ADR-005 qualification remain **NOT DEMONSTRATED**;
+ADR-005 remains Proposed. No application/hardware acceptance, compatibility,
+private-library evidence or qualification change is claimed. Missing real-target
+independent expected states/bindings and production archive/plan evidence remain
+open. Do not bootstrap a golden from paths that share the same bug.
 
 ### F-10: Variable tempo without invented interpolation
 
