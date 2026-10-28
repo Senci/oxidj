@@ -229,8 +229,8 @@ fn f09_required_negative_controls_have_executable_regressions() {
         ),
         (
             "House-order",
-            "f02_sibling_playlist_reorder_oracle",
-            "independently_decodes_sibling_reorder_and_rejects_output_mutations",
+            "f02_playlist_member_reorder_oracle",
+            "independently_decodes_member_reorder_and_rejects_semantic_mutations",
         ),
         (
             "original-Intro",
