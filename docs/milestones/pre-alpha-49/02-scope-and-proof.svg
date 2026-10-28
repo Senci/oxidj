@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720">
+  <rect width="1280" height="720" fill="#11131a"/>
+  <rect x="134" y="112" width="1012" height="496" rx="28" fill="#191a24" stroke="#444157" stroke-width="2"/>
+  <text x="190" y="190" fill="#7de3e0" font-family="sans-serif" font-size="20" letter-spacing="4">SYNTHETIC PREVIEW · NOT COMPATIBILITY CLAIM</text>
+  <text x="190" y="278" fill="#f0eef8" font-family="sans-serif" font-size="42" font-weight="700">Regression locks current parser boundary</text>
+  <g font-family="sans-serif" font-size="22" fill="#c8c5d5">
+    <text x="210" y="370">• present-empty End returns a parse error</text>
+    <text x="210" y="420">• diagnostic: invalid position mark End value</text>
+    <text x="210" y="470">• absent End and raw zero stay separate</text>
+    <text x="210" y="520">• no Rekordbox or qualification claim</text>
+  </g>
+</svg>
