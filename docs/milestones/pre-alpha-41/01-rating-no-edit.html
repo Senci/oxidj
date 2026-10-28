@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>Pre-alpha 41 — Rating no-edit preservation</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; width: 1280px; height: 720px; padding: 76px 88px; background: #10101b; color: #f0efff; font: 24px/1.5 system-ui, sans-serif; }
+  .tag { color: #59d9f4; letter-spacing: .14em; text-transform: uppercase; font-size: 17px; }
+  h1 { margin: 28px 0 14px; font-size: 48px; line-height: 1.12; }
+  p { color: #c3c0d7; max-width: 1000px; }
+  .states { display: flex; gap: 18px; margin-top: 54px; }
+  .state { flex: 1; padding: 24px; border: 1px solid #45405f; border-radius: 16px; background: #191827; }
+  .state b { display: block; color: #c8a4ff; font-size: 19px; margin-bottom: 12px; }
+  code { color: #d8f7ff; font: 18px ui-monospace, monospace; }
+  footer { margin-top: 48px; color: #8d89a5; font-size: 16px; }
+</style>
+<body>
+  <div class="tag">OxiDJ · interoperability evidence · pre-alpha 41</div>
+  <h1>Raw Rating survives no-edit export</h1>
+  <p>CLI regression checks byte-identical output and unchanged source bytes for three optional attribute states.</p>
+  <div class="states">
+    <div class="state"><b>Present</b><code>old &amp; stars</code></div>
+    <div class="state"><b>Empty</b><code>Rating=""</code></div>
+    <div class="state"><b>Absent</b><code>no attribute</code></div>
+  </div>
+  <footer>Synthetic XML only · raw text only · no star mapping, Rekordbox compatibility, or ADR-005 qualification claim</footer>
+</body>
+</html>
