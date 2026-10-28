@@ -713,6 +713,27 @@ fn preview_rejects_present_empty_position_mark_end() {
 }
 
 #[test]
+fn preview_rejects_present_empty_position_mark_num() {
+    let fixture = format!(
+        "{}/../../xtask/tests/fixtures/rekordbox-a1/F-07/source.bin",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let xml = fs::read_to_string(fixture)
+        .unwrap()
+        .replace("Start=\"5\" Num=\"0\"/>", "Start=\"5\" Num=\"\"/>");
+    let input = temporary_path("empty-position-mark-num");
+    fs::write(&input, xml.as_bytes()).unwrap();
+    let result = Command::new(env!("CARGO_BIN_EXE_oxidj-cli"))
+        .args(["rekordbox", "preview", "--xml", input.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert_eq!(result.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&result.stderr).contains("invalid position mark Num"));
+    assert_eq!(fs::read(&input).unwrap(), xml.as_bytes());
+    let _ = fs::remove_file(input);
+}
+
+#[test]
 fn preview_reports_unsupported_content_as_warning() {
     let fixture = format!(
         "{}/../../xtask/tests/fixtures/rekordbox-a1/F-07/source.bin",

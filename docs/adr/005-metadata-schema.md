@@ -19,6 +19,10 @@ review_status: "2026-10-16 advisory completed (t_4d01d430, comment 129); revised
 
 > **Scope clarification (2026-10-23):** the revised, separately versioned `local-catalog-alpha-v1` schema is outside this proposed vendor-schema decision and does not accept ADR-005. This ADR remains Proposed; its historical vendor-schema fixtures and A1–A3/C1–C6 remain preserved, open, and unpassed. The local alpha does not admit those fixtures as evidence or change their qualification status.
 
+## Synthetic parser-boundary note (2026-10-28)
+
+The synthetic F-07 CLI preview rejects present-empty `POSITION_MARK Num` with a clear diagnostic and nonzero exit; regression coverage verifies the original input bytes remain unchanged. This retains only the existing `u32` validation boundary. It assigns no cue-index or ordering semantics, performs no cue renumbering, and establishes no Rekordbox/OneLibrary behavior. This is parser regression evidence only—not decision-bearing fixture validation, compatibility, or qualification. ADR-005 remains Proposed.
+
 ## Context
 
 ADR-003 accepted a neutral internal domain model with per-field provenance but
