@@ -8,7 +8,12 @@ const SOURCE: &[u8] = include_bytes!("fixtures/f02-track-average-bpm-edit/source
 struct N {
     name: String,
     attrs: Vec<(String, String)>,
-    children: Vec<N>,
+    children: Vec<Child>,
+}
+#[derive(Debug, PartialEq, Eq)]
+enum Child {
+    Element(N),
+    Text(String),
 }
 fn node(e: quick_xml::events::BytesStart<'_>, r: &Reader<&[u8]>) -> N {
     N {
@@ -38,7 +43,7 @@ fn decode(bytes: &[u8]) -> N {
             Event::Empty(e) => {
                 let n = node(e, &r);
                 if let Some(p) = stack.last_mut() {
-                    p.children.push(n)
+                    p.children.push(Child::Element(n))
                 } else {
                     root = Some(n)
                 }
@@ -46,9 +51,21 @@ fn decode(bytes: &[u8]) -> N {
             Event::End(_) => {
                 let n = stack.pop().unwrap();
                 if let Some(p) = stack.last_mut() {
-                    p.children.push(n)
+                    p.children.push(Child::Element(n))
                 } else {
                     root = Some(n)
+                }
+            }
+            Event::Text(e) => {
+                if let Some(n) = stack.last_mut() {
+                    n.children
+                        .push(Child::Text(e.decode().unwrap().into_owned()));
+                }
+            }
+            Event::CData(e) => {
+                if let Some(n) = stack.last_mut() {
+                    n.children
+                        .push(Child::Text(e.decode().unwrap().into_owned()));
                 }
             }
             Event::Eof => break,
@@ -66,7 +83,9 @@ fn change_expected(n: &mut N) -> bool {
     }
     let mut found = false;
     for c in &mut n.children {
-        found |= change_expected(c)
+        if let Child::Element(c) = c {
+            found |= change_expected(c)
+        }
     }
     found
 }
@@ -74,7 +93,9 @@ fn has_field(n: &N, id: &str) -> bool {
     (n.name == "TRACK"
         && n.attrs.iter().any(|(k, v)| k == "TrackID" && v == id)
         && n.attrs.iter().any(|(k, _)| k == "AverageBpm"))
-        || n.children.iter().any(|c| has_field(c, id))
+        || n.children
+            .iter()
+            .any(|c| matches!(c, Child::Element(c) if has_field(c, id)))
 }
 fn check(bytes: &[u8]) -> Result<(), String> {
     let actual = decode(bytes);
@@ -137,4 +158,14 @@ fn independently_verifies_guarded_track_play_bpm_edit_and_rejects_mutations() {
             "oracle accepted semantic mutation {from}"
         );
     }
+    let inserted = text.replacen(
+        "<COLLECTION Entries=\"2\">",
+        "<COLLECTION Entries=\"2\">injected",
+        1,
+    );
+    assert_ne!(inserted, text);
+    assert!(
+        check(inserted.as_bytes()).is_err(),
+        "oracle accepted inserted text node"
+    );
 }
