@@ -3,7 +3,7 @@ use oxidj_rekordbox::{TempoEditRequest, prepare_tempo_edit};
 use quick_xml::{Reader, XmlVersion, events::Event};
 use serde_json as _;
 use sha2 as _;
-const SOURCE: &[u8] = include_bytes!("fixtures/f07-position-mark-start-edit/source.xml");
+const SOURCE: &[u8] = include_bytes!("fixtures/rekordbox-a1/F-07/source.bin");
 #[derive(Debug, PartialEq, Eq)]
 struct N {
     name: String,
@@ -103,6 +103,16 @@ fn check(bytes: &[u8]) -> Result<(), String> {
         track.attrs.iter().find(|(n, _)| n == "TrackID").unwrap().1,
         "700"
     );
+    let mark = track
+        .children
+        .iter()
+        .find(|n| n.name == "POSITION_MARK")
+        .unwrap();
+    assert_eq!(attr(mark, "Type"), "0");
+    assert_eq!(attr(mark, "Start"), "5");
+    assert_eq!(attr(mark, "Name"), "Intro");
+    assert_eq!(attr(mark, "Num"), "0");
+    assert!(!mark.attrs.iter().any(|(name, _)| name == "End"));
     let mut tempos: Vec<_> = track
         .children
         .iter_mut()
@@ -129,7 +139,7 @@ fn check(bytes: &[u8]) -> Result<(), String> {
             attr(tempos[1], "Metro"),
             attr(tempos[1], "Battito")
         ),
-        ("16", "132", "7/8", "3")
+        ("10", "128", "4/4", "1")
     );
     tempos[0]
         .attrs
@@ -156,7 +166,7 @@ fn independently_verifies_guarded_bpm_edit_and_rejects_mutations() {
     check(&output).unwrap();
     let wrong_ordinal = TempoEditRequest {
         tempo_index: 1,
-        expected_old_bpm: "132".into(),
+        expected_old_bpm: "128".into(),
         new_bpm: "125".into(),
         ..req.clone()
     };
@@ -177,18 +187,17 @@ fn independently_verifies_guarded_bpm_edit_and_rejects_mutations() {
     for (from, to) in [
         ("Bpm=\"125\"", "Bpm=\"126\""),
         ("Inizio=\"0\"", "Inizio=\"1\""),
-        ("Bpm=\"132\"", "Bpm=\"131\""),
+        ("Bpm=\"128\"", "Bpm=\"127\""),
         ("Metro=\"4/4\"", "Metro=\"3/4\""),
         ("Battito=\"1\"", "Battito=\"2\""),
         ("Start=\"5\"", "Start=\"6\""),
-        ("Type=\"4\"", "Type=\"3\""),
+        ("Type=\"0\"", "Type=\"1\""),
         ("Num=\"0\"", "Num=\"2\""),
-        ("End=\"0\"", "End=\"1\""),
-        ("Name=\"Keep me\"", "Name=\"Changed\""),
-        ("Inizio=\"16\"", "Inizio=\"17\""),
+        ("Name=\"Intro\"", "Name=\"Changed\""),
+        ("Inizio=\"10\"", "Inizio=\"11\""),
         ("Entries=\"1\"", "Entries=\"2\""),
-        ("Key=\"700\"", "Key=\"701\""),
-        ("Name=\"House\"", "Name=\"Changed\""),
+        ("TrackID=\"700\"", "TrackID=\"701\""),
+        ("Name=\"ROOT\"", "Name=\"Changed\""),
     ] {
         let mutated = text.replacen(from, to, 1);
         assert_ne!(mutated, text);
@@ -198,8 +207,8 @@ fn independently_verifies_guarded_bpm_edit_and_rejects_mutations() {
         );
     }
     let reordered = text.replace(
-        "<TEMPO Inizio=\"0\" Bpm=\"125\" Metro=\"4/4\" Battito=\"1\"/><TEMPO Inizio=\"16\" Bpm=\"132\" Metro=\"7/8\" Battito=\"3\"/>",
-        "<TEMPO Inizio=\"16\" Bpm=\"132\" Metro=\"7/8\" Battito=\"3\"/><TEMPO Inizio=\"0\" Bpm=\"125\" Metro=\"4/4\" Battito=\"1\"/>",
+        "<TEMPO Inizio=\"0\" Bpm=\"125\" Metro=\"4/4\" Battito=\"1\"/>\n      <TEMPO Inizio=\"10\" Bpm=\"128\" Metro=\"4/4\" Battito=\"1\"/>",
+        "<TEMPO Inizio=\"10\" Bpm=\"128\" Metro=\"4/4\" Battito=\"1\"/>\n      <TEMPO Inizio=\"0\" Bpm=\"125\" Metro=\"4/4\" Battito=\"1\"/>",
     );
     assert_ne!(reordered, text);
     assert!(
