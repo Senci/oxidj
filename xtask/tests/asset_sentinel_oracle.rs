@@ -101,6 +101,81 @@ fn verify_boundary(
     })
 }
 
+type LiveReferences = std::collections::BTreeMap<&'static str, (&'static str, &'static str)>;
+
+fn b1_to_b2(live: &LiveReferences, available_assets: &BTreeSet<&str>) -> Option<LiveReferences> {
+    let expected_b1: LiveReferences = [
+        ("ref-1", ("asset-track-1", "stub-a")),
+        ("ref-2", ("asset-track-2", "stub-b")),
+    ]
+    .into_iter()
+    .collect();
+    if live != &expected_b1
+        || !["stub-b", "stub-c"]
+            .iter()
+            .all(|asset_id| available_assets.contains(asset_id))
+    {
+        return None;
+    }
+
+    Some(
+        [
+            ("ref-1", ("asset-track-1", "stub-b")),
+            ("ref-2", ("asset-track-2", "stub-c")),
+        ]
+        .into_iter()
+        .collect(),
+    )
+}
+
+#[test]
+fn b1_to_b2_changes_both_live_bindings_and_manifest_follows_live_state() {
+    let b1: LiveReferences = [
+        ("ref-1", ("asset-track-1", "stub-a")),
+        ("ref-2", ("asset-track-2", "stub-b")),
+    ]
+    .into_iter()
+    .collect();
+    let available: BTreeSet<_> = ASSET_IDS.into_iter().collect();
+    let b2 = b1_to_b2(&b1, &available).expect("the exact B1 transition is valid");
+
+    assert_eq!(b1["ref-1"].0, b2["ref-1"].0);
+    assert_eq!(b1["ref-2"].0, b2["ref-2"].0);
+    assert_eq!(b2["ref-1"].1, "stub-b");
+    assert_eq!(b2["ref-2"].1, "stub-c");
+    let b2_ids: Vec<_> = b2.values().map(|(_, asset)| *asset).collect();
+    assert_eq!(
+        b2_ids.iter().copied().collect::<BTreeSet<_>>(),
+        ["stub-b", "stub-c"].into_iter().collect()
+    );
+    assert!(!b2.values().any(|(_, asset)| *asset == "stub-a"));
+    let (b2_manifest, _) = manifest("B2", &b2_ids);
+    let b2_payloads: std::collections::BTreeMap<_, _> = b2_ids
+        .iter()
+        .map(|asset_id| ((*asset_id).to_owned(), sentinel_bytes(asset_id)))
+        .collect();
+    assert!(verify_boundary(&b2_manifest, &b2_payloads, "B2"));
+}
+
+#[test]
+fn b1_to_b2_rejects_stale_or_missing_target_without_partial_transition() {
+    let b1: LiveReferences = [
+        ("ref-1", ("asset-track-1", "stub-a")),
+        ("ref-2", ("asset-track-2", "stub-b")),
+    ]
+    .into_iter()
+    .collect();
+    let mut stale = b1.clone();
+    stale.insert("ref-1", ("asset-track-1", "stub-c"));
+    let all_assets: BTreeSet<_> = ASSET_IDS.into_iter().collect();
+    let missing_target: BTreeSet<_> = ["stub-a", "stub-b"].into_iter().collect();
+
+    assert!(b1_to_b2(&stale, &all_assets).is_none());
+    assert!(b1_to_b2(&b1, &missing_target).is_none());
+    assert_eq!(b1["ref-1"].1, "stub-a");
+    assert_eq!(b1["ref-2"].1, "stub-b");
+}
+
 #[test]
 fn in_memory_boundary_verifier_passes_goldens_and_rejects_integrity_faults() {
     for (boundary, ids) in [
