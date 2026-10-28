@@ -9,27 +9,108 @@ use std::{
     path::{Path, PathBuf},
 };
 
-const CASES: &[&str] = &[
-    "f01-relocation-logical",
-    "f01-conflict-logical",
-    "f01-same-path-logical",
-    "f01-unconfirmed-logical",
-    "f01-metadata-conflict-logical",
-    "rekordbox-a1/F-02",
-    "f03-logical",
-    "f04-compose-logical",
-    "f04-replay-logical",
-    "f04-analysis-logical",
-    "f04-cue-order-logical",
-    "f05-logical",
-    "f06a-logical",
-    "f06b-logical",
-    "rekordbox-a1/F-07",
-    "f08-logical",
-    "f08b-logical",
-    "rekordbox-a1/F-10",
-    "f11-logical",
-    "f12-logical",
+// Each case pins its checker source and baseline test, including the shared A1 test.
+const CASES: &[(&str, &str, &str)] = &[
+    (
+        "f01-relocation-logical",
+        "xtask/tests/f01_relocation_logical.rs",
+        "frozen_artifacts_provenance_and_independent_checker",
+    ),
+    (
+        "f01-conflict-logical",
+        "xtask/tests/f01_conflict_logical.rs",
+        "frozen_artifact_set_provenance_and_contract",
+    ),
+    (
+        "f01-same-path-logical",
+        "xtask/tests/f01_same_path_logical.rs",
+        "frozen_artifact_set_provenance_and_contract",
+    ),
+    (
+        "f01-unconfirmed-logical",
+        "xtask/tests/f01_unconfirmed_logical.rs",
+        "frozen_artifact_set_provenance_and_contract",
+    ),
+    (
+        "f01-metadata-conflict-logical",
+        "xtask/tests/f01_metadata_conflict_logical.rs",
+        "frozen_artifacts_and_literal_checker",
+    ),
+    (
+        "rekordbox-a1/F-02",
+        "xtask/tests/rekordbox_xml_a1.rs",
+        "a1_fixture_bytes_match_frozen_provenance_and_goldens",
+    ),
+    (
+        "f03-logical",
+        "xtask/tests/f03_logical.rs",
+        "f03_artifacts_frozen_and_independently_equal",
+    ),
+    (
+        "f04-compose-logical",
+        "xtask/tests/f04_compose_logical.rs",
+        "frozen_artifacts_and_literal_contract",
+    ),
+    (
+        "f04-replay-logical",
+        "xtask/tests/f04_replay_logical.rs",
+        "frozen_contract_and_artifacts",
+    ),
+    (
+        "f04-analysis-logical",
+        "xtask/tests/f04_analysis_logical.rs",
+        "frozen_artifacts_and_literal_state",
+    ),
+    (
+        "f04-cue-order-logical",
+        "xtask/tests/f04_cue_order_logical.rs",
+        "frozen_artifacts_independent_checker_and_mutation_controls",
+    ),
+    (
+        "f05-logical",
+        "xtask/tests/f05_logical.rs",
+        "f05_frozen_artifacts_and_separate_target_decisions_match",
+    ),
+    (
+        "f06a-logical",
+        "xtask/tests/f06a_logical.rs",
+        "f06a_frozen_logical_fixture_matches_independent_contract",
+    ),
+    (
+        "f06b-logical",
+        "xtask/tests/f06b_logical.rs",
+        "f06b_frozen_logical_fixture_matches_independent_contract",
+    ),
+    (
+        "rekordbox-a1/F-07",
+        "xtask/tests/rekordbox_xml_a1.rs",
+        "a1_fixture_bytes_match_frozen_provenance_and_goldens",
+    ),
+    (
+        "f08-logical",
+        "xtask/tests/f08_logical.rs",
+        "f08_artifacts_provenance_and_no_edit_echo_are_frozen",
+    ),
+    (
+        "f08b-logical",
+        "xtask/tests/f08b_logical.rs",
+        "f08b_artifacts_and_provenance_are_frozen",
+    ),
+    (
+        "rekordbox-a1/F-10",
+        "xtask/tests/rekordbox_xml_a1.rs",
+        "a1_fixture_bytes_match_frozen_provenance_and_goldens",
+    ),
+    (
+        "f11-logical",
+        "xtask/tests/f11_logical.rs",
+        "f11_logical_artifacts_and_provenance_are_frozen",
+    ),
+    (
+        "f12-logical",
+        "xtask/tests/f12_logical.rs",
+        "f12_artifacts_provenance_and_independent_contract_are_frozen",
+    ),
 ];
 const PROVENANCE_SHA256: &[(&str, &str)] = &[
     (
@@ -127,13 +208,13 @@ fn json(path: &Path) -> Value {
 fn f01_to_f12_fixture_artifact_and_checker_inventory_is_frozen() {
     let root = root();
     assert_eq!(CASES.len(), 20);
-    for case in CASES {
+    for &(case, expected_checker_path, identifier) in CASES {
         let dir = root.join(case);
         let provenance_path = dir.join("provenance.json");
         let provenance_bytes = fs::read(&provenance_path).unwrap();
         let expected_provenance = PROVENANCE_SHA256
             .iter()
-            .find(|(name, _)| *name == *case)
+            .find(|(name, _)| *name == case)
             .unwrap()
             .1;
         assert_eq!(
@@ -171,13 +252,26 @@ fn f01_to_f12_fixture_artifact_and_checker_inventory_is_frozen() {
             ("checker_path", "checker_version", "checker_sha256")
         };
         let checker_path = identity[path_key].as_str().expect("checker path");
+        assert_eq!(
+            checker_path, expected_checker_path,
+            "checker source drift in {case} for test {identifier}"
+        );
         let checker = fs::read(
             PathBuf::from(env!("CARGO_MANIFEST_DIR"))
                 .parent()
                 .unwrap()
                 .join(checker_path),
         )
-        .expect("independent checker source");
+        .unwrap_or_else(|_| {
+            panic!("missing checker source {checker_path} for {case}::{identifier}")
+        });
+        let test_declaration = format!("#[test]\nfn {identifier}()");
+        assert!(
+            std::str::from_utf8(&checker)
+                .unwrap()
+                .contains(&test_declaration),
+            "missing executable checker test for {case}: {checker_path}::{identifier}"
+        );
         assert!(
             identity[version_key]
                 .as_str()
