@@ -936,6 +936,17 @@ fn optional(e: &quick_xml::events::BytesStart<'_>, key: &str) -> Result<Option<S
     }
     Ok(None)
 }
+fn validate_tempo_beat(meter: &str, raw: &str) -> Result<i32, Error> {
+    let beat = raw
+        .parse::<i32>()
+        .map_err(|_| Error(format!("invalid tempo beat {raw}")))?;
+    if meter == "4/4" && !(1..=4).contains(&beat) {
+        return Err(Error(format!(
+            "tempo Battito {raw} outside 4/4 range 1..=4"
+        )));
+    }
+    Ok(beat)
+}
 fn validate_decimal(field: &str, raw: &str, positive: bool) -> Result<(), Error> {
     let parsed = raw.parse::<f64>().ok().filter(|n| n.is_finite());
     if parsed.is_none_or(|n| n < 0.0 || (positive && n == 0.0)) {
@@ -1234,10 +1245,7 @@ pub fn parse(bytes: &[u8]) -> Result<Preview, Error> {
         for tempo in &track.tempos {
             validate_decimal("tempo start", &tempo.start_seconds, false)?;
             validate_decimal("BPM", &tempo.bpm, true)?;
-            tempo
-                .beat
-                .parse::<u32>()
-                .map_err(|_| Error(format!("invalid tempo beat {}", tempo.beat)))?;
+            validate_tempo_beat(&tempo.meter, &tempo.beat)?;
         }
         for mark in &track.marks {
             mark.kind
@@ -6755,9 +6763,7 @@ pub fn prepare_tempo_beat_edit(
             request.expected_old_beat, tempo.beat
         )));
     }
-    request
-        .new_beat
-        .parse::<u32>()
+    validate_tempo_beat(&tempo.meter, &request.new_beat)
         .map_err(|_| Error(format!("invalid tempo Battito {}", request.new_beat)))?;
     let range = tempo_beat_range(bytes, request)?;
     let mut output = bytes.to_vec();
@@ -7861,6 +7867,30 @@ mod tests {
     }
 
     #[test]
+    fn tempo_beat_validation_matches_signed_xml_type_and_exact_four_four_range() {
+        for value in [i32::MIN, -1, 0, 1, 4, i32::MAX] {
+            assert_eq!(
+                validate_tempo_beat("3/4", &value.to_string()).unwrap(),
+                value
+            );
+        }
+        for value in ["", "2147483648", "-2147483649", "1.5"] {
+            assert!(validate_tempo_beat("3/4", value).is_err(), "{value:?}");
+        }
+        for value in 1..=4 {
+            assert_eq!(
+                validate_tempo_beat("4/4", &value.to_string()).unwrap(),
+                value
+            );
+        }
+        for value in [i32::MIN, -1, 0, 5, i32::MAX] {
+            assert!(validate_tempo_beat("4/4", &value.to_string()).is_err());
+        }
+        // Meter matching is deliberately exact; no semantics are inferred for other text.
+        assert_eq!(validate_tempo_beat(" 4/4", "-7").unwrap(), -7);
+    }
+
+    #[test]
     fn guarded_tempo_beat_edit_changes_only_selected_battito_and_rejects_invalid_requests() {
         let source = include_bytes!("../../../xtask/tests/fixtures/rekordbox-a1/F-07/source.bin");
         let request = TempoBeatEditRequest {
@@ -7881,6 +7911,18 @@ mod tests {
         assert_eq!(after.selected_tracks[0].tempos[1].beat, "1");
 
         for invalid in [
+            TempoBeatEditRequest {
+                new_beat: "0".into(),
+                ..request.clone()
+            },
+            TempoBeatEditRequest {
+                new_beat: "5".into(),
+                ..request.clone()
+            },
+            TempoBeatEditRequest {
+                new_beat: "2147483648".into(),
+                ..request.clone()
+            },
             TempoBeatEditRequest {
                 expected_old_beat: "9".into(),
                 ..request.clone()

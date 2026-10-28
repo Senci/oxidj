@@ -4,6 +4,64 @@ use oxidj_library as _;
 use std::{fs, process::Command, time::SystemTime};
 
 #[test]
+fn preview_rejects_invalid_battito_and_accepts_signed_other_meter_without_mutating_input() {
+    let fixture = format!(
+        "{}/../../xtask/tests/fixtures/rekordbox-a1/F-07/source.bin",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let original = fs::read(fixture).unwrap();
+    for (label, xml, accepted) in [
+        (
+            "valid-four-four",
+            String::from_utf8(original.clone()).unwrap(),
+            true,
+        ),
+        (
+            "empty",
+            String::from_utf8(original.clone()).unwrap().replacen(
+                "Battito=\"1\"",
+                "Battito=\"\"",
+                1,
+            ),
+            false,
+        ),
+        (
+            "overflow",
+            String::from_utf8(original.clone()).unwrap().replacen(
+                "Battito=\"1\"",
+                "Battito=\"2147483648\"",
+                1,
+            ),
+            false,
+        ),
+        (
+            "four-four-zero",
+            String::from_utf8(original.clone()).unwrap().replacen(
+                "Battito=\"1\"",
+                "Battito=\"0\"",
+                1,
+            ),
+            false,
+        ),
+    ] {
+        let input = temporary_path(&format!("battito-{label}"));
+        fs::write(&input, xml.as_bytes()).unwrap();
+        let result = Command::new(env!("CARGO_BIN_EXE_oxidj-cli"))
+            .args(["rekordbox", "preview", "--xml", input.to_str().unwrap()])
+            .output()
+            .unwrap();
+        assert_eq!(
+            result.status.success(),
+            accepted,
+            "{label}: {}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        assert_eq!(fs::read(&input).unwrap(), xml.as_bytes());
+        let _ = fs::remove_file(input);
+    }
+}
+
+#[test]
 fn preview_lists_nested_duplicate_and_empty_folders_in_source_order() {
     let source = fs::read(format!(
         "{}/../../xtask/tests/fixtures/rekordbox-a1/F-02/source.bin",
