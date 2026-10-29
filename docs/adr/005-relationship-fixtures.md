@@ -573,8 +573,14 @@ Two synthetic-only illustrations are archived in `docs/milestones/pre-alpha-51/b
   externally in `checker-identity.json`; the test checks live checker bytes,
   provenance identity, exact fixture sets and artifact digests. Tests reject
   mutations, omissions, dangling endpoints and reordered membership/tempo points.
-  This is synthetic fixture evidence only: no Rekordbox application acceptance
-  or product adapter is claimed.
+  Commit `11907ad` adds `xtask/tests/rekordbox_xml_a1.rs` production-adapter
+  bindings for F-02/F-07/F-10: production parse/preflight is checked against the
+  frozen synthetic goldens; F-07 BPM edit is checked through the adapter against
+  its expected edited state; and CLI no-edit export is asserted byte-identical
+  for each case. The focused suite passed (5 tests), and reviewed `cargo xtask ci`
+  passed (`layers=ok fmt=ok clippy=ok check=ok`). This records synthetic adapter
+  behavior only—not Rekordbox/OneLibrary compatibility, global F-09, A3, or
+  qualification.
 - **A2 Mixxx binding:** select the exact adapter transport/envelope and pin how
   BeatMap/BeatGrid proto, sample-rate context and CueInfo DTO optionality/colors
   are carried. A CueInfo C++ DTO is not a library-file format. Bind raw bytes,
