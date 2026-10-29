@@ -1584,11 +1584,26 @@ fn tempo_beat_edit_exports_one_guarded_battito_change_without_other_mutation() {
         "{}",
         String::from_utf8_lossy(&result.stderr)
     );
-    let expected =
+    let exported = fs::read(&output).unwrap();
+    assert_eq!(
+        exported,
         String::from_utf8(source.clone())
             .unwrap()
-            .replacen("Battito=\"1\"", "Battito=\"2\"", 1);
-    assert_eq!(fs::read(&output).unwrap(), expected.as_bytes());
+            .replacen("Battito=\"1\"", "Battito=\"2\"", 1)
+            .as_bytes(),
+        "CLI output must change only the selected Battito source bytes"
+    );
+    // The independent quick-xml whole-tree oracle is exercised by xtask's
+    // f07_tempo_battito_edit_oracle integration test; pin the CLI export to
+    // the same frozen fixture and intended target value here.
+    let exported_text = String::from_utf8_lossy(&exported);
+    let tempos: Vec<_> = exported_text
+        .split("<TEMPO ")
+        .skip(1)
+        .map(|tempo| tempo.split_once("/>").unwrap().0)
+        .collect();
+    assert!(tempos[0].contains("Battito=\"2\""));
+    assert!(tempos[1].contains("Battito=\"1\""));
     assert_eq!(fs::read(&input).unwrap(), source);
 
     let existing = temporary_path("tempo-beat-existing");
