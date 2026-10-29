@@ -4,6 +4,40 @@ use oxidj_library as _;
 use std::{fs, process::Command, time::SystemTime};
 
 #[test]
+fn export_no_edit_is_byte_identical_for_frozen_a1_sources() {
+    for case in ["F-02", "F-07", "F-10"] {
+        let source = fs::read(format!(
+            "{}/../../xtask/tests/fixtures/rekordbox-a1/{case}/source.bin",
+            env!("CARGO_MANIFEST_DIR")
+        ))
+        .unwrap();
+        let input = temporary_path(&format!("{case}-export-input"));
+        let output = temporary_path(&format!("{case}-export-output"));
+        fs::write(&input, &source).unwrap();
+        let result = Command::new(env!("CARGO_BIN_EXE_oxidj-cli"))
+            .args([
+                "rekordbox",
+                "export",
+                "--xml",
+                input.to_str().unwrap(),
+                "--output",
+                output.to_str().unwrap(),
+            ])
+            .output()
+            .unwrap();
+        assert!(
+            result.status.success(),
+            "{case}: {}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        assert_eq!(fs::read(&output).unwrap(), source, "{case} output drift");
+        assert_eq!(fs::read(&input).unwrap(), source, "{case} input changed");
+        fs::remove_file(input).unwrap();
+        fs::remove_file(output).unwrap();
+    }
+}
+
+#[test]
 fn preview_rejects_invalid_battito_and_accepts_signed_other_meter_without_mutating_input() {
     let fixture = format!(
         "{}/../../xtask/tests/fixtures/rekordbox-a1/F-07/source.bin",
