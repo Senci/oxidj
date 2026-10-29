@@ -151,7 +151,7 @@ impl ColorTokens {
         let values: Vec<Color32> = raw
             .split(',')
             .map(|part| {
-                if part.len() != 6 {
+                if part.len() != 6 || !part.is_ascii() {
                     return None;
                 }
                 Some(Color32::from_rgb(
@@ -309,5 +309,6 @@ mod tests {
         custom.primary = Color32::from_rgb(1, 2, 3);
         assert_eq!(ColorTokens::decode(&custom.encode()), Some(custom));
         assert_eq!(ColorTokens::decode("invalid"), None);
+        assert_eq!(ColorTokens::decode("aé000"), None);
     }
 }
