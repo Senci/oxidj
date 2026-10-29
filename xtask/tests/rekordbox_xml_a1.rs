@@ -416,6 +416,21 @@ fn expected_artifacts(case_id: &str) -> &'static [&'static str] {
     }
 }
 
+fn production_visible_tempos(track: &oxidj_rekordbox::Track) -> Value {
+    json!(
+        track
+            .tempos
+            .iter()
+            .map(|tempo| json!({
+                "inizio": tempo.start_seconds,
+                "bpm": tempo.bpm,
+                "metro": tempo.meter,
+                "battito": tempo.beat.parse::<i64>().unwrap()
+            }))
+            .collect::<Vec<_>>()
+    )
+}
+
 #[test]
 fn a1_fixture_bytes_match_frozen_provenance_and_goldens() {
     let checker =
@@ -498,7 +513,50 @@ fn a1_fixture_bytes_match_frozen_provenance_and_goldens() {
     }
 
     let source = std::fs::read(fixture("F-02", "source.bin")).unwrap();
+    let parsed = oxidj_rekordbox::parse(&source).unwrap();
+    let preflight = oxidj_rekordbox::preflight_export(&source).unwrap();
+    for tracks in [&parsed.tracks, &preflight.selected_tracks] {
+        assert_eq!(
+            tracks
+                .iter()
+                .map(|track| track.id.as_str())
+                .collect::<Vec<_>>(),
+            ["100", "200", "300", "400"]
+        );
+        assert_eq!(
+            tracks
+                .iter()
+                .map(|track| track.name.as_str())
+                .collect::<Vec<_>>(),
+            ["A", "B", "C", "D"]
+        );
+        assert_eq!(
+            tracks
+                .iter()
+                .map(|track| track.location.as_str())
+                .collect::<Vec<_>>(),
+            [
+                "file://localhost/music/a.flac",
+                "file://localhost/music/b.flac",
+                "file://localhost/music/c.flac",
+                "file://localhost/music/d.flac"
+            ]
+        );
+    }
+    assert_eq!(
+        preflight.decision,
+        oxidj_rekordbox::ExportDecision::AllowExport
+    );
+    assert!(preflight.withheld_units.is_empty());
+    assert!(preflight.loss_report.is_empty());
+    assert_eq!(json!(parsed.playlists.iter().map(|playlist| json!({
+        "name": playlist.name, "track_ids": playlist.tracks.iter().map(|id| id.parse::<i64>().unwrap()).collect::<Vec<_>>()
+    })).collect::<Vec<_>>()), read_json("F-02", "expected-visible.json")["playlist_tree"][0]["children"]);
     let exported = oxidj_rekordbox::export_xml(&source).unwrap();
+    assert_eq!(
+        exported, source,
+        "no-edit F-02 export must be byte-identical"
+    );
     let (archive, visible) = check_f02(&exported).unwrap();
     assert_eq!(archive, read_json("F-02", "expected-archive.json"));
     assert_eq!(visible, read_json("F-02", "expected-visible.json"));
@@ -506,6 +564,13 @@ fn a1_fixture_bytes_match_frozen_provenance_and_goldens() {
     assert_eq!(read_json("F-02", "expected-report.json"), json!([]));
 
     let source = std::fs::read(fixture("F-07", "source.bin")).unwrap();
+    let original_preflight = oxidj_rekordbox::preflight_export(&source).unwrap();
+    assert_eq!(original_preflight.selected_tracks.len(), 1);
+    assert_eq!(
+        oxidj_rekordbox::export_xml(&source).unwrap(),
+        source,
+        "no-edit F-07 export must be byte-identical"
+    );
     let request = oxidj_rekordbox::TempoEditRequest {
         track_id: "700".into(),
         tempo_index: 0,
@@ -516,6 +581,24 @@ fn a1_fixture_bytes_match_frozen_provenance_and_goldens() {
         .unwrap()
         .bytes;
     assert_ne!(exported, source);
+    let edited_preview = oxidj_rekordbox::parse(&exported).unwrap();
+    let edited_preflight = oxidj_rekordbox::preflight_export(&exported).unwrap();
+    for tracks in [&edited_preview.tracks, &edited_preflight.selected_tracks] {
+        assert_eq!(tracks.len(), 1);
+        assert_eq!(
+            production_visible_tempos(&tracks[0]),
+            read_json("F-07", "expected-visible.json")["tempo"]
+        );
+        let mark = &tracks[0].marks[0];
+        assert_eq!(
+            json!({
+                "name": mark.name, "type": mark.kind.parse::<i64>().unwrap(),
+                "start_seconds": mark.start_seconds, "num": mark.number.parse::<i64>().unwrap(),
+                "end": mark.end_seconds.as_deref().unwrap_or("absent")
+            }),
+            read_json("F-07", "expected-visible.json")["position_mark"]
+        );
+    }
     let (archive, visible) = check_f07(&source, &exported).unwrap();
     assert_eq!(archive, read_json("F-07", "expected-archive.json"));
     assert_eq!(visible, read_json("F-07", "expected-visible.json"));
@@ -526,7 +609,20 @@ fn a1_fixture_bytes_match_frozen_provenance_and_goldens() {
     assert_eq!(read_json("F-07", "expected-report.json"), json!([]));
 
     let source = std::fs::read(fixture("F-10", "source.bin")).unwrap();
+    let parsed = oxidj_rekordbox::parse(&source).unwrap();
+    let preflight = oxidj_rekordbox::preflight_export(&source).unwrap();
+    for tracks in [&parsed.tracks, &preflight.selected_tracks] {
+        assert_eq!(tracks.len(), 1);
+        assert_eq!(
+            production_visible_tempos(&tracks[0]),
+            read_json("F-10", "expected-visible.json")["tempo"]
+        );
+    }
     let exported = oxidj_rekordbox::export_xml(&source).unwrap();
+    assert_eq!(
+        exported, source,
+        "no-edit F-10 export must be byte-identical"
+    );
     let (archive, visible, plan) = check_f10(&exported).unwrap();
     assert_eq!(archive, read_json("F-10", "expected-archive.json"));
     assert_eq!(visible, read_json("F-10", "expected-visible.json"));
