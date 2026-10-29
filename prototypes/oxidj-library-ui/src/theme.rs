@@ -93,6 +93,7 @@ impl ThemeMode {
         };
         visuals.panel_fill = t.background;
         visuals.window_fill = t.surface;
+        visuals.window_stroke = Stroke::new(1.0_f32, t.border);
         visuals.extreme_bg_color = t.background;
         visuals.faint_bg_color = t.surface;
         visuals.override_text_color = Some(t.text);
@@ -107,6 +108,8 @@ impl ThemeMode {
             &mut visuals.widgets.active,
             &mut visuals.widgets.open,
         ] {
+            widget.bg_fill = t.surface;
+            widget.weak_bg_fill = t.surface;
             widget.bg_stroke.color = t.border;
             widget.fg_stroke.color = t.text;
         }
@@ -114,6 +117,8 @@ impl ThemeMode {
         visuals.widgets.hovered.bg_stroke.color = t.focus;
         visuals.widgets.active.bg_fill = t.surface;
         visuals.widgets.active.bg_stroke.color = t.focus;
+        visuals.widgets.open.bg_fill = t.surface;
+        visuals.widgets.open.bg_stroke.color = t.focus;
         ctx.set_visuals(visuals);
     }
 }
@@ -161,6 +166,34 @@ mod tests {
             assert_ne!(tokens.success, tokens.background);
             assert_ne!(tokens.warning, tokens.background);
             assert_ne!(tokens.error, tokens.background);
+        }
+    }
+
+    #[test]
+    fn applied_visuals_use_shared_surface_border_and_focus_tokens() {
+        for mode in [ThemeMode::TokyoNight, ThemeMode::TokyoDay] {
+            let ctx = egui::Context::default();
+            mode.apply(&ctx);
+            let style = ctx.style();
+            let visuals = &style.visuals;
+            let tokens = mode.tokens();
+            assert_eq!(visuals.panel_fill, tokens.background);
+            assert_eq!(visuals.window_fill, tokens.surface);
+            assert_eq!(visuals.window_stroke.color, tokens.border);
+            for widget in [
+                &visuals.widgets.noninteractive,
+                &visuals.widgets.inactive,
+                &visuals.widgets.hovered,
+                &visuals.widgets.active,
+                &visuals.widgets.open,
+            ] {
+                assert_eq!(widget.bg_fill, tokens.surface);
+                assert_eq!(widget.weak_bg_fill, tokens.surface);
+                assert_eq!(widget.fg_stroke.color, tokens.text);
+            }
+            assert_eq!(visuals.widgets.hovered.bg_stroke.color, tokens.focus);
+            assert_eq!(visuals.widgets.active.bg_stroke.color, tokens.focus);
+            assert_eq!(visuals.widgets.open.bg_stroke.color, tokens.focus);
         }
     }
 

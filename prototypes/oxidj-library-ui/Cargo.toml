@@ -7,5 +7,5 @@ publish = false
 [workspace]
 
 [dependencies]
-eframe = { version = "=0.32.3", features = ["accesskit"] }
+eframe = { version = "=0.32.3", features = ["accesskit", "persistence"] }
 oxidj-library = { path = "../../crates/oxidj-library" }
