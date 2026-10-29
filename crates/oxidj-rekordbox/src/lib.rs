@@ -1313,7 +1313,9 @@ fn validate_export_element(
         ],
         "TRACK" => &["Key"],
         "TEMPO" => &["Inizio", "Bpm", "Metro", "Battito"],
-        "POSITION_MARK" => &["Name", "Type", "Start", "Num", "End"],
+        "POSITION_MARK" => &[
+            "Name", "Type", "Start", "Num", "End", "Red", "Green", "Blue",
+        ],
         "PLAYLISTS" => &[],
         "NODE" => &["Type", "Name", "Count", "Entries", "KeyType"],
         _ => return Err(Error(format!("unsupported export element {name}"))),
