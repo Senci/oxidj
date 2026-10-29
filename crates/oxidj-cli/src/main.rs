@@ -8,6 +8,8 @@
 
 use oxidj_core::TrackId;
 use oxidj_library::Catalog;
+#[cfg(test)]
+use quick_xml as _;
 
 /// Exit code for usage / argument-shape errors.
 const USAGE: i32 = 2;

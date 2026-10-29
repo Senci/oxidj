@@ -1,7 +1,105 @@
 use oxidj_application as _;
 use oxidj_core as _;
 use oxidj_library as _;
+use quick_xml::{
+    Reader, XmlVersion,
+    events::{BytesStart, Event},
+};
 use std::{fs, process::Command, time::SystemTime};
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct DecodedElement {
+    name: String,
+    attributes: Vec<(String, String)>,
+    children: Vec<DecodedElement>,
+}
+
+fn independently_decode_xml(bytes: &[u8]) -> DecodedElement {
+    let mut reader = Reader::from_reader(bytes);
+    let mut stack: Vec<DecodedElement> = Vec::new();
+    let mut root = None;
+    loop {
+        match reader.read_event().unwrap() {
+            Event::Start(event) => stack.push(decode_element(&event, reader.decoder())),
+            Event::Empty(event) => {
+                let node = decode_element(&event, reader.decoder());
+                if let Some(parent) = stack.last_mut() {
+                    parent.children.push(node);
+                } else {
+                    root = Some(node);
+                }
+            }
+            Event::End(_) => {
+                let node = stack.pop().unwrap();
+                if let Some(parent) = stack.last_mut() {
+                    parent.children.push(node);
+                } else {
+                    root = Some(node);
+                }
+            }
+            Event::Eof => break,
+            _ => {}
+        }
+    }
+    root.unwrap()
+}
+
+fn decode_element(event: &BytesStart<'_>, decoder: quick_xml::encoding::Decoder) -> DecodedElement {
+    DecodedElement {
+        name: String::from_utf8(event.local_name().as_ref().to_vec()).unwrap(),
+        attributes: event
+            .attributes()
+            .map(|attribute| {
+                let attribute = attribute.unwrap();
+                (
+                    String::from_utf8(attribute.key.local_name().as_ref().to_vec()).unwrap(),
+                    attribute
+                        .decoded_and_normalized_value(XmlVersion::Explicit1_0, decoder)
+                        .unwrap()
+                        .into_owned(),
+                )
+            })
+            .collect(),
+        children: Vec::new(),
+    }
+}
+
+fn assert_only_frozen_f07_bpm_edit(source: &[u8], output: &[u8]) {
+    let mut expected = independently_decode_xml(source);
+    let actual = independently_decode_xml(output);
+    let collection = expected
+        .children
+        .iter_mut()
+        .find(|node| node.name == "COLLECTION")
+        .unwrap();
+    let track = collection
+        .children
+        .iter_mut()
+        .find(|node| node.name == "TRACK")
+        .unwrap();
+    assert_eq!(
+        track
+            .attributes
+            .iter()
+            .find(|(name, _)| name == "TrackID")
+            .unwrap()
+            .1,
+        "700"
+    );
+    let tempo = track
+        .children
+        .iter_mut()
+        .find(|node| node.name == "TEMPO")
+        .unwrap();
+    let bpm = tempo
+        .attributes
+        .iter_mut()
+        .find(|(name, _)| name == "Bpm")
+        .unwrap();
+    assert_eq!(bpm.1, "120");
+    bpm.1 = "125".to_owned();
+    assert_eq!(actual, expected, "decoded output changed beyond target BPM");
+}
 
 #[test]
 fn export_no_edit_is_byte_identical_for_frozen_a1_sources() {
@@ -1262,11 +1360,7 @@ fn tempo_edit_exports_one_bpm_change_and_preserves_all_other_source_bytes() {
         "{}",
         String::from_utf8_lossy(&result.stderr)
     );
-    let expected =
-        String::from_utf8(source.clone())
-            .unwrap()
-            .replacen("Bpm=\"120\"", "Bpm=\"125\"", 1);
-    assert_eq!(fs::read_to_string(&output).unwrap(), expected);
+    assert_only_frozen_f07_bpm_edit(&source, &fs::read(&output).unwrap());
     assert_eq!(fs::read(&input).unwrap(), source);
     let _ = fs::remove_file(input);
     let _ = fs::remove_file(output);

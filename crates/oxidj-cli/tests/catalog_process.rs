@@ -1,6 +1,7 @@
 use oxidj_application as _;
 use oxidj_core as _;
 use oxidj_library::Catalog;
+use quick_xml as _;
 use std::process::{Command, Output};
 use std::time::{SystemTime, UNIX_EPOCH};
 

@@ -166,6 +166,7 @@ dependencies = [
  "oxidj-application",
  "oxidj-core",
  "oxidj-library",
+ "quick-xml",
 ]
 
 [[package]]
