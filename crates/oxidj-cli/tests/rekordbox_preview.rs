@@ -101,6 +101,55 @@ fn assert_only_frozen_f07_bpm_edit(source: &[u8], output: &[u8]) {
     assert_eq!(actual, expected, "decoded output changed beyond target BPM");
 }
 
+fn assert_only_frozen_f07_battito_edit(source: &[u8], output: &[u8]) {
+    let mut expected = independently_decode_xml(source);
+    let actual = independently_decode_xml(output);
+    let track = expected
+        .children
+        .iter_mut()
+        .find(|node| node.name == "COLLECTION")
+        .unwrap()
+        .children
+        .iter_mut()
+        .find(|node| node.name == "TRACK")
+        .unwrap();
+    assert_eq!(
+        track
+            .attributes
+            .iter()
+            .find(|(name, _)| name == "TrackID")
+            .unwrap()
+            .1,
+        "700"
+    );
+    let mut tempos: Vec<_> = track
+        .children
+        .iter_mut()
+        .filter(|node| node.name == "TEMPO")
+        .collect();
+    assert_eq!(tempos.len(), 2);
+    let battito = tempos[0]
+        .attributes
+        .iter_mut()
+        .find(|(name, _)| name == "Battito")
+        .unwrap();
+    assert_eq!(battito.1, "1");
+    battito.1 = "2".to_owned();
+    assert_eq!(
+        tempos[1]
+            .attributes
+            .iter()
+            .find(|(name, _)| name == "Battito")
+            .unwrap()
+            .1,
+        "1"
+    );
+    assert_eq!(
+        actual, expected,
+        "decoded CLI output changed beyond target Battito"
+    );
+}
+
 fn assert_only_frozen_f07_end_edit(source: &[u8], output: &[u8]) {
     let mut expected = independently_decode_xml(source);
     let actual = independently_decode_xml(output);
@@ -1593,17 +1642,7 @@ fn tempo_beat_edit_exports_one_guarded_battito_change_without_other_mutation() {
             .as_bytes(),
         "CLI output must change only the selected Battito source bytes"
     );
-    // The independent quick-xml whole-tree oracle is exercised by xtask's
-    // f07_tempo_battito_edit_oracle integration test; pin the CLI export to
-    // the same frozen fixture and intended target value here.
-    let exported_text = String::from_utf8_lossy(&exported);
-    let tempos: Vec<_> = exported_text
-        .split("<TEMPO ")
-        .skip(1)
-        .map(|tempo| tempo.split_once("/>").unwrap().0)
-        .collect();
-    assert!(tempos[0].contains("Battito=\"2\""));
-    assert!(tempos[1].contains("Battito=\"1\""));
+    assert_only_frozen_f07_battito_edit(&source, &exported);
     assert_eq!(fs::read(&input).unwrap(), source);
 
     let existing = temporary_path("tempo-beat-existing");
