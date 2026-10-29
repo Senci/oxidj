@@ -100,11 +100,17 @@ impl eframe::App for LibraryApp {
                     self.reload();
                 }
             });
-            ui.horizontal(|ui| {
+            ui.horizontal_wrapped(|ui| {
                 ui.label("Search");
-                ui.text_edit_singleline(&mut self.search);
+                ui.add_sized(
+                    [ui.available_width().min(160.0), 24.0],
+                    egui::TextEdit::singleline(&mut self.search).hint_text("Filter tracks"),
+                );
                 ui.label("Import folder");
-                ui.text_edit_singleline(&mut self.import_root);
+                ui.add_sized(
+                    [ui.available_width().min(200.0), 24.0],
+                    egui::TextEdit::singleline(&mut self.import_root).hint_text("Folder path"),
+                );
                 if ui.button("Import references").clicked() {
                     self.import();
                 }
