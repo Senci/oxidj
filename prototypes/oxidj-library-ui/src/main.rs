@@ -2,6 +2,9 @@ use eframe::egui;
 use oxidj_library::{Catalog, TrackAvailability, TrackDetails};
 use std::path::PathBuf;
 
+mod theme;
+use theme::ThemeMode;
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Sort {
     Id,
@@ -19,9 +22,10 @@ struct LibraryApp {
     sort: Sort,
     descending: bool,
     notice: String,
+    theme: ThemeMode,
 }
 impl LibraryApp {
-    fn new(db_path: PathBuf) -> Self {
+    fn new(db_path: PathBuf, theme: ThemeMode) -> Self {
         let catalog = Catalog::open(&db_path).map_err(|e| e.to_string());
         let mut app = Self {
             db_path,
@@ -34,6 +38,7 @@ impl LibraryApp {
             sort: Sort::Id,
             descending: false,
             notice: String::new(),
+            theme,
         };
         app.reload();
         app
@@ -71,9 +76,23 @@ impl LibraryApp {
     }
 }
 impl eframe::App for LibraryApp {
+    fn save(&mut self, storage: &mut dyn eframe::Storage) {
+        self.theme.save(storage);
+    }
+
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        self.theme.apply(ctx);
         egui::TopBottomPanel::top("toolbar").show(ctx, |ui| {
             ui.heading("OxiDJ · Local Library");
+            ui.horizontal(|ui| {
+                ui.label("Theme");
+                egui::ComboBox::from_id_salt("theme-selection")
+                    .selected_text(self.theme.label())
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(&mut self.theme, ThemeMode::TokyoNight, "Tokyo Night");
+                        ui.selectable_value(&mut self.theme, ThemeMode::TokyoDay, "Tokyo Day");
+                    });
+            });
             ui.horizontal(|ui| {
                 ui.label("Catalog:");
                 ui.monospace(self.db_path.display().to_string());
@@ -91,7 +110,17 @@ impl eframe::App for LibraryApp {
                 }
             });
             if !self.notice.is_empty() {
-                ui.label(&self.notice);
+                let tokens = self.theme.tokens();
+                let color = if self.notice.starts_with("Import failed:")
+                    || self.notice.starts_with("Catalog unavailable:")
+                {
+                    tokens.error
+                } else if self.notice.contains("incomplete") {
+                    tokens.warning
+                } else {
+                    tokens.success
+                };
+                ui.colored_label(color, &self.notice);
             }
         });
         egui::SidePanel::right("details")
@@ -134,7 +163,16 @@ impl eframe::App for LibraryApp {
                                 .unwrap_or_else(|| "Unavailable".into())
                         ));
                         ui.label(format!("Size: {} bytes", item.track.byte_length));
-                        ui.label(format!("Availability: {:?}", item.availability));
+                        let availability = match item.availability {
+                            TrackAvailability::Available => {
+                                ("Available", self.theme.tokens().success)
+                            }
+                            TrackAvailability::Missing => ("Missing", self.theme.tokens().warning),
+                        };
+                        ui.colored_label(
+                            availability.1,
+                            format!("Availability: {}", availability.0),
+                        );
                         ui.monospace(format!(
                             "SHA-256: {}",
                             item.track
@@ -152,7 +190,7 @@ impl eframe::App for LibraryApp {
             });
         egui::CentralPanel::default().show(ctx, |ui| {
             if let Some(error) = &self.load_error {
-                ui.colored_label(egui::Color32::RED, format!("Catalog error: {error}"));
+                ui.colored_label(self.theme.tokens().error, format!("Catalog error: {error}"));
                 return;
             }
             ui.horizontal(|ui| {
@@ -258,10 +296,13 @@ impl eframe::App for LibraryApp {
                             (Some(r), Some(c), Some(b)) => format!("{r} Hz · {c} ch · {b} bit"),
                             _ => "Facts unavailable".into(),
                         });
-                        ui.label(match item.availability {
-                            TrackAvailability::Available => "Available",
-                            TrackAvailability::Missing => "Missing",
-                        });
+                        let (availability, color) = match item.availability {
+                            TrackAvailability::Available => {
+                                ("Available", self.theme.tokens().success)
+                            }
+                            TrackAvailability::Missing => ("Missing", self.theme.tokens().warning),
+                        };
+                        ui.colored_label(color, availability);
                         ui.end_row();
                     }
                 });
@@ -280,7 +321,8 @@ fn main() -> eframe::Result<()> {
         eframe::NativeOptions::default(),
         Box::new(move |cc| {
             cc.egui_ctx.enable_accesskit();
-            Ok(Box::new(LibraryApp::new(db)))
+            let theme = ThemeMode::load(cc.storage);
+            Ok(Box::new(LibraryApp::new(db, theme)))
         }),
     )
 }
