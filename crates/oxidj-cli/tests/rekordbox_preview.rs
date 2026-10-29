@@ -64,6 +64,55 @@ fn decode_element(event: &BytesStart<'_>, decoder: quick_xml::encoding::Decoder)
     }
 }
 
+fn assert_only_frozen_f07_metro_edit(source: &[u8], output: &[u8]) {
+    let mut expected = independently_decode_xml(source);
+    let actual = independently_decode_xml(output);
+    let track = expected
+        .children
+        .iter_mut()
+        .find(|node| node.name == "COLLECTION")
+        .unwrap()
+        .children
+        .iter_mut()
+        .find(|node| node.name == "TRACK")
+        .unwrap();
+    assert_eq!(
+        track
+            .attributes
+            .iter()
+            .find(|(name, _)| name == "TrackID")
+            .unwrap()
+            .1,
+        "700"
+    );
+    let mut tempos: Vec<_> = track
+        .children
+        .iter_mut()
+        .filter(|node| node.name == "TEMPO")
+        .collect();
+    assert_eq!(tempos.len(), 2);
+    let metro = tempos[0]
+        .attributes
+        .iter_mut()
+        .find(|(name, _)| name == "Metro")
+        .unwrap();
+    assert_eq!(metro.1, "4/4");
+    metro.1 = "3/4".to_owned();
+    assert_eq!(
+        tempos[1]
+            .attributes
+            .iter()
+            .find(|(name, _)| name == "Metro")
+            .unwrap()
+            .1,
+        "4/4"
+    );
+    assert_eq!(
+        actual, expected,
+        "decoded CLI output changed beyond target Metro"
+    );
+}
+
 fn assert_only_frozen_f07_bpm_edit(source: &[u8], output: &[u8]) {
     let mut expected = independently_decode_xml(source);
     let actual = independently_decode_xml(output);
@@ -1739,7 +1788,11 @@ fn tempo_meter_edit_exports_one_guarded_raw_metro_change_without_other_mutation(
         String::from_utf8(source.clone())
             .unwrap()
             .replacen("Metro=\"4/4\"", "Metro=\"3/4\"", 1);
-    assert_eq!(fs::read(&output).unwrap(), expected.as_bytes());
+    let exported = fs::read(&output).unwrap();
+    assert_eq!(exported, expected.as_bytes());
+    // Independently decode the actual CLI artifact and prove the complete XML
+    // tree differs only at TrackID 700, TEMPO ordinal 0, Metro.
+    assert_only_frozen_f07_metro_edit(&source, &exported);
     assert_eq!(fs::read(&input).unwrap(), source);
 
     let existing = temporary_path("tempo-meter-existing");
