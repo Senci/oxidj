@@ -23,9 +23,11 @@ struct LibraryApp {
     descending: bool,
     notice: String,
     theme: ThemeMode,
+    custom_tokens: theme::ColorTokens,
+    show_theme_editor: bool,
 }
 impl LibraryApp {
-    fn new(db_path: PathBuf, theme: ThemeMode) -> Self {
+    fn new(db_path: PathBuf, theme: ThemeMode, custom_tokens: theme::ColorTokens) -> Self {
         let catalog = Catalog::open(&db_path).map_err(|e| e.to_string());
         let mut app = Self {
             db_path,
@@ -39,10 +41,20 @@ impl LibraryApp {
             descending: false,
             notice: String::new(),
             theme,
+            custom_tokens,
+            show_theme_editor: false,
         };
         app.reload();
         app
     }
+    fn active_tokens(&self) -> theme::ColorTokens {
+        if self.theme == ThemeMode::Custom {
+            self.custom_tokens
+        } else {
+            self.theme.tokens()
+        }
+    }
+
     fn reload(&mut self) {
         self.tracks.clear();
         self.load_error = None;
@@ -77,11 +89,12 @@ impl LibraryApp {
 }
 impl eframe::App for LibraryApp {
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
-        self.theme.save(storage);
+        self.theme.save(self.custom_tokens, storage);
     }
 
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        self.theme.apply(ctx);
+        self.theme.apply(self.custom_tokens, ctx);
+        let tokens = self.active_tokens();
         egui::TopBottomPanel::top("toolbar").show(ctx, |ui| {
             ui.heading("OxiDJ · Local Library");
             ui.horizontal(|ui| {
@@ -89,10 +102,46 @@ impl eframe::App for LibraryApp {
                 egui::ComboBox::from_id_salt("theme-selection")
                     .selected_text(self.theme.label())
                     .show_ui(ui, |ui| {
+                        let previous = self.theme;
                         ui.selectable_value(&mut self.theme, ThemeMode::TokyoNight, "Tokyo Night");
                         ui.selectable_value(&mut self.theme, ThemeMode::TokyoDay, "Tokyo Day");
+                        ui.selectable_value(&mut self.theme, ThemeMode::Custom, "Custom");
+                        if self.theme == ThemeMode::Custom && previous != ThemeMode::Custom {
+                            self.custom_tokens = previous.tokens();
+                        }
                     });
+                if self.theme == ThemeMode::Custom {
+                    if ui.button("Edit palette…").clicked() {
+                        self.show_theme_editor = true;
+                    }
+                }
             });
+            if self.show_theme_editor {
+                egui::Window::new("Custom palette")
+                    .open(&mut self.show_theme_editor)
+                    .show(ctx, |ui| {
+                        ui.label("Semantic colors");
+                        edit_color(ui, "Background", &mut self.custom_tokens.background);
+                        edit_color(ui, "Surface", &mut self.custom_tokens.surface);
+                        edit_color(ui, "Text", &mut self.custom_tokens.text);
+                        edit_color(ui, "Muted text", &mut self.custom_tokens.muted_text);
+                        edit_color(ui, "Primary", &mut self.custom_tokens.primary);
+                        edit_color(ui, "Secondary", &mut self.custom_tokens.secondary);
+                        edit_color(ui, "Border", &mut self.custom_tokens.border);
+                        edit_color(ui, "Focus", &mut self.custom_tokens.focus);
+                        edit_color(ui, "Success", &mut self.custom_tokens.success);
+                        edit_color(ui, "Warning", &mut self.custom_tokens.warning);
+                        edit_color(ui, "Error", &mut self.custom_tokens.error);
+                        ui.horizontal(|ui| {
+                            if ui.button("Reset to Tokyo Night").clicked() {
+                                self.custom_tokens = ThemeMode::TokyoNight.tokens();
+                            }
+                            if ui.button("Reset to Tokyo Day").clicked() {
+                                self.custom_tokens = ThemeMode::TokyoDay.tokens();
+                            }
+                        });
+                    });
+            }
             ui.horizontal(|ui| {
                 ui.label("Catalog:");
                 ui.monospace(self.db_path.display().to_string());
@@ -116,7 +165,6 @@ impl eframe::App for LibraryApp {
                 }
             });
             if !self.notice.is_empty() {
-                let tokens = self.theme.tokens();
                 let color = if self.notice.starts_with("Import failed:")
                     || self.notice.starts_with("Catalog unavailable:")
                 {
@@ -170,10 +218,8 @@ impl eframe::App for LibraryApp {
                         ));
                         ui.label(format!("Size: {} bytes", item.track.byte_length));
                         let availability = match item.availability {
-                            TrackAvailability::Available => {
-                                ("Available", self.theme.tokens().success)
-                            }
-                            TrackAvailability::Missing => ("Missing", self.theme.tokens().warning),
+                            TrackAvailability::Available => ("Available", tokens.success),
+                            TrackAvailability::Missing => ("Missing", tokens.warning),
                         };
                         ui.colored_label(
                             availability.1,
@@ -196,7 +242,7 @@ impl eframe::App for LibraryApp {
             });
         egui::CentralPanel::default().show(ctx, |ui| {
             if let Some(error) = &self.load_error {
-                ui.colored_label(self.theme.tokens().error, format!("Catalog error: {error}"));
+                ui.colored_label(tokens.error, format!("Catalog error: {error}"));
                 return;
             }
             ui.horizontal(|ui| {
@@ -303,10 +349,8 @@ impl eframe::App for LibraryApp {
                             _ => "Facts unavailable".into(),
                         });
                         let (availability, color) = match item.availability {
-                            TrackAvailability::Available => {
-                                ("Available", self.theme.tokens().success)
-                            }
-                            TrackAvailability::Missing => ("Missing", self.theme.tokens().warning),
+                            TrackAvailability::Available => ("Available", tokens.success),
+                            TrackAvailability::Missing => ("Missing", tokens.warning),
                         };
                         ui.colored_label(color, availability);
                         ui.end_row();
@@ -316,6 +360,13 @@ impl eframe::App for LibraryApp {
         });
     }
 }
+fn edit_color(ui: &mut egui::Ui, label: &str, color: &mut egui::Color32) {
+    ui.horizontal(|ui| {
+        ui.label(label);
+        ui.color_edit_button_srgba(color);
+    });
+}
+
 fn main() -> eframe::Result<()> {
     let mut args = std::env::args().skip(1);
     let db = match (args.next().as_deref(), args.next()) {
@@ -327,8 +378,8 @@ fn main() -> eframe::Result<()> {
         eframe::NativeOptions::default(),
         Box::new(move |cc| {
             cc.egui_ctx.enable_accesskit();
-            let theme = ThemeMode::load(cc.storage);
-            Ok(Box::new(LibraryApp::new(db, theme)))
+            let (theme, custom_tokens) = ThemeMode::load(cc.storage);
+            Ok(Box::new(LibraryApp::new(db, theme, custom_tokens)))
         }),
     )
 }

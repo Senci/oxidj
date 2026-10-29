@@ -1,12 +1,14 @@
 use eframe::egui::{self, Color32, Stroke, Visuals};
 
 const THEME_KEY: &str = "ui_theme";
+const CUSTOM_KEY: &str = "ui_custom_tokens";
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum ThemeMode {
     #[default]
     TokyoNight,
     TokyoDay,
+    Custom,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -53,6 +55,7 @@ impl ThemeMode {
                 warning: Color32::from_rgb(0x8c, 0x6c, 0x3d),
                 error: Color32::from_rgb(0xc6, 0x43, 0x43),
             },
+            Self::Custom => Self::TokyoNight.tokens(),
         }
     }
 
@@ -60,6 +63,7 @@ impl ThemeMode {
         match self {
             Self::TokyoNight => "Tokyo Night",
             Self::TokyoDay => "Tokyo Day",
+            Self::Custom => "Custom",
         }
     }
 
@@ -67,29 +71,41 @@ impl ThemeMode {
         match self {
             Self::TokyoNight => "tokyo-night",
             Self::TokyoDay => "tokyo-day",
+            Self::Custom => "custom",
         }
     }
 
     fn from_persisted(value: Option<&str>) -> Self {
         match value {
             Some("tokyo-day") => Self::TokyoDay,
+            Some("custom") => Self::Custom,
             _ => Self::TokyoNight,
         }
     }
 
-    pub fn load(storage: Option<&dyn eframe::Storage>) -> Self {
-        Self::from_persisted(storage.and_then(|s| s.get_string(THEME_KEY)).as_deref())
+    pub fn load(storage: Option<&dyn eframe::Storage>) -> (Self, ColorTokens) {
+        let mode = Self::from_persisted(storage.and_then(|s| s.get_string(THEME_KEY)).as_deref());
+        let tokens = storage
+            .and_then(|s| s.get_string(CUSTOM_KEY))
+            .and_then(|raw| ColorTokens::decode(&raw))
+            .unwrap_or_else(|| Self::TokyoNight.tokens());
+        (mode, tokens)
     }
 
-    pub fn save(self, storage: &mut dyn eframe::Storage) {
+    pub fn save(self, tokens: ColorTokens, storage: &mut dyn eframe::Storage) {
         storage.set_string(THEME_KEY, self.persisted_name().to_owned());
+        storage.set_string(CUSTOM_KEY, tokens.encode());
     }
 
-    pub fn apply(self, ctx: &egui::Context) {
-        let t = self.tokens();
+    pub fn apply(self, tokens: ColorTokens, ctx: &egui::Context) {
+        let t = if self == Self::Custom {
+            tokens
+        } else {
+            self.tokens()
+        };
         let mut visuals = match self {
-            Self::TokyoNight => Visuals::dark(),
             Self::TokyoDay => Visuals::light(),
+            Self::TokyoNight | Self::Custom => Visuals::dark(),
         };
         visuals.panel_fill = t.background;
         visuals.window_fill = t.surface;
@@ -120,6 +136,62 @@ impl ThemeMode {
         visuals.widgets.open.bg_fill = t.surface;
         visuals.widgets.open.bg_stroke.color = t.focus;
         ctx.set_visuals(visuals);
+    }
+}
+
+impl ColorTokens {
+    fn encode(self) -> String {
+        self.as_array()
+            .iter()
+            .map(|c| format!("{:02x}{:02x}{:02x}", c.r(), c.g(), c.b()))
+            .collect::<Vec<_>>()
+            .join(",")
+    }
+    fn decode(raw: &str) -> Option<Self> {
+        let values: Vec<Color32> = raw
+            .split(',')
+            .map(|part| {
+                if part.len() != 6 {
+                    return None;
+                }
+                Some(Color32::from_rgb(
+                    u8::from_str_radix(&part[0..2], 16).ok()?,
+                    u8::from_str_radix(&part[2..4], 16).ok()?,
+                    u8::from_str_radix(&part[4..6], 16).ok()?,
+                ))
+            })
+            .collect::<Option<_>>()?;
+        if values.len() != 11 {
+            return None;
+        }
+        Some(Self {
+            background: values[0],
+            surface: values[1],
+            text: values[2],
+            muted_text: values[3],
+            primary: values[4],
+            secondary: values[5],
+            border: values[6],
+            focus: values[7],
+            success: values[8],
+            warning: values[9],
+            error: values[10],
+        })
+    }
+    fn as_array(self) -> [Color32; 11] {
+        [
+            self.background,
+            self.surface,
+            self.text,
+            self.muted_text,
+            self.primary,
+            self.secondary,
+            self.border,
+            self.focus,
+            self.success,
+            self.warning,
+            self.error,
+        ]
     }
 }
 
@@ -173,7 +245,7 @@ mod tests {
     fn applied_visuals_use_shared_surface_border_and_focus_tokens() {
         for mode in [ThemeMode::TokyoNight, ThemeMode::TokyoDay] {
             let ctx = egui::Context::default();
-            mode.apply(&ctx);
+            mode.apply(mode.tokens(), &ctx);
             let style = ctx.style();
             let visuals = &style.visuals;
             let tokens = mode.tokens();
@@ -200,12 +272,42 @@ mod tests {
     #[test]
     fn theme_selection_round_trips_through_persistent_storage() {
         let mut storage = MemoryStorage::default();
-        ThemeMode::TokyoDay.save(&mut storage);
-        assert_eq!(ThemeMode::load(Some(&storage)), ThemeMode::TokyoDay);
-        assert_eq!(ThemeMode::load(None), ThemeMode::TokyoNight);
+        let custom = ThemeMode::TokyoNight.tokens();
+        ThemeMode::TokyoDay.save(custom, &mut storage);
+        assert_eq!(
+            ThemeMode::load(Some(&storage)),
+            (ThemeMode::TokyoDay, custom)
+        );
+        assert_eq!(
+            ThemeMode::load(None),
+            (ThemeMode::TokyoNight, ThemeMode::TokyoNight.tokens())
+        );
         assert_eq!(
             ThemeMode::from_persisted(Some("unknown")),
             ThemeMode::TokyoNight
         );
+    }
+
+    #[test]
+    fn edited_custom_palette_persists_and_can_reset_to_either_preset() {
+        let mut storage = MemoryStorage::default();
+        let mut edited = ThemeMode::TokyoNight.tokens();
+        edited.primary = Color32::from_rgb(0x12, 0x34, 0x56);
+        ThemeMode::Custom.save(edited, &mut storage);
+        assert_eq!(ThemeMode::load(Some(&storage)), (ThemeMode::Custom, edited));
+        assert_eq!(
+            ThemeMode::TokyoNight.tokens(),
+            ThemeMode::default().tokens()
+        );
+        assert_ne!(edited, ThemeMode::TokyoNight.tokens());
+        assert_ne!(ThemeMode::TokyoDay.tokens(), ThemeMode::TokyoNight.tokens());
+    }
+
+    #[test]
+    fn custom_token_encoding_round_trips_and_rejects_invalid_data() {
+        let mut custom = ThemeMode::TokyoNight.tokens();
+        custom.primary = Color32::from_rgb(1, 2, 3);
+        assert_eq!(ColorTokens::decode(&custom.encode()), Some(custom));
+        assert_eq!(ColorTokens::decode("invalid"), None);
     }
 }
