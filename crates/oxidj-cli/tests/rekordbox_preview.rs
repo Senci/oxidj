@@ -101,6 +101,61 @@ fn assert_only_frozen_f07_bpm_edit(source: &[u8], output: &[u8]) {
     assert_eq!(actual, expected, "decoded output changed beyond target BPM");
 }
 
+fn assert_only_frozen_f07_end_edit(source: &[u8], output: &[u8]) {
+    let mut expected = independently_decode_xml(source);
+    let actual = independently_decode_xml(output);
+    let collection = expected
+        .children
+        .iter_mut()
+        .find(|node| node.name == "COLLECTION")
+        .unwrap();
+    let track = collection
+        .children
+        .iter_mut()
+        .find(|node| node.name == "TRACK")
+        .unwrap();
+    assert_eq!(
+        track
+            .attributes
+            .iter()
+            .find(|(name, _)| name == "TrackID")
+            .unwrap()
+            .1,
+        "700"
+    );
+    let mut marks: Vec<_> = track
+        .children
+        .iter_mut()
+        .filter(|node| node.name == "POSITION_MARK")
+        .collect();
+    assert_eq!(marks.len(), 2, "fixture must contain exactly two marks");
+    assert_eq!(
+        marks[0]
+            .attributes
+            .iter()
+            .find(|(name, _)| name == "End")
+            .unwrap()
+            .1,
+        "10"
+    );
+    assert_eq!(
+        marks[1]
+            .attributes
+            .iter()
+            .find(|(name, _)| name == "End")
+            .unwrap()
+            .1,
+        "0"
+    );
+    marks[0]
+        .attributes
+        .iter_mut()
+        .find(|(name, _)| name == "End")
+        .unwrap()
+        .1 = "12.5".to_owned();
+    assert_eq!(actual, expected, "decoded output changed beyond target End");
+}
+
 #[test]
 fn export_no_edit_is_byte_identical_for_frozen_a1_sources() {
     for case in ["F-02", "F-07", "F-10"] {
@@ -1973,13 +2028,10 @@ fn edit_mark_name_targets_nonzero_ordinal_exactly() {
 #[test]
 fn position_mark_end_edit_exports_one_guarded_end_and_refuses_unsafe_edits() {
     let fixture = format!(
-        "{}/../../xtask/tests/fixtures/rekordbox-a1/F-07/source.bin",
+        "{}/../../xtask/tests/fixtures/f07-position-mark-start-edit/source.xml",
         env!("CARGO_MANIFEST_DIR")
     );
-    let source = fs::read_to_string(&fixture).unwrap().replace(
-        "Type=\"0\" Start=\"5\" Num=\"0\"",
-        "Type=\"4\" Start=\"5\" End=\"10\" Num=\"0\"",
-    );
+    let source = fs::read(&fixture).unwrap();
     let input = temporary_path("end-edit-input");
     let output = temporary_path("end-edit-output");
     fs::write(&input, &source).unwrap();
@@ -2011,13 +2063,11 @@ fn position_mark_end_edit_exports_one_guarded_end_and_refuses_unsafe_edits() {
         "{}",
         String::from_utf8_lossy(&success.stderr)
     );
-    assert_eq!(
-        fs::read(&output).unwrap(),
-        source.replace("End=\"10\"", "End=\"12.5\"").as_bytes()
-    );
-    assert_eq!(fs::read(&input).unwrap(), source.as_bytes());
+    assert_only_frozen_f07_end_edit(&source, &fs::read(&output).unwrap());
+    assert_eq!(fs::read(&input).unwrap(), source);
     let existing = temporary_path("end-edit-existing");
     fs::write(&existing, b"keep").unwrap();
+    let source = String::from_utf8(source).unwrap();
     for (dest, old, new, index, payload) in [
         (&existing, "10", "13", "0", source.clone()),
         (&input, "10", "13", "0", source.clone()),
