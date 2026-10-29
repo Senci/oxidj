@@ -3,6 +3,11 @@ use oxidj_rekordbox::{PositionMarkEditRequest, prepare_position_mark_edit};
 use quick_xml::{Reader, XmlVersion, events::Event};
 use serde_json as _;
 use sha2 as _;
+use std::{
+    fs,
+    process::Command,
+    time::{SystemTime, UNIX_EPOCH},
+};
 const SOURCE: &[u8] = include_bytes!("fixtures/f07-position-mark-start-edit/source.xml");
 #[derive(Debug, PartialEq, Eq)]
 struct N {
@@ -141,18 +146,77 @@ fn check(bytes: &[u8]) -> Result<(), String> {
     }
     Ok(())
 }
+fn run_cli(
+    input: &std::path::Path,
+    output: &std::path::Path,
+    index: &str,
+    old: &str,
+    new: &str,
+) -> std::process::Output {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap();
+    Command::new("cargo")
+        .current_dir(root)
+        .args([
+            "run",
+            "--offline",
+            "-p",
+            "oxidj-cli",
+            "--",
+            "rekordbox",
+            "edit-position",
+            "--xml",
+        ])
+        .arg(input)
+        .args(["--output"])
+        .arg(output)
+        .args([
+            "--track-id",
+            "700",
+            "--mark-index",
+            index,
+            "--expected-start",
+            old,
+            "--start",
+            new,
+        ])
+        .output()
+        .expect("run user-facing OxiDJ CLI")
+}
+
 #[test]
 fn independently_verifies_guarded_start_edit_and_rejects_mutations() {
     let frozen = SOURCE.to_vec();
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let dir = std::env::temp_dir().join(format!("f07-cli-oracle-{}-{nonce}", std::process::id()));
+    fs::create_dir(&dir).unwrap();
+    let input = dir.join("source.xml");
+    let output_path = dir.join("edited.xml");
+    fs::write(&input, SOURCE).unwrap();
+    let cli = run_cli(&input, &output_path, "0", "5", "6");
+    assert_eq!(
+        cli.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&cli.stderr)
+    );
+    let output = fs::read(&output_path).unwrap();
+    assert_eq!(SOURCE, frozen.as_slice());
+    assert_eq!(fs::read(&input).unwrap(), frozen);
+    check(&output).unwrap();
+    let _ = fs::remove_dir_all(&dir);
     let req = PositionMarkEditRequest {
         track_id: "700".into(),
         mark_index: 0,
         expected_old_start_seconds: "5".into(),
         new_start_seconds: "6".into(),
     };
-    let output = prepare_position_mark_edit(SOURCE, &req).unwrap().bytes;
-    assert_eq!(SOURCE, frozen.as_slice());
-    check(&output).unwrap();
+    let adapter_output = prepare_position_mark_edit(SOURCE, &req).unwrap().bytes;
+    check(&adapter_output).unwrap();
     let edited_other =
         String::from_utf8(output.clone())
             .unwrap()
