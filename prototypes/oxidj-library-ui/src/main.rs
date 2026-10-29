@@ -134,10 +134,12 @@ impl eframe::App for LibraryApp {
                         edit_color(ui, "Error", &mut self.custom_tokens.error);
                         ui.horizontal(|ui| {
                             if ui.button("Reset to Tokyo Night").clicked() {
-                                self.custom_tokens = ThemeMode::TokyoNight.tokens();
+                                self.custom_tokens =
+                                    ThemeMode::reset_custom_tokens(ThemeMode::TokyoNight);
                             }
                             if ui.button("Reset to Tokyo Day").clicked() {
-                                self.custom_tokens = ThemeMode::TokyoDay.tokens();
+                                self.custom_tokens =
+                                    ThemeMode::reset_custom_tokens(ThemeMode::TokyoDay);
                             }
                         });
                     });

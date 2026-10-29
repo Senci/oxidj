@@ -59,6 +59,14 @@ impl ThemeMode {
         }
     }
 
+    /// Replace custom tokens with the selected Tokyo preset.
+    pub fn reset_custom_tokens(preset: Self) -> ColorTokens {
+        match preset {
+            Self::TokyoNight | Self::TokyoDay => preset.tokens(),
+            Self::Custom => Self::TokyoNight.tokens(),
+        }
+    }
+
     pub fn label(self) -> &'static str {
         match self {
             Self::TokyoNight => "Tokyo Night",
@@ -301,6 +309,23 @@ mod tests {
         );
         assert_ne!(edited, ThemeMode::TokyoNight.tokens());
         assert_ne!(ThemeMode::TokyoDay.tokens(), ThemeMode::TokyoNight.tokens());
+    }
+
+    #[test]
+    fn edited_custom_palette_can_reset_to_each_preset() {
+        let mut edited_night = ThemeMode::TokyoNight.tokens();
+        edited_night.primary = Color32::from_rgb(0x12, 0x34, 0x56);
+        edited_night.background = Color32::from_rgb(0x65, 0x43, 0x21);
+        assert_ne!(edited_night, ThemeMode::TokyoNight.tokens());
+        let reset_night = ThemeMode::reset_custom_tokens(ThemeMode::TokyoNight);
+        assert_eq!(reset_night, ThemeMode::TokyoNight.tokens());
+
+        let mut edited_day = ThemeMode::TokyoNight.tokens();
+        edited_day.primary = Color32::from_rgb(0x12, 0x34, 0x56);
+        edited_day.background = Color32::from_rgb(0x65, 0x43, 0x21);
+        assert_ne!(edited_day, ThemeMode::TokyoDay.tokens());
+        let reset_day = ThemeMode::reset_custom_tokens(ThemeMode::TokyoDay);
+        assert_eq!(reset_day, ThemeMode::TokyoDay.tokens());
     }
 
     #[test]
