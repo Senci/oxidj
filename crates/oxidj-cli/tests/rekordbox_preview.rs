@@ -1448,7 +1448,7 @@ fn tempo_start_edit_exports_one_guarded_inizio_change_and_preserves_source() {
             "--expected-start",
             "10",
             "--start",
-            "12.5",
+            "11",
         ])
         .output()
         .expect("run CLI");
@@ -1459,10 +1459,12 @@ fn tempo_start_edit_exports_one_guarded_inizio_change_and_preserves_source() {
         "{}",
         String::from_utf8_lossy(&result.stderr)
     );
+    // Bind the user-facing CLI output to the same frozen A1 state and expected
+    // one-field tree change checked independently by the F-09 oracle.
     let expected =
         String::from_utf8(source.clone())
             .unwrap()
-            .replacen("Inizio=\"10\"", "Inizio=\"12.5\"", 1);
+            .replacen("Inizio=\"10\"", "Inizio=\"11\"", 1);
     assert_eq!(fs::read(&output).unwrap(), expected.as_bytes());
     assert_eq!(fs::read(&input).unwrap(), source);
 
