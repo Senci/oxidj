@@ -688,7 +688,7 @@
       "checker": {
         "path": "xtask/tests/f07_position_mark_start_edit_oracle.rs",
         "version": "f09-operation-oracle-v1",
-        "sha256": "9ad8d1153e27cf97cb407840eb87bc52b8ab4c083144a66769cebee4a3c583ba",
+        "sha256": "7db4d77c37de83f6870d15748c23d55f5d51705960c29b6831d07561956fb9ef",
         "tests": [
           "independently_verifies_guarded_start_edit_and_rejects_mutations"
         ]
@@ -934,7 +934,7 @@
     },
     "xtask/tests/fixtures/rekordbox-a1/F-02/provenance.json": {
       "length_bytes": 1768,
-      "sha256": "5ad5b7d4f935d22a8a2122ae748d6fa0a53baaaa79658fd895cf4cf6cbc2e5a4"
+      "sha256": "bac549470655e9a57772178ffb7f3cb46be30a8f6ec13adc66946ae51e9e0ff8"
     },
     "xtask/tests/fixtures/rekordbox-a1/F-02/source.bin": {
       "length_bytes": 950,
@@ -1006,7 +1006,7 @@
     },
     "xtask/tests/fixtures/rekordbox-a1/F-07/provenance.json": {
       "length_bytes": 1770,
-      "sha256": "9468c00417367e42fb3523413f6baef723315d5dfdf92845386ba74537793af8"
+      "sha256": "93f31c24185540deeaaf15d0e334d312d09da9933b8ecefa8a341e82ad80fd07"
     },
     "xtask/tests/fixtures/rekordbox-a1/F-07/source.bin": {
       "length_bytes": 571,

@@ -7,7 +7,7 @@ use std::{collections::BTreeMap, fs, path::PathBuf};
 
 type Files = BTreeMap<String, Vec<u8>>;
 const MANIFEST: &str = "tests/fixtures/f09-operation-provenance.json";
-const MANIFEST_SHA256: &str = "6ac84c952ba31239e75436bca6fa505568eeb3a3aef1be4d9bcce5ab8e3dca87";
+const MANIFEST_SHA256: &str = "192a3155bfe5c4fe0cd19a3fb3652c346a2b158620d18b9cdd16fb9824b282f9";
 
 fn sha(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
