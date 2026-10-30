@@ -25,6 +25,9 @@ struct LibraryApp {
     theme: ThemeMode,
     custom_tokens: theme::ColorTokens,
     show_theme_editor: bool,
+    primary_hex: String,
+    secondary_hex: String,
+    accent_error: Option<String>,
 }
 impl LibraryApp {
     fn new(db_path: PathBuf, theme: ThemeMode, custom_tokens: theme::ColorTokens) -> Self {
@@ -43,6 +46,19 @@ impl LibraryApp {
             theme,
             custom_tokens,
             show_theme_editor: false,
+            primary_hex: format!(
+                "#{:02X}{:02X}{:02X}",
+                custom_tokens.primary.r(),
+                custom_tokens.primary.g(),
+                custom_tokens.primary.b()
+            ),
+            secondary_hex: format!(
+                "#{:02X}{:02X}{:02X}",
+                custom_tokens.secondary.r(),
+                custom_tokens.secondary.g(),
+                custom_tokens.secondary.b()
+            ),
+            accent_error: None,
         };
         app.reload();
         app
@@ -52,6 +68,129 @@ impl LibraryApp {
             self.custom_tokens
         } else {
             self.theme.tokens()
+        }
+    }
+
+    fn select_theme(&mut self, mode: ThemeMode) {
+        let previous = self.theme;
+        if mode == ThemeMode::Custom && previous != ThemeMode::Custom {
+            self.custom_tokens = previous.tokens();
+            self.show_theme_editor = true;
+        }
+        self.theme = mode;
+        self.sync_accent_fields();
+    }
+
+    fn sync_accent_fields(&mut self) {
+        self.primary_hex = color_hex(self.custom_tokens.primary);
+        self.secondary_hex = color_hex(self.custom_tokens.secondary);
+        self.accent_error = None;
+    }
+
+    fn commit_accent(&mut self, primary: bool) {
+        let text = if primary {
+            &self.primary_hex
+        } else {
+            &self.secondary_hex
+        };
+        match parse_hex_color(text) {
+            Some(color) => {
+                self.theme = ThemeMode::Custom;
+                if primary {
+                    self.custom_tokens.primary = color;
+                } else {
+                    self.custom_tokens.secondary = color;
+                }
+                self.accent_error = None;
+            }
+            None => self.accent_error = Some("Enter a complete #RRGGBB color".into()),
+        }
+    }
+
+    fn handle_theme_shortcuts(&mut self, ctx: &egui::Context) {
+        let mode = ctx.input(|input| {
+            if !input.modifiers.ctrl || !input.modifiers.alt {
+                return None;
+            }
+            if input.key_pressed(egui::Key::Num1) {
+                Some(ThemeMode::TokyoNight)
+            } else if input.key_pressed(egui::Key::Num2) {
+                Some(ThemeMode::TokyoDay)
+            } else if input.key_pressed(egui::Key::Num3) {
+                Some(ThemeMode::Custom)
+            } else {
+                None
+            }
+        });
+        if let Some(mode) = mode {
+            self.select_theme(mode);
+        }
+    }
+
+    fn show_palette_fields(&mut self, ui: &mut egui::Ui, error_color: egui::Color32) {
+        ui.horizontal(|ui| {
+            ui.label("Primary");
+            let response = ui.add(
+                egui::TextEdit::singleline(&mut self.primary_hex)
+                    .id(egui::Id::new("primary-hex"))
+                    .desired_width(90.0)
+                    .hint_text("#RRGGBB"),
+            );
+            if response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                self.commit_accent(true);
+            }
+            if ui.button("Apply").clicked() {
+                self.commit_accent(true);
+            }
+        });
+        let primary_before = self.custom_tokens.primary;
+        edit_color(ui, "Primary swatch", &mut self.custom_tokens.primary);
+        if self.custom_tokens.primary != primary_before {
+            self.primary_hex = color_hex(self.custom_tokens.primary);
+            self.accent_error = None;
+        }
+        ui.horizontal(|ui| {
+            ui.label("Secondary");
+            let response = ui.add(
+                egui::TextEdit::singleline(&mut self.secondary_hex)
+                    .id(egui::Id::new("secondary-hex"))
+                    .desired_width(90.0)
+                    .hint_text("#RRGGBB"),
+            );
+            if response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                self.commit_accent(false);
+            }
+            if ui.button("Apply").clicked() {
+                self.commit_accent(false);
+            }
+        });
+        let secondary_before = self.custom_tokens.secondary;
+        edit_color(ui, "Secondary swatch", &mut self.custom_tokens.secondary);
+        if self.custom_tokens.secondary != secondary_before {
+            self.secondary_hex = color_hex(self.custom_tokens.secondary);
+            self.accent_error = None;
+        }
+        if let Some(error) = &self.accent_error {
+            ui.colored_label(error_color, error);
+        }
+        edit_color(ui, "Border", &mut self.custom_tokens.border);
+        edit_color(ui, "Focus", &mut self.custom_tokens.focus);
+        edit_color(ui, "Success", &mut self.custom_tokens.success);
+        edit_color(ui, "Warning", &mut self.custom_tokens.warning);
+        edit_color(ui, "Error", &mut self.custom_tokens.error);
+        let mut reset = false;
+        ui.horizontal(|ui| {
+            if ui.button("Reset to Tokyo Night").clicked() {
+                self.custom_tokens = ThemeMode::reset_custom_tokens(ThemeMode::TokyoNight);
+                reset = true;
+            }
+            if ui.button("Reset to Tokyo Day").clicked() {
+                self.custom_tokens = ThemeMode::reset_custom_tokens(ThemeMode::TokyoDay);
+                reset = true;
+            }
+        });
+        if reset {
+            self.sync_accent_fields();
         }
     }
 
@@ -93,12 +232,13 @@ impl eframe::App for LibraryApp {
     }
 
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        self.handle_theme_shortcuts(ctx);
         self.theme.apply(self.custom_tokens, ctx);
         let tokens = self.active_tokens();
         egui::TopBottomPanel::top("toolbar").show(ctx, |ui| {
             ui.heading("OxiDJ · Local Library");
             ui.horizontal(|ui| {
-                ui.label("Theme");
+                ui.label("Theme (Ctrl+Alt+1/2/3)");
                 egui::ComboBox::from_id_salt("theme-selection")
                     .selected_text(self.theme.label())
                     .show_ui(ui, |ui| {
@@ -106,8 +246,8 @@ impl eframe::App for LibraryApp {
                         ui.selectable_value(&mut self.theme, ThemeMode::TokyoNight, "Tokyo Night");
                         ui.selectable_value(&mut self.theme, ThemeMode::TokyoDay, "Tokyo Day");
                         ui.selectable_value(&mut self.theme, ThemeMode::Custom, "Custom");
-                        if self.theme == ThemeMode::Custom && previous != ThemeMode::Custom {
-                            self.custom_tokens = previous.tokens();
+                        if self.theme != previous {
+                            self.select_theme(self.theme);
                         }
                     });
                 if self.theme == ThemeMode::Custom {
@@ -117,32 +257,18 @@ impl eframe::App for LibraryApp {
                 }
             });
             if self.show_theme_editor {
+                let mut editor_open = self.show_theme_editor;
                 egui::Window::new("Custom palette")
-                    .open(&mut self.show_theme_editor)
+                    .open(&mut editor_open)
                     .show(ctx, |ui| {
                         ui.label("Semantic colors");
                         edit_color(ui, "Background", &mut self.custom_tokens.background);
                         edit_color(ui, "Surface", &mut self.custom_tokens.surface);
                         edit_color(ui, "Text", &mut self.custom_tokens.text);
                         edit_color(ui, "Muted text", &mut self.custom_tokens.muted_text);
-                        edit_color(ui, "Primary", &mut self.custom_tokens.primary);
-                        edit_color(ui, "Secondary", &mut self.custom_tokens.secondary);
-                        edit_color(ui, "Border", &mut self.custom_tokens.border);
-                        edit_color(ui, "Focus", &mut self.custom_tokens.focus);
-                        edit_color(ui, "Success", &mut self.custom_tokens.success);
-                        edit_color(ui, "Warning", &mut self.custom_tokens.warning);
-                        edit_color(ui, "Error", &mut self.custom_tokens.error);
-                        ui.horizontal(|ui| {
-                            if ui.button("Reset to Tokyo Night").clicked() {
-                                self.custom_tokens =
-                                    ThemeMode::reset_custom_tokens(ThemeMode::TokyoNight);
-                            }
-                            if ui.button("Reset to Tokyo Day").clicked() {
-                                self.custom_tokens =
-                                    ThemeMode::reset_custom_tokens(ThemeMode::TokyoDay);
-                            }
-                        });
+                        self.show_palette_fields(ui, tokens.error);
                     });
+                self.show_theme_editor = editor_open;
             }
             ui.horizontal(|ui| {
                 ui.label("Catalog:");
@@ -367,6 +493,186 @@ fn edit_color(ui: &mut egui::Ui, label: &str, color: &mut egui::Color32) {
         ui.label(label);
         ui.color_edit_button_srgba(color);
     });
+}
+
+fn color_hex(color: egui::Color32) -> String {
+    format!("#{:02X}{:02X}{:02X}", color.r(), color.g(), color.b())
+}
+
+fn parse_hex_color(value: &str) -> Option<egui::Color32> {
+    let digits = value.strip_prefix('#')?;
+    if digits.len() != 6 || !digits.is_ascii() {
+        return None;
+    }
+    Some(egui::Color32::from_rgb(
+        u8::from_str_radix(&digits[0..2], 16).ok()?,
+        u8::from_str_radix(&digits[2..4], 16).ok()?,
+        u8::from_str_radix(&digits[4..6], 16).ok()?,
+    ))
+}
+
+#[cfg(test)]
+mod keyboard_tests {
+    use super::*;
+
+    fn app() -> LibraryApp {
+        LibraryApp::new(
+            PathBuf::from("/definitely/missing/oxidj-test.sqlite"),
+            ThemeMode::TokyoNight,
+            ThemeMode::TokyoNight.tokens(),
+        )
+    }
+
+    #[test]
+    fn shortcut_raw_input_selects_custom_and_preserves_existing_custom_tokens() {
+        let mut app = app();
+        let ctx = egui::Context::default();
+        let mut input = egui::RawInput::default();
+        input.modifiers = egui::Modifiers {
+            ctrl: true,
+            alt: true,
+            ..Default::default()
+        };
+        input.events.push(egui::Event::Key {
+            key: egui::Key::Num3,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: input.modifiers,
+        });
+        let _ = ctx.run(input, |ctx| app.handle_theme_shortcuts(ctx));
+        assert_eq!(app.theme, ThemeMode::Custom);
+        assert!(app.show_theme_editor);
+        app.custom_tokens.primary = egui::Color32::from_rgb(1, 2, 3);
+        let mut input = egui::RawInput::default();
+        input.modifiers = egui::Modifiers {
+            ctrl: true,
+            alt: true,
+            ..Default::default()
+        };
+        input.events.push(egui::Event::Key {
+            key: egui::Key::Num3,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: input.modifiers,
+        });
+        let _ = ctx.run(input, |ctx| app.handle_theme_shortcuts(ctx));
+        assert_eq!(app.custom_tokens.primary, egui::Color32::from_rgb(1, 2, 3));
+    }
+
+    #[test]
+    fn raw_text_events_commit_field_and_storage_round_trip() {
+        use std::collections::HashMap;
+        #[derive(Default)]
+        struct Store(HashMap<String, String>);
+        impl eframe::Storage for Store {
+            fn get_string(&self, key: &str) -> Option<String> {
+                self.0.get(key).cloned()
+            }
+            fn set_string(&mut self, key: &str, value: String) {
+                self.0.insert(key.into(), value);
+            }
+            fn flush(&mut self) {}
+        }
+        let mut app = app();
+        app.select_theme(ThemeMode::Custom);
+        let ctx = egui::Context::default();
+        let run_editor = |ctx: &egui::Context, app: &mut LibraryApp, input| {
+            ctx.run(input, |ctx| {
+                egui::CentralPanel::default()
+                    .show(ctx, |ui| app.show_palette_fields(ui, egui::Color32::RED));
+            })
+        };
+        app.primary_hex.clear();
+        let _ = run_editor(&ctx, &mut app, egui::RawInput::default());
+        ctx.memory_mut(|memory| memory.request_focus(egui::Id::new("primary-hex")));
+        let mut input = egui::RawInput::default();
+        input.modifiers = egui::Modifiers {
+            ctrl: true,
+            ..Default::default()
+        };
+        input.events.push(egui::Event::Key {
+            key: egui::Key::A,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: input.modifiers,
+        });
+        let _ = run_editor(&ctx, &mut app, input);
+        let mut input = egui::RawInput::default();
+        input.events.push(egui::Event::Text("#123456".into()));
+        let _ = run_editor(&ctx, &mut app, input);
+        assert_eq!(app.primary_hex, "#123456");
+        let mut enter = egui::RawInput::default();
+        enter.events.push(egui::Event::Key {
+            key: egui::Key::Enter,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers::default(),
+        });
+        let _ = run_editor(&ctx, &mut app, enter);
+        assert_eq!(
+            app.custom_tokens.primary,
+            egui::Color32::from_rgb(0x12, 0x34, 0x56)
+        );
+        assert_eq!(app.theme, ThemeMode::Custom);
+        let mut store = Store::default();
+        eframe::App::save(&mut app, &mut store);
+        assert_eq!(
+            ThemeMode::load(Some(&store)),
+            (app.theme, app.custom_tokens)
+        );
+
+        // Invalid focused input is rejected on Enter and leaves the committed token intact.
+        ctx.memory_mut(|memory| memory.request_focus(egui::Id::new("primary-hex")));
+        let mut invalid = egui::RawInput::default();
+        invalid.events.extend([
+            egui::Event::Key {
+                key: egui::Key::A,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers: egui::Modifiers {
+                    ctrl: true,
+                    ..Default::default()
+                },
+            },
+            egui::Event::Text("#12".into()),
+            egui::Event::Key {
+                key: egui::Key::Enter,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers: egui::Modifiers::default(),
+            },
+        ]);
+        let _ = run_editor(&ctx, &mut app, invalid);
+        assert_eq!(
+            app.custom_tokens.primary,
+            egui::Color32::from_rgb(0x12, 0x34, 0x56)
+        );
+        assert!(app.accent_error.is_some());
+    }
+
+    #[test]
+    fn palette_swatches_and_reset_keep_text_synchronized() {
+        let mut app = app();
+        app.custom_tokens.primary = egui::Color32::from_rgb(1, 2, 3);
+        app.sync_accent_fields();
+        assert_eq!(app.primary_hex, "#010203");
+        app.custom_tokens = ThemeMode::reset_custom_tokens(ThemeMode::TokyoDay);
+        app.sync_accent_fields();
+        assert_eq!(
+            app.primary_hex,
+            color_hex(ThemeMode::TokyoDay.tokens().primary)
+        );
+        assert_eq!(
+            app.secondary_hex,
+            color_hex(ThemeMode::TokyoDay.tokens().secondary)
+        );
+    }
 }
 
 fn main() -> eframe::Result<()> {
