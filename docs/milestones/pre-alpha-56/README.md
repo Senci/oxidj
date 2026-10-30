@@ -3,7 +3,7 @@
 These are genuine screenshots captured from the committed OxiDJ Local Library UI on the isolated Hermes Bot Screen. The app used an empty scratch SQLite catalog; no personal library or media was used. Each PNG is 800×600 and was visually inspected.
 
 - [`tokyo-night.png`](tokyo-night.png) — Tokyo Night selected; empty library.
-- [`tokyo-day.png`](tokyo-day.png) — Tokyo Day selected; empty library. Captured before contrast fix `54bb3d3`; this is historical pre-fix evidence. A refreshed post-fix Day screenshot and persisted relaunch are pending.
+- [`tokyo-day.png`](tokyo-day.png) — Tokyo Day selected; empty library. Captured before contrast fix `54bb3d3`; retain it as historical pre-fix evidence. The post-fix, **pre-relaunch** Tokyo Day capture is shared from [pre-alpha-57](../pre-alpha-57/tokyo-day-pre-relaunch.png); it shows the empty synthetic catalog (0 tracks). This shared screenshot is not evidence of startup restoration: same-XDG relaunch remains **NOT RUN**.
 - [`custom-edited.png`](custom-edited.png) — Custom palette editor open after editing Primary to `#D3869B` and Secondary to `#8EC07C`.
 - [`custom-restored.png`](custom-restored.png) — captured after closing and relaunching the UI against the same scratch catalog/config, then reopening the Custom editor. The visible values are `#D3869B` and `#8EC07C`.
 
