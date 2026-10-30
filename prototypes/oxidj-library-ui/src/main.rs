@@ -28,6 +28,9 @@ struct LibraryApp {
     primary_hex: String,
     secondary_hex: String,
     accent_error: Option<String>,
+    xml_path: String,
+    xml_preview: Option<Result<oxidj_application::Preview, String>>,
+    show_xml_preview: bool,
 }
 impl LibraryApp {
     fn new(db_path: PathBuf, theme: ThemeMode, custom_tokens: theme::ColorTokens) -> Self {
@@ -59,6 +62,9 @@ impl LibraryApp {
                 custom_tokens.secondary.b()
             ),
             accent_error: None,
+            xml_path: String::new(),
+            xml_preview: None,
+            show_xml_preview: false,
         };
         app.reload();
         app
@@ -232,6 +238,13 @@ impl LibraryApp {
         }
     }
 
+    fn preview_xml(&mut self) {
+        self.xml_preview = Some(
+            oxidj_application::preview_rekordbox_xml(&self.xml_path).map_err(|e| e.to_string()),
+        );
+        self.show_xml_preview = true;
+    }
+
     fn theme_selection_ui(&mut self, ui: &mut egui::Ui) -> (egui::Rect, Option<[egui::Rect; 3]>) {
         let mut selected = self.theme;
         let mut option_rects = None;
@@ -313,6 +326,16 @@ impl eframe::App for LibraryApp {
                     self.import();
                 }
             });
+            ui.horizontal_wrapped(|ui| {
+                ui.label("Rekordbox XML (read-only)");
+                ui.add_sized(
+                    [ui.available_width().clamp(140.0, 360.0), 24.0],
+                    egui::TextEdit::singleline(&mut self.xml_path).hint_text("XML file path"),
+                );
+                if ui.button("Preview XML").clicked() {
+                    self.preview_xml();
+                }
+            });
             if !self.notice.is_empty() {
                 let color = if self.notice.starts_with("Import failed:")
                     || self.notice.starts_with("Catalog unavailable:")
@@ -326,6 +349,76 @@ impl eframe::App for LibraryApp {
                 ui.colored_label(color, &self.notice);
             }
         });
+        if self.show_xml_preview {
+            let mut open = self.show_xml_preview;
+            egui::Window::new("Rekordbox XML preview · read-only")
+                .open(&mut open)
+                .default_width(720.0)
+                .show(ctx, |ui| match &self.xml_preview {
+                    Some(Err(error)) => {
+                        ui.colored_label(tokens.error, format!("Preview failed: {error}"));
+                    }
+                    Some(Ok(preview)) => {
+                        ui.label(format!(
+                            "{} tracks · {} folders · {} playlists",
+                            preview.tracks.len(),
+                            preview.folders.len(),
+                            preview.playlists.len()
+                        ));
+                        if preview.tracks.is_empty() {
+                            ui.label("No tracks in this XML file.");
+                        }
+                        egui::ScrollArea::vertical()
+                            .max_height(260.0)
+                            .show(ui, |ui| {
+                                egui::Grid::new("rekordbox-preview-tracks")
+                                    .striped(true)
+                                    .show(ui, |ui| {
+                                        ui.strong("Track");
+                                        ui.strong("Artist");
+                                        ui.strong("Raw location");
+                                        ui.end_row();
+                                        for track in &preview.tracks {
+                                            ui.label(&track.name);
+                                            ui.label(track.artist.as_deref().unwrap_or("—"));
+                                            ui.monospace(&track.location);
+                                            ui.end_row();
+                                        }
+                                    });
+                            });
+                        ui.separator();
+                        ui.strong("Folders");
+                        if preview.folders.is_empty() {
+                            ui.label("No folders.");
+                        }
+                        for folder in &preview.folders {
+                            ui.label(format!("{} · {}", folder.path.join(" / "), folder.name));
+                        }
+                        ui.strong("Playlists");
+                        if preview.playlists.is_empty() {
+                            ui.label("No playlists.");
+                        }
+                        for playlist in &preview.playlists {
+                            ui.label(format!(
+                                "{} · {} ({} tracks)",
+                                playlist.path.join(" / "),
+                                playlist.name,
+                                playlist.tracks.len()
+                            ));
+                        }
+                        if !preview.unsupported.is_empty() {
+                            ui.colored_label(tokens.warning, "Unsupported content detected:");
+                            for warning in &preview.unsupported {
+                                ui.colored_label(tokens.warning, warning);
+                            }
+                        }
+                    }
+                    None => {
+                        ui.label("Enter an XML path and select Preview XML.");
+                    }
+                });
+            self.show_xml_preview = open;
+        }
         egui::SidePanel::right("details")
             .default_width(300.0)
             .show(ctx, |ui| {

@@ -9,3 +9,4 @@ publish = false
 [dependencies]
 eframe = { version = "=0.32.3", features = ["accesskit", "persistence"] }
 oxidj-library = { path = "../../crates/oxidj-library" }
+oxidj-application = { path = "../../crates/oxidj-application" }

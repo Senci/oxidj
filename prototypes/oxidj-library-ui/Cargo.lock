@@ -2266,6 +2266,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "oxidj-application"
+version = "0.1.0"
+dependencies = [
+ "oxidj-rekordbox",
+]
+
+[[package]]
 name = "oxidj-core"
 version = "0.1.0"
 
@@ -2287,7 +2294,15 @@ name = "oxidj-library-ui"
 version = "0.1.0"
 dependencies = [
  "eframe",
+ "oxidj-application",
  "oxidj-library",
+]
+
+[[package]]
+name = "oxidj-rekordbox"
+version = "0.1.0"
+dependencies = [
+ "quick-xml",
 ]
 
 [[package]]
