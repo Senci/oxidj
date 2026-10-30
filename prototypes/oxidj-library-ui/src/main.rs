@@ -131,13 +131,13 @@ impl LibraryApp {
 
     fn show_palette_fields(&mut self, ui: &mut egui::Ui, error_color: egui::Color32) {
         ui.horizontal(|ui| {
-            ui.label("Primary");
+            let label = ui.label("Primary");
             let response = ui.add(
                 egui::TextEdit::singleline(&mut self.primary_hex)
                     .id(egui::Id::new("primary-hex"))
                     .desired_width(90.0)
                     .hint_text("#RRGGBB"),
-            );
+            ).labelled_by(label.id);
             if response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
                 self.commit_accent(true);
             }
@@ -152,13 +152,13 @@ impl LibraryApp {
             self.accent_error = None;
         }
         ui.horizontal(|ui| {
-            ui.label("Secondary");
+            let label = ui.label("Secondary");
             let response = ui.add(
                 egui::TextEdit::singleline(&mut self.secondary_hex)
                     .id(egui::Id::new("secondary-hex"))
                     .desired_width(90.0)
                     .hint_text("#RRGGBB"),
-            );
+            ).labelled_by(label.id);
             if response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
                 self.commit_accent(false);
             }
@@ -231,6 +231,7 @@ impl LibraryApp {
     fn theme_selection_ui(&mut self, ui: &mut egui::Ui) -> (egui::Rect, Option<[egui::Rect; 3]>) {
         let mut selected = self.theme;
         let mut option_rects = None;
+        let label = ui.label("Theme (Ctrl+Alt+1/2/3)");
         let combo = egui::ComboBox::from_id_salt("theme-selection")
             .selected_text(self.theme.label())
             .show_ui(ui, |ui| {
@@ -243,7 +244,7 @@ impl LibraryApp {
         if selected != self.theme {
             self.select_theme(selected);
         }
-        (combo.response.rect, option_rects)
+        (combo.response.labelled_by(label.id).rect, option_rects)
     }
 }
 
@@ -259,7 +260,6 @@ impl eframe::App for LibraryApp {
         egui::TopBottomPanel::top("toolbar").show(ctx, |ui| {
             ui.heading("OxiDJ · Local Library");
             ui.horizontal(|ui| {
-                ui.label("Theme (Ctrl+Alt+1/2/3)");
                 self.theme_selection_ui(ui);
                 if self.theme == ThemeMode::Custom {
                     if ui.button("Edit palette…").clicked() {
@@ -576,6 +576,33 @@ mod keyboard_tests {
         assert_eq!(app.theme, ThemeMode::Custom);
         assert!(app.show_theme_editor);
         assert_eq!(app.custom_tokens, ThemeMode::TokyoDay.tokens());
+    }
+
+    #[test]
+    fn theme_controls_have_accesskit_names_and_control_roles() {
+        let mut app = app();
+        app.theme = ThemeMode::Custom;
+        let ctx = egui::Context::default();
+        ctx.enable_accesskit();
+        let output = ctx.run(egui::RawInput::default(), |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                app.theme_selection_ui(ui);
+                app.show_palette_fields(ui, egui::Color32::RED);
+            });
+        });
+        let update = output.platform_output.accesskit_update.expect("AccessKit update");
+        let nodes = update.nodes.into_iter().collect::<std::collections::HashMap<_, _>>();
+        let assert_named = |name, role| {
+            assert!(nodes.values().any(|control| {
+                control.role() == role
+                    && control.labelled_by().iter().any(|label_id| {
+                        nodes.get(label_id).is_some_and(|label| label.value() == Some(name))
+                    })
+            }), "missing {role:?} labelled by {name:?}");
+        };
+        assert_named("Theme (Ctrl+Alt+1/2/3)", egui::accesskit::Role::ComboBox);
+        assert_named("Primary", egui::accesskit::Role::TextInput);
+        assert_named("Secondary", egui::accesskit::Role::TextInput);
     }
 
     #[test]
