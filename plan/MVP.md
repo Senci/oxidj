@@ -102,6 +102,8 @@ The local catalog is versioned, reference-only, single-process, local-filesystem
 
 Keep the existing bounded M1–M3 acceptance and its required application smoke/review gates. Do not make extra per-widget geometry harnesses, broad viewport matrices, performance benchmarks, or 500k-item stress runs prerequisites for a running MVP. Defer those fine-grained and scale validations until an MVP product is running; retain 500k/60fps as an unpassed later qualification gate. Add narrow verification only when it proves a user-visible MVP defect, and prefer the smallest fix over surrogate evidence that does not exercise the app.
 
+Owner deferral (2026-10-31): feature-specific synthetic regression tests and fresh Bot Screen smoke for the provisional read-only XML preview are deferred to later UI validation. The smoke is NOT RUN because Bot Screen launch failed with `XOpenDisplayFailed`; existing UI tests and `cargo xtask ci` do not prove the new preview path. Do not treat the preview as verified or claim the deferred checks passed.
+
 ### Bounded local M1–M3 acceptance closeout (2026-10-26)
 
 The bounded local acceptance rows are complete on local `master`; this does not pass any deferred gate above.
