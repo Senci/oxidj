@@ -248,9 +248,7 @@ mod tests {
                     ((value + 0.055) / 1.055).powf(2.4)
                 }
             };
-            0.2126 * channel(color.r())
-                + 0.7152 * channel(color.g())
-                + 0.0722 * channel(color.b())
+            0.2126 * channel(color.r()) + 0.7152 * channel(color.g()) + 0.0722 * channel(color.b())
         }
 
         let (lighter, darker) = {

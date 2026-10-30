@@ -132,12 +132,14 @@ impl LibraryApp {
     fn show_palette_fields(&mut self, ui: &mut egui::Ui, error_color: egui::Color32) {
         ui.horizontal(|ui| {
             let label = ui.label("Primary");
-            let response = ui.add(
-                egui::TextEdit::singleline(&mut self.primary_hex)
-                    .id(egui::Id::new("primary-hex"))
-                    .desired_width(90.0)
-                    .hint_text("#RRGGBB"),
-            ).labelled_by(label.id);
+            let response = ui
+                .add(
+                    egui::TextEdit::singleline(&mut self.primary_hex)
+                        .id(egui::Id::new("primary-hex"))
+                        .desired_width(90.0)
+                        .hint_text("#RRGGBB"),
+                )
+                .labelled_by(label.id);
             if response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
                 self.commit_accent(true);
             }
@@ -153,12 +155,14 @@ impl LibraryApp {
         }
         ui.horizontal(|ui| {
             let label = ui.label("Secondary");
-            let response = ui.add(
-                egui::TextEdit::singleline(&mut self.secondary_hex)
-                    .id(egui::Id::new("secondary-hex"))
-                    .desired_width(90.0)
-                    .hint_text("#RRGGBB"),
-            ).labelled_by(label.id);
+            let response = ui
+                .add(
+                    egui::TextEdit::singleline(&mut self.secondary_hex)
+                        .id(egui::Id::new("secondary-hex"))
+                        .desired_width(90.0)
+                        .hint_text("#RRGGBB"),
+                )
+                .labelled_by(label.id);
             if response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
                 self.commit_accent(false);
             }
@@ -281,9 +285,15 @@ impl eframe::App for LibraryApp {
                     });
                 self.show_theme_editor = editor_open;
             }
-            ui.horizontal(|ui| {
+            ui.horizontal_wrapped(|ui| {
                 ui.label("Catalog:");
-                ui.monospace(self.db_path.display().to_string());
+                let full_path = self.db_path.display().to_string();
+                let path_width = (ui.available_width() - 68.0).clamp(80.0, 360.0);
+                ui.add_sized(
+                    [path_width, 20.0],
+                    egui::Label::new(egui::RichText::new(&full_path).monospace()).truncate(),
+                )
+                .on_hover_text(&full_path);
                 if ui.button("Reload").clicked() {
                     self.reload();
                 }
@@ -291,12 +301,12 @@ impl eframe::App for LibraryApp {
             ui.horizontal_wrapped(|ui| {
                 ui.label("Search");
                 ui.add_sized(
-                    [ui.available_width().min(160.0), 24.0],
+                    [ui.available_width().clamp(100.0, 160.0), 24.0],
                     egui::TextEdit::singleline(&mut self.search).hint_text("Filter tracks"),
                 );
                 ui.label("Import folder");
                 ui.add_sized(
-                    [ui.available_width().min(200.0), 24.0],
+                    [ui.available_width().clamp(120.0, 200.0), 24.0],
                     egui::TextEdit::singleline(&mut self.import_root).hint_text("Folder path"),
                 );
                 if ui.button("Import references").clicked() {
@@ -535,6 +545,44 @@ mod keyboard_tests {
     }
 
     #[test]
+    fn toolbar_controls_fit_narrow_and_wide_viewports() {
+        for width in [800.0, 1440.0] {
+            let ctx = egui::Context::default();
+            let mut rects = Vec::new();
+            let _ = ctx.run(egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(width, 600.0))),
+                ..Default::default()
+            }, |ctx| {
+                egui::TopBottomPanel::top("test-toolbar").show(ctx, |ui| {
+                    ui.horizontal_wrapped(|ui| {
+                        ui.label("Catalog:");
+                        let path = "/a/very/long/catalog/path/that/must/not/push/actions/offscreen/catalog.sqlite";
+                        let path_width = (ui.available_width() - 68.0).clamp(80.0, 360.0);
+                        rects.push(ui.add_sized([path_width, 20.0], egui::Label::new(egui::RichText::new(path).monospace()).truncate()).on_hover_text(path).rect);
+                        rects.push(ui.button("Reload").rect);
+                    });
+                    ui.horizontal_wrapped(|ui| {
+                        ui.label("Search");
+                        rects.push(ui.add_sized([ui.available_width().clamp(100.0, 160.0), 24.0], egui::TextEdit::singleline(&mut String::new()).hint_text("Filter tracks")).rect);
+                        ui.label("Import folder");
+                        rects.push(ui.add_sized([ui.available_width().clamp(120.0, 200.0), 24.0], egui::TextEdit::singleline(&mut String::new()).hint_text("Folder path")).rect);
+                        rects.push(ui.button("Import references").rect);
+                    });
+                });
+            });
+            let content = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(width, 600.0));
+            assert!(
+                rects.iter().all(|rect| content.contains_rect(*rect)),
+                "toolbar control clipped at {width}px: {rects:?}"
+            );
+            assert!(
+                rects.windows(2).all(|pair| !pair[0].intersects(pair[1])),
+                "toolbar controls overlap at {width}px: {rects:?}"
+            );
+        }
+    }
+
+    #[test]
     fn day_to_custom_combo_selection_initializes_tokens_and_opens_editor() {
         let mut app = app();
         app.theme = ThemeMode::TokyoDay;
@@ -590,15 +638,26 @@ mod keyboard_tests {
                 app.show_palette_fields(ui, egui::Color32::RED);
             });
         });
-        let update = output.platform_output.accesskit_update.expect("AccessKit update");
-        let nodes = update.nodes.into_iter().collect::<std::collections::HashMap<_, _>>();
+        let update = output
+            .platform_output
+            .accesskit_update
+            .expect("AccessKit update");
+        let nodes = update
+            .nodes
+            .into_iter()
+            .collect::<std::collections::HashMap<_, _>>();
         let assert_named = |name, role| {
-            assert!(nodes.values().any(|control| {
-                control.role() == role
-                    && control.labelled_by().iter().any(|label_id| {
-                        nodes.get(label_id).is_some_and(|label| label.value() == Some(name))
-                    })
-            }), "missing {role:?} labelled by {name:?}");
+            assert!(
+                nodes.values().any(|control| {
+                    control.role() == role
+                        && control.labelled_by().iter().any(|label_id| {
+                            nodes
+                                .get(label_id)
+                                .is_some_and(|label| label.value() == Some(name))
+                        })
+                }),
+                "missing {role:?} labelled by {name:?}"
+            );
         };
         assert_named("Theme (Ctrl+Alt+1/2/3)", egui::accesskit::Role::ComboBox);
         assert_named("Primary", egui::accesskit::Role::TextInput);
