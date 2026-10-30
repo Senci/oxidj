@@ -138,4 +138,8 @@ Repeated keyboard checks on the fixed `e65c6f6` build after closing the older pr
 - Upper boundary reveal: focus 34 with rows 8–35 visible, then Up ×28 reached focus 6 with rows 6–33 visible. The viewport moved only enough to reveal focus; screenshots `scroll-before-upper-cross.png` and `scroll-after-upper-cross.png`.
 - Lower reveal: Down ×35 reached focus 70 with rows 44–71 visible; focus sits near the viewport bottom rather than at its top. Screenshot `scroll-after-lower-cross.png`.
 
-Keyboard events used the isolated Bot Screen XTest helper, and every result was read from a fresh screenshot. `e65c6f6` is unchanged. This supplies the previously requested visible-row and upper/lower reveal readbacks; it does not claim native display, presentation timing, screen-reader, platform, or 500k/60fps qualification.
+Keyboard events used the isolated Bot Screen XTest helper, and every result was read from a fresh screenshot. This supplies the previously requested visible-row and upper/lower reveal readbacks; it does not claim native display, presentation timing, screen-reader, platform, or 500k/60fps qualification.
+
+### Headless AccessKit selected-state regression (2026-10-30)
+
+The probe now writes each track row's current selected state into its AccessKit node while retaining the existing Button role, accessible label, and selectable-button appearance. A headless AccessKit update regression verifies the selected and unselected states and reflects keyboard Space selection and ArrowDown-driven selection changes. `cargo test --offline --manifest-path prototypes/oxidj-gui-probe/Cargo.toml` passed (14 tests). This is synthetic headless test evidence only: it does not verify live screen-reader announcements, native platform behavior, production GUI admission, or any performance/scale qualification.

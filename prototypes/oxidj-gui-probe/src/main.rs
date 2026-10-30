@@ -278,10 +278,12 @@ fn offset_to_reveal_row(
 fn track_row(ui: &mut egui::Ui, index: usize, table: &mut TableState) -> egui::Rect {
     let item = table.order.get(index).copied().unwrap_or(index);
     let label = format!("Track {item:06} — Synthetic Artist — Synthetic Album");
-    let response = ui.add(
-        egui::Button::selectable(table.selected.contains(&index), &label)
-            .sense(egui::Sense::click_and_drag()),
-    );
+    let selected = table.selected.contains(&index);
+    let response =
+        ui.add(egui::Button::selectable(selected, &label).sense(egui::Sense::click_and_drag()));
+    response.ctx.accesskit_node_builder(response.id, |node| {
+        node.set_selected(selected);
+    });
     if response.clicked() {
         let (shift, command) = ui.input(|i| (i.modifiers.shift, i.modifiers.command));
         table.click(index, shift, command);
@@ -836,27 +838,52 @@ mod tests {
     }
 
     #[test]
-    fn accesskit_update_contains_named_track_controls() {
+    fn accesskit_update_exposes_track_selection_and_keyboard_changes() {
         let ctx = egui::Context::default();
         ctx.enable_accesskit();
         let mut table = TableState::default();
         let mut rects = Vec::new();
 
+        let selected_state = |output: &egui::FullOutput| {
+            let update = output
+                .platform_output
+                .accesskit_update
+                .as_ref()
+                .expect("AccessKit update should be emitted after enabling it");
+            let track_control = update.nodes.iter().find_map(|(_, node)| {
+                node.label()
+                    .filter(|label| label.contains("Track 000000"))
+                    .map(|label| (node.role(), label.to_owned(), node.is_selected()))
+            });
+            let (role, label, selected) = track_control.expect("named track Button in tree");
+            assert_eq!(role, egui::accesskit::Role::Button);
+            assert!(label.contains("Synthetic Artist"));
+            selected
+        };
+
         let output = render_rows(&ctx, &mut table, Vec::new(), &mut rects);
-        let update = output
+        assert_eq!(selected_state(&output), Some(false));
+
+        table.key(Key::Space, false, false, 2);
+        let output = render_rows(&ctx, &mut table, Vec::new(), &mut rects);
+        assert_eq!(selected_state(&output), Some(true));
+
+        table.key(Key::ArrowDown, false, false, 2);
+        let output = render_rows(&ctx, &mut table, Vec::new(), &mut rects);
+        assert_eq!(selected_state(&output), Some(false));
+        let next_row = output
             .platform_output
             .accesskit_update
-            .expect("AccessKit update should be emitted after enabling it");
-        let track_control = update.nodes.iter().find_map(|(_, node)| {
-            node.label()
-                .filter(|label| label.contains("Track 000000"))
-                .map(|label| (node.role(), label.to_owned()))
-        });
-
-        assert!(track_control.is_some(), "tree nodes: {:?}", update.nodes);
-        let (role, label) = track_control.unwrap();
-        assert_eq!(role, egui::accesskit::Role::Button);
-        assert!(label.contains("Synthetic Artist"));
+            .as_ref()
+            .unwrap()
+            .nodes
+            .iter()
+            .find(|(_, node)| {
+                node.label()
+                    .is_some_and(|label| label.contains("Track 000001"))
+            })
+            .map(|(_, node)| node.is_selected());
+        assert_eq!(next_row, Some(Some(true)));
     }
 
     #[test]
