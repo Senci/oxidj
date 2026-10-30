@@ -98,6 +98,10 @@ The local catalog is versioned, reference-only, single-process, local-filesystem
 | Local SQLite admission versus blanket 500k stop | Only a named `local-catalog-alpha-v1` early dependency exception is authorized for the bounded local slice. Effective only after exact-diff independent Sol review and lead integration. Preserve WAL/FULL and commit-success acknowledgement. This is not a 500k gate PASS or general readiness transition. | Review exact final amendment diff; lead integration; then implement only bounded alpha. Process-crash/reopen/backup checks do not prove OS/power-loss or 500k qualification. |
 | Terminal objective and release | Revised M1–M3 delivery requires all preceding local criteria, real application import/restart/UI smoke, independent acceptance, `cargo xtask ci` after final edits, `cargo xtask ci-full`, and commits on local `master`. Under the owner's local-only workflow, no PR, merge, GitHub CI wait, or push is required; push is optional backup. | Record local gate outputs, independent review dispositions, and commit heads. Report only revised local M1–M3 delivery; never claim historical M1, M4, 500k readiness, or qualification PASS. |
 
+### MVP-first verification scope (2026-10-31)
+
+Keep the existing bounded M1–M3 acceptance and its required application smoke/review gates. Do not make extra per-widget geometry harnesses, broad viewport matrices, performance benchmarks, or 500k-item stress runs prerequisites for a running MVP. Defer those fine-grained and scale validations until an MVP product is running; retain 500k/60fps as an unpassed later qualification gate. Add narrow verification only when it proves a user-visible MVP defect, and prefer the smallest fix over surrogate evidence that does not exercise the app.
+
 ### Bounded local M1–M3 acceptance closeout (2026-10-26)
 
 The bounded local acceptance rows are complete on local `master`; this does not pass any deferred gate above.
