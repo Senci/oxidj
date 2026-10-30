@@ -45,10 +45,10 @@ impl ThemeMode {
             Self::TokyoDay => ColorTokens {
                 background: Color32::from_rgb(0xe1, 0xe2, 0xe7),
                 surface: Color32::from_rgb(0xf4, 0xf4, 0xf5),
-                text: Color32::from_rgb(0x37, 0x60, 0xbf),
-                muted_text: Color32::from_rgb(0x61, 0x71, 0x9c),
+                text: Color32::from_rgb(0x2f, 0x50, 0xa0),
+                muted_text: Color32::from_rgb(0x55, 0x64, 0x85),
                 primary: Color32::from_rgb(0x98, 0x54, 0xf1),
-                secondary: Color32::from_rgb(0x00, 0x71, 0x97),
+                secondary: Color32::from_rgb(0x00, 0x5a, 0x78),
                 border: Color32::from_rgb(0xb8, 0xbe, 0xd0),
                 focus: Color32::from_rgb(0x00, 0x71, 0x97),
                 success: Color32::from_rgb(0x58, 0x75, 0x39),
@@ -238,11 +238,75 @@ mod tests {
         );
     }
 
+    fn contrast_ratio(foreground: Color32, background: Color32) -> f32 {
+        fn luminance(color: Color32) -> f32 {
+            let channel = |value: u8| {
+                let value = f32::from(value) / 255.0;
+                if value <= 0.04045 {
+                    value / 12.92
+                } else {
+                    ((value + 0.055) / 1.055).powf(2.4)
+                }
+            };
+            0.2126 * channel(color.r())
+                + 0.7152 * channel(color.g())
+                + 0.0722 * channel(color.b())
+        }
+
+        let (lighter, darker) = {
+            let foreground = luminance(foreground);
+            let background = luminance(background);
+            if foreground >= background {
+                (foreground, background)
+            } else {
+                (background, foreground)
+            }
+        };
+        (lighter + 0.05) / (darker + 0.05)
+    }
+
+    #[test]
+    fn semantic_palette_colors_meet_contrast_thresholds_on_both_fills() {
+        for mode in [ThemeMode::TokyoNight, ThemeMode::TokyoDay] {
+            let tokens = mode.tokens();
+            for (name, color) in [
+                ("text", tokens.text),
+                ("muted text", tokens.muted_text),
+                ("hyperlink", tokens.secondary),
+            ] {
+                for fill in [tokens.background, tokens.surface] {
+                    let ratio = contrast_ratio(color, fill);
+                    assert!(
+                        ratio >= 4.5,
+                        "{} {} contrast on {:?}: {ratio:.2}:1",
+                        mode.label(),
+                        name,
+                        fill
+                    );
+                }
+            }
+            for (name, color) in [("primary", tokens.primary), ("focus", tokens.focus)] {
+                for fill in [tokens.background, tokens.surface] {
+                    let ratio = contrast_ratio(color, fill);
+                    assert!(
+                        ratio >= 3.0,
+                        "{} {} contrast on {:?}: {ratio:.2}:1",
+                        mode.label(),
+                        name,
+                        fill
+                    );
+                }
+            }
+        }
+    }
+
     #[test]
     fn both_palettes_define_focus_and_status_tokens() {
         for mode in [ThemeMode::TokyoNight, ThemeMode::TokyoDay] {
             let tokens = mode.tokens();
-            assert_eq!(tokens.focus, tokens.secondary);
+            if mode == ThemeMode::TokyoDay {
+                assert_ne!(tokens.focus, tokens.secondary);
+            }
             assert_ne!(tokens.success, tokens.background);
             assert_ne!(tokens.warning, tokens.background);
             assert_ne!(tokens.error, tokens.background);
