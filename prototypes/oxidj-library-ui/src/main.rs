@@ -73,8 +73,10 @@ impl LibraryApp {
 
     fn select_theme(&mut self, mode: ThemeMode) {
         let previous = self.theme;
-        if mode == ThemeMode::Custom && previous != ThemeMode::Custom {
-            self.custom_tokens = previous.tokens();
+        if mode == ThemeMode::Custom {
+            if previous != ThemeMode::Custom {
+                self.custom_tokens = previous.tokens();
+            }
             self.show_theme_editor = true;
         }
         self.theme = mode;
@@ -239,17 +241,17 @@ impl eframe::App for LibraryApp {
             ui.heading("OxiDJ · Local Library");
             ui.horizontal(|ui| {
                 ui.label("Theme (Ctrl+Alt+1/2/3)");
+                let mut selected = self.theme;
                 egui::ComboBox::from_id_salt("theme-selection")
                     .selected_text(self.theme.label())
                     .show_ui(ui, |ui| {
-                        let previous = self.theme;
-                        ui.selectable_value(&mut self.theme, ThemeMode::TokyoNight, "Tokyo Night");
-                        ui.selectable_value(&mut self.theme, ThemeMode::TokyoDay, "Tokyo Day");
-                        ui.selectable_value(&mut self.theme, ThemeMode::Custom, "Custom");
-                        if self.theme != previous {
-                            self.select_theme(self.theme);
-                        }
+                        ui.selectable_value(&mut selected, ThemeMode::TokyoNight, "Tokyo Night");
+                        ui.selectable_value(&mut selected, ThemeMode::TokyoDay, "Tokyo Day");
+                        ui.selectable_value(&mut selected, ThemeMode::Custom, "Custom");
                     });
+                if selected != self.theme {
+                    self.select_theme(selected);
+                }
                 if self.theme == ThemeMode::Custom {
                     if ui.button("Edit palette…").clicked() {
                         self.show_theme_editor = true;
@@ -524,6 +526,17 @@ mod keyboard_tests {
     }
 
     #[test]
+    fn day_to_custom_transition_initializes_tokens_and_opens_editor() {
+        let mut app = app();
+        app.custom_tokens.primary = egui::Color32::from_rgb(1, 2, 3);
+        app.select_theme(ThemeMode::TokyoDay);
+        app.select_theme(ThemeMode::Custom);
+        assert_eq!(app.theme, ThemeMode::Custom);
+        assert!(app.show_theme_editor);
+        assert_eq!(app.custom_tokens, ThemeMode::TokyoDay.tokens());
+    }
+
+    #[test]
     fn shortcut_raw_input_selects_custom_and_preserves_existing_custom_tokens() {
         let mut app = app();
         let ctx = egui::Context::default();
@@ -544,6 +557,7 @@ mod keyboard_tests {
         assert_eq!(app.theme, ThemeMode::Custom);
         assert!(app.show_theme_editor);
         app.custom_tokens.primary = egui::Color32::from_rgb(1, 2, 3);
+        app.show_theme_editor = false;
         let mut input = egui::RawInput::default();
         input.modifiers = egui::Modifiers {
             ctrl: true,
