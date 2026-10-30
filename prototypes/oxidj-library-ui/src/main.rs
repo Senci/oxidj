@@ -548,12 +548,15 @@ mod keyboard_tests {
     fn toolbar_controls_fit_narrow_and_wide_viewports() {
         for width in [800.0, 1440.0] {
             let ctx = egui::Context::default();
+            let mut app = app();
             let mut rects = Vec::new();
             let _ = ctx.run(egui::RawInput {
                 screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(width, 600.0))),
                 ..Default::default()
             }, |ctx| {
                 egui::TopBottomPanel::top("test-toolbar").show(ctx, |ui| {
+                    let (theme_rect, _) = app.theme_selection_ui(ui);
+                    rects.push(theme_rect);
                     ui.horizontal_wrapped(|ui| {
                         ui.label("Catalog:");
                         let path = "/a/very/long/catalog/path/that/must/not/push/actions/offscreen/catalog.sqlite";
