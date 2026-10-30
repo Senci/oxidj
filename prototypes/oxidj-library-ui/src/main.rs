@@ -227,7 +227,26 @@ impl LibraryApp {
             Err(e) => self.notice = format!("Catalog unavailable: {e}"),
         }
     }
+
+    fn theme_selection_ui(&mut self, ui: &mut egui::Ui) -> (egui::Rect, Option<[egui::Rect; 3]>) {
+        let mut selected = self.theme;
+        let mut option_rects = None;
+        let combo = egui::ComboBox::from_id_salt("theme-selection")
+            .selected_text(self.theme.label())
+            .show_ui(ui, |ui| {
+                let night =
+                    ui.selectable_value(&mut selected, ThemeMode::TokyoNight, "Tokyo Night");
+                let day = ui.selectable_value(&mut selected, ThemeMode::TokyoDay, "Tokyo Day");
+                let custom = ui.selectable_value(&mut selected, ThemeMode::Custom, "Custom");
+                option_rects = Some([night.rect, day.rect, custom.rect]);
+            });
+        if selected != self.theme {
+            self.select_theme(selected);
+        }
+        (combo.response.rect, option_rects)
+    }
 }
+
 impl eframe::App for LibraryApp {
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
         self.theme.save(self.custom_tokens, storage);
@@ -241,17 +260,7 @@ impl eframe::App for LibraryApp {
             ui.heading("OxiDJ · Local Library");
             ui.horizontal(|ui| {
                 ui.label("Theme (Ctrl+Alt+1/2/3)");
-                let mut selected = self.theme;
-                egui::ComboBox::from_id_salt("theme-selection")
-                    .selected_text(self.theme.label())
-                    .show_ui(ui, |ui| {
-                        ui.selectable_value(&mut selected, ThemeMode::TokyoNight, "Tokyo Night");
-                        ui.selectable_value(&mut selected, ThemeMode::TokyoDay, "Tokyo Day");
-                        ui.selectable_value(&mut selected, ThemeMode::Custom, "Custom");
-                    });
-                if selected != self.theme {
-                    self.select_theme(selected);
-                }
+                self.theme_selection_ui(ui);
                 if self.theme == ThemeMode::Custom {
                     if ui.button("Edit palette…").clicked() {
                         self.show_theme_editor = true;
@@ -526,11 +535,44 @@ mod keyboard_tests {
     }
 
     #[test]
-    fn day_to_custom_transition_initializes_tokens_and_opens_editor() {
+    fn day_to_custom_combo_selection_initializes_tokens_and_opens_editor() {
         let mut app = app();
+        app.theme = ThemeMode::TokyoDay;
         app.custom_tokens.primary = egui::Color32::from_rgb(1, 2, 3);
-        app.select_theme(ThemeMode::TokyoDay);
-        app.select_theme(ThemeMode::Custom);
+        app.custom_tokens.secondary = egui::Color32::from_rgb(4, 5, 6);
+        let ctx = egui::Context::default();
+        let render = |ctx: &egui::Context, app: &mut LibraryApp, input| {
+            let mut result = None;
+            let _ = ctx.run(input, |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    result = Some(app.theme_selection_ui(ui));
+                });
+            });
+            result.unwrap()
+        };
+        let (combo_rect, _) = render(&ctx, &mut app, egui::RawInput::default());
+        let click = |pos| egui::RawInput {
+            events: vec![
+                egui::Event::PointerMoved(pos),
+                egui::Event::PointerButton {
+                    pos,
+                    button: egui::PointerButton::Primary,
+                    pressed: true,
+                    modifiers: egui::Modifiers::default(),
+                },
+                egui::Event::PointerButton {
+                    pos,
+                    button: egui::PointerButton::Primary,
+                    pressed: false,
+                    modifiers: egui::Modifiers::default(),
+                },
+            ],
+            ..Default::default()
+        };
+        let _ = render(&ctx, &mut app, click(combo_rect.center()));
+        let (_, option_rects) = render(&ctx, &mut app, egui::RawInput::default());
+        let custom_pos = option_rects.unwrap()[2].center();
+        let _ = render(&ctx, &mut app, click(custom_pos));
         assert_eq!(app.theme, ThemeMode::Custom);
         assert!(app.show_theme_editor);
         assert_eq!(app.custom_tokens, ThemeMode::TokyoDay.tokens());
@@ -572,6 +614,7 @@ mod keyboard_tests {
             modifiers: input.modifiers,
         });
         let _ = ctx.run(input, |ctx| app.handle_theme_shortcuts(ctx));
+        assert!(app.show_theme_editor);
         assert_eq!(app.custom_tokens.primary, egui::Color32::from_rgb(1, 2, 3));
     }
 
