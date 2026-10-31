@@ -230,6 +230,7 @@ pub struct GalleryState {
     pub component: ComponentTab,
     minimal_line_view: bool,
     minimal_line_filter: f32,
+    minimal_line_filter_drag_angle: Option<f32>,
     minimal_line_channel: f32,
     minimal_line_filter_id: Option<egui::Id>,
     minimal_line_filter_rect: Option<egui::Rect>,
@@ -246,6 +247,7 @@ impl Default for GalleryState {
             component: ComponentTab::default(),
             minimal_line_view: false,
             minimal_line_filter: 0.5,
+            minimal_line_filter_drag_angle: None,
             minimal_line_channel: 0.5,
             minimal_line_filter_id: None,
             minimal_line_filter_rect: None,
@@ -360,12 +362,13 @@ fn show_minimal_line(ui: &mut egui::Ui, state: &mut GalleryState, tokens: ColorT
     ui.horizontal_wrapped(|ui| {
         ui.vertical(|ui| {
             ui.small("FILTER");
-            let response = draw_knob(
+            let response = draw_minimal_rotary(
                 ui,
-                Concept::MinimalLine,
                 &mut state.minimal_line_filter,
+                &mut state.minimal_line_filter_drag_angle,
                 tokens,
             );
+            ui.label(format!("{}%", (state.minimal_line_filter * 100.0).round()));
             state.minimal_line_filter_id = Some(response.id);
             state.minimal_line_filter_rect = Some(response.rect);
         });
@@ -686,16 +689,18 @@ fn minimal_knob_value(angle: f32) -> f32 {
     }
 }
 
-fn minimal_knob_drag_value(angle: f32, current: f32) -> f32 {
-    let normalized = (angle - MINIMAL_KNOB_START).rem_euclid(std::f32::consts::TAU);
-    if normalized > MINIMAL_KNOB_SWEEP {
-        current.clamp(0.0, 1.0)
-    } else {
-        normalized / MINIMAL_KNOB_SWEEP
-    }
+fn minimal_knob_drag_value(angle: f32, previous_angle: f32, current: f32) -> f32 {
+    let delta = (angle - previous_angle + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU)
+        - std::f32::consts::PI;
+    (current + delta / MINIMAL_KNOB_SWEEP).clamp(0.0, 1.0)
 }
 
-fn draw_minimal_rotary(ui: &mut egui::Ui, value: &mut f32, tokens: ColorTokens) -> egui::Response {
+fn draw_minimal_rotary(
+    ui: &mut egui::Ui,
+    value: &mut f32,
+    drag_angle: &mut Option<f32>,
+    tokens: ColorTokens,
+) -> egui::Response {
     let (_, rect) = ui.allocate_space(egui::vec2(76.0, 76.0));
     let response = ui.interact(
         rect,
@@ -704,11 +709,21 @@ fn draw_minimal_rotary(ui: &mut egui::Ui, value: &mut f32, tokens: ColorTokens) 
     );
     let center = rect.center();
     let radius = 25.0;
-    if response.dragged() || response.clicked() {
-        if let Some(pointer) = response.interact_pointer_pos() {
-            *value =
-                minimal_knob_drag_value((pointer.y - center.y).atan2(pointer.x - center.x), *value);
+    if let Some(pointer) = response.interact_pointer_pos() {
+        let angle = (pointer.y - center.y).atan2(pointer.x - center.x);
+        if response.drag_started() || response.dragged() {
+            if let Some(previous_angle) = *drag_angle {
+                *value = minimal_knob_drag_value(angle, previous_angle, *value);
+            }
+            *drag_angle = Some(angle);
+        } else if response.clicked() {
+            *value = minimal_knob_value(angle);
+        } else if response.hovered() && ui.input(|input| input.pointer.primary_down()) {
+            *drag_angle = Some(angle);
         }
+    }
+    if response.drag_stopped() {
+        *drag_angle = None;
     }
     if response.has_focus() {
         ui.input(|input| {
@@ -767,7 +782,8 @@ fn draw_knob(
 ) -> egui::Response {
     if concept == Concept::MinimalLine {
         ui.vertical(|ui| {
-            let response = draw_minimal_rotary(ui, value, tokens);
+            let mut drag_angle = None;
+            let response = draw_minimal_rotary(ui, value, &mut drag_angle, tokens);
             ui.label(format!("{}%", (*value * 100.0).round()));
             response
         })
@@ -1573,6 +1589,7 @@ mod tests {
         let ctx = egui::Context::default();
         let mut state = GalleryState {
             minimal_line_view: true,
+            minimal_line_filter: 0.2,
             ..Default::default()
         };
         let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1000.0, 700.0));
@@ -1625,7 +1642,8 @@ mod tests {
         );
         assert!(
             (state.minimal_line_filter - 0.8).abs() < 0.05,
-            "actual rotary drag should track angle"
+            "actual rotary drag should track angle, got {}",
+            state.minimal_line_filter
         );
 
         let at_angle = |degrees: f32| {
@@ -1650,11 +1668,17 @@ mod tests {
         );
         let _ = render(&mut state, vec![egui::Event::PointerMoved(at_angle(89.0))]);
         let _ = render(&mut state, vec![egui::Event::PointerMoved(at_angle(91.0))]);
+        let _ = render(&mut state, vec![egui::Event::PointerMoved(at_angle(135.0))]);
+        let _ = render(&mut state, vec![egui::Event::PointerMoved(at_angle(160.0))]);
         assert_eq!(state.minimal_line_filter, 1.0);
+        // Reversing into the same active arc should resume smoothly, not
+        // switch to the opposite endpoint when crossing the gap boundary.
+        let _ = render(&mut state, vec![egui::Event::PointerMoved(at_angle(130.0))]);
+        assert!(state.minimal_line_filter < 1.0 && state.minimal_line_filter > 0.85);
         let _ = render(
             &mut state,
             vec![egui::Event::PointerButton {
-                pos: at_angle(91.0),
+                pos: at_angle(130.0),
                 button: egui::PointerButton::Primary,
                 pressed: false,
                 modifiers: Default::default(),
@@ -1678,11 +1702,44 @@ mod tests {
         );
         let _ = render(&mut state, vec![egui::Event::PointerMoved(at_angle(91.0))]);
         let _ = render(&mut state, vec![egui::Event::PointerMoved(at_angle(89.0))]);
+        let _ = render(&mut state, vec![egui::Event::PointerMoved(at_angle(45.0))]);
+        let _ = render(&mut state, vec![egui::Event::PointerMoved(at_angle(20.0))]);
         assert_eq!(state.minimal_line_filter, 0.0);
+        let _ = render(&mut state, vec![egui::Event::PointerMoved(at_angle(50.0))]);
+        assert!(state.minimal_line_filter > 0.0 && state.minimal_line_filter < 0.15);
         let _ = render(
             &mut state,
             vec![egui::Event::PointerButton {
-                pos: at_angle(89.0),
+                pos: at_angle(50.0),
+                button: egui::PointerButton::Primary,
+                pressed: false,
+                modifiers: Default::default(),
+            }],
+        );
+
+        // Entering the dead sector from an interior value clamps at the
+        // endpoint instead of freezing at the last interior value.
+        state.minimal_line_filter = 0.98;
+        let near_high = at_angle(39.6);
+        let into_gap = at_angle(60.0);
+        let _ = render(
+            &mut state,
+            vec![
+                egui::Event::PointerMoved(near_high),
+                egui::Event::PointerButton {
+                    pos: near_high,
+                    button: egui::PointerButton::Primary,
+                    pressed: true,
+                    modifiers: Default::default(),
+                },
+            ],
+        );
+        let _ = render(&mut state, vec![egui::Event::PointerMoved(into_gap)]);
+        assert_eq!(state.minimal_line_filter, 1.0);
+        let _ = render(
+            &mut state,
+            vec![egui::Event::PointerButton {
+                pos: into_gap,
                 button: egui::PointerButton::Primary,
                 pressed: false,
                 modifiers: Default::default(),
