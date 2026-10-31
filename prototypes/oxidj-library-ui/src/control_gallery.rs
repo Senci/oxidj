@@ -782,8 +782,16 @@ fn draw_knob(
 ) -> egui::Response {
     if concept == Concept::MinimalLine {
         ui.vertical(|ui| {
-            let mut drag_angle = None;
+            let drag_id = egui::Id::new("minimal-line-gallery-knob-drag-angle");
+            let mut drag_angle = ui.ctx().data(|data| data.get_temp::<f32>(drag_id));
             let response = draw_minimal_rotary(ui, value, &mut drag_angle, tokens);
+            ui.ctx().data_mut(|data| {
+                if let Some(angle) = drag_angle {
+                    data.insert_temp(drag_id, angle);
+                } else {
+                    data.remove::<f32>(drag_id);
+                }
+            });
             ui.label(format!("{}%", (*value * 100.0).round()));
             response
         })
@@ -1582,6 +1590,66 @@ mod tests {
         );
         assert!(fader.width() <= 48.0 && fader.height() <= 122.0);
         assert!(screen.contains_rect(knob) && screen.contains_rect(fader));
+    }
+
+    #[test]
+    fn minimal_line_gallery_rotary_drag_persists_across_frames() {
+        let ctx = egui::Context::default();
+        let value = std::cell::Cell::new(0.2_f32);
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(500.0, 300.0));
+        let bounds = std::cell::Cell::new(None);
+        let render = |events: Vec<egui::Event>| {
+            ctx.run(
+                egui::RawInput {
+                    screen_rect: Some(screen),
+                    events,
+                    ..Default::default()
+                },
+                |ctx| {
+                    egui::CentralPanel::default().show(ctx, |ui| {
+                        let mut current = value.get();
+                        let response = draw_knob(
+                            ui,
+                            Concept::MinimalLine,
+                            &mut current,
+                            ThemeMode::TokyoNight.tokens(),
+                        );
+                        value.set(current);
+                        bounds.set(Some(response.rect));
+                    });
+                },
+            )
+        };
+        let _ = render(Vec::new());
+        let rect = bounds.get().expect("gallery rotary bounds");
+        let center = rect.center();
+        let at = |amount: f32| {
+            let angle = minimal_knob_angle(amount);
+            center + egui::vec2(angle.cos(), angle.sin()) * 20.0
+        };
+        let start = at(0.2);
+        let target = at(0.65);
+        let _ = render(vec![
+            egui::Event::PointerMoved(start),
+            egui::Event::PointerButton {
+                pos: start,
+                button: egui::PointerButton::Primary,
+                pressed: true,
+                modifiers: Default::default(),
+            },
+        ]);
+        let _ = render(vec![egui::Event::PointerMoved(target)]);
+        assert!(
+            value.get() > 0.45,
+            "gallery rotary held drag should change its value, got {}",
+            value.get()
+        );
+        let _ = render(vec![egui::Event::PointerButton {
+            pos: target,
+            button: egui::PointerButton::Primary,
+            pressed: false,
+            modifiers: Default::default(),
+        }]);
     }
 
     #[test]
