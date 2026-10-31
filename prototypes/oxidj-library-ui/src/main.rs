@@ -3,6 +3,7 @@ use oxidj_library::{Catalog, TrackAvailability, TrackDetails};
 use std::path::PathBuf;
 
 mod components;
+mod control_gallery;
 mod theme;
 use components::{PrimaryActionButton, SectionHeading, StatusBadge, StatusKind};
 use theme::ThemeMode;
@@ -36,6 +37,8 @@ struct LibraryApp {
     xml_edit_track: Option<String>,
     xml_edit_name: String,
     xml_edit_output: String,
+    show_control_gallery: bool,
+    control_gallery: control_gallery::GalleryState,
 }
 impl LibraryApp {
     fn new(db_path: PathBuf, theme: ThemeMode, custom_tokens: theme::ColorTokens) -> Self {
@@ -73,6 +76,8 @@ impl LibraryApp {
             xml_edit_track: None,
             xml_edit_name: String::new(),
             xml_edit_output: String::new(),
+            show_control_gallery: false,
+            control_gallery: control_gallery::GalleryState::default(),
         };
         app.reload();
         app
@@ -307,6 +312,9 @@ impl eframe::App for LibraryApp {
             ui.heading("OxiDJ · Local Library");
             ui.horizontal(|ui| {
                 self.theme_selection_ui(ui);
+                if ui.button("Control concepts…").clicked() {
+                    self.show_control_gallery = true;
+                }
                 if self.theme == ThemeMode::Custom {
                     if ui.button("Edit palette…").clicked() {
                         self.show_theme_editor = true;
@@ -393,6 +401,17 @@ impl eframe::App for LibraryApp {
                 .show(ui, tokens);
             }
         });
+        if self.show_control_gallery {
+            let mut open = self.show_control_gallery;
+            egui::Window::new("OxiDJ · Control concept gallery")
+                .open(&mut open)
+                .default_width(900.0)
+                .min_width(360.0)
+                .show(ctx, |ui| {
+                    control_gallery::show(ui, &mut self.control_gallery, tokens)
+                });
+            self.show_control_gallery = open;
+        }
         if self.show_xml_preview {
             let mut open = self.show_xml_preview;
             egui::Window::new("Rekordbox XML preview · guarded Name export")
