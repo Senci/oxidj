@@ -228,6 +228,7 @@ enum TransportAction {
 pub struct GalleryState {
     pub selected: Concept,
     pub component: ComponentTab,
+    minimal_line_view: bool,
     values: [f32; Concept::ALL.len()],
     last_transport: Option<(Concept, TransportAction)>,
 }
@@ -237,6 +238,7 @@ impl Default for GalleryState {
         Self {
             selected: Concept::default(),
             component: ComponentTab::default(),
+            minimal_line_view: false,
             values: [0.5; Concept::ALL.len()],
             last_transport: None,
         }
@@ -288,6 +290,28 @@ fn show_with_card_bounds(
     ui.label(
         "Compare the same control across ten design concepts. Preview only; no audio is connected.",
     );
+    ui.horizontal(|ui| {
+        if ui
+            .selectable_label(!state.minimal_line_view, "Compare all ten")
+            .clicked()
+        {
+            state.minimal_line_view = false;
+        }
+        if ui
+            .selectable_label(
+                state.minimal_line_view,
+                "Minimal Line · interactive preview",
+            )
+            .clicked()
+        {
+            state.minimal_line_view = true;
+        }
+    });
+    ui.separator();
+    if state.minimal_line_view {
+        show_minimal_line(ui, state, tokens);
+        return ui.min_rect();
+    }
     component_tabs(ui, state);
     ui.separator();
 
@@ -315,6 +339,29 @@ fn show_with_card_bounds(
         }
     });
     gallery_rect
+}
+
+fn show_minimal_line(ui: &mut egui::Ui, state: &mut GalleryState, tokens: ColorTokens) {
+    let index = Concept::MinimalLine.index();
+    ui.heading("Minimal Line");
+    ui.label("Local interaction preview · no audio is connected.");
+    ui.add_space(12.0);
+    ui.horizontal_wrapped(|ui| {
+        ui.vertical(|ui| {
+            ui.small("FILTER");
+            let _ = draw_knob(ui, Concept::MinimalLine, &mut state.values[index], tokens);
+        });
+        ui.separator();
+        ui.vertical(|ui| {
+            ui.small("CHANNEL 01");
+            let _ = draw_fader(ui, Concept::MinimalLine, &mut state.values[index], tokens);
+        });
+        ui.separator();
+        ui.vertical(|ui| {
+            ui.small("TRANSPORT · DEMO ONLY");
+            let _ = draw_transport(ui, Concept::MinimalLine, state, tokens);
+        });
+    });
 }
 
 fn concept_selector(ui: &mut egui::Ui, concept: Concept, selected: bool) -> egui::Response {
@@ -1668,6 +1715,50 @@ mod tests {
     }
 
     #[test]
+    fn minimal_line_preview_is_named_and_accessible_without_removing_gallery() {
+        let ctx = egui::Context::default();
+        ctx.enable_accesskit();
+        let mut state = GalleryState {
+            minimal_line_view: true,
+            ..Default::default()
+        };
+        let output = ctx.run(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(1000.0, 700.0),
+                )),
+                ..Default::default()
+            },
+            |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    show(ui, &mut state, ThemeMode::TokyoNight.tokens());
+                });
+            },
+        );
+        let nodes = output
+            .platform_output
+            .accesskit_update
+            .expect("accessible Minimal Line preview")
+            .nodes;
+        let names = nodes
+            .iter()
+            .flat_map(|(_, node)| [node.label(), node.value()])
+            .flatten()
+            .collect::<Vec<_>>();
+        for expected in [
+            "Filter value · Minimal line",
+            "Channel level · Minimal line",
+            "Play, Minimal line",
+            "Cue, Minimal line",
+        ] {
+            assert!(names.contains(&expected), "missing {expected:?}: {names:?}");
+        }
+        assert!(state.minimal_line_view);
+        assert_eq!(Concept::ALL.len(), 10, "comparison concepts remain intact");
+    }
+
+    #[test]
     fn cards_and_controls_fit_narrow_and_wide_layouts_in_all_tabs() {
         for width in [420.0, 1100.0] {
             for component in ComponentTab::ALL {
@@ -1743,7 +1834,7 @@ mod tests {
                     );
                 }
                 let expected_sliders = usize::from(component != ComponentTab::Transport) * 10;
-                let expected_buttons = 13 + usize::from(component == ComponentTab::Transport) * 20;
+                let expected_buttons = 15 + usize::from(component == ComponentTab::Transport) * 20;
                 assert_eq!(
                     slider_count, expected_sliders,
                     "{component:?} sliders at {width}px"
