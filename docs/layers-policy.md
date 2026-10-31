@@ -39,17 +39,21 @@ flowchart TB
     cli --> library["oxidj-library<br/>layer 1"]
     app --> rekordbox
     rekordbox --> xml["quick-xml"]
+    rekordbox --> pdb["rekordbox-pdb (pinned read-only use)"]
     library --> core["oxidj-core<br/>layer 0"]
     library --> sqlite["rusqlite + rusqlite_migration"]
     core -. "forbidden upward edge" .-> library
     xtask["xtask<br/>exempt build tooling"]
 ```
 
-The bounded M1 local-catalog slice populates `oxidj-library`; it is not an empty
-scaffold. The M4 preview keeps XML parsing in `oxidj-rekordbox` at layer 2; the
+The bounded M4 XML preview keeps XML parsing in `oxidj-rekordbox` at layer 2; the
 application handler invokes that adapter and exposes it to the CLI without making
-the parser a CLI or library dependency. Other vendor adapters, audio analysis and UI
-remain outside this slice.
+the parser a CLI or library dependency. The separate DeviceSQL `export.pdb`
+preview uses the pinned `rekordbox-pdb` git revision only from this adapter. Its
+read-only handler exposes source-scoped IDs and paths for display, never maps them
+to OxiDJ catalog IDs, and does not expose the upstream writer API. This does not
+claim OneLibrary support or hardware compatibility. Other vendor adapters, audio
+analysis and UI remain outside this slice.
 
 ## What the gate enforces
 

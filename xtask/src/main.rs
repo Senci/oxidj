@@ -104,6 +104,7 @@ const VENDOR_CRATES: &[&str] = &[
     "onelibrary",
     "crate-digger",
     "djay",
+    "rekordbox-pdb",
     "pyrekordbox",
 ];
 
@@ -268,8 +269,15 @@ fn check_layers(meta: &serde_json::Value) -> Result<(), Vec<String>> {
                 && dep.kind.is_none()
                 && !dep.default_features
                 && dep.features.is_empty();
+            let accepted_rekordbox_pdb = name == "oxidj-rekordbox"
+                && dep_name == "rekordbox-pdb"
+                && dep.kind.is_none()
+                && dep.source.as_deref().is_some_and(|source| {
+                    source == "git+https://github.com/fragmede/rekordbox-pdb-rs?rev=b9896c4e279f2ffd5a8eee1f05a7a0282fe44f35"
+                });
             if !accepted_library_persistence
                 && !accepted_library_audio
+                && !accepted_rekordbox_pdb
                 && let Some(category) = denied_category(dep_name)
             {
                 violations.push(format!(
@@ -527,6 +535,36 @@ mod tests {
             "id": format!("path+file:///root#{name}@0.1.0"),
             "dependencies": deps_val
         })
+    }
+
+    #[test]
+    fn rekordbox_pdb_is_allowed_only_pinned_in_adapter_layer() {
+        let commit = "b9896c4e279f2ffd5a8eee1f05a7a0282fe44f35";
+        let dependency = |name: &str, source: String| {
+            json!({
+                "name": name,
+                "source": source,
+                "kind": null,
+                "req": "*",
+                "uses_default_features": true,
+                "features": []
+            })
+        };
+        let meta = |owner: &str, source: String| {
+            json!({
+                "workspace_members": [format!("path+file:///root#{owner}@0.1.0")],
+                "packages": [{
+                    "name": owner,
+                    "id": format!("path+file:///root#{owner}@0.1.0"),
+                    "dependencies": [dependency("rekordbox-pdb", source)]
+                }]
+            })
+        };
+        let pinned = format!("git+https://github.com/fragmede/rekordbox-pdb-rs?rev={commit}");
+        assert!(check_layers(&meta("oxidj-rekordbox", pinned.clone())).is_ok());
+        assert!(check_layers(&meta("oxidj-application", pinned)).is_err());
+        let wrong_revision = "git+https://github.com/fragmede/rekordbox-pdb-rs?rev=main#0000000000000000000000000000000000000000".to_string();
+        assert!(check_layers(&meta("oxidj-rekordbox", wrong_revision)).is_err());
     }
 
     #[test]

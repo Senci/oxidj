@@ -70,6 +70,48 @@ fn run(args: &[String]) -> i32 {
 }
 
 fn run_rekordbox(args: &[String]) -> i32 {
+    if args.first().is_some_and(|action| action == "pdb-preview") {
+        if args.len() != 3 || args[1] != "--pdb" {
+            eprintln!("error: expected rekordbox pdb-preview --pdb PATH");
+            return USAGE;
+        }
+        return match oxidj_application::preview_rekordbox_pdb(&args[2]) {
+            Ok(preview) => {
+                println!("Tracks:");
+                for track in preview.tracks {
+                    println!(
+                        "Track\t{}\t{}\t{:?}\t{:?}\t{}\t{}\t{:?}",
+                        track.source_id.0,
+                        track.title,
+                        track.artist,
+                        track.album,
+                        track.tempo_hundredths_bpm,
+                        track.duration_seconds,
+                        track.file_path
+                    );
+                }
+                println!("Playlists:");
+                for playlist in preview.playlists {
+                    println!(
+                        "Playlist\t{}\tParent={}\tPath={:?}\tTracks={:?}",
+                        playlist.source_id.0,
+                        playlist.parent_id.0,
+                        playlist.hierarchy,
+                        playlist
+                            .ordered_track_ids
+                            .iter()
+                            .map(|id| id.0)
+                            .collect::<Vec<_>>()
+                    );
+                }
+                OK
+            }
+            Err(error) => {
+                eprintln!("error: PDB preview rejected input: {error}");
+                DOMAIN
+            }
+        };
+    }
     if args.first().is_some_and(|action| action == "create-folder") {
         if args.len() != 11
             || args[1] != "--xml"
@@ -2393,7 +2435,7 @@ fn print_usage(to_stdout: bool) {
     let _ = writeln!(output, "commands:");
     let _ = writeln!(
         output,
-        "  rekordbox preview --xml <path>   Read-only Rekordbox XML preview"
+        "  rekordbox preview --xml <path>   Read-only Rekordbox XML preview\n  rekordbox pdb-preview --pdb <path> Read-only legacy DeviceSQL PDB preview",
     );
     let _ = writeln!(
         output,

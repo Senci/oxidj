@@ -4,7 +4,7 @@
 #
 #   crates/oxidj-core         neutral domain model          (layer 0)
 #   crates/oxidj-library      shared catalog handlers        (layer 1)
-#   crates/oxidj-rekordbox    isolated vendor XML adapter     (layer 2)
+#   crates/oxidj-rekordbox    isolated XML + DeviceSQL adapter (layer 2)
 #   crates/oxidj-application  shared operation orchestration (layer 3)
 #   crates/oxidj-cli          command-line presentation       (layer 4)
 #
@@ -46,6 +46,7 @@ oxidj-core = { path = "crates/oxidj-core", version = "0.1.0" }
 oxidj-library = { path = "crates/oxidj-library", version = "0.1.0" }
 oxidj-rekordbox = { path = "crates/oxidj-rekordbox", version = "0.1.0" }
 oxidj-application = { path = "crates/oxidj-application", version = "0.1.0" }
+rekordbox-pdb = { git = "https://github.com/fragmede/rekordbox-pdb-rs", rev = "b9896c4e279f2ffd5a8eee1f05a7a0282fe44f35" }
 
 # --- In-repo lint policy (reproducible on a fresh clone; M0-10 §0.2 / §0.4) ---
 # `cargo::` lints (emitted by Cargo itself) are nightly-only on the 1.99 stable

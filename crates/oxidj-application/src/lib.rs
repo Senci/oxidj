@@ -4,8 +4,8 @@ use std::path::Path;
 
 pub use oxidj_rekordbox::{
     Error as RekordboxError, ExportDecision, ExportPreflight, FolderCreateRequest,
-    FolderDeleteRequest, FolderMoveRequest, FolderRenameChange, FolderRenameRequest,
-    PlaylistClearRequest, PlaylistCreateRequest, PlaylistDeleteRequest,
+    FolderDeleteRequest, FolderMoveRequest, FolderRenameChange, FolderRenameRequest, PdbPreview,
+    PdbPreviewError, PlaylistClearRequest, PlaylistCreateRequest, PlaylistDeleteRequest,
     PlaylistMemberAppendRequest, PlaylistMemberDeleteRequest, PlaylistMemberInsertRequest,
     PlaylistMoveRequest, PlaylistRenameChange, PlaylistRenameRequest, PlaylistReorderRequest,
     PositionMarkDeleteChange, PositionMarkDeleteRequest, PositionMarkEditChange,
@@ -48,6 +48,11 @@ pub use oxidj_rekordbox::{
 /// Read-only preview handler; parsing and vendor-specific semantics stay in the adapter.
 pub fn preview_rekordbox_xml(path: impl AsRef<Path>) -> Result<Preview, RekordboxError> {
     oxidj_rekordbox::parse_file(path)
+}
+
+/// Read-only preview of a DeviceSQL export.pdb source.
+pub fn preview_rekordbox_pdb(path: impl AsRef<Path>) -> Result<PdbPreview, PdbPreviewError> {
+    oxidj_rekordbox::parse_pdb_file(path)
 }
 
 /// Export one guarded track Name edit to a new, non-overwriting file.

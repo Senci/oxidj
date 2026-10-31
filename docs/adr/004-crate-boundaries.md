@@ -29,9 +29,10 @@ flowchart TB
     cli["oxidj-cli"] --> app["oxidj-application<br/>typed application handlers"]
     ui["oxidj-ui<br/>M3"] --> app
     app --> library["oxidj-library<br/>commands, import/export"]
-    app --> adapters["oxidj-rekordbox<br/>read-only XML preview"]
+    app --> adapters["oxidj-rekordbox<br/>read-only XML + DeviceSQL PDB previews"]
     library --> core["oxidj-core<br/>neutral domain; no UI, persistence, audio, or vendor deps"]
     adapters --> xml["quick-xml<br/>XML parsing only"]
+    adapters --> pdb["rekordbox-pdb<br/>pinned read API only"]
     storage["oxidj-storage<br/>SQLite, migrations"] --> core
     analysis["oxidj-analysis<br/>BPM, beatgrid, waveform, key"] --> core
     audio["WAV/FLAC/MP3 decode in oxidj-library<br/>M2 import only"] --> library

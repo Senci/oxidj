@@ -191,6 +191,7 @@ name = "oxidj-rekordbox"
 version = "0.1.0"
 dependencies = [
  "quick-xml",
+ "rekordbox-pdb",
 ]
 
 [[package]]
@@ -225,6 +226,11 @@ checksum = "1fbf4db142a473a8d80c26bbf18454ed458bf8d26c8219c331daecfdbd079001"
 dependencies = [
  "proc-macro2",
 ]
+
+[[package]]
+name = "rekordbox-pdb"
+version = "0.1.0"
+source = "git+https://github.com/fragmede/rekordbox-pdb-rs?rev=b9896c4e279f2ffd5a8eee1f05a7a0282fe44f35#b9896c4e279f2ffd5a8eee1f05a7a0282fe44f35"
 
 [[package]]
 name = "rusqlite"
