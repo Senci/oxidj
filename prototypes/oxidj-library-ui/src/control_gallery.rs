@@ -674,12 +674,24 @@ fn minimal_knob_value(angle: f32) -> f32 {
     if normalized <= MINIMAL_KNOB_SWEEP {
         normalized / MINIMAL_KNOB_SWEEP
     } else {
+        // A static pointer position in the dead sector resolves to its nearest
+        // endpoint. Held drags use `minimal_knob_drag_value` to retain the
+        // endpoint reached before entering the sector instead of wrapping.
         let dead_sector_progress = normalized - MINIMAL_KNOB_SWEEP;
         if dead_sector_progress <= (std::f32::consts::TAU - MINIMAL_KNOB_SWEEP) * 0.5 {
             1.0
         } else {
             0.0
         }
+    }
+}
+
+fn minimal_knob_drag_value(angle: f32, current: f32) -> f32 {
+    let normalized = (angle - MINIMAL_KNOB_START).rem_euclid(std::f32::consts::TAU);
+    if normalized > MINIMAL_KNOB_SWEEP {
+        current.clamp(0.0, 1.0)
+    } else {
+        normalized / MINIMAL_KNOB_SWEEP
     }
 }
 
@@ -694,7 +706,8 @@ fn draw_minimal_rotary(ui: &mut egui::Ui, value: &mut f32, tokens: ColorTokens) 
     let radius = 25.0;
     if response.dragged() || response.clicked() {
         if let Some(pointer) = response.interact_pointer_pos() {
-            *value = minimal_knob_value((pointer.y - center.y).atan2(pointer.x - center.x));
+            *value =
+                minimal_knob_drag_value((pointer.y - center.y).atan2(pointer.x - center.x), *value);
         }
     }
     if response.has_focus() {
@@ -1613,6 +1626,67 @@ mod tests {
         assert!(
             (state.minimal_line_filter - 0.8).abs() < 0.05,
             "actual rotary drag should track angle"
+        );
+
+        let at_angle = |degrees: f32| {
+            let angle = degrees.to_radians();
+            center + egui::vec2(angle.cos(), angle.sin()) * 20.0
+        };
+        // Clockwise traversal from the high endpoint must remain clamped
+        // across the dead-sector midpoint instead of wrapping to zero.
+        state.minimal_line_filter = 1.0;
+        let high = at_angle(45.0);
+        let _ = render(
+            &mut state,
+            vec![
+                egui::Event::PointerMoved(high),
+                egui::Event::PointerButton {
+                    pos: high,
+                    button: egui::PointerButton::Primary,
+                    pressed: true,
+                    modifiers: Default::default(),
+                },
+            ],
+        );
+        let _ = render(&mut state, vec![egui::Event::PointerMoved(at_angle(89.0))]);
+        let _ = render(&mut state, vec![egui::Event::PointerMoved(at_angle(91.0))]);
+        assert_eq!(state.minimal_line_filter, 1.0);
+        let _ = render(
+            &mut state,
+            vec![egui::Event::PointerButton {
+                pos: at_angle(91.0),
+                button: egui::PointerButton::Primary,
+                pressed: false,
+                modifiers: Default::default(),
+            }],
+        );
+
+        // Repeat in the opposite direction from the low endpoint.
+        state.minimal_line_filter = 0.0;
+        let low = at_angle(135.0);
+        let _ = render(
+            &mut state,
+            vec![
+                egui::Event::PointerMoved(low),
+                egui::Event::PointerButton {
+                    pos: low,
+                    button: egui::PointerButton::Primary,
+                    pressed: true,
+                    modifiers: Default::default(),
+                },
+            ],
+        );
+        let _ = render(&mut state, vec![egui::Event::PointerMoved(at_angle(91.0))]);
+        let _ = render(&mut state, vec![egui::Event::PointerMoved(at_angle(89.0))]);
+        assert_eq!(state.minimal_line_filter, 0.0);
+        let _ = render(
+            &mut state,
+            vec![egui::Event::PointerButton {
+                pos: at_angle(89.0),
+                button: egui::PointerButton::Primary,
+                pressed: false,
+                modifiers: Default::default(),
+            }],
         );
 
         let fader = state
