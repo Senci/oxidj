@@ -14,8 +14,8 @@
     <main id="main" class="container">
       <section class="hero roadmap-hero" aria-labelledby="title">
         <div class="hero-copy">
-          <h1 id="title">The road to a trustworthy library.</h1>
-          <p class="lead">Local files first. Careful exchange next. Decks come later.</p>
+          <h1 id="title">What works. What comes next.</h1>
+          <p class="lead">Local files first. Careful exchange next. Decks later.</p>
         </div>
         <div class="focus-note">
           <h2><!-- site:focus --></h2>
@@ -27,10 +27,16 @@
       <section id="roadmap" class="content-section" aria-labelledby="milestones-title">
         <h2 id="milestones-title">Milestones</h2>
         <p class="section-summary">
-          M0 to M3 cover the local-library foundation. M4 starts the exchange work. These are stages
-          of development, rather than release dates.
+          M0 to M3 cover the local-library foundation. M4 is the exchange work now in progress.
+          These are development stages, not release dates.
+        </p>
+        <p class="timeline-controls">
+          <button class="trace-button" type="button" data-trace="timeline" hidden>
+            Trace the milestones</button
+          ><span>Illustration only.</span>
         </p>
         <ol class="milestone-list">
+          <li class="milestone-trace" aria-hidden="true"></li>
           <!-- roadmap:milestones -->
         </ol>
       </section>
@@ -51,5 +57,6 @@
       </section>
     </main>
     <!-- site:footer -->
+    <script type="module" src="./src/main.ts"></script>
   </body>
 </html>

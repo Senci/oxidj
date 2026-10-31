@@ -15,9 +15,9 @@
       <section class="hero" aria-labelledby="title">
         <div class="hero-copy">
           <h1 id="title">A library before the decks.</h1>
-          <p class="lead">A Rust-first DJ library, starting with your local files.</p>
+          <p class="lead">Your local DJ library, built in Rust.</p>
           <div class="actions">
-            <a class="button" href="#try-it">Try the catalog</a
+            <a class="button" href="#try-it">Try the CLI</a
             ><a href="./roadmap.html">See the roadmap</a>
           </div>
         </div>
@@ -28,24 +28,69 @@
             height="600"
             alt="Provisional OxiDJ library viewer showing a synthetic track, search, sort and selected-track details"
           />
-          <figcaption>Prototype</figcaption>
+          <figcaption>Prototype viewer with synthetic audio.</figcaption>
         </figure>
       </section>
       <!-- site:status -->
       <section class="content-section" aria-labelledby="why">
         <div class="section-intro">
-          <h2 id="why">Your collection, beyond one ecosystem.</h2>
+          <h2 id="why">Your files stay yours.</h2>
           <p>
-            Moving between DJ tools can strand playlists, cues and beat grids in vendor formats.
-            OxiDJ aims to make those boundaries explicit, so a library move never quietly loses the
-            work behind a set.
+            Playlists, cues and beat grids can get stuck in one tool. OxiDJ aims to make moving them
+            safer, without quietly losing the work behind a set.
           </p>
         </div>
         <p class="measure">
-          For DJs with large local collections and Rust developers, the starting point is
-          deliberately small: keep audio in place, store references and technical facts locally, and
-          build dependable exchange before decks. There is no cloud account to create.
+          We're starting small: audio stays where it is, while references and technical facts live
+          in a local catalog. No cloud account needed. Dependable exchange comes before decks.
         </p>
+        <figure class="reference-flow" aria-labelledby="flow-caption">
+          <svg class="flow-art" viewBox="0 0 900 150" aria-hidden="true" focusable="false">
+            <path class="flow-wire" d="M245 75H655" />
+            <path class="flow-wire flow-wire-secondary" d="M245 75H655" />
+            <circle class="flow-node" cx="130" cy="75" r="54" />
+            <rect class="flow-node flow-catalog" x="365" y="24" width="170" height="102" rx="12" />
+            <circle class="flow-node" cx="770" cy="75" r="54" />
+            <circle class="flow-trace" cx="245" cy="75" r="6" aria-hidden="true" />
+          </svg>
+          <ol class="flow-stages">
+            <li><strong>Audio files</strong><span>Stay in place, outside the catalog.</span></li>
+            <li><strong>Local catalog</strong><span>References and technical facts.</span></li>
+            <li>
+              <strong>Prototype viewer</strong><span>Search, sort, selection and details.</span>
+            </li>
+          </ol>
+          <figcaption id="flow-caption">
+            Audio stays in place. The catalog keeps references and technical facts.
+          </figcaption>
+          <div class="flow-details" aria-label="How the local library fits together">
+            <details>
+              <summary>Audio files</summary>
+              <p>
+                The importer reads supported audio encodings. Originals stay in place and unchanged.
+              </p>
+            </details>
+            <details>
+              <summary>Local catalog</summary>
+              <p>
+                The catalog stores file references, filenames and technical facts. This local scope
+                is single-process and capped at 10,000 tracks.
+              </p>
+            </details>
+            <details>
+              <summary>Prototype viewer</summary>
+              <p>
+                The provisional viewer reopens the saved catalog for search, sort, selection and
+                track details.
+              </p>
+            </details>
+          </div>
+          <p class="flow-controls">
+            <button class="trace-button" type="button" data-trace="flow" hidden>
+              Trace the references</button
+            ><span>Illustration only.</span>
+          </p>
+        </figure>
         <ol class="roadmap-preview">
           <li>
             <a href="./roadmap.html#m1">M1: Local catalog</a
@@ -80,7 +125,7 @@
       </section>
       <section id="try-it" class="content-section" aria-labelledby="try-title">
         <div class="section-intro">
-          <h2 id="try-title">Try it from source.</h2>
+          <h2 id="try-title">Try the CLI from source.</h2>
           <p>
             Linux is the exercised development platform. macOS and Windows are unverified; there is
             no CI validation for them. These are CLI instructions, rather than a packaged desktop
@@ -117,5 +162,6 @@ cargo run -p oxidj-cli -- catalog list --db ./catalog.sqlite</code></pre>
       </section>
     </main>
     <!-- site:footer -->
+    <script type="module" src="./src/main.ts"></script>
   </body>
 </html>

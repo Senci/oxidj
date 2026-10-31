@@ -5,7 +5,7 @@ const { default: puppeteer } = await import(
   pathToFileURL(`${process.env.HALLMARK_PUPPETEER}/lib/puppeteer/puppeteer-core.js`).href
 );
 const base = process.env.SITE_URL || 'http://127.0.0.1:4183/oxidj/';
-const output = '.hallmark/final';
+const output = process.env.SITE_AUDIT_OUTPUT || '.hallmark/final';
 mkdirSync(output, { recursive: true });
 const browser = await puppeteer.launch({
   executablePath: process.env.CHROME_PATH || '/usr/bin/chromium',
@@ -29,6 +29,11 @@ try {
         if (res.status() >= 400) errors.push(`${res.status()}: ${res.url()}`);
       });
       await page.goto(base + route, { waitUntil: 'networkidle0' });
+      if (route !== '404.html') {
+        await page.waitForFunction(
+          () => document.getElementById('main')?.dataset.enhancementsReady === 'true',
+        );
+      }
       await page.evaluate(() => document.fonts.ready);
       const audit = await page.evaluate(() => {
         const context = document
@@ -121,16 +126,98 @@ try {
         document.activeElement.blur();
         window.scrollTo({ top: 0, behavior: 'instant' });
       });
+      const brokenAnchors = await page.$$eval('a[href^="#"]', (links) =>
+        links
+          .map((link) => link.getAttribute('href'))
+          .filter((href) => href && !document.getElementById(decodeURIComponent(href.slice(1)))),
+      );
+      assert.deepEqual(brokenAnchors, [], `${route} broken same-page anchor`);
       await page.screenshot({ path: `${output}/${route || 'home'}-${width}.png`, fullPage: true });
+      if (route === '') {
+        const firstSummary = await page.$('.flow-details summary');
+        await firstSummary.focus();
+        await page.keyboard.press('Enter');
+        assert.equal(
+          await page.$eval('.flow-details details', (el) => el.open),
+          true,
+          'native disclosure opens with Enter',
+        );
+        await page.keyboard.press('Enter');
+        assert.equal(
+          await page.$eval('.flow-details details', (el) => el.open),
+          false,
+          'native disclosure closes with Enter',
+        );
+        const trace = await page.$('[data-trace="flow"]');
+        await trace.focus();
+        assert.equal(
+          await page.$eval('[data-trace="flow"]', (el) => el.hidden),
+          false,
+          'trace control enhanced',
+        );
+        await page.keyboard.press('Enter');
+        assert.ok(
+          (await page.$eval('.flow-trace', (el) => el.getAnimations().length)) > 0,
+          'keyboard activation starts finite trace',
+        );
+        await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
+        await page.waitForFunction(() => document.querySelector('[data-trace="flow"]').hidden);
+        assert.equal(
+          await page.$eval('[data-trace="flow"]', (el) => el.hidden),
+          true,
+          'reduced motion hides optional control',
+        );
+        assert.equal(
+          await page.$eval('.reference-flow', (el) => el.classList.contains('is-tracing')),
+          false,
+          'reduced motion cancels active trace',
+        );
+      }
+      if (route === 'roadmap.html') {
+        const trace = await page.$('[data-trace="timeline"]');
+        await trace.focus();
+        await page.keyboard.press('Enter');
+        assert.equal(
+          await page.$eval('#m4', (el) => el.classList.contains('milestone-in-progress')),
+          true,
+          'timeline retains M4 in-progress state',
+        );
+        assert.ok(
+          (await page.$eval('.milestone-trace', (el) => el.getAnimations().length)) > 0,
+          'timeline trace runs along the fixed rail',
+        );
+        await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
+        await page.waitForFunction(() => document.querySelector('[data-trace="timeline"]').hidden);
+        assert.equal(
+          await page.$eval('[data-trace="timeline"]', (el) => el.hidden),
+          true,
+          'timeline control hidden for reduced motion',
+        );
+        assert.equal(
+          await page.$eval('#roadmap', (el) => el.classList.contains('is-tracing')),
+          false,
+          'timeline trace cancelled for reduced motion',
+        );
+        await page.reload({ waitUntil: 'networkidle0' });
+        assert.equal(
+          await page.$eval('[data-trace="timeline"]', (el) => el.hidden),
+          true,
+          'reduced motion respected on load',
+        );
+      }
       if (route === 'dossier.html') {
-        await page.click('#asylum-button');
+        await page.evaluate(() => (document.documentElement.style.scrollBehavior = 'auto'));
+        await page.$eval('#asylum-button', (button) =>
+          button.scrollIntoView({ block: 'center', behavior: 'instant' }),
+        );
+        await page.$eval('#asylum-button', (button) => button.click());
         assert.match(await page.$eval('#asylum-output', (el) => el.textContent), /ASYLUM DENIED/);
       }
       await page.setJavaScriptEnabled(false);
       await page.reload({ waitUntil: 'networkidle0' });
       assert.match(
         await page.$eval('main', (el) => el.textContent),
-        route === '404.html' ? /File missing/ : /Status: pre-release/,
+        route === '404.html' ? /This page isn't in the collection/ : /Status: pre-release/,
       );
       results.push({
         route: route || 'home',

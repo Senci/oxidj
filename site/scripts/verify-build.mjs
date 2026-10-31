@@ -38,7 +38,12 @@ for (const css of readdirSync(new URL('assets/', root)).filter((file) => file.en
     verifyReference(reference, `assets/${css}`);
 }
 const home = readFileSync(new URL('index.html', root), 'utf8');
-assert.doesNotMatch(home, /<script\b/);
+const homeScripts = home.match(/<script[^>]*>/g) ?? [];
+assert.equal(homeScripts.length, 1, 'home has one enhancement bundle');
+assert.match(homeScripts[0], /type="module"/);
+assert.ok(homeScripts[0].includes('src="./assets/'));
+assert.doesNotMatch(home, /on(?:click|load|mouseover)=|javascript:/i);
+assert.ok(home.includes('<details>') && home.includes('data-trace="flow"'));
 for (const command of ['init', 'import', 'list'])
   assert.ok(home.includes(`catalog ${command} --db`));
 const roadmap = readFileSync(new URL('roadmap.html', root), 'utf8');

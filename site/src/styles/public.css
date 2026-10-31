@@ -296,6 +296,206 @@ code {
     padding-block: var(--space-xl);
   }
 }
+.reference-flow {
+  margin-top: var(--space-xl);
+  padding: var(--space-lg);
+  border: 1px solid var(--color-rule);
+  border-radius: var(--radius);
+  background: var(--color-paper-2);
+}
+.flow-art {
+  display: block;
+  width: 100%;
+  height: auto;
+  overflow: visible;
+}
+.flow-wire {
+  fill: none;
+  stroke: var(--color-rule);
+  stroke-width: 3;
+}
+.flow-wire-secondary {
+  stroke: var(--color-secondary);
+  stroke-width: 1;
+  stroke-dasharray: 3 8;
+}
+.flow-node {
+  fill: var(--color-paper-3);
+  stroke: var(--color-accent);
+  stroke-width: 2;
+}
+.flow-catalog {
+  stroke: var(--color-secondary);
+}
+.flow-trace {
+  fill: var(--color-secondary);
+  stroke: var(--color-paper);
+  stroke-width: 3;
+  filter: drop-shadow(0 0 5px var(--color-secondary));
+}
+.flow-stages {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-md);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.flow-stages li {
+  display: grid;
+  gap: var(--space-xs);
+  padding-top: var(--space-md);
+  border-top: 1px solid var(--color-rule);
+}
+.flow-stages strong {
+  color: var(--color-ink);
+}
+.flow-stages span,
+.flow-details p,
+.flow-controls span,
+.timeline-controls span,
+.joke-note {
+  color: var(--color-muted);
+  font-size: var(--text-sm);
+}
+.reference-flow figcaption {
+  margin-block: var(--space-md);
+}
+.flow-details {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-md);
+}
+.flow-details details {
+  border-top: 1px solid var(--color-rule);
+}
+.flow-details summary {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  color: var(--color-secondary);
+  cursor: pointer;
+  font-weight: 600;
+  list-style: none;
+}
+.flow-details summary::-webkit-details-marker {
+  display: none;
+}
+.flow-details summary::before {
+  content: '+';
+  display: inline-grid;
+  width: 1.25em;
+  height: 1.25em;
+  place-items: center;
+  border: 1px solid currentColor;
+  border-radius: 50%;
+  line-height: 1;
+}
+.flow-details details[open] summary::before {
+  content: '−';
+}
+.flow-details p {
+  padding-bottom: var(--space-md);
+  color: var(--color-ink-2);
+}
+.flow-controls,
+.timeline-controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-md);
+  margin-top: var(--space-md);
+}
+.trace-button {
+  min-height: 44px;
+  padding: var(--space-xs) var(--space-md);
+  border: 1px solid var(--color-secondary);
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--color-secondary);
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+.trace-button:hover {
+  background: var(--color-paper-3);
+  color: var(--color-ink);
+}
+.trace-button:active {
+  background: var(--color-secondary);
+  color: var(--color-paper);
+}
+.trace-button:focus-visible,
+.flow-details summary:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 3px;
+}
+.milestone-list {
+  position: relative;
+}
+.milestone-list::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 16px;
+  border-left: 1px solid var(--color-rule);
+  pointer-events: none;
+}
+.milestone-trace {
+  position: absolute;
+  z-index: 2;
+  top: 0;
+  left: 15px;
+  width: 2px;
+  height: 100%;
+  padding: 0;
+  background: var(--color-secondary);
+  list-style: none;
+  pointer-events: none;
+  transform: scaleY(0);
+  transform-origin: top;
+}
+.milestone {
+  position: relative;
+}
+.milestone-code {
+  z-index: 1;
+  width: fit-content;
+  padding: var(--space-2xs);
+  background: var(--color-paper);
+}
+.milestone-in-progress .milestone-code {
+  color: var(--color-secondary);
+}
+.joke-note {
+  margin-top: var(--space-sm);
+}
+#roadmap h2:focus {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 5px;
+}
+@media (max-width: 40rem) {
+  .reference-flow {
+    padding: var(--space-md);
+  }
+  .flow-stages,
+  .flow-details {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .flow-stages li {
+    padding-block: var(--space-sm);
+  }
+  .milestone-list::before {
+    left: 10px;
+  }
+  .milestone-trace {
+    left: 9px;
+  }
+  .milestone-code {
+    padding-inline: 2px;
+  }
+}
 @media (max-width: 40rem) {
   .site-header {
     align-items: start;

@@ -1,10 +1,11 @@
 node_modules/
 dist/
 coverage/
-.hallmark/final/
+.hallmark/
 *.log
 LICENSE
 bun.lock
 package-lock.json
 yarn.lock
 *.min.js
+REDESIGN_BRIEF.md

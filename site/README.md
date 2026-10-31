@@ -9,8 +9,11 @@ Vite's relative base supports the production repository prefix `/oxidj/`.
 compact milestones and recent changes. Vite renders `site:*` and `roadmap:*` fragments
 at development/build time through `src/logic/siteMarkup.ts` and `roadmapMarkup.ts`.
 Shared header/footer, one Status per content page and SEO metadata work without scripts.
-Only the dossier joke uses client JavaScript. Canonical product decisions stay in
-`idea.md`, `plan/MVP.md`, `plan/STATUS.md` and the interoperability research.
+The home reference diagram and roadmap can each offer an explicitly activated, finite
+trace when motion is allowed; their static labels and native disclosures remain usable
+without JavaScript. The dossier joke and those optional traces are the only client-side
+enhancements. Canonical product decisions stay in `idea.md`, `plan/MVP.md`,
+`plan/STATUS.md` and the interoperability research.
 
 ## Checks
 
