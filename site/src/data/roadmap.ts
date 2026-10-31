@@ -26,7 +26,7 @@ export const roadmapSnapshot = {
   working:
     'A persistent local catalog, reference-only WAV/FLAC/MP3 import and a provisional viewer with search, sort and track details work today.',
   unfinished:
-    'Real Rekordbox/OneLibrary compatibility and ADR-005 qualification (A1-A3, C1-C6) are not demonstrated. Production GUI, accessibility and platform gates, plus 500k-track / 60fps qualification, remain unpassed.',
+    'Compatibility with real Rekordbox or OneLibrary libraries has not been demonstrated. Production desktop, accessibility and platform testing is still pending, as is performance testing at 500,000 tracks and 60 frames per second.',
   repo,
 } as const;
 export const milestones: readonly Milestone[] = [
@@ -77,7 +77,7 @@ export const milestones: readonly Milestone[] = [
     status: 'in-progress',
     statusLabel: 'In progress',
     detail:
-      'Synthetic Rekordbox XML fixtures support read-only preview, bounded export of a supported subset to a new file, and guarded edits that check the expected old value. Unsupported content can prevent export. Real Rekordbox and OneLibrary compatibility is not demonstrated; ADR-005 and its A1-A3/C1-C6 qualification remain unpassed.',
+      'Synthetic Rekordbox XML fixtures support read-only preview, bounded export of a supported subset to a new file, and guarded edits that check the expected old value. Unsupported content can prevent export. Compatibility with real Rekordbox or OneLibrary libraries has not been demonstrated.',
     source: { label: 'XML adapter and tests', href: `${repo}/tree/master/crates/oxidj-rekordbox` },
   },
   {

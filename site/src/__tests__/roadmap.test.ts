@@ -31,10 +31,18 @@ describe('static public pages', () => {
     expect(roadmapSnapshot.currentSummary).toMatch(
       /synthetic Rekordbox XML.*read-only preview.*new file.*guarded edits/i,
     );
-    expect(roadmapSnapshot.unfinished).toMatch(/ADR-005.*A1-A3, C1-C6.*not demonstrated/i);
-    expect(roadmapSnapshot.unfinished).toMatch(/500k-track \/ 60fps.*unpassed/i);
+    expect(roadmapSnapshot.unfinished).toMatch(
+      /real Rekordbox or OneLibrary.*not been demonstrated/i,
+    );
+    expect(roadmapSnapshot.unfinished).toMatch(
+      /desktop, accessibility and platform testing.*pending/i,
+    );
+    expect(roadmapSnapshot.unfinished).toMatch(/500,000 tracks and 60 frames per second/i);
     expect(milestones.find((m) => m.id === 'm4')?.detail).toMatch(
-      /not demonstrated.*ADR-005.*unpassed/i,
+      /synthetic Rekordbox XML fixtures.*read-only preview.*new file.*guarded edits/i,
+    );
+    expect(milestones.find((m) => m.id === 'm4')?.detail).toMatch(
+      /compatibility with real Rekordbox or OneLibrary.*not been demonstrated/i,
     );
     expect(projectUpdates).toHaveLength(3);
     expect(projectUpdates.map((u) => u.date)).toEqual(['2026-10-29', '2026-10-27', '2026-10-26']);
@@ -64,7 +72,9 @@ describe('static public pages', () => {
         .replace(/<head[\s\S]*?<\/head>|<!--[\s\S]*?-->/g, '')
         .replace(/<[^>]+>/g, ' ');
       expect(copy).not.toMatch(/[\u2013\u2014\u2018\u2019\u201c\u201d\u2026\u2192]/);
-      expect(copy).not.toMatch(/\b(smoke|admission|owner-authorized|fail-closed)\b|Bot Screen/);
+      expect(copy).not.toMatch(
+        /smoke|admission|owner-authorized|fail-closed|qualification|Bot Screen|ADR-005|A1-A3|C1-C6/i,
+      );
     }
   });
   it('escapes markup and rejects unknown fragment names', () => {
