@@ -1,7 +1,7 @@
 use crate::theme::ColorTokens;
 use eframe::egui::{self, Color32, Stroke};
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[repr(usize)]
 pub enum Concept {
     StudioRack,
@@ -65,6 +65,140 @@ impl Default for Concept {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum CardLayout {
+    Rack,
+    Neon,
+    Editorial,
+    Module,
+    Broadcast,
+    Minimal,
+    Meter,
+    Soft,
+    Grid,
+    Stage,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum KnobMotif {
+    Bezel,
+    Arc,
+    Scale,
+    Pins,
+    OnAir,
+    Line,
+    Meter,
+    Soft,
+    Grid,
+    Stage,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ThumbMotif {
+    Rect,
+    Pill,
+    Paper,
+    Module,
+    Broadcast,
+    Line,
+    Meter,
+    Soft,
+    Grid,
+    Stage,
+}
+
+const CARD_LAYOUTS: [CardLayout; 10] = [
+    CardLayout::Rack,
+    CardLayout::Neon,
+    CardLayout::Editorial,
+    CardLayout::Module,
+    CardLayout::Broadcast,
+    CardLayout::Minimal,
+    CardLayout::Meter,
+    CardLayout::Soft,
+    CardLayout::Grid,
+    CardLayout::Stage,
+];
+const CARD_RADII: [f32; 10] = [4.0, 8.0, 0.0, 6.0, 3.0, 0.0, 2.0, 18.0, 1.0, 2.0];
+const CARD_MARGINS: [i8; 10] = [12, 9, 16, 8, 10, 4, 8, 14, 6, 18];
+const CARD_STROKES: [f32; 10] = [2.0, 1.0, 1.0, 3.0, 4.0, 0.5, 2.0, 1.0, 1.0, 3.0];
+const KNOB_SIZES: [f32; 10] = [
+    100.0, 104.0, 88.0, 98.0, 108.0, 84.0, 102.0, 110.0, 92.0, 120.0,
+];
+const KNOB_RADII: [f32; 10] = [32.0, 38.0, 26.0, 31.0, 41.0, 28.0, 34.0, 40.0, 30.0, 46.0];
+const KNOB_RINGS: [f32; 10] = [5.0, 2.0, 1.0, 7.0, 5.0, 1.0, 3.0, 8.0, 2.0, 6.0];
+const KNOB_TICKS: [usize; 10] = [9, 12, 5, 8, 6, 3, 13, 7, 10, 4];
+const KNOB_TICK_LENGTHS: [f32; 10] = [6.0, 10.0, 7.0, 5.0, 8.0, 4.0, 12.0, 5.0, 4.0, 14.0];
+const KNOB_MOTIFS: [KnobMotif; 10] = [
+    KnobMotif::Bezel,
+    KnobMotif::Arc,
+    KnobMotif::Scale,
+    KnobMotif::Pins,
+    KnobMotif::OnAir,
+    KnobMotif::Line,
+    KnobMotif::Meter,
+    KnobMotif::Soft,
+    KnobMotif::Grid,
+    KnobMotif::Stage,
+];
+const FADER_SIZES: [[f32; 2]; 10] = [
+    [64.0, 138.0],
+    [70.0, 146.0],
+    [52.0, 124.0],
+    [78.0, 142.0],
+    [66.0, 152.0],
+    [48.0, 122.0],
+    [60.0, 134.0],
+    [74.0, 148.0],
+    [56.0, 138.0],
+    [84.0, 160.0],
+];
+const FADER_TRACKS: [f32; 10] = [6.0, 3.0, 2.0, 8.0, 4.0, 1.0, 4.0, 7.0, 2.0, 8.0];
+const FADER_TICKS: [usize; 10] = [9, 11, 5, 9, 7, 3, 13, 7, 15, 5];
+const THUMB_SIZES: [[f32; 2]; 10] = [
+    [40.0, 14.0],
+    [32.0, 12.0],
+    [28.0, 10.0],
+    [46.0, 18.0],
+    [38.0, 20.0],
+    [22.0, 8.0],
+    [30.0, 12.0],
+    [28.0, 28.0],
+    [24.0, 10.0],
+    [48.0, 24.0],
+];
+const THUMB_MOTIFS: [ThumbMotif; 10] = [
+    ThumbMotif::Rect,
+    ThumbMotif::Pill,
+    ThumbMotif::Paper,
+    ThumbMotif::Module,
+    ThumbMotif::Broadcast,
+    ThumbMotif::Line,
+    ThumbMotif::Meter,
+    ThumbMotif::Soft,
+    ThumbMotif::Grid,
+    ThumbMotif::Stage,
+];
+const BUTTON_SIZES: [[f32; 2]; 10] = [
+    [76.0, 44.0],
+    [84.0, 50.0],
+    [72.0, 40.0],
+    [68.0, 44.0],
+    [90.0, 56.0],
+    [54.0, 40.0],
+    [64.0, 42.0],
+    [88.0, 58.0],
+    [62.0, 40.0],
+    [100.0, 66.0],
+];
+const BUTTON_CORNERS: [u8; 10] = [2, 10, 0, 4, 3, 0, 1, 18, 1, 2];
+
+impl Concept {
+    fn index(self) -> usize {
+        self as usize
+    }
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum ComponentTab {
     #[default]
@@ -83,14 +217,6 @@ impl ComponentTab {
             Self::Transport => "Play/Cue buttons",
         }
     }
-
-    fn value_label(self) -> &'static str {
-        match self {
-            Self::RotaryKnob => "Knob value",
-            Self::ChannelFader => "Channel level",
-            Self::Transport => "Transport",
-        }
-    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -99,12 +225,22 @@ enum TransportAction {
     Cue,
 }
 
-#[derive(Default)]
 pub struct GalleryState {
     pub selected: Concept,
     pub component: ComponentTab,
-    pub value: f32,
+    values: [f32; Concept::ALL.len()],
     last_transport: Option<(Concept, TransportAction)>,
+}
+
+impl Default for GalleryState {
+    fn default() -> Self {
+        Self {
+            selected: Concept::default(),
+            component: ComponentTab::default(),
+            values: [0.5; Concept::ALL.len()],
+            last_transport: None,
+        }
+    }
 }
 
 fn component_tabs(ui: &mut egui::Ui, state: &mut GalleryState) -> Vec<egui::Response> {
@@ -114,10 +250,40 @@ fn component_tabs(ui: &mut egui::Ui, state: &mut GalleryState) -> Vec<egui::Resp
             responses.push(ui.selectable_value(&mut state.component, component, component.label()));
         }
     });
+    let focused_id = ui.ctx().memory(|memory| memory.focused());
+    let focused = responses
+        .iter()
+        .position(|response| Some(response.id) == focused_id);
+    let direction = ui.input(|input| {
+        if input.key_pressed(egui::Key::ArrowRight) {
+            Some(1_isize)
+        } else if input.key_pressed(egui::Key::ArrowLeft) {
+            Some(-1_isize)
+        } else {
+            None
+        }
+    });
+    if let (true, Some(direction)) = (focused.is_some(), direction) {
+        let length = ComponentTab::ALL.len();
+        let current = state.component as isize;
+        let next = (current + direction).rem_euclid(length as isize) as usize;
+        state.component = ComponentTab::ALL[next];
+        ui.ctx()
+            .memory_mut(|memory| memory.request_focus(responses[next].id));
+    }
     responses
 }
 
 pub fn show(ui: &mut egui::Ui, state: &mut GalleryState, tokens: ColorTokens) -> egui::Rect {
+    show_with_card_bounds(ui, state, tokens, |_| {})
+}
+
+fn show_with_card_bounds(
+    ui: &mut egui::Ui,
+    state: &mut GalleryState,
+    tokens: ColorTokens,
+    mut record_card: impl FnMut(egui::Rect),
+) -> egui::Rect {
     ui.heading("Control concepts · compare by component");
     ui.label(
         "Compare the same control across ten design concepts. Preview only; no audio is connected.",
@@ -125,27 +291,23 @@ pub fn show(ui: &mut egui::Ui, state: &mut GalleryState, tokens: ColorTokens) ->
     component_tabs(ui, state);
     ui.separator();
 
-    if state.component != ComponentTab::Transport {
-        ui.add(
-            egui::Slider::new(&mut state.value, 0.0..=1.0)
-                .show_value(true)
-                .text(state.component.value_label()),
-        );
-        ui.separator();
-    }
-
     let gallery_rect = ui.available_rect_before_wrap();
     let compact = ui.available_width() < 680.0;
     egui::ScrollArea::vertical().show(ui, |ui| {
         if compact {
             for concept in Concept::ALL {
-                show_concept_card(ui, concept, state, tokens);
+                record_card(show_concept_card(ui, concept, state, tokens));
             }
         } else {
             for pair in Concept::ALL.chunks(2) {
                 ui.columns(2, |columns| {
                     for (index, concept) in pair.iter().copied().enumerate() {
-                        show_concept_card(&mut columns[index], concept, state, tokens);
+                        record_card(show_concept_card(
+                            &mut columns[index],
+                            concept,
+                            state,
+                            tokens,
+                        ));
                     }
                 });
                 ui.add_space(6.0);
@@ -155,53 +317,153 @@ pub fn show(ui: &mut egui::Ui, state: &mut GalleryState, tokens: ColorTokens) ->
     gallery_rect
 }
 
+fn concept_selector(ui: &mut egui::Ui, concept: Concept, selected: bool) -> egui::Response {
+    ui.selectable_label(selected, concept.name())
+        .on_hover_text(concept.philosophy())
+}
+
+fn draw_card_header(
+    ui: &mut egui::Ui,
+    concept: Concept,
+    selected: bool,
+    tokens: ColorTokens,
+) -> egui::Response {
+    match CARD_LAYOUTS[concept.index()] {
+        CardLayout::Rack => {
+            ui.horizontal(|ui| {
+                ui.small("CH 01");
+                concept_selector(ui, concept, selected)
+            })
+            .inner
+        }
+        CardLayout::Neon => {
+            ui.horizontal(|ui| {
+                ui.colored_label(tokens.secondary, "● LIVE");
+                concept_selector(ui, concept, selected)
+            })
+            .inner
+        }
+        CardLayout::Editorial => {
+            ui.vertical(|ui| {
+                ui.small("CONTROL STUDY / 03");
+                let response = concept_selector(ui, concept, selected);
+                ui.small(concept.philosophy());
+                response
+            })
+            .inner
+        }
+        CardLayout::Module => {
+            egui::Frame::new()
+                .fill(tokens.background)
+                .stroke(Stroke::new(1.0_f32, tokens.border))
+                .corner_radius(4.0)
+                .inner_margin(6)
+                .show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.small("PATCH BAY A");
+                        concept_selector(ui, concept, selected)
+                    })
+                    .inner
+                })
+                .inner
+        }
+        CardLayout::Broadcast => {
+            ui.horizontal(|ui| {
+                ui.colored_label(tokens.success, "ON AIR");
+                concept_selector(ui, concept, selected)
+            })
+            .inner
+        }
+        CardLayout::Minimal => concept_selector(ui, concept, selected),
+        CardLayout::Meter => {
+            ui.horizontal(|ui| {
+                let (rect, _) =
+                    ui.allocate_exact_size(egui::vec2(34.0, 16.0), egui::Sense::hover());
+                for bar in 0..4 {
+                    let height = 4.0 + bar as f32 * 3.0;
+                    let bar_rect = egui::Rect::from_min_size(
+                        egui::pos2(rect.left() + bar as f32 * 8.0, rect.bottom() - height),
+                        egui::vec2(5.0, height),
+                    );
+                    ui.painter().rect_filled(bar_rect, 1.0, tokens.success);
+                }
+                concept_selector(ui, concept, selected)
+            })
+            .inner
+        }
+        CardLayout::Soft => {
+            egui::Frame::new()
+                .fill(tokens.background)
+                .corner_radius(12.0)
+                .inner_margin(8)
+                .show(ui, |ui| {
+                    let response = concept_selector(ui, concept, selected);
+                    ui.small("Soft-touch surface");
+                    response
+                })
+                .inner
+        }
+        CardLayout::Grid => {
+            ui.vertical(|ui| {
+                ui.horizontal(|ui| {
+                    ui.small("CH 01  /  BUS A");
+                    concept_selector(ui, concept, selected)
+                })
+                .inner
+            })
+            .inner
+        }
+        CardLayout::Stage => {
+            ui.vertical_centered(|ui| {
+                ui.small("PERFORMANCE CONTROL");
+                concept_selector(ui, concept, selected)
+            })
+            .inner
+        }
+    }
+}
+
 fn show_concept_card(
     ui: &mut egui::Ui,
     concept: Concept,
     state: &mut GalleryState,
     tokens: ColorTokens,
-) {
+) -> egui::Rect {
     let selected = state.selected == concept;
+    let index = concept.index();
+    let layout = CARD_LAYOUTS[index];
     let border = if selected {
-        tokens.primary
+        concept_accent(concept, tokens)
     } else {
         tokens.border
     };
-    let radius = match concept {
-        Concept::SoftTiles => 18.0,
-        Concept::StagePanel => 2.0,
-        Concept::MinimalLine => 0.0,
-        _ => 8.0,
-    };
-    egui::Frame::new()
+    let component = state.component;
+    let response = egui::Frame::new()
         .fill(tokens.surface)
-        .stroke(Stroke::new(
-            if concept == Concept::MinimalLine {
-                0.5_f32
-            } else {
-                1.0_f32
-            },
-            border,
-        ))
-        .corner_radius(radius)
-        .inner_margin(egui::Margin::same(10))
+        .stroke(Stroke::new(CARD_STROKES[index], border))
+        .corner_radius(CARD_RADII[index])
+        .inner_margin(egui::Margin::same(CARD_MARGINS[index]))
         .show(ui, |ui| {
-            let response = ui
-                .selectable_label(selected, concept.name())
-                .on_hover_text(concept.philosophy());
+            let response = draw_card_header(ui, concept, selected, tokens);
             if response.clicked() {
                 state.selected = concept;
             }
-            ui.small(concept.philosophy());
-            ui.separator();
-            match state.component {
-                ComponentTab::RotaryKnob => draw_knob(ui, concept, state.value, tokens),
-                ComponentTab::ChannelFader => draw_fader(ui, concept, state.value, tokens),
+            if !matches!(layout, CardLayout::Minimal | CardLayout::Soft) {
+                ui.separator();
+            }
+            match component {
+                ComponentTab::RotaryKnob => {
+                    let _ = draw_knob(ui, concept, &mut state.values[index], tokens);
+                }
+                ComponentTab::ChannelFader => {
+                    let _ = draw_fader(ui, concept, &mut state.values[index], tokens);
+                }
                 ComponentTab::Transport => {
                     draw_transport(ui, concept, state, tokens);
                 }
             }
         });
+    response.response.rect
 }
 
 fn concept_accent(concept: Concept, tokens: ColorTokens) -> Color32 {
@@ -213,139 +475,421 @@ fn concept_accent(concept: Concept, tokens: ColorTokens) -> Color32 {
     }
 }
 
-fn draw_knob(ui: &mut egui::Ui, concept: Concept, value: f32, tokens: ColorTokens) {
-    ui.horizontal(|ui| {
-        let (rect, _) = ui.allocate_exact_size(egui::vec2(96.0, 96.0), egui::Sense::hover());
-        let painter = ui.painter_at(rect);
-        let radius = match concept {
-            Concept::StagePanel => 39.0,
-            Concept::MinimalLine => 30.0,
-            Concept::SoftTiles => 35.0,
-            _ => 33.0,
-        };
-        let center = rect.center();
-        let accent = concept_accent(concept, tokens);
-        painter.circle_filled(center, radius, tokens.background);
-        painter.circle_stroke(
-            center,
-            radius,
-            Stroke::new(
-                if concept == Concept::MinimalLine {
-                    1.0_f32
-                } else {
-                    4.0_f32
-                },
-                tokens.border,
-            ),
-        );
-        let ticks = if concept == Concept::MeterBridge {
-            11
-        } else {
-            7
-        };
-        for tick in 0..ticks {
-            let angle = -2.35 + tick as f32 / (ticks - 1) as f32 * 4.7;
-            let inner = center + egui::vec2(angle.cos(), angle.sin()) * (radius + 2.0);
-            let outer = center + egui::vec2(angle.cos(), angle.sin()) * (radius + 8.0);
-            painter.line_segment([inner, outer], Stroke::new(1.0_f32, tokens.muted_text));
+fn draw_knob_motif(
+    painter: &egui::Painter,
+    center: egui::Pos2,
+    radius: f32,
+    motif: KnobMotif,
+    tokens: ColorTokens,
+) {
+    match motif {
+        KnobMotif::Bezel => {
+            painter.circle_stroke(center, radius + 8.0, Stroke::new(1.5_f32, tokens.border));
         }
-        let angle = -2.35 + value.clamp(0.0, 1.0) * 4.7;
-        let pointer = center + egui::vec2(angle.cos(), angle.sin()) * (radius - 6.0);
-        painter.line_segment([center, pointer], Stroke::new(3.0_f32, accent));
-        painter.circle_filled(center, 3.0, tokens.text);
-        ui.vertical(|ui| {
-            ui.strong("FILTER");
-            ui.label(format!("{}%", (value.clamp(0.0, 1.0) * 100.0).round()));
-            ui.small(match concept {
-                Concept::StudioRack => "machined ring",
-                Concept::NeonDeck => "cyan pointer",
-                Concept::PaperConsole => "editorial scale",
-                Concept::ModularBay => "module dial",
-                Concept::Broadcast => "broadcast trim",
-                Concept::MinimalLine => "single stroke",
-                Concept::MeterBridge => "meter ticks",
-                Concept::SoftTiles => "soft rim",
-                Concept::UtilityGrid => "indexed dial",
-                Concept::StagePanel => "oversized face",
-            });
-        });
-    });
-}
-
-fn draw_fader(ui: &mut egui::Ui, concept: Concept, value: f32, tokens: ColorTokens) {
-    ui.horizontal(|ui| {
-        let (rect, _) = ui.allocate_exact_size(egui::vec2(72.0, 150.0), egui::Sense::hover());
-        let painter = ui.painter_at(rect);
-        let x = rect.center().x;
-        let accent = concept_accent(concept, tokens);
-        painter.line_segment(
-            [
-                egui::pos2(x, rect.top() + 8.0),
-                egui::pos2(x, rect.bottom() - 8.0),
-            ],
-            Stroke::new(
-                if concept == Concept::MinimalLine {
-                    1.0_f32
-                } else {
-                    4.0_f32
-                },
-                tokens.border,
-            ),
-        );
-        let ticks = if concept == Concept::UtilityGrid {
-            7
-        } else {
-            5
-        };
-        for tick in 0..ticks {
-            let y = rect.top() + 10.0 + tick as f32 * (rect.height() - 20.0) / (ticks - 1) as f32;
-            let half = if tick % 2 == 0 { 11.0 } else { 7.0 };
+        KnobMotif::Arc => {
+            for segment in 0..6 {
+                let start = -2.5 + segment as f32 * 0.32;
+                let end = start + 0.22;
+                let point =
+                    |angle: f32| center + egui::vec2(angle.cos(), angle.sin()) * (radius + 7.0);
+                painter.line_segment(
+                    [point(start), point(end)],
+                    Stroke::new(3.0_f32, tokens.secondary),
+                );
+            }
+        }
+        KnobMotif::Scale => {
+            for side in [-1.0_f32, 1.0] {
+                let y = center.y + side * radius * 0.55;
+                painter.line_segment(
+                    [
+                        egui::pos2(center.x - radius - 10.0, y),
+                        egui::pos2(center.x - radius - 3.0, y),
+                    ],
+                    Stroke::new(1.0_f32, tokens.text),
+                );
+                painter.line_segment(
+                    [
+                        egui::pos2(center.x + radius + 3.0, y),
+                        egui::pos2(center.x + radius + 10.0, y),
+                    ],
+                    Stroke::new(1.0_f32, tokens.text),
+                );
+            }
+        }
+        KnobMotif::Pins => {
+            for offset in [
+                egui::vec2(-radius * 0.75, -radius * 0.75),
+                egui::vec2(radius * 0.75, -radius * 0.75),
+                egui::vec2(-radius * 0.75, radius * 0.75),
+                egui::vec2(radius * 0.75, radius * 0.75),
+            ] {
+                painter.rect_filled(
+                    egui::Rect::from_center_size(center + offset, egui::vec2(4.0, 4.0)),
+                    1.0,
+                    tokens.muted_text,
+                );
+            }
+        }
+        KnobMotif::OnAir => {
+            let badge = egui::Rect::from_center_size(
+                center + egui::vec2(radius + 7.0, -radius - 2.0),
+                egui::vec2(14.0, 6.0),
+            );
+            painter.rect_filled(badge, 2.0, tokens.success);
+        }
+        KnobMotif::Line => {
             painter.line_segment(
-                [egui::pos2(x - half, y), egui::pos2(x + half, y)],
+                [
+                    center + egui::vec2(-radius - 9.0, 0.0),
+                    center + egui::vec2(radius + 9.0, 0.0),
+                ],
                 Stroke::new(1.0_f32, tokens.muted_text),
             );
         }
-        let thumb_y = egui::lerp(
-            (rect.bottom() - 14.0)..=(rect.top() + 14.0),
-            value.clamp(0.0, 1.0),
-        );
-        let thumb_width = if concept == Concept::ModularBay {
-            42.0
-        } else {
-            32.0
-        };
-        let thumb =
-            egui::Rect::from_center_size(egui::pos2(x, thumb_y), egui::vec2(thumb_width, 14.0));
-        if concept == Concept::SoftTiles {
-            painter.circle_filled(egui::pos2(x, thumb_y), 10.0, accent);
-        } else {
-            painter.rect_filled(
-                thumb,
-                if concept == Concept::StagePanel {
-                    1.0
-                } else {
-                    4.0
-                },
-                accent,
+        KnobMotif::Meter => {
+            for mark in 0..5 {
+                let mark_rect = egui::Rect::from_min_size(
+                    egui::pos2(
+                        center.x + radius + 7.0,
+                        center.y + (mark as f32 - 2.0) * 5.0,
+                    ),
+                    egui::vec2(8.0, 2.0),
+                );
+                painter.rect_filled(mark_rect, 0.0, tokens.success);
+            }
+        }
+        KnobMotif::Soft => {
+            painter.circle_stroke(
+                center,
+                radius * 0.62,
+                Stroke::new(3.0_f32, tokens.secondary),
             );
         }
-        ui.vertical(|ui| {
-            ui.strong("CHANNEL 01");
-            ui.label(format!("{}%", (value.clamp(0.0, 1.0) * 100.0).round()));
-            ui.small(match concept {
-                Concept::StudioRack => "rack slot",
-                Concept::NeonDeck => "lit throw",
-                Concept::PaperConsole => "marked scale",
-                Concept::ModularBay => "wide cap",
-                Concept::Broadcast => "long throw",
-                Concept::MinimalLine => "hairline rail",
-                Concept::MeterBridge => "metered level",
-                Concept::SoftTiles => "round handle",
-                Concept::UtilityGrid => "indexed steps",
-                Concept::StagePanel => "large grip",
+        KnobMotif::Grid => {
+            for offset in [-radius - 7.0, radius + 7.0] {
+                painter.line_segment(
+                    [
+                        egui::pos2(center.x + offset, center.y - 4.0),
+                        egui::pos2(center.x + offset, center.y + 4.0),
+                    ],
+                    Stroke::new(1.0_f32, tokens.muted_text),
+                );
+                painter.line_segment(
+                    [
+                        egui::pos2(center.x - 4.0, center.y + offset),
+                        egui::pos2(center.x + 4.0, center.y + offset),
+                    ],
+                    Stroke::new(1.0_f32, tokens.muted_text),
+                );
+            }
+        }
+        KnobMotif::Stage => {
+            painter.circle_stroke(center, radius + 10.0, Stroke::new(3.0_f32, tokens.primary));
+        }
+    }
+}
+
+fn draw_knob(
+    ui: &mut egui::Ui,
+    concept: Concept,
+    value: &mut f32,
+    tokens: ColorTokens,
+) -> egui::Response {
+    ui.vertical(|ui| {
+        let slider_response = ui.add(
+            egui::Slider::new(&mut *value, 0.0..=1.0)
+                .show_value(true)
+                .text(format!("Filter value · {}", concept.name())),
+        );
+        let value = *value;
+        ui.horizontal(|ui| {
+            let index = concept.index();
+            let (rect, _) = ui.allocate_exact_size(
+                egui::vec2(KNOB_SIZES[index], KNOB_SIZES[index]),
+                egui::Sense::hover(),
+            );
+            let painter = ui.painter_at(rect);
+            let radius = KNOB_RADII[index];
+            let center = rect.center();
+            let accent = concept_accent(concept, tokens);
+            painter.circle_filled(center, radius, tokens.background);
+            painter.circle_stroke(
+                center,
+                radius,
+                Stroke::new(KNOB_RINGS[index], tokens.border),
+            );
+            draw_knob_motif(&painter, center, radius, KNOB_MOTIFS[index], tokens);
+            let ticks = KNOB_TICKS[index];
+            for tick in 0..ticks {
+                let angle = -2.35 + tick as f32 / (ticks - 1) as f32 * 4.7;
+                let inner = center + egui::vec2(angle.cos(), angle.sin()) * (radius + 2.0);
+                let major = tick % 3 == 0;
+                let length = KNOB_TICK_LENGTHS[index] * if major { 1.0 } else { 0.65 };
+                let outer = center + egui::vec2(angle.cos(), angle.sin()) * (radius + length);
+                painter.line_segment(
+                    [inner, outer],
+                    Stroke::new(if major { 1.5_f32 } else { 0.75_f32 }, tokens.muted_text),
+                );
+            }
+            let angle = -2.35 + value.clamp(0.0, 1.0) * 4.7;
+            let pointer = center + egui::vec2(angle.cos(), angle.sin()) * (radius - 6.0);
+            let pointer_width = if KNOB_MOTIFS[index] == KnobMotif::Line {
+                1.0_f32
+            } else if KNOB_MOTIFS[index] == KnobMotif::Stage {
+                5.0_f32
+            } else {
+                3.0_f32
+            };
+            painter.line_segment([center, pointer], Stroke::new(pointer_width, accent));
+            if KNOB_MOTIFS[index] != KnobMotif::Line {
+                painter.circle_filled(
+                    center,
+                    if KNOB_MOTIFS[index] == KnobMotif::Soft {
+                        6.0
+                    } else {
+                        3.0
+                    },
+                    tokens.text,
+                );
+            }
+            ui.vertical(|ui| {
+                ui.strong("FILTER");
+                ui.label(format!("{}%", (value.clamp(0.0, 1.0) * 100.0).round()));
+                ui.small(match concept {
+                    Concept::StudioRack => "machined ring",
+                    Concept::NeonDeck => "cyan pointer",
+                    Concept::PaperConsole => "editorial scale",
+                    Concept::ModularBay => "module dial",
+                    Concept::Broadcast => "broadcast trim",
+                    Concept::MinimalLine => "single stroke",
+                    Concept::MeterBridge => "meter ticks",
+                    Concept::SoftTiles => "soft rim",
+                    Concept::UtilityGrid => "indexed dial",
+                    Concept::StagePanel => "oversized face",
+                });
             });
         });
+        slider_response
+    })
+    .inner
+}
+
+fn draw_fader_thumb(
+    painter: &egui::Painter,
+    rect: egui::Rect,
+    motif: ThumbMotif,
+    accent: Color32,
+    tokens: ColorTokens,
+) {
+    let center = rect.center();
+    match motif {
+        ThumbMotif::Rect => {
+            painter.rect_filled(rect, 2.0, accent);
+        }
+        ThumbMotif::Pill => {
+            painter.rect_filled(rect, rect.height() * 0.5, accent);
+        }
+        ThumbMotif::Paper => {
+            painter.rect_filled(rect, 0.0, tokens.text);
+            for side in [-1.0_f32, 1.0] {
+                painter.line_segment(
+                    [
+                        center + egui::vec2(side * (rect.width() * 0.5 + 4.0), -4.0),
+                        center + egui::vec2(side * (rect.width() * 0.5 + 4.0), 4.0),
+                    ],
+                    Stroke::new(1.0_f32, tokens.text),
+                );
+            }
+        }
+        ThumbMotif::Module => {
+            painter.rect_filled(rect, 2.0, accent);
+            for side in [-1.0_f32, 1.0] {
+                let tab = egui::Rect::from_center_size(
+                    center + egui::vec2(side * (rect.width() * 0.5 + 3.0), 0.0),
+                    egui::vec2(6.0, rect.height() * 0.55),
+                );
+                painter.rect_filled(tab, 1.0, tokens.text);
+            }
+        }
+        ThumbMotif::Broadcast => {
+            painter.rect_filled(rect, 1.0, accent);
+            painter.circle_filled(
+                center + egui::vec2(rect.width() * 0.32, 0.0),
+                2.0,
+                tokens.success,
+            );
+        }
+        ThumbMotif::Line => {
+            painter.line_segment(
+                [
+                    egui::pos2(rect.left(), center.y),
+                    egui::pos2(rect.right(), center.y),
+                ],
+                Stroke::new(2.0_f32, accent),
+            );
+        }
+        ThumbMotif::Meter => {
+            painter.rect_filled(rect, 1.0, accent);
+            for step in 0..3 {
+                let y = rect.top() + 3.0 + step as f32 * 3.0;
+                painter.line_segment(
+                    [
+                        egui::pos2(rect.left() + 4.0, y),
+                        egui::pos2(rect.right() - 4.0, y),
+                    ],
+                    Stroke::new(1.0_f32, tokens.background),
+                );
+            }
+        }
+        ThumbMotif::Soft => {
+            painter.circle_filled(center, rect.width().min(rect.height()) * 0.5, accent);
+        }
+        ThumbMotif::Grid => {
+            painter.rect_filled(rect, 0.0, accent);
+            painter.line_segment(
+                [
+                    egui::pos2(center.x, rect.top()),
+                    egui::pos2(center.x, rect.bottom()),
+                ],
+                Stroke::new(1.0_f32, tokens.background),
+            );
+        }
+        ThumbMotif::Stage => {
+            painter.rect_filled(rect, 2.0, accent);
+            for side in [-1.0_f32, 1.0] {
+                painter.line_segment(
+                    [
+                        center + egui::vec2(side * (rect.width() * 0.34), -4.0),
+                        center + egui::vec2(side * (rect.width() * 0.34), 4.0),
+                    ],
+                    Stroke::new(1.5_f32, tokens.text),
+                );
+            }
+        }
+    }
+}
+
+fn draw_fader(
+    ui: &mut egui::Ui,
+    concept: Concept,
+    value: &mut f32,
+    tokens: ColorTokens,
+) -> egui::Response {
+    ui.vertical(|ui| {
+        let slider_response = ui.add(
+            egui::Slider::new(&mut *value, 0.0..=1.0)
+                .show_value(true)
+                .text(format!("Channel level · {}", concept.name())),
+        );
+        let value = *value;
+        ui.horizontal(|ui| {
+            let index = concept.index();
+            let [width, height] = FADER_SIZES[index];
+            let (rect, _) = ui.allocate_exact_size(egui::vec2(width, height), egui::Sense::hover());
+            let painter = ui.painter_at(rect);
+            let x = rect.center().x;
+            let accent = concept_accent(concept, tokens);
+            painter.line_segment(
+                [
+                    egui::pos2(x, rect.top() + 8.0),
+                    egui::pos2(x, rect.bottom() - 8.0),
+                ],
+                Stroke::new(FADER_TRACKS[index], tokens.border),
+            );
+            let ticks = FADER_TICKS[index];
+            for tick in 0..ticks {
+                let y =
+                    rect.top() + 10.0 + tick as f32 * (rect.height() - 20.0) / (ticks - 1) as f32;
+                let half = if tick % 2 == 0 { 11.0 } else { 7.0 };
+                painter.line_segment(
+                    [egui::pos2(x - half, y), egui::pos2(x + half, y)],
+                    Stroke::new(1.0_f32, tokens.muted_text),
+                );
+            }
+            let thumb_y = egui::lerp(
+                (rect.bottom() - 14.0)..=(rect.top() + 14.0),
+                value.clamp(0.0, 1.0),
+            );
+            let [thumb_width, thumb_height] = THUMB_SIZES[index];
+            let thumb = egui::Rect::from_center_size(
+                egui::pos2(x, thumb_y),
+                egui::vec2(thumb_width, thumb_height),
+            );
+            draw_fader_thumb(&painter, thumb, THUMB_MOTIFS[index], accent, tokens);
+            ui.vertical(|ui| {
+                ui.strong("CHANNEL 01");
+                ui.label(format!("{}%", (value.clamp(0.0, 1.0) * 100.0).round()));
+                ui.small(match concept {
+                    Concept::StudioRack => "rack slot",
+                    Concept::NeonDeck => "lit throw",
+                    Concept::PaperConsole => "marked scale",
+                    Concept::ModularBay => "wide cap",
+                    Concept::Broadcast => "long throw",
+                    Concept::MinimalLine => "hairline rail",
+                    Concept::MeterBridge => "metered level",
+                    Concept::SoftTiles => "round handle",
+                    Concept::UtilityGrid => "indexed steps",
+                    Concept::StagePanel => "large grip",
+                });
+            });
+        });
+        slider_response
+    })
+    .inner
+}
+
+fn transport_button(
+    ui: &mut egui::Ui,
+    concept: Concept,
+    action: TransportAction,
+    label: &str,
+    icon: &str,
+    state: &mut GalleryState,
+    tokens: ColorTokens,
+) -> egui::Response {
+    let index = concept.index();
+    let layout = CARD_LAYOUTS[index];
+    let [mut width, mut height] = BUTTON_SIZES[index];
+    if layout == CardLayout::Minimal {
+        width = 44.0;
+        height = 40.0;
+    } else if layout == CardLayout::Broadcast && action == TransportAction::Play {
+        width *= 1.15;
+        height *= 1.05;
+    } else if layout == CardLayout::Stage {
+        height *= 1.1;
+    }
+    let active = state.last_transport == Some((concept, action));
+    let accent = concept_accent(concept, tokens);
+    let fill = if active || (layout == CardLayout::Broadcast && action == TransportAction::Play) {
+        accent.linear_multiply(0.35)
+    } else {
+        tokens.background
+    };
+    let visible_label = if layout == CardLayout::Minimal {
+        icon.to_owned()
+    } else {
+        format!("{icon} {label}")
+    };
+    let response = ui.add_sized(
+        [width, height],
+        egui::Button::new(egui::RichText::new(visible_label).color(tokens.text))
+            .fill(fill)
+            .stroke(Stroke::new(CARD_STROKES[index], accent))
+            .corner_radius(BUTTON_CORNERS[index]),
+    );
+    let accessible_name = format!("{label}, {}", concept.name());
+    response.widget_info(|| {
+        egui::WidgetInfo::labeled(egui::WidgetType::Button, true, accessible_name.clone())
     });
+    if response.clicked() {
+        state.last_transport = Some((concept, action));
+    }
+    if layout == CardLayout::Minimal {
+        ui.small(label);
+    }
+    response.on_hover_text(accessible_name)
 }
 
 fn draw_transport(
@@ -354,49 +898,51 @@ fn draw_transport(
     state: &mut GalleryState,
     tokens: ColorTokens,
 ) -> Vec<egui::Response> {
-    let button_width = if matches!(concept, Concept::StagePanel | Concept::Broadcast) {
-        90.0
-    } else {
-        72.0
-    };
-    let mut responses = Vec::with_capacity(2);
-    ui.horizontal_wrapped(|ui| {
-        for (action, label, icon) in [
-            (TransportAction::Play, "Play", "▶"),
-            (TransportAction::Cue, "Cue", "●"),
-        ] {
-            let active = state.last_transport == Some((concept, action));
-            let fill =
-                if active || (concept == Concept::Broadcast && action == TransportAction::Play) {
-                    concept_accent(concept, tokens).linear_multiply(0.35)
-                } else {
-                    tokens.background
-                };
-            let accessible_name = format!("{label}, {}", concept.name());
-            let response = ui.add_sized(
-                [button_width, 48.0],
-                egui::Button::new(
-                    egui::RichText::new(format!("{icon} {label}")).color(tokens.text),
-                )
-                .fill(fill)
-                .stroke(Stroke::new(
-                    if concept == Concept::MinimalLine {
-                        0.5_f32
-                    } else {
-                        1.0_f32
-                    },
-                    concept_accent(concept, tokens),
-                )),
-            );
-            response.widget_info(|| {
-                egui::WidgetInfo::labeled(egui::WidgetType::Button, true, accessible_name.clone())
-            });
-            if response.clicked() {
-                state.last_transport = Some((concept, action));
+    let layout = CARD_LAYOUTS[concept.index()];
+    let actions = [
+        (TransportAction::Play, "Play", "▶"),
+        (TransportAction::Cue, "Cue", "●"),
+    ];
+    let mut responses = Vec::with_capacity(actions.len());
+    match layout {
+        CardLayout::Editorial | CardLayout::Stage => ui.vertical(|ui| {
+            for (action, label, icon) in actions {
+                responses.push(transport_button(
+                    ui, concept, action, label, icon, state, tokens,
+                ));
             }
-            responses.push(response);
-        }
-    });
+        }),
+        CardLayout::Grid => egui::Grid::new(("transport-grid", concept.index()))
+            .num_columns(2)
+            .spacing(egui::vec2(4.0, 4.0))
+            .show(ui, |ui| {
+                for (action, label, icon) in actions {
+                    responses.push(transport_button(
+                        ui, concept, action, label, icon, state, tokens,
+                    ));
+                    ui.end_row();
+                }
+            }),
+        CardLayout::Module => ui.horizontal_wrapped(|ui| {
+            for (action, label, icon) in actions {
+                egui::Frame::new()
+                    .fill(tokens.background)
+                    .inner_margin(3)
+                    .show(ui, |ui| {
+                        responses.push(transport_button(
+                            ui, concept, action, label, icon, state, tokens,
+                        ));
+                    });
+            }
+        }),
+        _ => ui.horizontal_wrapped(|ui| {
+            for (action, label, icon) in actions {
+                responses.push(transport_button(
+                    ui, concept, action, label, icon, state, tokens,
+                ));
+            }
+        }),
+    };
     let result = match state.last_transport {
         Some((selected, action)) if selected == concept => Some(match action {
             TransportAction::Play => "Play",
@@ -417,6 +963,189 @@ fn draw_transport(
 mod tests {
     use super::*;
     use crate::theme::ThemeMode;
+
+    #[test]
+    fn every_knob_and_fader_preview_exposes_its_own_accessible_value_control() {
+        let ctx = egui::Context::default();
+        ctx.enable_accesskit();
+        let mut state = GalleryState::default();
+        for (component, prefix) in [
+            (ComponentTab::RotaryKnob, "Filter value · "),
+            (ComponentTab::ChannelFader, "Channel level · "),
+        ] {
+            state.component = component;
+            let output = ctx.run(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(1200.0, 2000.0),
+                    )),
+                    ..Default::default()
+                },
+                |ctx| {
+                    egui::CentralPanel::default().show(ctx, |ui| {
+                        show(ui, &mut state, ThemeMode::TokyoNight.tokens());
+                    });
+                },
+            );
+            let names = output
+                .platform_output
+                .accesskit_update
+                .expect("accessibility tree")
+                .nodes
+                .into_iter()
+                .map(|(_, node)| {
+                    node.value()
+                        .or_else(|| node.label())
+                        .unwrap_or_default()
+                        .to_owned()
+                })
+                .collect::<Vec<_>>();
+            for concept in Concept::ALL {
+                let accessible_name = format!("{prefix}{}", concept.name());
+                assert!(
+                    names.iter().any(|name| *name == accessible_name),
+                    "{} tab lacks {accessible_name:?}",
+                    component.label()
+                );
+            }
+        }
+    }
+
+    fn geometry_signature(
+        component: ComponentTab,
+        concept: Concept,
+    ) -> Vec<(String, i32, i32, i32, i32)> {
+        let ctx = egui::Context::default();
+        let mut state = GalleryState::default();
+        state.component = component;
+        let output = ctx.run(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(900.0, 600.0),
+                )),
+                ..Default::default()
+            },
+            |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| match component {
+                    ComponentTab::RotaryKnob => {
+                        let _ = draw_knob(
+                            ui,
+                            concept,
+                            &mut state.values[concept as usize],
+                            ThemeMode::TokyoNight.tokens(),
+                        );
+                    }
+                    ComponentTab::ChannelFader => {
+                        let _ = draw_fader(
+                            ui,
+                            concept,
+                            &mut state.values[concept as usize],
+                            ThemeMode::TokyoNight.tokens(),
+                        );
+                    }
+                    ComponentTab::Transport => {
+                        let _ =
+                            draw_transport(ui, concept, &mut state, ThemeMode::TokyoNight.tokens());
+                    }
+                });
+            },
+        );
+        output
+            .shapes
+            .into_iter()
+            .filter_map(|clipped| {
+                if matches!(clipped.shape, egui::Shape::Text(_) | egui::Shape::Noop) {
+                    return None;
+                }
+                let rect = clipped.shape.visual_bounding_rect();
+                let quantize = |coordinate: f32| (coordinate * 2.0).round() as i32;
+                Some((
+                    format!("{:?}", std::mem::discriminant(&clipped.shape)),
+                    quantize(rect.left()),
+                    quantize(rect.top()),
+                    quantize(rect.right()),
+                    quantize(rect.bottom()),
+                ))
+            })
+            .collect()
+    }
+
+    #[test]
+    fn each_component_uses_distinct_geometry_for_all_ten_concepts() {
+        for component in ComponentTab::ALL {
+            let mut signatures = std::collections::HashSet::new();
+            for concept in Concept::ALL {
+                let signature = geometry_signature(component, concept);
+                assert!(
+                    signatures.insert(signature),
+                    "{} reused another concept's geometry: {:?}",
+                    component.label(),
+                    concept
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn keyboard_adjusts_a_named_per_concept_knob_control() {
+        let ctx = egui::Context::default();
+        let mut state = GalleryState::default();
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1200.0, 1600.0));
+        let slider_id = std::cell::Cell::new(None);
+        let _ = ctx.run(
+            egui::RawInput {
+                screen_rect: Some(screen),
+                ..Default::default()
+            },
+            |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    slider_id.set(Some(
+                        draw_knob(
+                            ui,
+                            Concept::StudioRack,
+                            &mut state.values[Concept::StudioRack as usize],
+                            ThemeMode::TokyoNight.tokens(),
+                        )
+                        .id,
+                    ));
+                });
+            },
+        );
+        ctx.memory_mut(|memory| memory.request_focus(slider_id.get().expect("slider response id")));
+        let focused = std::cell::Cell::new(false);
+        let initial_value = state.values[Concept::StudioRack as usize];
+        let _ = ctx.run(
+            egui::RawInput {
+                screen_rect: Some(screen),
+                events: vec![egui::Event::Key {
+                    key: egui::Key::ArrowRight,
+                    physical_key: None,
+                    pressed: true,
+                    repeat: false,
+                    modifiers: Default::default(),
+                }],
+                ..Default::default()
+            },
+            |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    focused.set(
+                        draw_knob(
+                            ui,
+                            Concept::StudioRack,
+                            &mut state.values[Concept::StudioRack as usize],
+                            ThemeMode::TokyoNight.tokens(),
+                        )
+                        .has_focus(),
+                    );
+                });
+            },
+        );
+        assert!(focused.get(), "slider should retain keyboard focus");
+        assert!(state.values[Concept::StudioRack as usize] > initial_value);
+        assert_eq!(state.values[Concept::NeonDeck as usize], 0.5);
+    }
 
     #[test]
     fn component_comparison_view_exposes_three_tabs_and_all_ten_concepts() {
@@ -552,12 +1281,11 @@ mod tests {
     }
 
     #[test]
-    fn controls_expose_named_native_accessibility_widgets_and_value_changes() {
+    fn controls_expose_named_native_accessibility_widgets() {
         let ctx = egui::Context::default();
         ctx.enable_accesskit();
         let mut state = GalleryState {
             selected: Concept::StudioRack,
-            value: 0.2,
             ..Default::default()
         };
         let render = |state: &mut GalleryState| {
@@ -585,7 +1313,7 @@ mod tests {
             .nodes
             .into_iter()
             .collect::<std::collections::HashMap<_, _>>();
-        for name in ["Knob value"] {
+        for name in ["Filter value · Studio rack"] {
             assert!(
                 nodes.values().any(|node| node.label() == Some(name)
                     || node.value() == Some(name)
@@ -595,14 +1323,6 @@ mod tests {
                 "missing accessible control {name}; nodes={nodes:?}"
             );
         }
-        state.value = 0.8;
-        let after = render(&mut state);
-        assert_ne!(
-            format!("{:?}", before.shapes),
-            format!("{:?}", after.shapes),
-            "changed control value should change the preview drawing"
-        );
-
         state.component = ComponentTab::Transport;
         let transport = render(&mut state);
         let nodes = transport
@@ -667,6 +1387,56 @@ mod tests {
             },
         );
         assert_eq!(state.component, ComponentTab::ChannelFader);
+    }
+
+    #[test]
+    fn arrow_keys_navigate_the_gallery_component_tabs() {
+        let ctx = egui::Context::default();
+        let mut state = GalleryState::default();
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(900.0, 700.0));
+        let first_tab_id = std::cell::Cell::new(None);
+        let _ = ctx.run(
+            egui::RawInput {
+                screen_rect: Some(screen),
+                ..Default::default()
+            },
+            |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    first_tab_id.set(Some(component_tabs(ui, &mut state)[0].id));
+                });
+            },
+        );
+        ctx.memory_mut(|memory| memory.request_focus(first_tab_id.get().unwrap()));
+        let press = |key, state: &mut GalleryState| {
+            for pressed in [true, false] {
+                let _ = ctx.run(
+                    egui::RawInput {
+                        screen_rect: Some(screen),
+                        events: vec![egui::Event::Key {
+                            key,
+                            physical_key: None,
+                            pressed,
+                            repeat: false,
+                            modifiers: Default::default(),
+                        }],
+                        ..Default::default()
+                    },
+                    |ctx| {
+                        egui::CentralPanel::default().show(ctx, |ui| {
+                            component_tabs(ui, state);
+                        });
+                    },
+                );
+            }
+        };
+        press(egui::Key::ArrowRight, &mut state);
+        assert_eq!(state.component, ComponentTab::ChannelFader);
+        press(egui::Key::ArrowRight, &mut state);
+        assert_eq!(state.component, ComponentTab::Transport);
+        press(egui::Key::ArrowRight, &mut state);
+        assert_eq!(state.component, ComponentTab::RotaryKnob);
+        press(egui::Key::ArrowLeft, &mut state);
+        assert_eq!(state.component, ComponentTab::Transport);
     }
 
     #[test]
@@ -740,32 +1510,157 @@ mod tests {
         }));
     }
 
+    // CHARACTERIZATION_GREEN_NOT_TDD: egui's native Button supplies keyboard activation.
     #[test]
-    fn controls_fit_narrow_and_wide_gallery_widths() {
+    fn keyboard_activates_the_named_cue_button_and_announces_selection() {
+        let ctx = egui::Context::default();
+        ctx.enable_accesskit();
+        let mut state = GalleryState::default();
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(700.0, 400.0));
+        let cue_id = std::cell::Cell::new(None);
+        let _ = ctx.run(
+            egui::RawInput {
+                screen_rect: Some(screen),
+                ..Default::default()
+            },
+            |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    cue_id.set(Some(
+                        draw_transport(
+                            ui,
+                            Concept::StudioRack,
+                            &mut state,
+                            ThemeMode::TokyoNight.tokens(),
+                        )[1]
+                        .id,
+                    ));
+                });
+            },
+        );
+        ctx.memory_mut(|memory| memory.request_focus(cue_id.get().expect("Cue response id")));
+        let output = ctx.run(
+            egui::RawInput {
+                screen_rect: Some(screen),
+                events: vec![egui::Event::Key {
+                    key: egui::Key::Enter,
+                    physical_key: None,
+                    pressed: true,
+                    repeat: false,
+                    modifiers: Default::default(),
+                }],
+                ..Default::default()
+            },
+            |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    draw_transport(
+                        ui,
+                        Concept::StudioRack,
+                        &mut state,
+                        ThemeMode::TokyoNight.tokens(),
+                    );
+                });
+            },
+        );
+        assert_eq!(
+            state.last_transport,
+            Some((Concept::StudioRack, TransportAction::Cue))
+        );
+        let nodes = output
+            .platform_output
+            .accesskit_update
+            .expect("transport accessibility update")
+            .nodes;
+        assert!(nodes.iter().any(|(_, node)| {
+            node.label() == Some("Cue selected") || node.value() == Some("Cue selected")
+        }));
+    }
+
+    #[test]
+    fn cards_and_controls_fit_narrow_and_wide_layouts_in_all_tabs() {
         for width in [420.0, 1100.0] {
-            let ctx = egui::Context::default();
-            let mut state = GalleryState::default();
-            let rect = std::cell::Cell::new(egui::Rect::NOTHING);
-            let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(width, 900.0));
-            let _ = ctx.run(
-                egui::RawInput {
-                    screen_rect: Some(egui::Rect::from_min_size(
-                        egui::Pos2::ZERO,
-                        egui::vec2(width, 900.0),
-                    )),
+            for component in ComponentTab::ALL {
+                let ctx = egui::Context::default();
+                ctx.enable_accesskit();
+                let mut state = GalleryState {
+                    component,
                     ..Default::default()
-                },
-                |ctx| {
-                    egui::CentralPanel::default().show(ctx, |ui| {
-                        rect.set(show(ui, &mut state, ThemeMode::TokyoNight.tokens()));
-                    });
-                },
-            );
-            assert!(
-                screen.contains_rect(rect.get()),
-                "gallery clipped at {width}px: {:?}",
-                rect.get()
-            );
+                };
+                let card_rects = std::cell::RefCell::new(Vec::new());
+                let card_index = std::cell::Cell::new(0);
+                let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(width, 4000.0));
+                let output = ctx.run(
+                    egui::RawInput {
+                        screen_rect: Some(screen),
+                        ..Default::default()
+                    },
+                    |ctx| {
+                        egui::CentralPanel::default().show(ctx, |ui| {
+                            let viewport = show_with_card_bounds(
+                                ui,
+                                &mut state,
+                                ThemeMode::TokyoNight.tokens(),
+                                |rect| {
+                                    let index = card_index.get();
+                                    let mut card_rects = card_rects.borrow_mut();
+                                    if index == card_rects.len() {
+                                        card_rects.push(rect);
+                                    } else {
+                                        card_rects[index] = rect;
+                                    }
+                                    card_index.set((index + 1) % Concept::ALL.len());
+                                },
+                            );
+                            assert!(screen.contains_rect(viewport));
+                        });
+                    },
+                );
+                let cards = card_rects.into_inner();
+                assert_eq!(
+                    cards.len(),
+                    Concept::ALL.len(),
+                    "{component:?} at {width}px"
+                );
+                for rect in cards {
+                    assert!(
+                        screen.contains_rect(rect),
+                        "card outside {width}px {component:?} viewport: {rect:?}"
+                    );
+                }
+
+                let nodes = output
+                    .platform_output
+                    .accesskit_update
+                    .expect("accessibility tree")
+                    .nodes;
+                let mut slider_count = 0;
+                let mut button_count = 0;
+                for (_, node) in nodes {
+                    let role = format!("{:?}", node.role());
+                    if role == "Slider" {
+                        slider_count += 1;
+                    } else if role == "Button" {
+                        button_count += 1;
+                    } else {
+                        continue;
+                    }
+                    let bounds = node.bounds().expect("interactive control bounds");
+                    assert!(
+                        bounds.x0 >= screen.left() as f64 - 0.5
+                            && bounds.x1 <= screen.right() as f64 + 0.5,
+                        "{role} outside {width}px {component:?} viewport: {bounds:?}"
+                    );
+                }
+                let expected_sliders = usize::from(component != ComponentTab::Transport) * 10;
+                let expected_buttons = 13 + usize::from(component == ComponentTab::Transport) * 20;
+                assert_eq!(
+                    slider_count, expected_sliders,
+                    "{component:?} sliders at {width}px"
+                );
+                assert_eq!(
+                    button_count, expected_buttons,
+                    "{component:?} buttons at {width}px"
+                );
+            }
         }
     }
 }
