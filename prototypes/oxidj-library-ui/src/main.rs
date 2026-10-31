@@ -39,6 +39,9 @@ struct LibraryApp {
     xml_edit_output: String,
     show_control_gallery: bool,
     control_gallery: control_gallery::GalleryState,
+    availability_filter: Option<TrackAvailability>,
+    deck_playing: [bool; 2],
+    deck_cue: [bool; 2],
 }
 impl LibraryApp {
     fn new(db_path: PathBuf, theme: ThemeMode, custom_tokens: theme::ColorTokens) -> Self {
@@ -78,6 +81,9 @@ impl LibraryApp {
             xml_edit_output: String::new(),
             show_control_gallery: false,
             control_gallery: control_gallery::GalleryState::default(),
+            availability_filter: None,
+            deck_playing: [false; 2],
+            deck_cue: [false; 2],
         };
         app.reload();
         app
@@ -522,6 +528,93 @@ impl eframe::App for LibraryApp {
                 });
             self.show_xml_preview = open;
         }
+        egui::SidePanel::left("library-navigation")
+            .default_width(176.0)
+            .resizable(true)
+            .show(ctx, |ui| {
+                SectionHeading {
+                    title: "Collection",
+                }
+                .show(ui, tokens);
+                if ui
+                    .selectable_label(
+                        self.availability_filter.is_none(),
+                        format!("All tracks · {}", self.tracks.len()),
+                    )
+                    .clicked()
+                {
+                    self.availability_filter = None;
+                }
+                ui.separator();
+                ui.small("LOCAL FILTERS");
+                let available = self
+                    .tracks
+                    .iter()
+                    .filter(|track| track.availability == TrackAvailability::Available)
+                    .count();
+                let missing = self.tracks.len().saturating_sub(available);
+                if ui
+                    .selectable_label(
+                        self.availability_filter == Some(TrackAvailability::Available),
+                        format!("Available · {available}"),
+                    )
+                    .clicked()
+                {
+                    self.availability_filter = Some(TrackAvailability::Available);
+                }
+                if ui
+                    .selectable_label(
+                        self.availability_filter == Some(TrackAvailability::Missing),
+                        format!("Missing · {missing}"),
+                    )
+                    .clicked()
+                {
+                    self.availability_filter = Some(TrackAvailability::Missing);
+                }
+            });
+        egui::TopBottomPanel::bottom("demo-decks")
+            .resizable(false)
+            .show(ctx, |ui| {
+                ui.horizontal(|ui| {
+                    ui.small("LOCAL DEMO · NO AUDIO CONNECTED");
+                    for deck in 0..2 {
+                        ui.separator();
+                        ui.strong(format!("DECK {}", if deck == 0 { "A" } else { "B" }));
+                        ui.label(
+                            self.selected
+                                .and_then(|id| {
+                                    self.tracks
+                                        .iter()
+                                        .find(|track| track.track.id.as_u64() == id)
+                                })
+                                .map(|track| {
+                                    PathBuf::from(&track.track.path)
+                                        .file_name()
+                                        .unwrap_or_default()
+                                        .to_string_lossy()
+                                        .to_string()
+                                })
+                                .unwrap_or_else(|| "No track selected".into()),
+                        );
+                        if ui
+                            .selectable_label(
+                                self.deck_playing[deck],
+                                if self.deck_playing[deck] {
+                                    "Playing · demo"
+                                } else {
+                                    "Play"
+                                },
+                            )
+                            .clicked()
+                        {
+                            self.deck_playing[deck] = !self.deck_playing[deck];
+                        }
+                        if ui.selectable_label(self.deck_cue[deck], "Cue").clicked() {
+                            self.deck_cue[deck] = !self.deck_cue[deck];
+                        }
+                    }
+                });
+            });
         egui::SidePanel::right("details")
             .default_width(300.0)
             .show(ctx, |ui| {
@@ -631,6 +724,10 @@ impl eframe::App for LibraryApp {
                     query.is_empty()
                         || t.track.path.to_lowercase().contains(&query)
                         || t.track.id.as_u64().to_string().contains(&query)
+                })
+                .filter(|track| {
+                    self.availability_filter
+                        .is_none_or(|filter| track.availability == filter)
                 })
                 .collect();
             visible.sort_by(|a, b| {

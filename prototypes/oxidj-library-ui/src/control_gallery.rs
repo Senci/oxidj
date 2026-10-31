@@ -231,6 +231,10 @@ pub struct GalleryState {
     minimal_line_view: bool,
     minimal_line_filter: f32,
     minimal_line_channel: f32,
+    minimal_line_filter_id: Option<egui::Id>,
+    minimal_line_filter_rect: Option<egui::Rect>,
+    minimal_line_channel_id: Option<egui::Id>,
+    minimal_line_channel_rect: Option<egui::Rect>,
     values: [f32; Concept::ALL.len()],
     last_transport: Option<(Concept, TransportAction)>,
 }
@@ -243,6 +247,10 @@ impl Default for GalleryState {
             minimal_line_view: false,
             minimal_line_filter: 0.5,
             minimal_line_channel: 0.5,
+            minimal_line_filter_id: None,
+            minimal_line_filter_rect: None,
+            minimal_line_channel_id: None,
+            minimal_line_channel_rect: None,
             values: [0.5; Concept::ALL.len()],
             last_transport: None,
         }
@@ -352,12 +360,26 @@ fn show_minimal_line(ui: &mut egui::Ui, state: &mut GalleryState, tokens: ColorT
     ui.horizontal_wrapped(|ui| {
         ui.vertical(|ui| {
             ui.small("FILTER");
-            let _ = draw_knob(ui, Concept::MinimalLine, &mut state.minimal_line_filter, tokens);
+            let response = draw_knob(
+                ui,
+                Concept::MinimalLine,
+                &mut state.minimal_line_filter,
+                tokens,
+            );
+            state.minimal_line_filter_id = Some(response.id);
+            state.minimal_line_filter_rect = Some(response.rect);
         });
         ui.separator();
         ui.vertical(|ui| {
             ui.small("CHANNEL 01");
-            let _ = draw_fader(ui, Concept::MinimalLine, &mut state.minimal_line_channel, tokens);
+            let response = draw_fader(
+                ui,
+                Concept::MinimalLine,
+                &mut state.minimal_line_channel,
+                tokens,
+            );
+            state.minimal_line_channel_id = Some(response.id);
+            state.minimal_line_channel_rect = Some(response.rect);
         });
         ui.separator();
         ui.vertical(|ui| {
@@ -640,89 +662,182 @@ fn draw_knob_motif(
     }
 }
 
+const MINIMAL_KNOB_START: f32 = -std::f32::consts::FRAC_PI_2 - 3.0 * std::f32::consts::FRAC_PI_4;
+const MINIMAL_KNOB_SWEEP: f32 = 3.0 * std::f32::consts::FRAC_PI_2;
+
+fn minimal_knob_angle(value: f32) -> f32 {
+    MINIMAL_KNOB_START + value.clamp(0.0, 1.0) * MINIMAL_KNOB_SWEEP
+}
+
+fn minimal_knob_value(angle: f32) -> f32 {
+    let normalized = (angle - MINIMAL_KNOB_START).rem_euclid(std::f32::consts::TAU);
+    if normalized <= MINIMAL_KNOB_SWEEP {
+        normalized / MINIMAL_KNOB_SWEEP
+    } else {
+        let dead_sector_progress = normalized - MINIMAL_KNOB_SWEEP;
+        if dead_sector_progress <= (std::f32::consts::TAU - MINIMAL_KNOB_SWEEP) * 0.5 {
+            1.0
+        } else {
+            0.0
+        }
+    }
+}
+
+fn draw_minimal_rotary(ui: &mut egui::Ui, value: &mut f32, tokens: ColorTokens) -> egui::Response {
+    let (_, rect) = ui.allocate_space(egui::vec2(76.0, 76.0));
+    let response = ui.interact(
+        rect,
+        egui::Id::new("minimal-line-filter"),
+        egui::Sense::click_and_drag(),
+    );
+    let center = rect.center();
+    let radius = 25.0;
+    if response.dragged() || response.clicked() {
+        if let Some(pointer) = response.interact_pointer_pos() {
+            *value = minimal_knob_value((pointer.y - center.y).atan2(pointer.x - center.x));
+        }
+    }
+    if response.has_focus() {
+        ui.input(|input| {
+            if input.key_pressed(egui::Key::ArrowRight) || input.key_pressed(egui::Key::ArrowUp) {
+                *value = (*value + 0.01).clamp(0.0, 1.0);
+            }
+            if input.key_pressed(egui::Key::ArrowLeft) || input.key_pressed(egui::Key::ArrowDown) {
+                *value = (*value - 0.01).clamp(0.0, 1.0);
+            }
+        });
+    }
+    response.widget_info(|| {
+        egui::WidgetInfo::slider(true, *value as f64, "Filter value · Minimal line")
+    });
+    let painter = ui.painter_at(rect);
+    painter.circle_filled(center, radius, tokens.background);
+    painter.circle_stroke(
+        center,
+        radius,
+        Stroke::new(
+            1.0_f32,
+            if response.has_focus() {
+                tokens.primary
+            } else {
+                tokens.border
+            },
+        ),
+    );
+    for tick in 0..=6 {
+        let angle = minimal_knob_angle(tick as f32 / 6.0);
+        let direction = egui::vec2(angle.cos(), angle.sin());
+        painter.line_segment(
+            [
+                center + direction * (radius + 3.0),
+                center + direction * (radius + 8.0),
+            ],
+            Stroke::new(1.0_f32, tokens.muted_text),
+        );
+    }
+    let angle = minimal_knob_angle(*value);
+    painter.line_segment(
+        [
+            center,
+            center + egui::vec2(angle.cos(), angle.sin()) * (radius - 6.0),
+        ],
+        Stroke::new(2.0_f32, tokens.primary),
+    );
+    response
+}
+
 fn draw_knob(
     ui: &mut egui::Ui,
     concept: Concept,
     value: &mut f32,
     tokens: ColorTokens,
 ) -> egui::Response {
-    ui.vertical(|ui| {
-        let slider_response = ui.add(
-            egui::Slider::new(&mut *value, 0.0..=1.0)
-                .show_value(true)
-                .text(format!("Filter value · {}", concept.name())),
-        );
-        let value = *value;
-        ui.horizontal(|ui| {
-            let index = concept.index();
-            let (rect, _) = ui.allocate_exact_size(
-                egui::vec2(KNOB_SIZES[index], KNOB_SIZES[index]),
-                egui::Sense::hover(),
+    if concept == Concept::MinimalLine {
+        ui.vertical(|ui| {
+            let response = draw_minimal_rotary(ui, value, tokens);
+            ui.label(format!("{}%", (*value * 100.0).round()));
+            response
+        })
+        .inner
+    } else {
+        ui.vertical(|ui| {
+            let slider_response = ui.add(
+                egui::Slider::new(&mut *value, 0.0..=1.0)
+                    .show_value(true)
+                    .text(format!("Filter value · {}", concept.name())),
             );
-            let painter = ui.painter_at(rect);
-            let radius = KNOB_RADII[index];
-            let center = rect.center();
-            let accent = concept_accent(concept, tokens);
-            painter.circle_filled(center, radius, tokens.background);
-            painter.circle_stroke(
-                center,
-                radius,
-                Stroke::new(KNOB_RINGS[index], tokens.border),
-            );
-            draw_knob_motif(&painter, center, radius, KNOB_MOTIFS[index], tokens);
-            let ticks = KNOB_TICKS[index];
-            for tick in 0..ticks {
-                let angle = -2.35 + tick as f32 / (ticks - 1) as f32 * 4.7;
-                let inner = center + egui::vec2(angle.cos(), angle.sin()) * (radius + 2.0);
-                let major = tick % 3 == 0;
-                let length = KNOB_TICK_LENGTHS[index] * if major { 1.0 } else { 0.65 };
-                let outer = center + egui::vec2(angle.cos(), angle.sin()) * (radius + length);
-                painter.line_segment(
-                    [inner, outer],
-                    Stroke::new(if major { 1.5_f32 } else { 0.75_f32 }, tokens.muted_text),
+            let value = *value;
+            ui.horizontal(|ui| {
+                let index = concept.index();
+                let (rect, _) = ui.allocate_exact_size(
+                    egui::vec2(KNOB_SIZES[index], KNOB_SIZES[index]),
+                    egui::Sense::hover(),
                 );
-            }
-            let angle = -2.35 + value.clamp(0.0, 1.0) * 4.7;
-            let pointer = center + egui::vec2(angle.cos(), angle.sin()) * (radius - 6.0);
-            let pointer_width = if KNOB_MOTIFS[index] == KnobMotif::Line {
-                1.0_f32
-            } else if KNOB_MOTIFS[index] == KnobMotif::Stage {
-                5.0_f32
-            } else {
-                3.0_f32
-            };
-            painter.line_segment([center, pointer], Stroke::new(pointer_width, accent));
-            if KNOB_MOTIFS[index] != KnobMotif::Line {
-                painter.circle_filled(
+                let painter = ui.painter_at(rect);
+                let radius = KNOB_RADII[index];
+                let center = rect.center();
+                let accent = concept_accent(concept, tokens);
+                painter.circle_filled(center, radius, tokens.background);
+                painter.circle_stroke(
                     center,
-                    if KNOB_MOTIFS[index] == KnobMotif::Soft {
-                        6.0
-                    } else {
-                        3.0
-                    },
-                    tokens.text,
+                    radius,
+                    Stroke::new(KNOB_RINGS[index], tokens.border),
                 );
-            }
-            ui.vertical(|ui| {
-                ui.strong("FILTER");
-                ui.label(format!("{}%", (value.clamp(0.0, 1.0) * 100.0).round()));
-                ui.small(match concept {
-                    Concept::StudioRack => "machined ring",
-                    Concept::NeonDeck => "cyan pointer",
-                    Concept::PaperConsole => "editorial scale",
-                    Concept::ModularBay => "module dial",
-                    Concept::Broadcast => "broadcast trim",
-                    Concept::MinimalLine => "single stroke",
-                    Concept::MeterBridge => "meter ticks",
-                    Concept::SoftTiles => "soft rim",
-                    Concept::UtilityGrid => "indexed dial",
-                    Concept::StagePanel => "oversized face",
+                draw_knob_motif(&painter, center, radius, KNOB_MOTIFS[index], tokens);
+                let ticks = KNOB_TICKS[index];
+                for tick in 0..ticks {
+                    let angle = -2.35 + tick as f32 / (ticks - 1) as f32 * 4.7;
+                    let inner = center + egui::vec2(angle.cos(), angle.sin()) * (radius + 2.0);
+                    let major = tick % 3 == 0;
+                    let length = KNOB_TICK_LENGTHS[index] * if major { 1.0 } else { 0.65 };
+                    let outer = center + egui::vec2(angle.cos(), angle.sin()) * (radius + length);
+                    painter.line_segment(
+                        [inner, outer],
+                        Stroke::new(if major { 1.5_f32 } else { 0.75_f32 }, tokens.muted_text),
+                    );
+                }
+                let angle = -2.35 + value.clamp(0.0, 1.0) * 4.7;
+                let pointer = center + egui::vec2(angle.cos(), angle.sin()) * (radius - 6.0);
+                let pointer_width = if KNOB_MOTIFS[index] == KnobMotif::Line {
+                    1.0_f32
+                } else if KNOB_MOTIFS[index] == KnobMotif::Stage {
+                    5.0_f32
+                } else {
+                    3.0_f32
+                };
+                painter.line_segment([center, pointer], Stroke::new(pointer_width, accent));
+                if KNOB_MOTIFS[index] != KnobMotif::Line {
+                    painter.circle_filled(
+                        center,
+                        if KNOB_MOTIFS[index] == KnobMotif::Soft {
+                            6.0
+                        } else {
+                            3.0
+                        },
+                        tokens.text,
+                    );
+                }
+                ui.vertical(|ui| {
+                    ui.strong("FILTER");
+                    ui.label(format!("{}%", (value.clamp(0.0, 1.0) * 100.0).round()));
+                    ui.small(match concept {
+                        Concept::StudioRack => "machined ring",
+                        Concept::NeonDeck => "cyan pointer",
+                        Concept::PaperConsole => "editorial scale",
+                        Concept::ModularBay => "module dial",
+                        Concept::Broadcast => "broadcast trim",
+                        Concept::MinimalLine => "single stroke",
+                        Concept::MeterBridge => "meter ticks",
+                        Concept::SoftTiles => "soft rim",
+                        Concept::UtilityGrid => "indexed dial",
+                        Concept::StagePanel => "oversized face",
+                    });
                 });
             });
-        });
-        slider_response
-    })
-    .inner
+            slider_response
+        })
+        .inner
+    }
 }
 
 fn draw_fader_thumb(
@@ -826,6 +941,55 @@ fn draw_fader(
     value: &mut f32,
     tokens: ColorTokens,
 ) -> egui::Response {
+    if concept == Concept::MinimalLine {
+        let [_, height] = FADER_SIZES[concept.index()];
+        let (rect, _) = ui.allocate_exact_size(egui::vec2(28.0, height), egui::Sense::hover());
+        let response = ui.interact(
+            rect,
+            egui::Id::new("minimal-line-channel"),
+            egui::Sense::click_and_drag(),
+        );
+        if (response.dragged() || response.clicked())
+            && let Some(pointer) = response.interact_pointer_pos()
+        {
+            *value = ((rect.bottom() - pointer.y) / rect.height()).clamp(0.0, 1.0);
+        }
+        if response.has_focus() {
+            ui.input(|input| {
+                if input.key_pressed(egui::Key::ArrowUp) || input.key_pressed(egui::Key::ArrowRight)
+                {
+                    *value = (*value + 0.01).clamp(0.0, 1.0);
+                }
+                if input.key_pressed(egui::Key::ArrowDown)
+                    || input.key_pressed(egui::Key::ArrowLeft)
+                {
+                    *value = (*value - 0.01).clamp(0.0, 1.0);
+                }
+            });
+        }
+        response.widget_info(|| {
+            egui::WidgetInfo::slider(true, *value as f64, "Channel level · Minimal line")
+        });
+        let painter = ui.painter_at(rect);
+        let track =
+            egui::Rect::from_center_size(rect.center(), egui::vec2(2.0, rect.height() - 12.0));
+        painter.rect_filled(track, 1.0, tokens.border);
+        let y = egui::lerp(track.bottom()..=track.top(), *value);
+        painter.circle_filled(egui::pos2(rect.center().x, y), 7.0, tokens.surface);
+        painter.circle_stroke(
+            egui::pos2(rect.center().x, y),
+            7.0,
+            Stroke::new(
+                1.5_f32,
+                if response.has_focus() {
+                    tokens.primary
+                } else {
+                    tokens.secondary
+                },
+            ),
+        );
+        return response;
+    }
     ui.vertical(|ui| {
         let slider_response = ui.add(
             egui::Slider::new(&mut *value, 0.0..=1.0)
@@ -1348,16 +1512,204 @@ mod tests {
     }
 
     #[test]
-    fn minimal_line_filter_and_channel_values_are_independent() {
-        let mut state = GalleryState::default();
+    fn minimal_knob_midpoint_is_twelve_oclock_and_endpoints_clamp() {
+        assert!((minimal_knob_angle(0.5) + std::f32::consts::FRAC_PI_2).abs() < 0.0001);
+        assert_eq!(minimal_knob_angle(-1.0), minimal_knob_angle(0.0));
+        assert_eq!(minimal_knob_angle(2.0), minimal_knob_angle(1.0));
+        assert_eq!(minimal_knob_value(minimal_knob_angle(0.0)), 0.0);
+        assert_eq!(minimal_knob_value(minimal_knob_angle(1.0)), 1.0);
+        assert_eq!(minimal_knob_value(60.0_f32.to_radians()), 1.0);
+        assert_eq!(minimal_knob_value(120.0_f32.to_radians()), 0.0);
+    }
+
+    #[test]
+    fn minimal_line_controls_fit_their_compact_component_bounds() {
+        let ctx = egui::Context::default();
+        let mut state = GalleryState {
+            minimal_line_view: true,
+            ..Default::default()
+        };
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(700.0, 500.0));
+        let _ = ctx.run(
+            egui::RawInput {
+                screen_rect: Some(screen),
+                ..Default::default()
+            },
+            |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    show(ui, &mut state, ThemeMode::TokyoNight.tokens());
+                });
+            },
+        );
+        let knob = state.minimal_line_filter_rect.expect("rotary bounds");
+        let fader = state.minimal_line_channel_rect.expect("fader bounds");
+        assert!((knob.width() / knob.height() - 1.0).abs() < 0.01);
+        assert!(knob.width() <= 84.0 && knob.height() <= 84.0);
+        assert!(
+            fader.width() < fader.height(),
+            "vertical fader response bounds: {}×{}",
+            fader.width(),
+            fader.height()
+        );
+        assert!(fader.width() <= 48.0 && fader.height() <= 122.0);
+        assert!(screen.contains_rect(knob) && screen.contains_rect(fader));
+    }
+
+    #[test]
+    fn minimal_rotary_pointer_drag_updates_actual_widget() {
+        let ctx = egui::Context::default();
+        let mut state = GalleryState {
+            minimal_line_view: true,
+            ..Default::default()
+        };
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1000.0, 700.0));
+        let render = |state: &mut GalleryState, events: Vec<egui::Event>| {
+            ctx.run(
+                egui::RawInput {
+                    screen_rect: Some(screen),
+                    events,
+                    ..Default::default()
+                },
+                |ctx| {
+                    egui::CentralPanel::default().show(ctx, |ui| {
+                        show(ui, state, ThemeMode::TokyoNight.tokens());
+                    });
+                },
+            )
+        };
+        let _ = render(&mut state, Vec::new());
+        let rect = state
+            .minimal_line_filter_rect
+            .expect("rotary response bounds");
+        let center = rect.center();
+        let point = |value: f32| {
+            let angle = minimal_knob_angle(value);
+            center + egui::vec2(angle.cos(), angle.sin()) * 20.0
+        };
+        let start = point(0.2);
+        let target = point(0.8);
+        let _ = render(
+            &mut state,
+            vec![
+                egui::Event::PointerMoved(start),
+                egui::Event::PointerButton {
+                    pos: start,
+                    button: egui::PointerButton::Primary,
+                    pressed: true,
+                    modifiers: Default::default(),
+                },
+            ],
+        );
+        let _ = render(&mut state, vec![egui::Event::PointerMoved(target)]);
+        let _ = render(
+            &mut state,
+            vec![egui::Event::PointerButton {
+                pos: target,
+                button: egui::PointerButton::Primary,
+                pressed: false,
+                modifiers: Default::default(),
+            }],
+        );
+        assert!(
+            (state.minimal_line_filter - 0.8).abs() < 0.05,
+            "actual rotary drag should track angle"
+        );
+
+        let fader = state
+            .minimal_line_channel_rect
+            .expect("vertical fader bounds");
+        let y_for = |level: f32| fader.bottom() - level * fader.height();
+        let start = egui::pos2(fader.center().x, y_for(0.2));
+        let target = egui::pos2(fader.center().x, y_for(0.8));
+        let _ = render(
+            &mut state,
+            vec![
+                egui::Event::PointerMoved(start),
+                egui::Event::PointerButton {
+                    pos: start,
+                    button: egui::PointerButton::Primary,
+                    pressed: true,
+                    modifiers: Default::default(),
+                },
+            ],
+        );
+        let _ = render(&mut state, vec![egui::Event::PointerMoved(target)]);
+        let _ = render(
+            &mut state,
+            vec![egui::Event::PointerButton {
+                pos: target,
+                button: egui::PointerButton::Primary,
+                pressed: false,
+                modifiers: Default::default(),
+            }],
+        );
+        assert!(
+            (state.minimal_line_channel - 0.8).abs() < 0.05,
+            "vertical fader drag should follow its track"
+        );
+    }
+
+    #[test]
+    fn minimal_line_filter_and_channel_widgets_update_independently() {
+        let ctx = egui::Context::default();
+        let mut state = GalleryState {
+            minimal_line_view: true,
+            ..Default::default()
+        };
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1000.0, 700.0));
+        let render = |state: &mut GalleryState, events: Vec<egui::Event>| {
+            ctx.run(
+                egui::RawInput {
+                    screen_rect: Some(screen),
+                    events,
+                    ..Default::default()
+                },
+                |ctx| {
+                    egui::CentralPanel::default().show(ctx, |ui| {
+                        show(ui, state, ThemeMode::TokyoNight.tokens());
+                    });
+                },
+            )
+        };
+        let arrow_right = || egui::Event::Key {
+            key: egui::Key::ArrowRight,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: Default::default(),
+        };
+        let _ = render(&mut state, Vec::new());
+        let filter_id = state
+            .minimal_line_filter_id
+            .expect("rendered FILTER response");
         let channel_before = state.minimal_line_channel;
-        state.minimal_line_filter = 0.82;
-        assert_eq!(state.minimal_line_filter, 0.82);
+        ctx.memory_mut(|memory| memory.request_focus(filter_id));
+        let _ = render(&mut state, vec![arrow_right()]);
+        assert_ne!(
+            state.minimal_line_filter, 0.5,
+            "FILTER widget accepted keyboard input"
+        );
         assert_eq!(state.minimal_line_channel, channel_before);
 
         let filter_before = state.minimal_line_filter;
-        state.minimal_line_channel = 0.23;
-        assert_eq!(state.minimal_line_channel, 0.23);
+        let channel_id = state
+            .minimal_line_channel_id
+            .expect("rendered CHANNEL response");
+        ctx.memory_mut(|memory| memory.request_focus(channel_id));
+        let _ = render(
+            &mut state,
+            vec![egui::Event::Key {
+                key: egui::Key::ArrowUp,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers: Default::default(),
+            }],
+        );
+        assert_ne!(
+            state.minimal_line_channel, channel_before,
+            "CHANNEL widget accepted keyboard input"
+        );
         assert_eq!(state.minimal_line_filter, filter_before);
     }
 
