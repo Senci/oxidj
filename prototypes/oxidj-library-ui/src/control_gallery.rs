@@ -862,7 +862,9 @@ fn transport_button(
     }
     let active = state.last_transport == Some((concept, action));
     let accent = concept_accent(concept, tokens);
-    let fill = if active || (layout == CardLayout::Broadcast && action == TransportAction::Play) {
+    let highlighted =
+        active || (layout == CardLayout::Broadcast && action == TransportAction::Play);
+    let fill = if highlighted {
         accent.linear_multiply(0.35)
     } else {
         tokens.background
@@ -872,13 +874,28 @@ fn transport_button(
     } else {
         format!("{icon} {label}")
     };
-    let response = ui.add_sized(
-        [width, height],
-        egui::Button::new(egui::RichText::new(visible_label).color(tokens.text))
-            .fill(fill)
-            .stroke(Stroke::new(CARD_STROKES[index], accent))
-            .corner_radius(BUTTON_CORNERS[index]),
-    );
+    let button = egui::Button::new(egui::RichText::new(visible_label).color(tokens.text))
+        .fill(fill)
+        .stroke(Stroke::new(CARD_STROKES[index], accent))
+        .corner_radius(BUTTON_CORNERS[index]);
+    let response = ui.add_sized([width, height], button);
+    let interaction_feedback = if response.is_pointer_button_down_on() {
+        Some((tokens.secondary, 3.0_f32))
+    } else if response.has_focus() {
+        Some((tokens.primary, 2.0_f32))
+    } else if response.hovered() {
+        Some((tokens.secondary, 1.5_f32))
+    } else {
+        None
+    };
+    if let Some((color, width)) = interaction_feedback {
+        ui.painter().rect_stroke(
+            response.rect.shrink(2.0),
+            BUTTON_CORNERS[index],
+            Stroke::new(width, color),
+            egui::StrokeKind::Inside,
+        );
+    }
     let accessible_name = format!("{label}, {}", concept.name());
     response.widget_info(|| {
         egui::WidgetInfo::labeled(egui::WidgetType::Button, true, accessible_name.clone())
@@ -1437,6 +1454,81 @@ mod tests {
         assert_eq!(state.component, ComponentTab::RotaryKnob);
         press(egui::Key::ArrowLeft, &mut state);
         assert_eq!(state.component, ComponentTab::Transport);
+    }
+
+    #[test]
+    fn held_cue_button_paints_differently_from_hovered_cue_button() {
+        let ctx = egui::Context::default();
+        let mut state = GalleryState::default();
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(700.0, 400.0));
+        let cue_rect = std::cell::Cell::new(egui::Rect::NOTHING);
+        let cue_id = std::cell::Cell::new(None);
+        let pointer_is_held_on_cue = std::cell::Cell::new(false);
+        let cue_has_focus = std::cell::Cell::new(false);
+        let mut render = |events: Vec<egui::Event>, capture_pressed: bool| {
+            ctx.run(
+                egui::RawInput {
+                    screen_rect: Some(screen),
+                    events,
+                    ..Default::default()
+                },
+                |ctx| {
+                    egui::CentralPanel::default().show(ctx, |ui| {
+                        let cue_responses = draw_transport(
+                            ui,
+                            Concept::StudioRack,
+                            &mut state,
+                            ThemeMode::TokyoNight.tokens(),
+                        );
+                        let cue = &cue_responses[1];
+                        cue_rect.set(cue.rect);
+                        cue_id.set(Some(cue.id));
+                        if capture_pressed {
+                            pointer_is_held_on_cue.set(cue.is_pointer_button_down_on());
+                            cue_has_focus.set(cue.has_focus());
+                        }
+                    });
+                },
+            )
+        };
+
+        let idle = render(Vec::new(), true);
+        ctx.memory_mut(|memory| memory.request_focus(cue_id.get().expect("Cue response id")));
+        let focused = render(Vec::new(), true);
+        assert!(cue_has_focus.get(), "focus must reach the Cue button");
+        let target = cue_rect.get().center();
+        let hovered = render(vec![egui::Event::PointerMoved(target)], false);
+        let pressed = render(
+            vec![
+                egui::Event::PointerMoved(target),
+                egui::Event::PointerButton {
+                    pos: target,
+                    button: egui::PointerButton::Primary,
+                    pressed: true,
+                    modifiers: Default::default(),
+                },
+            ],
+            true,
+        );
+        let button_rectangles = |output: &egui::FullOutput| {
+            output
+                .shapes
+                .iter()
+                .filter(|clipped| {
+                    matches!(&clipped.shape, egui::Shape::Rect(_))
+                        && cue_rect
+                            .get()
+                            .contains(clipped.shape.visual_bounding_rect().center())
+                })
+                .map(|clipped| format!("{:?}", clipped.shape))
+                .collect::<Vec<_>>()
+        };
+        assert!(
+            pointer_is_held_on_cue.get(),
+            "press event must reach the Cue button"
+        );
+        assert_ne!(button_rectangles(&idle), button_rectangles(&focused));
+        assert_ne!(button_rectangles(&hovered), button_rectangles(&pressed));
     }
 
     #[test]
