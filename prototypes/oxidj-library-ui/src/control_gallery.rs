@@ -1009,7 +1009,7 @@ fn draw_fader(
         });
         let painter = ui.painter_at(rect);
         let track =
-            egui::Rect::from_center_size(rect.center(), egui::vec2(2.0, rect.height() - 12.0));
+            egui::Rect::from_center_size(rect.center(), egui::vec2(2.0, rect.height() - 18.0));
         painter.rect_filled(track, 1.0, tokens.border);
         let y = egui::lerp(track.bottom()..=track.top(), *value);
         painter.circle_filled(egui::pos2(rect.center().x, y), 7.0, tokens.surface);
@@ -1590,6 +1590,54 @@ mod tests {
         );
         assert!(fader.width() <= 48.0 && fader.height() <= 122.0);
         assert!(screen.contains_rect(knob) && screen.contains_rect(fader));
+    }
+
+    #[test]
+    fn minimal_line_fader_endpoint_thumb_and_focus_stroke_fit_paint_bounds() {
+        let ctx = egui::Context::default();
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(300.0, 300.0));
+        for endpoint in [0.0_f32, 1.0] {
+            let value = std::cell::Cell::new(endpoint);
+            let bounds = std::cell::Cell::new(None);
+            let output = ctx.run(
+                egui::RawInput {
+                    screen_rect: Some(screen),
+                    ..Default::default()
+                },
+                |ctx| {
+                    egui::CentralPanel::default().show(ctx, |ui| {
+                        let mut current = value.get();
+                        let response = draw_fader(
+                            ui,
+                            Concept::MinimalLine,
+                            &mut current,
+                            ThemeMode::TokyoNight.tokens(),
+                        );
+                        bounds.set(Some(response.rect));
+                    });
+                },
+            );
+            let rect = bounds.get().expect("actual MinimalLine fader bounds");
+            let circles = output
+                .shapes
+                .iter()
+                .filter_map(|clipped| match &clipped.shape {
+                    egui::Shape::Circle(_) => Some(clipped.shape.visual_bounding_rect()),
+                    _ => None,
+                })
+                .collect::<Vec<_>>();
+            assert_eq!(
+                circles.len(),
+                2,
+                "endpoint {endpoint} should paint fill and stroke circles"
+            );
+            for circle in circles {
+                assert!(
+                    rect.contains_rect(circle),
+                    "endpoint {endpoint}: thumb {circle:?} exceeds fader paint bounds {rect:?}"
+                );
+            }
+        }
     }
 
     #[test]
