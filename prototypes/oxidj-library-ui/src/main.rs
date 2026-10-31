@@ -31,6 +31,9 @@ struct LibraryApp {
     xml_path: String,
     xml_preview: Option<Result<oxidj_application::Preview, String>>,
     show_xml_preview: bool,
+    xml_edit_track: Option<String>,
+    xml_edit_name: String,
+    xml_edit_output: String,
 }
 impl LibraryApp {
     fn new(db_path: PathBuf, theme: ThemeMode, custom_tokens: theme::ColorTokens) -> Self {
@@ -65,6 +68,9 @@ impl LibraryApp {
             xml_path: String::new(),
             xml_preview: None,
             show_xml_preview: false,
+            xml_edit_track: None,
+            xml_edit_name: String::new(),
+            xml_edit_output: String::new(),
         };
         app.reload();
         app
@@ -245,6 +251,27 @@ impl LibraryApp {
         self.show_xml_preview = true;
     }
 
+    fn export_xml_name_edit(&mut self, track_id: &str, old_name: &str) {
+        let request = oxidj_application::TrackNameEditRequest {
+            track_id: track_id.to_owned(),
+            expected_old_name: old_name.to_owned(),
+            new_name: self.xml_edit_name.clone(),
+        };
+        match oxidj_application::export_rekordbox_track_name_edit(
+            &self.xml_path,
+            &self.xml_edit_output,
+            &request,
+        ) {
+            Ok(change) => {
+                self.notice = format!(
+                    "Exported track {} Name: {:?} → {:?} to {}",
+                    change.track_id, change.old_name, change.new_name, self.xml_edit_output
+                )
+            }
+            Err(error) => self.notice = format!("Track Name export failed: {error}"),
+        }
+    }
+
     fn theme_selection_ui(&mut self, ui: &mut egui::Ui) -> (egui::Rect, Option<[egui::Rect; 3]>) {
         let mut selected = self.theme;
         let mut option_rects = None;
@@ -338,6 +365,7 @@ impl eframe::App for LibraryApp {
             });
             if !self.notice.is_empty() {
                 let color = if self.notice.starts_with("Import failed:")
+                    || self.notice.starts_with("Track Name export failed:")
                     || self.notice.starts_with("Catalog unavailable:")
                 {
                     tokens.error
@@ -351,10 +379,10 @@ impl eframe::App for LibraryApp {
         });
         if self.show_xml_preview {
             let mut open = self.show_xml_preview;
-            egui::Window::new("Rekordbox XML preview · read-only")
+            egui::Window::new("Rekordbox XML preview · guarded Name export")
                 .open(&mut open)
                 .default_width(720.0)
-                .show(ctx, |ui| match &self.xml_preview {
+                .show(ctx, |ui| match self.xml_preview.clone() {
                     Some(Err(error)) => {
                         ui.colored_label(tokens.error, format!("Preview failed: {error}"));
                     }
@@ -374,11 +402,17 @@ impl eframe::App for LibraryApp {
                                 egui::Grid::new("rekordbox-preview-tracks")
                                     .striped(true)
                                     .show(ui, |ui| {
+                                        ui.strong("Select");
                                         ui.strong("Track");
                                         ui.strong("Artist");
                                         ui.strong("Raw location");
                                         ui.end_row();
                                         for track in &preview.tracks {
+                                            let selected = self.xml_edit_track.as_deref() == Some(&track.id);
+                                            if ui.selectable_label(selected, "Select").clicked() {
+                                                self.xml_edit_track = Some(track.id.clone());
+                                                self.xml_edit_name = track.name.clone();
+                                            }
                                             ui.label(&track.name);
                                             ui.label(track.artist.as_deref().unwrap_or("—"));
                                             ui.monospace(&track.location);
@@ -386,6 +420,28 @@ impl eframe::App for LibraryApp {
                                         }
                                     });
                             });
+                        ui.separator();
+                        ui.strong("Export one guarded Name edit");
+                        if let Some(track_id) = self.xml_edit_track.clone() {
+                            ui.label(format!("Selected TrackID: {track_id}"));
+                            ui.horizontal(|ui| {
+                                ui.label("New Name");
+                                ui.text_edit_singleline(&mut self.xml_edit_name);
+                            });
+                            ui.horizontal(|ui| {
+                                ui.label("Output path");
+                                ui.text_edit_singleline(&mut self.xml_edit_output);
+                            });
+                            if ui.button("Export to new file").clicked() {
+                                if let Some(track) = preview.tracks.iter().find(|track| track.id == track_id) {
+                                    self.export_xml_name_edit(&track.id, &track.name);
+                                } else {
+                                    self.notice = "Track Name export failed: selected track is no longer in the preview".into();
+                                }
+                            }
+                        } else {
+                            ui.label("Select one track above to edit its Name.");
+                        }
                         ui.separator();
                         ui.strong("Folders");
                         if preview.folders.is_empty() {
@@ -635,6 +691,79 @@ mod keyboard_tests {
             ThemeMode::TokyoNight,
             ThemeMode::TokyoNight.tokens(),
         )
+    }
+
+    #[test]
+    fn guarded_name_export_reports_success_and_refuses_existing_output() {
+        use std::{fs, time::SystemTime};
+        let root = std::env::temp_dir().join(format!(
+            "oxidj-ui-name-edit-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&root).unwrap();
+        let source = root.join("library.xml");
+        let output = root.join("edited.xml");
+        let original =
+            include_bytes!("../../../xtask/tests/fixtures/f02-track-year-edit/source.xml");
+        fs::write(&source, original).unwrap();
+        let mut app = app();
+        app.xml_path = source.display().to_string();
+        app.xml_edit_name = "New & Improved".into();
+        app.xml_edit_output = output.display().to_string();
+        app.export_xml_name_edit("100", "A");
+        assert!(
+            app.notice.starts_with("Exported track 100 Name:"),
+            "{}",
+            app.notice
+        );
+        assert_eq!(fs::read(&source).unwrap(), original);
+        let exported = fs::read_to_string(&output).unwrap();
+        assert!(exported.contains("Name=\"New &amp; Improved\""));
+
+        let existing = root.join("existing.xml");
+        fs::write(&existing, b"keep me").unwrap();
+        app.xml_edit_output = existing.display().to_string();
+        app.export_xml_name_edit("7", "Old");
+        assert!(
+            app.notice.starts_with("Track Name export failed:"),
+            "{}",
+            app.notice
+        );
+        assert_eq!(fs::read(existing).unwrap(), b"keep me");
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn name_export_reports_guard_refusal_when_preview_value_is_stale() {
+        use std::{fs, time::SystemTime};
+        let root = std::env::temp_dir().join(format!(
+            "oxidj-ui-name-stale-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&root).unwrap();
+        let source = root.join("library.xml");
+        let output = root.join("edited.xml");
+        fs::write(&source, br#"<DJ_PLAYLISTS Version="1.0.0"><COLLECTION Entries="1"><TRACK TrackID="7" Name="Changed" Location="x"/></COLLECTION></DJ_PLAYLISTS>"#).unwrap();
+        let mut app = app();
+        app.xml_path = source.display().to_string();
+        app.xml_edit_output = output.display().to_string();
+        app.xml_edit_name = "New".into();
+        app.export_xml_name_edit("7", "Old");
+        assert!(
+            app.notice.starts_with("Track Name export failed:"),
+            "{}",
+            app.notice
+        );
+        assert!(!output.exists());
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
