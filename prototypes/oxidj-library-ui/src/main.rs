@@ -88,6 +88,28 @@ impl LibraryApp {
         app.reload();
         app
     }
+    fn show_control_gallery_button(&mut self, ui: &mut egui::Ui) -> egui::Response {
+        let response = ui.button("Control concepts…");
+        if response.clicked() {
+            self.show_control_gallery = true;
+        }
+        response
+    }
+
+    fn show_control_gallery_window(&mut self, ctx: &egui::Context, tokens: theme::ColorTokens) {
+        if self.show_control_gallery {
+            let mut open = self.show_control_gallery;
+            egui::Window::new("OxiDJ · Control concept gallery")
+                .open(&mut open)
+                .default_width(900.0)
+                .min_width(360.0)
+                .show(ctx, |ui| {
+                    control_gallery::show(ui, &mut self.control_gallery, tokens)
+                });
+            self.show_control_gallery = open;
+        }
+    }
+
     fn active_tokens(&self) -> theme::ColorTokens {
         if self.theme == ThemeMode::Custom {
             self.custom_tokens
@@ -318,9 +340,7 @@ impl eframe::App for LibraryApp {
             ui.heading("OxiDJ · Local Library");
             ui.horizontal(|ui| {
                 self.theme_selection_ui(ui);
-                if ui.button("Control concepts…").clicked() {
-                    self.show_control_gallery = true;
-                }
+                self.show_control_gallery_button(ui);
                 if self.theme == ThemeMode::Custom {
                     if ui.button("Edit palette…").clicked() {
                         self.show_theme_editor = true;
@@ -407,17 +427,7 @@ impl eframe::App for LibraryApp {
                 .show(ui, tokens);
             }
         });
-        if self.show_control_gallery {
-            let mut open = self.show_control_gallery;
-            egui::Window::new("OxiDJ · Control concept gallery")
-                .open(&mut open)
-                .default_width(900.0)
-                .min_width(360.0)
-                .show(ctx, |ui| {
-                    control_gallery::show(ui, &mut self.control_gallery, tokens)
-                });
-            self.show_control_gallery = open;
-        }
+        self.show_control_gallery_window(ctx, tokens);
         if self.show_xml_preview {
             let mut open = self.show_xml_preview;
             egui::Window::new("Rekordbox XML preview · guarded Name export")
@@ -848,6 +858,45 @@ mod keyboard_tests {
             ThemeMode::TokyoNight,
             ThemeMode::TokyoNight.tokens(),
         )
+    }
+
+    #[test]
+    fn control_concepts_toolbar_button_opens_gallery_on_next_frame() {
+        let mut app = app();
+        let ctx = egui::Context::default();
+        let render = |ctx: &egui::Context, app: &mut LibraryApp, input| {
+            let mut button_rect = None;
+            let output = ctx.run(input, |ctx| {
+                egui::TopBottomPanel::top("toolbar").show(ctx, |ui| {
+                    button_rect = Some(app.show_control_gallery_button(ui).rect);
+                });
+                app.show_control_gallery_window(ctx, ThemeMode::TokyoNight.tokens());
+            });
+            (button_rect, output)
+        };
+        let (button_rect, _) = render(&ctx, &mut app, egui::RawInput::default());
+        let rect = button_rect.expect("toolbar action rendered");
+        let pointer = |pressed| egui::RawInput {
+            events: vec![
+                egui::Event::PointerMoved(rect.center()),
+                egui::Event::PointerButton {
+                    pos: rect.center(),
+                    button: egui::PointerButton::Primary,
+                    pressed,
+                    modifiers: egui::Modifiers::default(),
+                },
+            ],
+            ..Default::default()
+        };
+        let _ = render(&ctx, &mut app, pointer(true));
+        let _ = render(&ctx, &mut app, pointer(false));
+        assert!(app.show_control_gallery);
+        let (_, output) = render(&ctx, &mut app, egui::RawInput::default());
+        assert!(app.show_control_gallery);
+        assert!(
+            !output.shapes.is_empty(),
+            "gallery window produced no UI shapes"
+        );
     }
 
     #[test]
