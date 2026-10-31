@@ -19,14 +19,14 @@ export interface ProjectUpdate {
 const repo = 'https://github.com/Senci/oxidj';
 const closeout = `${repo}/blob/master/plan/MVP.md#bounded-local-m1m3-acceptance-closeout-2026-10-26`;
 export const roadmapSnapshot = {
-  verifiedAt: '2026-10-26',
+  verifiedAt: '2026-10-31',
   currentFocus: 'M4: Rekordbox XML groundwork',
   currentSummary:
-    'Synthetic XML fixtures, read-only preview and limited, unedited subset export are implemented.',
+    'Synthetic Rekordbox XML fixtures support read-only preview, bounded export of a supported subset to a new file, and exact-value guarded edits.',
   working:
     'A persistent local catalog, reference-only WAV/FLAC/MP3 import and a provisional viewer with search, sort and track details work today.',
   unfinished:
-    'Production GUI, accessibility and platform validation, full Rekordbox/OneLibrary compatibility, and 500k-track / 60fps performance are unfinished or unverified.',
+    'Real Rekordbox/OneLibrary compatibility and ADR-005 qualification (A1-A3, C1-C6) are not demonstrated. Production GUI, accessibility and platform gates, plus 500k-track / 60fps qualification, remain unpassed.',
   repo,
 } as const;
 export const milestones: readonly Milestone[] = [
@@ -77,7 +77,7 @@ export const milestones: readonly Milestone[] = [
     status: 'in-progress',
     statusLabel: 'In progress',
     detail:
-      'Start with documented Rekordbox XML: synthetic fixtures, read-only preview and export to a new file for a limited, unedited subset. Unsupported content prevents export. This work is separate from the local catalog.',
+      'Synthetic Rekordbox XML fixtures support read-only preview, bounded export of a supported subset to a new file, and guarded edits that check the expected old value. Unsupported content can prevent export. Real Rekordbox and OneLibrary compatibility is not demonstrated; ADR-005 and its A1-A3/C1-C6 qualification remain unpassed.',
     source: { label: 'XML adapter and tests', href: `${repo}/tree/master/crates/oxidj-rekordbox` },
   },
   {
@@ -107,21 +107,21 @@ export const milestones: readonly Milestone[] = [
 ];
 export const projectUpdates: readonly ProjectUpdate[] = [
   {
-    date: '2026-10-26',
-    title: 'XML export refuses inconsistent playlist counts.',
-    detail: 'Track relationships and declared counts are checked before a new file is written.',
-    source: { label: 'Export fix', href: `${repo}/commit/3a961b9` },
+    date: '2026-10-29',
+    title: 'No-edit export retains cue colour fields.',
+    detail: 'A synthetic XML regression checks RGB fields survive a bounded export unchanged.',
+    source: { label: 'Export change', href: `${repo}/commit/30a2d29` },
+  },
+  {
+    date: '2026-10-27',
+    title: 'Added an exact-value guarded Track Kind edit.',
+    detail: 'The synthetic XML edit targets one track and writes to a new file.',
+    source: { label: 'Guarded edit', href: `${repo}/commit/9b62674` },
   },
   {
     date: '2026-10-26',
-    title: 'Catalog and importer reviews completed.',
-    detail: 'Fresh-process reopen and unchanged-source checks joined the local acceptance record.',
-    source: { label: 'Acceptance record', href: closeout },
-  },
-  {
-    date: '2026-10-25',
-    title: 'Keyboard focus stays in view.',
-    detail: 'The separate interaction prototype scrolls only when focus reaches the visible edge.',
-    source: { label: 'Interaction fix', href: `${repo}/commit/e65c6f6` },
+    title: 'Export checks declared playlist counts.',
+    detail: 'Inconsistent counts are rejected before a new XML file is written.',
+    source: { label: 'Count validation', href: `${repo}/commit/3a961b9` },
   },
 ];

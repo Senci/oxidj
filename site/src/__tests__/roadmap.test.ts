@@ -17,6 +17,28 @@ describe('static public pages', () => {
     }
     expect(milestones.find((m) => m.id === 'm4')?.status).toBe('in-progress');
     expect(milestones.find((m) => m.id === 'm3')?.statusLabel).toBe('Prototype tested');
+    expect(
+      milestones
+        .filter((m) => ['m1', 'm2', 'm3'].includes(m.id))
+        .every((m) => m.status === 'complete'),
+    ).toBe(true);
+    expect(
+      milestones
+        .filter((m) => ['m5', 'm6', 'm7'].includes(m.id))
+        .every((m) => m.status === 'planned'),
+    ).toBe(true);
+    expect(roadmapSnapshot.verifiedAt).toBe('2026-10-31');
+    expect(roadmapSnapshot.currentSummary).toMatch(
+      /synthetic Rekordbox XML.*read-only preview.*new file.*guarded edits/i,
+    );
+    expect(roadmapSnapshot.unfinished).toMatch(/ADR-005.*A1-A3, C1-C6.*not demonstrated/i);
+    expect(roadmapSnapshot.unfinished).toMatch(/500k-track \/ 60fps.*unpassed/i);
+    expect(milestones.find((m) => m.id === 'm4')?.detail).toMatch(
+      /not demonstrated.*ADR-005.*unpassed/i,
+    );
+    expect(projectUpdates).toHaveLength(3);
+    expect(projectUpdates.map((u) => u.date)).toEqual(['2026-10-29', '2026-10-27', '2026-10-26']);
+    expect(projectUpdates.every((u) => /\/commit\/[0-9a-f]{7,40}$/.test(u.source.href))).toBe(true);
     expect(html).not.toMatch(/<dt[^>]*>(Progress|Next)<\/dt>/);
     for (const u of projectUpdates) expect(html).toContain(escapeHtml(u.source.href));
   });
@@ -42,9 +64,7 @@ describe('static public pages', () => {
         .replace(/<head[\s\S]*?<\/head>|<!--[\s\S]*?-->/g, '')
         .replace(/<[^>]+>/g, ' ');
       expect(copy).not.toMatch(/[\u2013\u2014\u2018\u2019\u201c\u201d\u2026\u2192]/);
-      expect(copy).not.toMatch(
-        /\b(smoke|admission|qualification|owner-authorized|fail-closed)\b|ADR-005|Bot Screen/,
-      );
+      expect(copy).not.toMatch(/\b(smoke|admission|owner-authorized|fail-closed)\b|Bot Screen/);
     }
   });
   it('escapes markup and rejects unknown fragment names', () => {
