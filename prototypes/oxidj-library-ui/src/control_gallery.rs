@@ -229,6 +229,8 @@ pub struct GalleryState {
     pub selected: Concept,
     pub component: ComponentTab,
     minimal_line_view: bool,
+    minimal_line_filter: f32,
+    minimal_line_channel: f32,
     values: [f32; Concept::ALL.len()],
     last_transport: Option<(Concept, TransportAction)>,
 }
@@ -239,6 +241,8 @@ impl Default for GalleryState {
             selected: Concept::default(),
             component: ComponentTab::default(),
             minimal_line_view: false,
+            minimal_line_filter: 0.5,
+            minimal_line_channel: 0.5,
             values: [0.5; Concept::ALL.len()],
             last_transport: None,
         }
@@ -342,19 +346,18 @@ fn show_with_card_bounds(
 }
 
 fn show_minimal_line(ui: &mut egui::Ui, state: &mut GalleryState, tokens: ColorTokens) {
-    let index = Concept::MinimalLine.index();
     ui.heading("Minimal Line");
     ui.label("Local interaction preview · no audio is connected.");
     ui.add_space(12.0);
     ui.horizontal_wrapped(|ui| {
         ui.vertical(|ui| {
             ui.small("FILTER");
-            let _ = draw_knob(ui, Concept::MinimalLine, &mut state.values[index], tokens);
+            let _ = draw_knob(ui, Concept::MinimalLine, &mut state.minimal_line_filter, tokens);
         });
         ui.separator();
         ui.vertical(|ui| {
             ui.small("CHANNEL 01");
-            let _ = draw_fader(ui, Concept::MinimalLine, &mut state.values[index], tokens);
+            let _ = draw_fader(ui, Concept::MinimalLine, &mut state.minimal_line_channel, tokens);
         });
         ui.separator();
         ui.vertical(|ui| {
@@ -1342,6 +1345,20 @@ mod tests {
         );
         assert_eq!(state.selected, Concept::NeonDeck);
         assert_eq!(Concept::ALL.len(), 10);
+    }
+
+    #[test]
+    fn minimal_line_filter_and_channel_values_are_independent() {
+        let mut state = GalleryState::default();
+        let channel_before = state.minimal_line_channel;
+        state.minimal_line_filter = 0.82;
+        assert_eq!(state.minimal_line_filter, 0.82);
+        assert_eq!(state.minimal_line_channel, channel_before);
+
+        let filter_before = state.minimal_line_filter;
+        state.minimal_line_channel = 0.23;
+        assert_eq!(state.minimal_line_channel, 0.23);
+        assert_eq!(state.minimal_line_filter, filter_before);
     }
 
     #[test]
