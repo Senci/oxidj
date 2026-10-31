@@ -36,7 +36,9 @@ function initTraces(root: HTMLElement): void {
         clear(button);
         button.hidden = true;
         if (hadFocus) {
-          const heading = button.closest('.reference-flow, #roadmap')?.querySelector('h2');
+          const scope = button.closest('.reference-flow, #roadmap');
+          const heading =
+            scope?.querySelector('h2') ?? button.closest('section')?.querySelector('h2');
           heading?.setAttribute('tabindex', '-1');
           heading?.focus();
         }
@@ -60,11 +62,8 @@ function initTraces(root: HTMLElement): void {
           : [scope.querySelector<HTMLElement>('.milestone-trace')];
       const animations = targets.flatMap((target) => {
         if (!target) return [];
-        const distance =
-          button.dataset.trace === 'flow'
-            ? ((target as SVGCircleElement).ownerSVGElement?.getBoundingClientRect().width ?? 0) *
-              (410 / 900)
-            : 0;
+        // SVG transform distances are expressed in the viewBox coordinate space.
+        const distance = button.dataset.trace === 'flow' ? 410 : 0;
         const animation = target.animate(
           button.dataset.trace === 'flow'
             ? [{ transform: 'translateX(0)' }, { transform: `translateX(${distance}px)` }]

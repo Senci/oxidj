@@ -155,10 +155,20 @@ try {
           false,
           'trace control enhanced',
         );
-        await page.keyboard.press('Enter');
+        await page.keyboard.press('Space');
         assert.ok(
           (await page.$eval('.flow-trace', (el) => el.getAnimations().length)) > 0,
           'keyboard activation starts finite trace',
+        );
+        const endpoint = await page.$eval('.flow-trace', (el) => {
+          const animation = el.getAnimations()[0];
+          animation.currentTime = 699;
+          const matrix = new DOMMatrix(getComputedStyle(el).transform);
+          return { x: matrix.m41, endpoint: 410 };
+        });
+        assert.ok(
+          Math.abs(endpoint.x - endpoint.endpoint) < 3,
+          `trace endpoint ${JSON.stringify(endpoint)}`,
         );
         await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
         await page.waitForFunction(() => document.querySelector('[data-trace="flow"]').hidden);
@@ -166,6 +176,16 @@ try {
           await page.$eval('[data-trace="flow"]', (el) => el.hidden),
           true,
           'reduced motion hides optional control',
+        );
+        assert.equal(
+          await page.evaluate(() => document.activeElement.id),
+          'why',
+          'focus moves to nearby flow heading when reduced motion hides focused control',
+        );
+        assert.equal(
+          await page.$eval('#why', (el) => getComputedStyle(el, ':focus').outlineStyle !== 'none'),
+          true,
+          'recovered heading has visible focus',
         );
         assert.equal(
           await page.$eval('.reference-flow', (el) => el.classList.contains('is-tracing')),
@@ -210,7 +230,12 @@ try {
         await page.$eval('#asylum-button', (button) =>
           button.scrollIntoView({ block: 'center', behavior: 'instant' }),
         );
-        await page.$eval('#asylum-button', (button) => button.click());
+        const box = await page.$eval('#asylum-button', (button) => {
+          const rect = button.getBoundingClientRect();
+          return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
+        });
+        await page.mouse.move(box.x, box.y);
+        await page.mouse.click(box.x, box.y);
         assert.match(await page.$eval('#asylum-output', (el) => el.textContent), /ASYLUM DENIED/);
       }
       await page.setJavaScriptEnabled(false);

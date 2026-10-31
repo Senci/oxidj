@@ -286,6 +286,9 @@ code {
   margin-top: var(--space-lg);
   max-width: 75ch;
 }
+.observation-output {
+  min-height: 3em;
+}
 @media (max-width: 60rem) {
   .section-intro,
   .roadmap-preview li {
