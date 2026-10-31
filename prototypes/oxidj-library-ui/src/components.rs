@@ -10,11 +10,23 @@ pub struct PrimaryActionButton<'a> {
 
 impl PrimaryActionButton<'_> {
     pub fn show(self, ui: &mut egui::Ui, tokens: ColorTokens) -> egui::Response {
-        ui.add(
+        let response = ui.add(
             egui::Button::new(RichText::new(self.label).color(tokens.text))
                 .fill(tokens.primary.linear_multiply(0.18))
                 .stroke(Stroke::new(1.0_f32, tokens.primary)),
-        )
+        );
+        let active = response.hovered() || response.has_focus();
+        let progress = ui.ctx().animate_bool(response.id.with("cyan-underline"), active);
+        if progress > 0.0 {
+            let rect = response.rect;
+            let width = rect.width() * progress;
+            let underline = egui::Rect::from_min_max(
+                egui::pos2(rect.center().x - width * 0.5, rect.bottom() - 2.0),
+                egui::pos2(rect.center().x + width * 0.5, rect.bottom() - 1.0),
+            );
+            ui.painter().rect_filled(underline, 0.5, tokens.secondary);
+        }
+        response
     }
 }
 
@@ -119,6 +131,53 @@ mod tests {
                 });
             });
         }
+    }
+
+    #[test]
+    fn primary_action_paints_layout_sized_cyan_underline_when_hovered() {
+        let ctx = egui::Context::default();
+        let tokens = ThemeMode::TokyoNight.tokens();
+        let mut button_rect = egui::Rect::NOTHING;
+        let _ = ctx.run(
+            egui::RawInput {
+                time: Some(0.0),
+                ..Default::default()
+            },
+            |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    button_rect = PrimaryActionButton { label: "Import" }
+                        .show(ui, tokens)
+                        .rect;
+                });
+            },
+        );
+        let pos = button_rect.center();
+        let output = ctx.run(
+            egui::RawInput {
+                time: Some(1.0),
+                events: vec![egui::Event::PointerMoved(pos)],
+                ..Default::default()
+            },
+            |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    button_rect = PrimaryActionButton { label: "Import" }
+                        .show(ui, tokens)
+                        .rect;
+                });
+            },
+        );
+
+        let underline = output.shapes.iter().find_map(|clipped| match &clipped.shape {
+            egui::epaint::Shape::Rect(rect)
+                if rect.fill == tokens.secondary && rect.rect.bottom() == button_rect.bottom() - 1.0 =>
+            {
+                Some(rect.rect)
+            }
+            _ => None,
+        });
+        let underline = underline.expect("hovered action paints Tokyo cyan underline");
+        assert!((underline.width() - button_rect.width()).abs() < 0.01);
+        assert_eq!(underline.center().x, button_rect.center().x);
     }
 
     #[test]
