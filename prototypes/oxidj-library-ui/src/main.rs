@@ -874,7 +874,22 @@ mod keyboard_tests {
             });
             (button_rect, output)
         };
-        let (button_rect, _) = render(&ctx, &mut app, egui::RawInput::default());
+        let (button_rect, before_click) = render(&ctx, &mut app, egui::RawInput::default());
+        let gallery_text = |output: &egui::FullOutput| {
+            output
+                .shapes
+                .iter()
+                .filter_map(|clipped| match &clipped.shape {
+                    egui::Shape::Text(text) => Some(text.galley.job.text.to_string()),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+        };
+        assert!(
+            !gallery_text(&before_click)
+                .iter()
+                .any(|text| text == "OxiDJ · Control concept gallery")
+        );
         let rect = button_rect.expect("toolbar action rendered");
         let pointer = |pressed| egui::RawInput {
             events: vec![
@@ -893,9 +908,16 @@ mod keyboard_tests {
         assert!(app.show_control_gallery);
         let (_, output) = render(&ctx, &mut app, egui::RawInput::default());
         assert!(app.show_control_gallery);
+        let rendered_text = gallery_text(&output);
         assert!(
-            !output.shapes.is_empty(),
-            "gallery window produced no UI shapes"
+            rendered_text
+                .iter()
+                .any(|text| text == "OxiDJ · Control concept gallery"),
+            "gallery window title was not rendered: {rendered_text:?}"
+        );
+        assert!(
+            rendered_text.iter().any(|text| text == "Studio rack"),
+            "gallery content was not rendered: {rendered_text:?}"
         );
     }
 
