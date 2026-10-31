@@ -2,7 +2,9 @@ use eframe::egui;
 use oxidj_library::{Catalog, TrackAvailability, TrackDetails};
 use std::path::PathBuf;
 
+mod components;
 mod theme;
+use components::{SectionHeading, StatusBadge, StatusKind};
 use theme::ThemeMode;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -364,17 +366,21 @@ impl eframe::App for LibraryApp {
                 }
             });
             if !self.notice.is_empty() {
-                let color = if self.notice.starts_with("Import failed:")
+                let kind = if self.notice.starts_with("Import failed:")
                     || self.notice.starts_with("Track Name export failed:")
                     || self.notice.starts_with("Catalog unavailable:")
                 {
-                    tokens.error
+                    StatusKind::Error
                 } else if self.notice.contains("incomplete") {
-                    tokens.warning
+                    StatusKind::Warning
                 } else {
-                    tokens.success
+                    StatusKind::Success
                 };
-                ui.colored_label(color, &self.notice);
+                StatusBadge {
+                    label: &self.notice,
+                    kind,
+                }
+                .show(ui, tokens);
             }
         });
         if self.show_xml_preview {
@@ -384,7 +390,11 @@ impl eframe::App for LibraryApp {
                 .default_width(720.0)
                 .show(ctx, |ui| match self.xml_preview.clone() {
                     Some(Err(error)) => {
-                        ui.colored_label(tokens.error, format!("Preview failed: {error}"));
+                        StatusBadge {
+                            label: &format!("Preview failed: {error}"),
+                            kind: StatusKind::Error,
+                        }
+                        .show(ui, tokens);
                     }
                     Some(Ok(preview)) => {
                         ui.label(format!(
@@ -443,14 +453,14 @@ impl eframe::App for LibraryApp {
                             ui.label("Select one track above to edit its Name.");
                         }
                         ui.separator();
-                        ui.strong("Folders");
+                        SectionHeading { title: "Folders" }.show(ui, tokens);
                         if preview.folders.is_empty() {
                             ui.label("No folders.");
                         }
                         for folder in &preview.folders {
                             ui.label(format!("{} · {}", folder.path.join(" / "), folder.name));
                         }
-                        ui.strong("Playlists");
+                        SectionHeading { title: "Playlists" }.show(ui, tokens);
                         if preview.playlists.is_empty() {
                             ui.label("No playlists.");
                         }
@@ -463,9 +473,17 @@ impl eframe::App for LibraryApp {
                             ));
                         }
                         if !preview.unsupported.is_empty() {
-                            ui.colored_label(tokens.warning, "Unsupported content detected:");
+                            StatusBadge {
+                                label: "Unsupported content detected:",
+                                kind: StatusKind::Warning,
+                            }
+                            .show(ui, tokens);
                             for warning in &preview.unsupported {
-                                ui.colored_label(tokens.warning, warning);
+                                StatusBadge {
+                                    label: warning,
+                                    kind: StatusKind::Warning,
+                                }
+                                .show(ui, tokens);
                             }
                         }
                     }
@@ -478,7 +496,10 @@ impl eframe::App for LibraryApp {
         egui::SidePanel::right("details")
             .default_width(300.0)
             .show(ctx, |ui| {
-                ui.heading("Track details");
+                SectionHeading {
+                    title: "Track details",
+                }
+                .show(ui, tokens);
                 if let Some(id) = self.selected {
                     if let Some(item) = self.tracks.iter().find(|x| x.track.id.as_u64() == id) {
                         ui.label(format!("ID: {id}"));
@@ -515,14 +536,15 @@ impl eframe::App for LibraryApp {
                                 .unwrap_or_else(|| "Unavailable".into())
                         ));
                         ui.label(format!("Size: {} bytes", item.track.byte_length));
-                        let availability = match item.availability {
-                            TrackAvailability::Available => ("Available", tokens.success),
-                            TrackAvailability::Missing => ("Missing", tokens.warning),
+                        let (availability, kind) = match item.availability {
+                            TrackAvailability::Available => ("Available", StatusKind::Success),
+                            TrackAvailability::Missing => ("Missing", StatusKind::Warning),
                         };
-                        ui.colored_label(
-                            availability.1,
-                            format!("Availability: {}", availability.0),
-                        );
+                        StatusBadge {
+                            label: &format!("Availability: {availability}"),
+                            kind,
+                        }
+                        .show(ui, tokens);
                         ui.monospace(format!(
                             "SHA-256: {}",
                             item.track
@@ -540,7 +562,11 @@ impl eframe::App for LibraryApp {
             });
         egui::CentralPanel::default().show(ctx, |ui| {
             if let Some(error) = &self.load_error {
-                ui.colored_label(tokens.error, format!("Catalog error: {error}"));
+                StatusBadge {
+                    label: &format!("Catalog error: {error}"),
+                    kind: StatusKind::Error,
+                }
+                .show(ui, tokens);
                 return;
             }
             ui.horizontal(|ui| {
@@ -607,6 +633,7 @@ impl eframe::App for LibraryApp {
                 });
                 return;
             }
+            SectionHeading { title: "Tracks" }.show(ui, tokens);
             egui::ScrollArea::vertical().show(ui, |ui| {
                 egui::Grid::new("tracks").striped(true).show(ui, |ui| {
                     ui.strong("ID");
@@ -646,11 +673,15 @@ impl eframe::App for LibraryApp {
                             (Some(r), Some(c), Some(b)) => format!("{r} Hz · {c} ch · {b} bit"),
                             _ => "Facts unavailable".into(),
                         });
-                        let (availability, color) = match item.availability {
-                            TrackAvailability::Available => ("Available", tokens.success),
-                            TrackAvailability::Missing => ("Missing", tokens.warning),
+                        let (availability, kind) = match item.availability {
+                            TrackAvailability::Available => ("Available", StatusKind::Success),
+                            TrackAvailability::Missing => ("Missing", StatusKind::Warning),
                         };
-                        ui.colored_label(color, availability);
+                        StatusBadge {
+                            label: availability,
+                            kind,
+                        }
+                        .show(ui, tokens);
                         ui.end_row();
                     }
                 });
