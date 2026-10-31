@@ -4,7 +4,7 @@ use std::path::PathBuf;
 
 mod components;
 mod theme;
-use components::{SectionHeading, StatusBadge, StatusKind};
+use components::{PrimaryActionButton, SectionHeading, StatusBadge, StatusKind};
 use theme::ThemeMode;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -351,7 +351,12 @@ impl eframe::App for LibraryApp {
                     [ui.available_width().clamp(120.0, 200.0), 24.0],
                     egui::TextEdit::singleline(&mut self.import_root).hint_text("Folder path"),
                 );
-                if ui.button("Import references").clicked() {
+                if (PrimaryActionButton {
+                    label: "Import references",
+                })
+                .show(ui, tokens)
+                .clicked()
+                {
                     self.import();
                 }
             });
@@ -361,7 +366,12 @@ impl eframe::App for LibraryApp {
                     [ui.available_width().clamp(140.0, 360.0), 24.0],
                     egui::TextEdit::singleline(&mut self.xml_path).hint_text("XML file path"),
                 );
-                if ui.button("Preview XML").clicked() {
+                if (PrimaryActionButton {
+                    label: "Preview XML",
+                })
+                .show(ui, tokens)
+                .clicked()
+                {
                     self.preview_xml();
                 }
             });
@@ -442,7 +452,7 @@ impl eframe::App for LibraryApp {
                                 ui.label("Output path");
                                 ui.text_edit_singleline(&mut self.xml_edit_output);
                             });
-                            if ui.button("Export to new file").clicked() {
+                            if (PrimaryActionButton { label: "Export to new file" }).show(ui, tokens).clicked() {
                                 if let Some(track) = preview.tracks.iter().find(|track| track.id == track_id) {
                                     self.export_xml_name_edit(&track.id, &track.name);
                                 } else {

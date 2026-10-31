@@ -2,6 +2,22 @@ use eframe::egui::{self, Color32, RichText, Stroke};
 
 use crate::theme::ColorTokens;
 
+/// A native egui button styled as the library's primary action.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PrimaryActionButton<'a> {
+    pub label: &'a str,
+}
+
+impl PrimaryActionButton<'_> {
+    pub fn show(self, ui: &mut egui::Ui, tokens: ColorTokens) -> egui::Response {
+        ui.add(
+            egui::Button::new(RichText::new(self.label).color(tokens.text))
+                .fill(tokens.primary.linear_multiply(0.18))
+                .stroke(Stroke::new(1.0_f32, tokens.primary)),
+        )
+    }
+}
+
 /// A compact, themed label for a named area of the library UI.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SectionHeading<'a> {
@@ -102,6 +118,56 @@ mod tests {
                     }
                 });
             });
+        }
+    }
+
+    #[test]
+    fn primary_action_is_clickable_in_both_presets() {
+        for mode in [ThemeMode::TokyoNight, ThemeMode::TokyoDay] {
+            let ctx = egui::Context::default();
+            let tokens = mode.tokens();
+            let mut rect = egui::Rect::NOTHING;
+            let _ = ctx.run(egui::RawInput::default(), |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    rect = PrimaryActionButton {
+                        label: "Import references",
+                    }
+                    .show(ui, tokens)
+                    .rect;
+                });
+            });
+            let pos = rect.center();
+            let mut clicked = false;
+            let _ = ctx.run(
+                egui::RawInput {
+                    events: vec![
+                        egui::Event::PointerMoved(pos),
+                        egui::Event::PointerButton {
+                            pos,
+                            button: egui::PointerButton::Primary,
+                            pressed: true,
+                            modifiers: egui::Modifiers::default(),
+                        },
+                        egui::Event::PointerButton {
+                            pos,
+                            button: egui::PointerButton::Primary,
+                            pressed: false,
+                            modifiers: egui::Modifiers::default(),
+                        },
+                    ],
+                    ..Default::default()
+                },
+                |ctx| {
+                    egui::CentralPanel::default().show(ctx, |ui| {
+                        clicked = PrimaryActionButton {
+                            label: "Import references",
+                        }
+                        .show(ui, tokens)
+                        .clicked();
+                    });
+                },
+            );
+            assert!(clicked, "native egui button should report clicks");
         }
     }
 }
