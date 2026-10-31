@@ -244,12 +244,16 @@ fn controls(ui: &mut egui::Ui, state: &mut GalleryState, tokens: ColorTokens) {
             for (label, icon) in [("Play", "▶"), ("Cue", "●")] {
                 let response = ui.add_sized(
                     [64.0, 52.0],
-                    egui::Button::new(egui::RichText::new(icon).size(22.0).color(tokens.text))
-                        .fill(if style == Concept::Broadcast {
-                            tokens.primary
-                        } else {
-                            tokens.surface
-                        }),
+                    egui::Button::new(
+                        egui::RichText::new(format!("{icon} {label}"))
+                            .size(22.0)
+                            .color(tokens.text),
+                    )
+                    .fill(if style == Concept::Broadcast {
+                        tokens.primary
+                    } else {
+                        tokens.surface
+                    }),
                 );
                 response.on_hover_text(label).widget_info(|| {
                     egui::WidgetInfo::labeled(egui::WidgetType::Button, true, label)
@@ -310,6 +314,58 @@ mod tests {
         );
         assert_eq!(state.selected, Concept::NeonDeck);
         assert_eq!(Concept::ALL.len(), 10);
+    }
+
+    #[test]
+    fn controls_expose_named_native_accessibility_widgets_and_value_changes() {
+        let ctx = egui::Context::default();
+        ctx.enable_accesskit();
+        let mut state = GalleryState {
+            selected: Concept::StudioRack,
+            value: 0.2,
+        };
+        let render = |state: &mut GalleryState| {
+            ctx.run(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(1000.0, 1000.0),
+                    )),
+                    ..Default::default()
+                },
+                |ctx| {
+                    egui::CentralPanel::default().show(ctx, |ui| {
+                        show(ui, state, ThemeMode::TokyoNight.tokens());
+                    });
+                },
+            )
+        };
+        let before = render(&mut state);
+        let update = before
+            .platform_output
+            .accesskit_update
+            .expect("accessibility tree");
+        let nodes = update
+            .nodes
+            .into_iter()
+            .collect::<std::collections::HashMap<_, _>>();
+        for name in ["FILTER", "Level", "Play", "Cue"] {
+            assert!(
+                nodes.values().any(|node| node.label() == Some(name)
+                    || node.value() == Some(name)
+                    || node.labelled_by().iter().any(|id| nodes
+                        .get(id)
+                        .is_some_and(|label| label.value() == Some(name)))),
+                "missing accessible control {name}; nodes={nodes:?}"
+            );
+        }
+        state.value = 0.8;
+        let after = render(&mut state);
+        assert_ne!(
+            format!("{:?}", before.shapes),
+            format!("{:?}", after.shapes),
+            "changed control value should change the preview drawing"
+        );
     }
 
     #[test]
