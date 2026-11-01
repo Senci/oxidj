@@ -898,6 +898,58 @@ pub fn export_rekordbox_playlist_rename(
     Ok(prepared.change)
 }
 
+/// A source-bound prepared playlist rename retains its exact preview snapshot.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PreparedPlaylistRenameExport {
+    source: std::path::PathBuf,
+    source_bytes: Vec<u8>,
+    bytes: Vec<u8>,
+    change: PlaylistRenameChange,
+}
+
+impl PreparedPlaylistRenameExport {
+    pub fn source(&self) -> &Path {
+        &self.source
+    }
+    pub fn bytes(&self) -> &[u8] {
+        &self.bytes
+    }
+    pub fn change(&self) -> &PlaylistRenameChange {
+        &self.change
+    }
+}
+
+/// Prepare one guarded playlist rename for preview and new-file export.
+pub fn prepare_rekordbox_playlist_rename_export(
+    source: impl AsRef<Path>,
+    request: &PlaylistRenameRequest,
+) -> Result<PreparedPlaylistRenameExport, RekordboxError> {
+    let source = source.as_ref().to_path_buf();
+    let source_bytes = std::fs::read(&source).map_err(|error| RekordboxError(error.to_string()))?;
+    let prepared = oxidj_rekordbox::prepare_playlist_rename(&source_bytes, request)?;
+    Ok(PreparedPlaylistRenameExport {
+        source,
+        source_bytes,
+        bytes: prepared.bytes,
+        change: prepared.change,
+    })
+}
+
+/// Revalidate the source and publish only previously prepared rename bytes.
+pub fn export_prepared_rekordbox_playlist_rename(
+    prepared: &PreparedPlaylistRenameExport,
+    output: impl AsRef<Path>,
+) -> Result<PlaylistRenameChange, RekordboxError> {
+    let (current_source, output) = read_new_export_source(&prepared.source, output)?;
+    if current_source != prepared.source_bytes {
+        return Err(RekordboxError(
+            "source changed after playlist rename preparation".into(),
+        ));
+    }
+    publish_new_file(&output, &prepared.bytes)?;
+    Ok(prepared.change.clone())
+}
+
 /// Export a guarded playlist reorder to a new, non-overwriting file.
 pub fn export_rekordbox_playlist_reorder(
     input: impl AsRef<Path>,
@@ -1227,6 +1279,51 @@ fn publish_new_file(output: &Path, bytes: &[u8]) -> Result<(), RekordboxError> {
         let _ = fs::remove_file(&temp);
     }
     result
+}
+
+#[cfg(test)]
+mod playlist_rename_preparation_tests {
+    use super::*;
+
+    fn source_fixture() -> std::path::PathBuf {
+        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../xtask/tests/fixtures/f02-playlist-rename/source.xml")
+            .canonicalize()
+            .unwrap()
+    }
+
+    fn request() -> PlaylistRenameRequest {
+        PlaylistRenameRequest {
+            playlist_index: 0,
+            expected_old_name: "House".into(),
+            new_name: "Summer & Sun".into(),
+        }
+    }
+
+    #[test]
+    fn prepared_rename_is_read_only_and_export_revalidates_source_and_destination() {
+        let source = source_fixture();
+        let before = std::fs::read(&source).unwrap();
+        let prepared = prepare_rekordbox_playlist_rename_export(&source, &request()).unwrap();
+        assert_eq!(prepared.source(), source);
+        assert_eq!(std::fs::read(&source).unwrap(), before);
+        let base =
+            std::env::temp_dir().join(format!("oxidj-playlist-rename-{}", std::process::id()));
+        let existing = base.with_extension("existing.xml");
+        std::fs::write(&existing, b"keep").unwrap();
+        assert!(export_prepared_rekordbox_playlist_rename(&prepared, &source).is_err());
+        assert!(export_prepared_rekordbox_playlist_rename(&prepared, &existing).is_err());
+        assert_eq!(std::fs::read(&existing).unwrap(), b"keep");
+        let stale_source = base.with_extension("source.xml");
+        let stale_output = base.with_extension("stale.xml");
+        std::fs::copy(&source, &stale_source).unwrap();
+        let stale = prepare_rekordbox_playlist_rename_export(&stale_source, &request()).unwrap();
+        std::fs::write(&stale_source, b"<stale/>").unwrap();
+        assert!(export_prepared_rekordbox_playlist_rename(&stale, &stale_output).is_err());
+        assert!(!stale_output.exists());
+        let _ = std::fs::remove_file(existing);
+        let _ = std::fs::remove_file(stale_source);
+    }
 }
 
 #[cfg(test)]

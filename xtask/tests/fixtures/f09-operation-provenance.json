@@ -187,7 +187,7 @@
       "checker": {
         "path": "xtask/tests/f02_playlist_rename_oracle.rs",
         "version": "f09-operation-oracle-v1",
-        "sha256": "aceed18063b3fcdc14f75bfd533e1e68c647eb0554144c1acbf11af3ad77aea5",
+        "sha256": "283f8838e1cc12b234193fedaad601b1b185aa9e092b93a85ad6ca579c4e6c0f",
         "tests": [
           "independently_decodes_guarded_playlist_rename_and_rejects_mutations"
         ]

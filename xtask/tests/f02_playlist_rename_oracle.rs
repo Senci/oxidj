@@ -154,6 +154,22 @@ fn verify(bytes: &[u8], expected: &Node) -> Result<(), String> {
     }
     Ok(())
 }
+
+/// Check bytes produced at an external boundary against the independent frozen F-02 expectation.
+pub(crate) fn check(bytes: &[u8]) -> Result<(), String> {
+    let mut expected = decode(SOURCE);
+    let playlists = &mut expected
+        .children
+        .iter_mut()
+        .find(|n| n.name == "PLAYLISTS")
+        .unwrap()
+        .children[0]
+        .children[0]
+        .children[0];
+    playlists.set_attr("Name", "Summer & Sun");
+    verify(bytes, &expected)
+}
+
 #[test]
 fn independently_decodes_guarded_playlist_rename_and_rejects_mutations() {
     let frozen = SOURCE.to_vec();
@@ -175,6 +191,7 @@ fn independently_decodes_guarded_playlist_rename_and_rejects_mutations() {
         .children[0];
     playlists.set_attr("Name", "Summer & Sun");
     verify(&output, &expected).unwrap();
+    check(&output).unwrap();
     let text = String::from_utf8(output).unwrap();
     let mutations = [
         text.replacen("Name=\"Summer &amp; Sun\"", "Name=\"House\"", 1),
