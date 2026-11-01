@@ -186,6 +186,52 @@ pub fn export_prepared_rekordbox_playlist_member_reorder(
     publish_new_file(&output, &prepared.prepared.bytes)
 }
 
+/// A source-bound prepared playlist-member append retains its exact preview snapshot.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PreparedPlaylistMemberAppendExport {
+    source: std::path::PathBuf,
+    source_bytes: Vec<u8>,
+    bytes: Vec<u8>,
+}
+
+impl PreparedPlaylistMemberAppendExport {
+    pub fn source(&self) -> &Path {
+        &self.source
+    }
+    pub fn bytes(&self) -> &[u8] {
+        &self.bytes
+    }
+}
+
+/// Prepare a guarded playlist-member append for preview and source-bound export.
+pub fn prepare_rekordbox_playlist_member_append_export(
+    source: impl AsRef<Path>,
+    request: &PlaylistMemberAppendRequest,
+) -> Result<PreparedPlaylistMemberAppendExport, RekordboxError> {
+    let source = source.as_ref().to_path_buf();
+    let source_bytes = std::fs::read(&source).map_err(|error| RekordboxError(error.to_string()))?;
+    let prepared = oxidj_rekordbox::prepare_playlist_member_append(&source_bytes, request)?;
+    Ok(PreparedPlaylistMemberAppendExport {
+        source,
+        source_bytes,
+        bytes: prepared.bytes,
+    })
+}
+
+/// Revalidate source bytes and publish prepared append bytes to a new file.
+pub fn export_prepared_rekordbox_playlist_member_append(
+    prepared: &PreparedPlaylistMemberAppendExport,
+    output: impl AsRef<Path>,
+) -> Result<(), RekordboxError> {
+    let (current_source, output) = read_new_export_source(&prepared.source, output)?;
+    if current_source != prepared.source_bytes {
+        return Err(RekordboxError(
+            "source changed after playlist-member append preparation".into(),
+        ));
+    }
+    publish_new_file(&output, &prepared.bytes)
+}
+
 /// A source-bound prepared Track Name export retains the exact preview snapshot.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PreparedTrackNameExport {

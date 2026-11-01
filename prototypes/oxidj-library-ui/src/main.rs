@@ -29,6 +29,13 @@ struct PendingPlaylistMemberReorder {
     playlist_index: usize,
     prepared: oxidj_application::PreparedPlaylistMemberReorderExport,
 }
+#[derive(Debug, Clone)]
+struct PendingPlaylistMemberAppend {
+    source: PathBuf,
+    playlist_index: usize,
+    track_id: String,
+    prepared: oxidj_application::PreparedPlaylistMemberAppendExport,
+}
 
 struct LibraryApp {
     db_path: PathBuf,
@@ -58,6 +65,8 @@ struct LibraryApp {
     xml_selected_member: Option<usize>,
     xml_pending_reorder: Option<PendingPlaylistMemberReorder>,
     xml_reorder_export_path: String,
+    xml_pending_append: Option<PendingPlaylistMemberAppend>,
+    xml_append_export_path: String,
     xml_export_path: String,
     xml_edit_error: Option<String>,
     show_control_gallery: bool,
@@ -107,6 +116,8 @@ impl LibraryApp {
             xml_selected_member: None,
             xml_pending_reorder: None,
             xml_reorder_export_path: String::new(),
+            xml_pending_append: None,
+            xml_append_export_path: String::new(),
             xml_export_path: String::new(),
             xml_edit_error: None,
             show_control_gallery: false,
@@ -408,9 +419,89 @@ impl LibraryApp {
         }
     }
 
+    fn prepare_xml_member_append(&mut self, playlist_index: usize, track_id: &str) {
+        let Some(source) = self.xml_document_source.clone() else {
+            self.xml_pending_append = None;
+            self.xml_edit_error = Some("Playlist append refused: no XML document is loaded".into());
+            return;
+        };
+        let Some(Ok(preview)) = self.xml_preview.as_ref() else {
+            return;
+        };
+        let Some(playlist) = preview.playlists.get(playlist_index) else {
+            return;
+        };
+        let request = oxidj_application::PlaylistMemberAppendRequest {
+            playlist_index,
+            expected_order: playlist.tracks.clone(),
+            track_id: track_id.to_owned(),
+        };
+        match oxidj_application::prepare_rekordbox_playlist_member_append_export(&source, &request)
+        {
+            Ok(prepared) => {
+                self.xml_pending_append = Some(PendingPlaylistMemberAppend {
+                    source,
+                    playlist_index,
+                    track_id: track_id.to_owned(),
+                    prepared,
+                });
+                self.xml_edit_error = None;
+            }
+            Err(error) => {
+                self.xml_pending_append = None;
+                self.xml_edit_error = Some(format!("Playlist append refused: {error}"));
+            }
+        }
+    }
+
+    fn cancel_xml_member_append(&mut self) {
+        self.xml_pending_append = None;
+        self.xml_edit_error = None;
+    }
+
+    fn export_xml_member_append(&mut self) {
+        let Some(pending) = self.xml_pending_append.as_ref() else {
+            self.xml_edit_error =
+                Some("Playlist append export refused: no pending proposal".into());
+            return;
+        };
+        if self.xml_document_source.as_ref() != Some(&pending.source)
+            || self.xml_selected_playlist != Some(pending.playlist_index)
+        {
+            self.xml_pending_append = None;
+            self.xml_edit_error =
+                Some("Playlist append export refused: source or playlist changed".into());
+            return;
+        }
+        let output = PathBuf::from(&self.xml_append_export_path);
+        if self.xml_append_export_path.trim().is_empty() {
+            self.xml_edit_error =
+                Some("Playlist append export refused: choose a new destination".into());
+            return;
+        }
+        match oxidj_application::export_prepared_rekordbox_playlist_member_append(
+            &pending.prepared,
+            &output,
+        ) {
+            Ok(()) => {
+                self.notice = format!("Playlist member appended to {}", output.display());
+                self.xml_pending_append = None;
+                self.xml_edit_error = None;
+                self.xml_preview = Some(
+                    oxidj_application::preview_rekordbox_xml(&output).map_err(|e| e.to_string()),
+                );
+                self.xml_document_source = Some(output);
+            }
+            Err(error) => {
+                self.xml_edit_error = Some(format!("Playlist append export failed: {error}"))
+            }
+        }
+    }
+
     fn preview_xml(&mut self) {
         self.xml_pending_edit = None;
         self.xml_pending_reorder = None;
+        self.xml_pending_append = None;
         self.xml_selected_playlist = None;
         self.xml_selected_member = None;
         self.xml_selected_track = None;
@@ -588,6 +679,7 @@ impl eframe::App for LibraryApp {
                     .changed();
                 if source_changed {
                     self.xml_pending_reorder = None;
+                    self.xml_pending_append = None;
                     self.xml_selected_playlist = None;
                     self.xml_selected_member = None;
                 }
@@ -716,6 +808,7 @@ impl eframe::App for LibraryApp {
                                 self.xml_selected_playlist = Some(index);
                                 self.xml_selected_member = None;
                                 self.xml_pending_reorder = None;
+                                self.xml_pending_append = None;
                                 self.xml_edit_error = None;
                             }
                         }
@@ -750,6 +843,30 @@ impl eframe::App for LibraryApp {
                             });
                             if ui.button("Export prepared reorder").clicked() { self.export_xml_member_reorder(); }
                             if ui.button("Cancel reorder").clicked() { self.xml_pending_reorder = None; }
+                        }
+                        SectionHeading { title: "Playlist-member append (provisional)" }.show(ui, tokens);
+                        if let (Some(playlist_index), Some(track_id)) = (self.xml_selected_playlist, self.xml_selected_track.clone()) {
+                            ui.label(format!("Append existing collection TrackID {track_id} to playlist #{playlist_index}"));
+                            if ui.button("Prepare guarded append").clicked() {
+                                self.prepare_xml_member_append(playlist_index, &track_id);
+                            }
+                        } else {
+                            ui.label("Select one collection track and one playlist to prepare an append.");
+                        }
+                        if let Some(pending) = &self.xml_pending_append {
+                            ui.separator();
+                            ui.strong("Pending append · not exported or saved");
+                            ui.label(format!("Source: {}", pending.source.display()));
+                            ui.label(format!("Playlist #{} · append TrackID {}", pending.playlist_index, pending.track_id));
+                            ui.label(format!("Prepared output: {} bytes", pending.prepared.bytes().len()));
+                            ui.horizontal(|ui| {
+                                ui.label("New XML destination");
+                                ui.text_edit_singleline(&mut self.xml_append_export_path);
+                            });
+                            if ui.button("Export prepared append").clicked() { self.export_xml_member_append(); }
+                            if ui.button("Cancel append").clicked() {
+                                self.cancel_xml_member_append();
+                            }
                         }
                         SectionHeading { title: "Folders" }.show(ui, tokens);
                         if preview.folders.is_empty() {
@@ -1246,6 +1363,153 @@ mod keyboard_tests {
         assert!(app.xml_pending_edit.is_none());
         assert!(app.notice.contains(&output.display().to_string()));
         assert!(app.xml_edit_error.is_none());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn playlist_member_append_preview_cancel_and_export_are_source_bound() {
+        use std::time::{SystemTime, UNIX_EPOCH};
+        let root = std::env::temp_dir().join(format!(
+            "oxidj-ui-member-append-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let source = root.join("source.xml");
+        std::fs::copy(
+            concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../xtask/tests/fixtures/f02-playlist-member-append/source.xml"
+            ),
+            &source,
+        )
+        .unwrap();
+        let original = std::fs::read(&source).unwrap();
+        let catalog = root.join("catalog.sqlite");
+        drop(Catalog::open(&catalog).unwrap());
+        let catalog_before = std::fs::read(&catalog).unwrap();
+        let mut app = LibraryApp::new(
+            catalog.clone(),
+            ThemeMode::TokyoNight,
+            ThemeMode::TokyoNight.tokens(),
+        );
+        app.xml_path = source.display().to_string();
+        app.preview_xml();
+        app.xml_selected_track = Some("100".into());
+        app.xml_selected_playlist = Some(1);
+        app.prepare_xml_member_append(1, "100");
+        let prepared = app
+            .xml_pending_append
+            .as_ref()
+            .unwrap()
+            .prepared
+            .bytes()
+            .to_vec();
+        assert!(app.xml_pending_append.is_some());
+        assert_eq!(
+            std::fs::read(&source).unwrap(),
+            original,
+            "prepare must not write source"
+        );
+        let cancelled = root.join("cancelled.xml");
+        app.xml_append_export_path = cancelled.display().to_string();
+        app.cancel_xml_member_append();
+        assert!(!cancelled.exists(), "cancel must not write output");
+        app.prepare_xml_member_append(1, "100");
+        assert_eq!(
+            app.xml_pending_append.as_ref().unwrap().prepared.bytes(),
+            prepared
+        );
+        let output = root.join("appended.xml");
+        app.xml_append_export_path = output.display().to_string();
+        app.export_xml_member_append();
+        assert_eq!(std::fs::read(&output).unwrap(), prepared);
+        let reopened = oxidj_application::preview_rekordbox_xml(&output).unwrap();
+        assert_eq!(reopened.playlists[1].tracks, ["200", "400", "100"]);
+        assert_eq!(reopened.playlists[0].tracks, ["100", "200", "300"]);
+        assert_eq!(std::fs::read(&source).unwrap(), original);
+        assert_eq!(std::fs::read(&catalog).unwrap(), catalog_before);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn playlist_member_append_refuses_stale_source_membership_duplicate_unknown_and_existing_output()
+     {
+        use std::time::{SystemTime, UNIX_EPOCH};
+        let root = std::env::temp_dir().join(format!(
+            "oxidj-ui-member-append-guards-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let source = root.join("source.xml");
+        std::fs::copy(
+            concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../xtask/tests/fixtures/f02-playlist-member-append/source.xml"
+            ),
+            &source,
+        )
+        .unwrap();
+        let mut app = app();
+        app.xml_path = source.display().to_string();
+        app.preview_xml();
+        app.xml_selected_playlist = Some(1);
+        app.prepare_xml_member_append(1, "200");
+        assert!(
+            app.xml_pending_append.is_none(),
+            "duplicate membership accepted"
+        );
+        app.prepare_xml_member_append(1, "999");
+        assert!(app.xml_pending_append.is_none(), "unknown track accepted");
+        if let Some(Ok(preview)) = app.xml_preview.as_mut() {
+            preview.playlists[1].tracks = vec!["999".into()];
+        }
+        app.prepare_xml_member_append(1, "100");
+        assert!(
+            app.xml_pending_append.is_none(),
+            "stale membership accepted"
+        );
+        app.xml_preview =
+            Some(oxidj_application::preview_rekordbox_xml(&source).map_err(|e| e.to_string()));
+        app.prepare_xml_member_append(1, "100");
+        let pending = app.xml_pending_append.take().unwrap();
+        std::fs::write(&source, b"stale source").unwrap();
+        let stale_output = root.join("stale.xml");
+        assert!(
+            oxidj_application::export_prepared_rekordbox_playlist_member_append(
+                &pending.prepared,
+                &stale_output
+            )
+            .is_err()
+        );
+        assert!(!stale_output.exists());
+        std::fs::copy(
+            concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../xtask/tests/fixtures/f02-playlist-member-append/source.xml"
+            ),
+            &source,
+        )
+        .unwrap();
+        app.prepare_xml_member_append(1, "100");
+        let pending = app.xml_pending_append.take().unwrap();
+        let existing = root.join("existing.xml");
+        std::fs::write(&existing, b"keep").unwrap();
+        assert!(
+            oxidj_application::export_prepared_rekordbox_playlist_member_append(
+                &pending.prepared,
+                &existing
+            )
+            .is_err()
+        );
+        assert_eq!(std::fs::read(&existing).unwrap(), b"keep");
         std::fs::remove_dir_all(root).unwrap();
     }
 
