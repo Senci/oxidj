@@ -14,6 +14,13 @@ enum Sort {
     Filename,
     Duration,
 }
+#[derive(Debug, Clone)]
+struct PendingTrackNameEdit {
+    source: PathBuf,
+    track_id: String,
+    prepared: oxidj_application::PreparedTrackNameEdit,
+}
+
 struct LibraryApp {
     db_path: PathBuf,
     catalog: Result<Catalog, String>,
@@ -32,11 +39,13 @@ struct LibraryApp {
     secondary_hex: String,
     accent_error: Option<String>,
     xml_path: String,
+    xml_document_source: Option<PathBuf>,
     xml_preview: Option<Result<oxidj_application::Preview, String>>,
     show_xml_preview: bool,
-    xml_edit_track: Option<String>,
+    xml_selected_track: Option<String>,
     xml_edit_name: String,
-    xml_edit_output: String,
+    xml_pending_edit: Option<PendingTrackNameEdit>,
+    xml_edit_error: Option<String>,
     show_control_gallery: bool,
     control_gallery: control_gallery::GalleryState,
     availability_filter: Option<TrackAvailability>,
@@ -74,11 +83,13 @@ impl LibraryApp {
             ),
             accent_error: None,
             xml_path: String::new(),
+            xml_document_source: None,
             xml_preview: None,
             show_xml_preview: false,
-            xml_edit_track: None,
+            xml_selected_track: None,
             xml_edit_name: String::new(),
-            xml_edit_output: String::new(),
+            xml_pending_edit: None,
+            xml_edit_error: None,
             show_control_gallery: false,
             control_gallery: control_gallery::GalleryState::default(),
             availability_filter: None,
@@ -280,31 +291,48 @@ impl LibraryApp {
     }
 
     fn preview_xml(&mut self) {
+        self.xml_pending_edit = None;
+        self.xml_selected_track = None;
+        self.xml_edit_error = None;
+        let source = PathBuf::from(&self.xml_path);
+        self.xml_document_source = Some(source.clone());
         self.xml_preview = Some(
             oxidj_application::preview_rekordbox_xml(&self.xml_path).map_err(|e| e.to_string()),
         );
         self.show_xml_preview = true;
     }
 
-    fn export_xml_name_edit(&mut self, track_id: &str, old_name: &str) {
-        let request = oxidj_application::TrackNameEditRequest {
+    fn prepare_xml_name_edit(&mut self, track_id: &str, old_name: &str) {
+        let Some(source) = self.xml_document_source.clone() else {
+            self.xml_pending_edit = None;
+            self.xml_edit_error = Some("Track Name preparation refused: no XML document is loaded".into());
+            return;
+        };
+        let request = oxidj_application::TrackNameEditPreparationRequest {
+            source: source.clone(),
             track_id: track_id.to_owned(),
             expected_old_name: old_name.to_owned(),
             new_name: self.xml_edit_name.clone(),
         };
-        match oxidj_application::export_rekordbox_track_name_edit(
-            &self.xml_path,
-            &self.xml_edit_output,
-            &request,
-        ) {
-            Ok(change) => {
-                self.notice = format!(
-                    "Exported track {} Name: {:?} → {:?} to {}",
-                    change.track_id, change.old_name, change.new_name, self.xml_edit_output
-                )
+        match oxidj_application::prepare_rekordbox_track_name_edit(&request) {
+            Ok(prepared) => {
+                self.xml_pending_edit = Some(PendingTrackNameEdit {
+                    source,
+                    track_id: track_id.to_owned(),
+                    prepared,
+                });
+                self.xml_edit_error = None;
             }
-            Err(error) => self.notice = format!("Track Name export failed: {error}"),
+            Err(error) => {
+                self.xml_pending_edit = None;
+                self.xml_edit_error = Some(format!("Track Name preparation refused: {error}"));
+            }
         }
+    }
+
+    fn cancel_xml_name_edit(&mut self) {
+        self.xml_pending_edit = None;
+        self.xml_edit_error = None;
     }
 
     fn theme_selection_ui(&mut self, ui: &mut egui::Ui) -> (egui::Rect, Option<[egui::Rect; 3]>) {
@@ -463,10 +491,12 @@ impl eframe::App for LibraryApp {
                                         ui.strong("Raw location");
                                         ui.end_row();
                                         for track in &preview.tracks {
-                                            let selected = self.xml_edit_track.as_deref() == Some(&track.id);
+                                            let selected = self.xml_selected_track.as_deref() == Some(&track.id);
                                             if ui.selectable_label(selected, "Select").clicked() {
-                                                self.xml_edit_track = Some(track.id.clone());
+                                                self.xml_selected_track = Some(track.id.clone());
                                                 self.xml_edit_name = track.name.clone();
+                                                self.xml_pending_edit = None;
+                                                self.xml_edit_error = None;
                                             }
                                             ui.label(&track.name);
                                             ui.label(track.artist.as_deref().unwrap_or("—"));
@@ -476,26 +506,37 @@ impl eframe::App for LibraryApp {
                                     });
                             });
                         ui.separator();
-                        ui.strong("Export one guarded Name edit");
-                        if let Some(track_id) = self.xml_edit_track.clone() {
+                        ui.strong("Prepare one guarded Name edit");
+                        if let Some(track_id) = self.xml_selected_track.clone() {
                             ui.label(format!("Selected TrackID: {track_id}"));
                             ui.horizontal(|ui| {
-                                ui.label("New Name");
+                                ui.label("Proposed Name");
                                 ui.text_edit_singleline(&mut self.xml_edit_name);
                             });
-                            ui.horizontal(|ui| {
-                                ui.label("Output path");
-                                ui.text_edit_singleline(&mut self.xml_edit_output);
-                            });
-                            if (PrimaryActionButton { label: "Export to new file" }).show(ui, tokens).clicked() {
+                            if ui.button("Prepare pending edit").clicked() {
                                 if let Some(track) = preview.tracks.iter().find(|track| track.id == track_id) {
-                                    self.export_xml_name_edit(&track.id, &track.name);
+                                    self.prepare_xml_name_edit(&track.id, &track.name);
                                 } else {
-                                    self.notice = "Track Name export failed: selected track is no longer in the preview".into();
+                                    self.xml_edit_error = Some("Track Name preparation refused: selected TrackID is no longer in the loaded preview".into());
+                                    self.xml_pending_edit = None;
+                                }
+                            }
+                            if let Some(error) = &self.xml_edit_error {
+                                StatusBadge { label: error, kind: StatusKind::Error }.show(ui, tokens);
+                            }
+                            if let Some(pending) = &self.xml_pending_edit {
+                                ui.separator();
+                                ui.strong("Pending edit · not exported or saved");
+                                ui.label(format!("Source: {}", pending.source.display()));
+                                ui.label(format!("TrackID: {}", pending.track_id));
+                                ui.label(format!("Original Name: {:?}", pending.prepared.change.old_name));
+                                ui.label(format!("Proposed Name: {:?}", pending.prepared.change.new_name));
+                                if ui.button("Cancel pending edit").clicked() {
+                                    self.cancel_xml_name_edit();
                                 }
                             }
                         } else {
-                            ui.label("Select one track above to edit its Name.");
+                            ui.label("Select one track above to prepare a pending Name edit.");
                         }
                         ui.separator();
                         SectionHeading { title: "Folders" }.show(ui, tokens);
@@ -921,77 +962,91 @@ mod keyboard_tests {
         );
     }
 
-    #[test]
-    fn guarded_name_export_reports_success_and_refuses_existing_output() {
-        use std::{fs, time::SystemTime};
+    fn temporary_xml() -> (PathBuf, PathBuf) {
+        use std::time::SystemTime;
         let root = std::env::temp_dir().join(format!(
             "oxidj-ui-name-edit-{}-{}",
             std::process::id(),
-            SystemTime::now()
-                .duration_since(SystemTime::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
+            SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_nanos()
         ));
-        fs::create_dir_all(&root).unwrap();
+        std::fs::create_dir_all(&root).unwrap();
         let source = root.join("library.xml");
-        let output = root.join("edited.xml");
-        let original =
-            include_bytes!("../../../xtask/tests/fixtures/f02-track-year-edit/source.xml");
-        fs::write(&source, original).unwrap();
-        let mut app = app();
-        app.xml_path = source.display().to_string();
-        app.xml_edit_name = "New & Improved".into();
-        app.xml_edit_output = output.display().to_string();
-        app.export_xml_name_edit("100", "A");
-        assert!(
-            app.notice.starts_with("Exported track 100 Name:"),
-            "{}",
-            app.notice
-        );
-        assert_eq!(fs::read(&source).unwrap(), original);
-        let exported = fs::read_to_string(&output).unwrap();
-        assert!(exported.contains("Name=\"New &amp; Improved\""));
-
-        let existing = root.join("existing.xml");
-        fs::write(&existing, b"keep me").unwrap();
-        app.xml_edit_output = existing.display().to_string();
-        app.export_xml_name_edit("7", "Old");
-        assert!(
-            app.notice.starts_with("Track Name export failed:"),
-            "{}",
-            app.notice
-        );
-        assert_eq!(fs::read(existing).unwrap(), b"keep me");
-        fs::remove_dir_all(root).unwrap();
+        std::fs::write(
+            &source,
+            include_bytes!("../../../xtask/tests/fixtures/rekordbox-a1/F-02/source.bin"),
+        ).unwrap();
+        (root, source)
     }
 
     #[test]
-    fn name_export_reports_guard_refusal_when_preview_value_is_stale() {
-        use std::{fs, time::SystemTime};
-        let root = std::env::temp_dir().join(format!(
-            "oxidj-ui-name-stale-{}-{}",
-            std::process::id(),
-            SystemTime::now()
-                .duration_since(SystemTime::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        fs::create_dir_all(&root).unwrap();
-        let source = root.join("library.xml");
-        let output = root.join("edited.xml");
-        fs::write(&source, br#"<DJ_PLAYLISTS Version="1.0.0"><COLLECTION Entries="1"><TRACK TrackID="7" Name="Changed" Location="x"/></COLLECTION></DJ_PLAYLISTS>"#).unwrap();
+    fn pending_track_name_edit_is_source_and_track_bound_and_cancelable() {
+        let (root, source) = temporary_xml();
+        let original = std::fs::read(&source).unwrap();
         let mut app = app();
         app.xml_path = source.display().to_string();
-        app.xml_edit_output = output.display().to_string();
+        app.preview_xml();
+        app.xml_path = root.join("typed-but-not-loaded.xml").display().to_string();
+        app.xml_selected_track = Some("100".into());
+        app.xml_edit_name = "Renamed".into();
+        app.prepare_xml_name_edit("100", "A");
+        let pending = app.xml_pending_edit.as_ref().expect("prepared pending edit");
+        assert_eq!(pending.source, source);
+        assert_eq!(pending.track_id, "100");
+        assert_eq!(pending.prepared.change.track_id, "100");
+        assert_eq!(pending.prepared.change.old_name, "A");
+        assert_eq!(pending.prepared.change.new_name, "Renamed");
+        assert_eq!(std::fs::read(&source).unwrap(), original);
+        app.cancel_xml_name_edit();
+        assert!(app.xml_pending_edit.is_none());
+        assert!(app.xml_edit_error.is_none());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn previewing_another_document_clears_pending_edit() {
+        let (root, source) = temporary_xml();
+        let second = root.join("other.xml");
+        std::fs::write(&second, std::fs::read(&source).unwrap()).unwrap();
+        let mut app = app();
+        app.xml_path = source.display().to_string();
+        app.preview_xml();
         app.xml_edit_name = "New".into();
-        app.export_xml_name_edit("7", "Old");
-        assert!(
-            app.notice.starts_with("Track Name export failed:"),
-            "{}",
-            app.notice
-        );
-        assert!(!output.exists());
-        fs::remove_dir_all(root).unwrap();
+        app.prepare_xml_name_edit("100", "A");
+        assert!(app.xml_pending_edit.is_some());
+        app.xml_path = second.display().to_string();
+        app.preview_xml();
+        assert!(app.xml_pending_edit.is_none());
+        assert_eq!(app.xml_selected_track, None);
+        assert!(app.xml_edit_error.is_none());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn stale_source_guard_is_shown_as_preparation_error() {
+        let (root, source) = temporary_xml();
+        let mut app = app();
+        app.xml_path = source.display().to_string();
+        app.preview_xml();
+        std::fs::write(&source, br#"<DJ_PLAYLISTS Version="1.0.0"><COLLECTION Entries="1"><TRACK TrackID="7" Name="Changed" Location="x"/></COLLECTION></DJ_PLAYLISTS>"#).unwrap();
+        app.xml_edit_name = "New".into();
+        app.prepare_xml_name_edit("7", "Old");
+        let error = app.xml_edit_error.as_ref().expect("guard refusal surfaced");
+        assert!(error.starts_with("Track Name preparation refused:"), "{error}");
+        assert!(app.xml_pending_edit.is_none());
+        let ctx = egui::Context::default();
+        let tokens = ThemeMode::TokyoNight.tokens();
+        let error = app.xml_edit_error.clone().unwrap();
+        let output = ctx.run(egui::RawInput::default(), |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                StatusBadge { label: &error, kind: StatusKind::Error }.show(ui, tokens);
+            });
+        });
+        let labels = output.shapes.iter().filter_map(|clipped| match &clipped.shape {
+            egui::Shape::Text(text) => Some(text.galley.job.text.to_string()),
+            _ => None,
+        }).collect::<Vec<_>>();
+        assert!(labels.iter().any(|label| label.contains("Track Name preparation refused")), "{labels:?}");
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
