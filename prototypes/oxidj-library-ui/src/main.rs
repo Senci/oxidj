@@ -565,6 +565,29 @@ impl LibraryApp {
         self.xml_pending_delete = None;
     }
 
+    fn on_xml_source_changed(&mut self) {
+        self.xml_pending_reorder = None;
+        self.xml_pending_append = None;
+        self.invalidate_xml_member_delete();
+        self.xml_selected_playlist = None;
+        self.xml_selected_member = None;
+    }
+
+    fn select_xml_playlist(&mut self, index: usize) {
+        self.xml_selected_playlist = Some(index);
+        self.xml_selected_member = None;
+        self.xml_pending_reorder = None;
+        self.xml_pending_append = None;
+        self.invalidate_xml_member_delete();
+        self.xml_edit_error = None;
+    }
+
+    fn select_xml_member(&mut self, index: usize) {
+        self.xml_selected_member = Some(index);
+        self.xml_pending_reorder = None;
+        self.invalidate_xml_member_delete();
+    }
+
     fn cancel_xml_member_delete(&mut self) {
         self.invalidate_xml_member_delete();
         self.xml_edit_error = None;
@@ -799,11 +822,7 @@ impl eframe::App for LibraryApp {
                     )
                     .changed();
                 if source_changed {
-                    self.xml_pending_reorder = None;
-                    self.xml_pending_append = None;
-                    self.invalidate_xml_member_delete();
-                    self.xml_selected_playlist = None;
-                    self.xml_selected_member = None;
+                    self.on_xml_source_changed();
                 }
                 if (PrimaryActionButton {
                     label: "Preview XML",
@@ -927,12 +946,7 @@ impl eframe::App for LibraryApp {
                         for (index, playlist) in preview.playlists.iter().enumerate() {
                             let label = format!("#{index} · {} · {}", playlist.path.join(" / "), playlist.name);
                             if ui.selectable_label(self.xml_selected_playlist == Some(index), label).clicked() {
-                                self.xml_selected_playlist = Some(index);
-                                self.xml_selected_member = None;
-                                self.xml_pending_reorder = None;
-                                self.xml_pending_append = None;
-                                self.invalidate_xml_member_delete();
-                                self.xml_edit_error = None;
+                                self.select_xml_playlist(index);
                             }
                         }
                         if let Some(index) = self.xml_selected_playlist {
@@ -940,9 +954,7 @@ impl eframe::App for LibraryApp {
                                 ui.label(format!("Selected playlist #{index}: {} / {}", playlist.path.join(" / "), playlist.name));
                                 for (member_index, track_id) in playlist.tracks.iter().enumerate() {
                                     if ui.selectable_label(self.xml_selected_member == Some(member_index), format!("{member_index}: TrackID {track_id}")).clicked() {
-                                        self.xml_selected_member = Some(member_index);
-                                        self.xml_pending_reorder = None;
-                                        self.invalidate_xml_member_delete();
+                                        self.select_xml_member(member_index);
                                     }
                                 }
                                 if let Some(member_index) = self.xml_selected_member {
@@ -1600,12 +1612,32 @@ mod keyboard_tests {
         let mut app = app();
         app.xml_path = source.display().to_string();
         app.preview_xml();
+
         app.xml_selected_playlist = Some(0);
         app.xml_selected_member = Some(1);
         app.prepare_xml_member_delete(0, 1);
         assert!(app.xml_pending_delete.is_some());
-        app.invalidate_xml_member_delete();
-        assert!(app.xml_pending_delete.is_none());
+        app.on_xml_source_changed();
+        assert!(app.xml_pending_delete.is_none(), "source change clears proposal");
+        assert_eq!(app.xml_selected_playlist, None);
+        assert_eq!(app.xml_selected_member, None);
+
+        app.xml_selected_playlist = Some(0);
+        app.xml_selected_member = Some(1);
+        app.prepare_xml_member_delete(0, 1);
+        assert!(app.xml_pending_delete.is_some());
+        app.select_xml_playlist(1);
+        assert!(app.xml_pending_delete.is_none(), "playlist selection clears proposal");
+        assert_eq!(app.xml_selected_playlist, Some(1));
+        assert_eq!(app.xml_selected_member, None);
+
+        app.xml_selected_playlist = Some(0);
+        app.xml_selected_member = Some(1);
+        app.prepare_xml_member_delete(0, 1);
+        assert!(app.xml_pending_delete.is_some());
+        app.select_xml_member(0);
+        assert!(app.xml_pending_delete.is_none(), "member selection clears proposal");
+        assert_eq!(app.xml_selected_member, Some(0));
         std::fs::remove_dir_all(root).unwrap();
     }
 
