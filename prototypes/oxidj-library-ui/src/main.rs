@@ -5,11 +5,11 @@ use std::path::PathBuf;
 mod components;
 mod control_gallery;
 #[cfg(test)]
-#[path = "../../../xtask/tests/f02_playlist_member_delete_oracle.rs"]
-mod f02_playlist_member_delete_oracle;
-#[cfg(test)]
 #[path = "../../../xtask/tests/f02_playlist_clear_oracle.rs"]
 mod f02_playlist_clear_oracle;
+#[cfg(test)]
+#[path = "../../../xtask/tests/f02_playlist_member_delete_oracle.rs"]
+mod f02_playlist_member_delete_oracle;
 #[cfg(test)]
 #[path = "../../../xtask/tests/common/f02_track_name_oracle_support.rs"]
 mod f02_track_name_oracle_support;
@@ -654,10 +654,13 @@ impl LibraryApp {
             self.xml_edit_error = Some("Playlist clear refused: no XML document is loaded".into());
             return;
         };
-        let Some(Ok(preview)) = self.xml_preview.as_ref() else { return; };
+        let Some(Ok(preview)) = self.xml_preview.as_ref() else {
+            return;
+        };
         let Some(playlist) = preview.playlists.get(playlist_index) else {
             self.xml_pending_clear = None;
-            self.xml_edit_error = Some("Playlist clear refused: selected playlist is invalid".into());
+            self.xml_edit_error =
+                Some("Playlist clear refused: selected playlist is invalid".into());
             return;
         };
         if playlist.tracks.is_empty() {
@@ -666,10 +669,18 @@ impl LibraryApp {
             return;
         }
         let expected_order = playlist.tracks.clone();
-        let request = oxidj_application::PlaylistClearRequest { playlist_index, expected_order: expected_order.clone() };
+        let request = oxidj_application::PlaylistClearRequest {
+            playlist_index,
+            expected_order: expected_order.clone(),
+        };
         match oxidj_application::prepare_rekordbox_playlist_clear_export(&source, &request) {
             Ok(prepared) => {
-                self.xml_pending_clear = Some(PendingPlaylistClear { source, playlist_index, expected_order, prepared });
+                self.xml_pending_clear = Some(PendingPlaylistClear {
+                    source,
+                    playlist_index,
+                    expected_order,
+                    prepared,
+                });
                 self.xml_edit_error = None;
             }
             Err(error) => {
@@ -689,29 +700,48 @@ impl LibraryApp {
             self.xml_edit_error = Some("Playlist clear export refused: no pending proposal".into());
             return;
         };
-        let order_unchanged = self.xml_preview.as_ref().and_then(|p| p.as_ref().ok())
+        let order_unchanged = self
+            .xml_preview
+            .as_ref()
+            .and_then(|p| p.as_ref().ok())
             .and_then(|p| p.playlists.get(pending.playlist_index))
             .is_some_and(|p| p.tracks == pending.expected_order);
         if self.xml_document_source.as_ref() != Some(&pending.source)
-            || self.xml_selected_playlist != Some(pending.playlist_index) || !order_unchanged {
+            || self.xml_selected_playlist != Some(pending.playlist_index)
+            || !order_unchanged
+        {
             self.xml_pending_clear = None;
-            self.xml_edit_error = Some("Playlist clear export refused: source, playlist, or membership order changed".into());
+            self.xml_edit_error = Some(
+                "Playlist clear export refused: source, playlist, or membership order changed"
+                    .into(),
+            );
             return;
         }
         if self.xml_clear_export_path.trim().is_empty() {
-            self.xml_edit_error = Some("Playlist clear export refused: choose a new destination".into());
+            self.xml_edit_error =
+                Some("Playlist clear export refused: choose a new destination".into());
             return;
         }
         let output = PathBuf::from(&self.xml_clear_export_path);
-        match oxidj_application::export_prepared_rekordbox_playlist_clear(&pending.prepared, &output) {
+        match oxidj_application::export_prepared_rekordbox_playlist_clear(
+            &pending.prepared,
+            &output,
+        ) {
             Ok(()) => {
                 self.xml_pending_clear = None;
                 self.xml_edit_error = None;
-                self.notice = format!("Playlist membership cleared in {}; collection tracks and other playlists are unchanged", output.display());
-                self.xml_preview = Some(oxidj_application::preview_rekordbox_xml(&output).map_err(|e| e.to_string()));
+                self.notice = format!(
+                    "Playlist membership cleared in {}; collection tracks and other playlists are unchanged",
+                    output.display()
+                );
+                self.xml_preview = Some(
+                    oxidj_application::preview_rekordbox_xml(&output).map_err(|e| e.to_string()),
+                );
                 self.xml_document_source = Some(output);
             }
-            Err(error) => self.xml_edit_error = Some(format!("Playlist clear export failed: {error}")),
+            Err(error) => {
+                self.xml_edit_error = Some(format!("Playlist clear export failed: {error}"))
+            }
         }
     }
 
@@ -1784,21 +1814,49 @@ mod keyboard_tests {
     #[test]
     fn playlist_clear_preview_cancel_export_reopen_and_oracle_are_source_bound() {
         use std::time::{SystemTime, UNIX_EPOCH};
-        let root = std::env::temp_dir().join(format!("oxidj-ui-playlist-clear-{}-{}", std::process::id(), SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()));
+        let root = std::env::temp_dir().join(format!(
+            "oxidj-ui-playlist-clear-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
         std::fs::create_dir_all(&root).unwrap();
         let source = root.join("source.xml");
-        std::fs::copy(concat!(env!("CARGO_MANIFEST_DIR"), "/../../xtask/tests/fixtures/f02-playlist-clear/source.xml"), &source).unwrap();
+        std::fs::copy(
+            concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../xtask/tests/fixtures/f02-playlist-clear/source.xml"
+            ),
+            &source,
+        )
+        .unwrap();
         let original = std::fs::read(&source).unwrap();
         let catalog = root.join("catalog.sqlite");
         drop(Catalog::open(&catalog).unwrap());
         let catalog_before = std::fs::read(&catalog).unwrap();
-        let mut app = LibraryApp::new(catalog.clone(), ThemeMode::TokyoNight, ThemeMode::TokyoNight.tokens());
+        let mut app = LibraryApp::new(
+            catalog.clone(),
+            ThemeMode::TokyoNight,
+            ThemeMode::TokyoNight.tokens(),
+        );
         app.xml_path = source.display().to_string();
         app.preview_xml();
         app.select_xml_playlist(0);
         app.prepare_xml_playlist_clear(0);
-        let prepared = app.xml_pending_clear.as_ref().unwrap().prepared.bytes().to_vec();
-        assert_eq!(std::fs::read(&source).unwrap(), original, "preparation is read-only");
+        let prepared = app
+            .xml_pending_clear
+            .as_ref()
+            .unwrap()
+            .prepared
+            .bytes()
+            .to_vec();
+        assert_eq!(
+            std::fs::read(&source).unwrap(),
+            original,
+            "preparation is read-only"
+        );
         let cancelled = root.join("cancelled.xml");
         app.xml_clear_export_path = cancelled.display().to_string();
         app.cancel_xml_playlist_clear();
@@ -1808,7 +1866,10 @@ mod keyboard_tests {
         let output = root.join("cleared.xml");
         app.xml_clear_export_path = output.display().to_string();
         app.select_xml_track("200", "B");
-        assert!(app.xml_pending_clear.is_none(), "track selection invalidates pending clear");
+        assert!(
+            app.xml_pending_clear.is_none(),
+            "track selection invalidates pending clear"
+        );
         app.export_xml_playlist_clear();
         assert!(!output.exists(), "invalidated proposal cannot export");
         app.select_xml_playlist(0);
@@ -1817,39 +1878,74 @@ mod keyboard_tests {
         app.export_xml_playlist_clear();
         let exported = std::fs::read(&output).unwrap();
         assert_eq!(exported, prepared);
-        f02_playlist_clear_oracle::check(&exported).expect("UI-exported bytes satisfy independent F-02 oracle");
+        f02_playlist_clear_oracle::check(&exported)
+            .expect("UI-exported bytes satisfy independent F-02 oracle");
         let reopened = oxidj_application::preview_rekordbox_xml(&output).unwrap();
         assert_eq!(reopened.playlists[0].name, "House");
         assert!(reopened.playlists[0].tracks.is_empty());
         assert_eq!(reopened.playlists[1].tracks, ["200", "400"]);
-        assert_eq!(reopened.tracks.iter().map(|t| t.id.as_str()).collect::<Vec<_>>(), ["100", "200", "300", "400"]);
+        assert_eq!(
+            reopened
+                .tracks
+                .iter()
+                .map(|t| t.id.as_str())
+                .collect::<Vec<_>>(),
+            ["100", "200", "300", "400"]
+        );
         assert_eq!(std::fs::read(&source).unwrap(), original);
         assert_eq!(std::fs::read(&catalog).unwrap(), catalog_before);
-        assert!(app.notice.contains("collection tracks and other playlists are unchanged"));
+        assert!(
+            app.notice
+                .contains("collection tracks and other playlists are unchanged")
+        );
         std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
     fn playlist_clear_refuses_changed_source_order_invalid_selection_and_existing_output() {
         use std::time::{SystemTime, UNIX_EPOCH};
-        let root = std::env::temp_dir().join(format!("oxidj-ui-clear-guards-{}-{}", std::process::id(), SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()));
+        let root = std::env::temp_dir().join(format!(
+            "oxidj-ui-clear-guards-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
         std::fs::create_dir_all(&root).unwrap();
         let source = root.join("source.xml");
-        std::fs::copy(concat!(env!("CARGO_MANIFEST_DIR"), "/../../xtask/tests/fixtures/f02-playlist-clear/source.xml"), &source).unwrap();
+        std::fs::copy(
+            concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../xtask/tests/fixtures/f02-playlist-clear/source.xml"
+            ),
+            &source,
+        )
+        .unwrap();
         let mut app = app();
         app.xml_path = source.display().to_string();
         app.preview_xml();
         app.prepare_xml_playlist_clear(99);
         assert!(app.xml_pending_clear.is_none());
         app.prepare_xml_playlist_clear(2);
-        assert!(app.xml_pending_clear.is_none(), "empty playlist is rejected");
+        assert!(
+            app.xml_pending_clear.is_none(),
+            "empty playlist is rejected"
+        );
         app.select_xml_playlist(0);
         app.prepare_xml_playlist_clear(0);
-        if let Some(Ok(preview)) = app.xml_preview.as_mut() { preview.playlists[0].tracks.swap(0, 1); }
+        if let Some(Ok(preview)) = app.xml_preview.as_mut() {
+            preview.playlists[0].tracks.swap(0, 1);
+        }
         app.xml_clear_export_path = root.join("changed-order.xml").display().to_string();
         app.export_xml_playlist_clear();
         assert!(!PathBuf::from(&app.xml_clear_export_path).exists());
-        assert!(app.xml_edit_error.as_deref().unwrap().contains("membership order changed"));
+        assert!(
+            app.xml_edit_error
+                .as_deref()
+                .unwrap()
+                .contains("membership order changed")
+        );
         app.preview_xml();
         app.select_xml_playlist(0);
         app.prepare_xml_playlist_clear(0);
@@ -1864,7 +1960,12 @@ mod keyboard_tests {
         app.xml_clear_export_path = stale_output.display().to_string();
         app.export_xml_playlist_clear();
         assert!(!stale_output.exists());
-        assert!(app.xml_edit_error.as_deref().unwrap().contains("source changed"));
+        assert!(
+            app.xml_edit_error
+                .as_deref()
+                .unwrap()
+                .contains("source changed")
+        );
         std::fs::remove_dir_all(root).unwrap();
     }
 
