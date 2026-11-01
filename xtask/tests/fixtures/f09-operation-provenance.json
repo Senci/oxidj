@@ -7,7 +7,7 @@
       "checker": {
         "path": "xtask/tests/f02_empty_folder_create_oracle.rs",
         "version": "f09-operation-oracle-v1",
-        "sha256": "64c6cb125976e7682e8bd411e1536bc73559ead81def528c9d1fa9cbc3f32ff1",
+        "sha256": "629d61a86323cb84ca55495a395576682865db7a0c19b4d407c1aad8b47e1f00",
         "tests": [
           "independently_decodes_empty_folder_creation_and_rejects_structural_mutations"
         ]
@@ -22,7 +22,7 @@
       "checker": {
         "path": "xtask/tests/f02_empty_folder_delete_oracle.rs",
         "version": "f09-operation-oracle-v1",
-        "sha256": "e93f650ef06fbc3be86e7ac23a8e5eb7db88d6eeb14e15f7792e08cf8bc93a4f",
+        "sha256": "853bac298172561ce295c2f9f2d564920d152cd432eae12f40fb92476235ca7c",
         "tests": [
           "independently_decodes_empty_folder_deletion_and_rejects_structural_mutations"
         ]
@@ -67,7 +67,7 @@
       "checker": {
         "path": "xtask/tests/f02_folder_rename_oracle.rs",
         "version": "f09-operation-oracle-v1",
-        "sha256": "35a014b7392cc038095ae0ee1bc55352f9a64cd88d9bc732c6a731216d7c4054",
+        "sha256": "c249eb0d6f27bdaeeefce9d9670760f4b65d25c3624fac042ba18e0e82d43eac",
         "tests": [
           "independently_decodes_guarded_folder_rename_and_rejects_mutations"
         ]
