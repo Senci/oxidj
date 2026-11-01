@@ -515,6 +515,7 @@ impl LibraryApp {
     }
 
     fn prepare_xml_sibling_playlist_reorder(&mut self) {
+        self.xml_sibling_pending = None;
         let Some(source) = self.xml_document_source.clone() else {
             return;
         };
@@ -572,6 +573,10 @@ impl LibraryApp {
                 self.xml_edit_error = Some(format!("Sibling playlist reorder refused: {error}"));
             }
         }
+    }
+
+    fn cancel_xml_sibling_playlist_reorder(&mut self) {
+        self.xml_sibling_pending = None;
     }
 
     fn export_xml_sibling_playlist_reorder(&mut self) {
@@ -2054,7 +2059,7 @@ impl eframe::App for LibraryApp {
                             ui.label(format!("Preview · parent #{} {} · {:?} → {:?}", pending.parent_index, pending.parent_name, pending.expected_order, pending.new_order));
                             ui.horizontal(|ui| { ui.label("New XML destination"); ui.text_edit_singleline(&mut self.xml_sibling_export_path); });
                             if ui.button("Export prepared sibling order").clicked() { self.export_xml_sibling_playlist_reorder(); }
-                            if ui.button("Cancel sibling reorder").clicked() { self.xml_sibling_pending = None; }
+                            if ui.button("Cancel sibling reorder").clicked() { self.cancel_xml_sibling_playlist_reorder(); }
                         }
                         SectionHeading { title: "Playlist-member reorder (provisional)" }.show(ui, tokens);
                         for (index, playlist) in preview.playlists.iter().enumerate() {
@@ -2840,16 +2845,26 @@ mod keyboard_tests {
             );
         }
 
+        let (mut boundary, source) = setup("boundary");
+        let original = std::fs::read(&source).unwrap();
+        boundary.xml_sibling_parent = Some(usize::MAX);
+        boundary.prepare_xml_sibling_playlist_reorder();
+        assert!(boundary.xml_sibling_pending.is_none());
+        let destination = root.join("boundary-output.xml");
+        boundary.xml_sibling_export_path = destination.display().to_string();
+        boundary.export_xml_sibling_playlist_reorder();
+        assert!(!destination.exists());
+        assert_eq!(std::fs::read(&source).unwrap(), original);
+
         let (mut cancelled, source) = setup("cancel");
-        cancelled.xml_sibling_pending = None; // UI Cancel sibling reorder action
+        let original = std::fs::read(&source).unwrap();
+        cancelled.cancel_xml_sibling_playlist_reorder();
+        assert!(cancelled.xml_sibling_pending.is_none());
         let destination = root.join("cancel-output.xml");
         cancelled.xml_sibling_export_path = destination.display().to_string();
         cancelled.export_xml_sibling_playlist_reorder();
         assert!(!destination.exists());
-        assert_eq!(
-            std::fs::read(source).unwrap(),
-            std::fs::read(fixture).unwrap()
-        );
+        assert_eq!(std::fs::read(source).unwrap(), original);
 
         let (mut refused, source) = setup("destination");
         let destination = root.join("already-exists.xml");
