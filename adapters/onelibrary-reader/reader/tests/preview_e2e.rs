@@ -71,6 +71,53 @@ fn native_schema_profile_previews_only_unambiguous_fields_and_order() {
 }
 
 #[test]
+fn repeated_unresolved_native_parent_is_root_only_for_provisional_profile() {
+    let path = temp_db();
+    native_encrypted_fixture(&path);
+    mutate_fixture(
+        &path,
+        "UPDATE playlist SET playlist_id_parent=999 WHERE playlist_id IN (20,22)",
+    );
+    let before = std::fs::read(&path).unwrap();
+    let output = run(&path, SECRET);
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    for id in ["playlist:20", "playlist:22"] {
+        let playlist = json["playlists"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|p| p["id"] == id)
+            .unwrap();
+        assert!(
+            playlist["parent_id"].is_null(),
+            "repeated unresolved parent should map to root"
+        );
+    }
+    assert_eq!(json["playlists"][0]["id"], "playlist:20");
+    assert_eq!(json["playlists"][0]["sibling_order"], 0);
+    assert_eq!(json["playlists"][1]["id"], "playlist:22");
+    assert_eq!(json["playlists"][1]["sibling_order"], 1);
+    assert_eq!(json["playlists"][2]["id"], "playlist:23");
+    assert_eq!(json["playlists"][2]["sibling_order"], 2);
+    assert_eq!(std::fs::read(&path).unwrap(), before);
+    let _ = std::fs::remove_file(path);
+
+    let mixed_missing = temp_db();
+    native_encrypted_fixture(&mixed_missing);
+    mutate_fixture(
+        &mixed_missing,
+        "UPDATE playlist SET playlist_id_parent=999 WHERE playlist_id IN (20,22); UPDATE playlist SET playlist_id_parent=998 WHERE playlist_id=23",
+    );
+    assert_rejected_unchanged(&mixed_missing);
+    let _ = std::fs::remove_file(mixed_missing);
+}
+
+#[test]
 fn rejects_native_schema_and_relation_drift_without_partial_output() {
     for sql in [
         "ALTER TABLE content ADD COLUMN unexpected varchar",

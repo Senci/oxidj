@@ -358,7 +358,7 @@ fn read_native_preview(conn: &rusqlite::Connection) -> Result<Preview, ()> {
     let mut sibling_sequence: std::collections::HashSet<(Option<i64>, i64)> =
         std::collections::HashSet::new();
     let mut stmt = conn.prepare("SELECT playlist_id,sequenceNo,name,playlist_id_parent FROM playlist ORDER BY playlist_id_parent,sequenceNo,playlist_id").map_err(|_| ())?;
-    let rows = stmt
+    let mut rows = stmt
         .query_map([], |r| {
             Ok((
                 r.get::<_, i64>(0)?,
@@ -367,13 +367,49 @@ fn read_native_preview(conn: &rusqlite::Connection) -> Result<Preview, ()> {
                 r.get::<_, Option<i64>>(3)?,
             ))
         })
+        .map_err(|_| ())?
+        .collect::<Result<Vec<_>, _>>()
         .map_err(|_| ())?;
-    for row in rows {
-        let (raw_id, sequence, name, raw_parent) = row.map_err(|_| ())?;
-        if sequence < 0 || !sibling_sequence.insert((raw_parent, sequence)) {
+    drop(stmt);
+    let playlist_ids: std::collections::HashSet<i64> =
+        rows.iter().map(|(id, _, _, _)| *id).collect();
+    let mut missing_parent_counts: std::collections::HashMap<i64, usize> =
+        std::collections::HashMap::new();
+    for (_, _, _, parent) in &rows {
+        if let Some(parent) = parent.filter(|parent| !playlist_ids.contains(parent)) {
+            *missing_parent_counts.entry(parent).or_default() += 1;
+        }
+    }
+    let repeated_root_sentinel = match missing_parent_counts
+        .iter()
+        .filter(|(_, count)| **count >= 2)
+        .map(|(parent, _)| *parent)
+        .collect::<Vec<_>>()
+        .as_slice()
+    {
+        [] => None,
+        [sentinel] if missing_parent_counts.len() == 1 => Some(*sentinel),
+        _ => return Err(()),
+    };
+    if missing_parent_counts
+        .keys()
+        .any(|parent| Some(*parent) != repeated_root_sentinel)
+    {
+        return Err(());
+    }
+    rows.sort_by_key(|(id, sequence, _, raw_parent)| {
+        (
+            raw_parent.filter(|value| Some(*value) != repeated_root_sentinel),
+            *sequence,
+            *id,
+        )
+    });
+    for (raw_id, sequence, name, raw_parent) in rows {
+        let parent = raw_parent.filter(|value| Some(*value) != repeated_root_sentinel);
+        if sequence < 0 || !sibling_sequence.insert((parent, sequence)) {
             return Err(());
         }
-        let order = sibling_order.entry(raw_parent).or_default();
+        let order = sibling_order.entry(parent).or_default();
         let mut members = memberships.remove(&raw_id).unwrap_or_default();
         members.sort_by_key(|(position, _)| *position);
         let track_ids = members
@@ -382,7 +418,7 @@ fn read_native_preview(conn: &rusqlite::Connection) -> Result<Preview, ()> {
             .collect::<Result<Vec<_>, _>>()?;
         playlists.push(Playlist {
             id: SourceId::new(format!("playlist:{raw_id}")).map_err(|_| ())?,
-            parent_id: raw_parent
+            parent_id: parent
                 .map(|id| SourceId::new(format!("playlist:{id}")))
                 .transpose()
                 .map_err(|_| ())?,
