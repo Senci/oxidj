@@ -138,6 +138,54 @@ pub fn preview_rekordbox_pdb(path: impl AsRef<Path>) -> Result<PdbPreview, PdbPr
     oxidj_rekordbox::parse_pdb_file(path)
 }
 
+/// A source-bound prepared playlist-member reorder retains its exact preview snapshot.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PreparedPlaylistMemberReorderExport {
+    source: std::path::PathBuf,
+    source_bytes: Vec<u8>,
+    prepared: PreparedPlaylistReorder,
+}
+
+impl PreparedPlaylistMemberReorderExport {
+    pub fn source(&self) -> &Path {
+        &self.source
+    }
+
+    pub fn bytes(&self) -> &[u8] {
+        &self.prepared.bytes
+    }
+}
+
+/// Prepare a guarded playlist-member reorder for preview and source-bound export.
+pub fn prepare_rekordbox_playlist_member_reorder_export(
+    source: impl AsRef<Path>,
+    request: &PlaylistReorderRequest,
+) -> Result<PreparedPlaylistMemberReorderExport, RekordboxError> {
+    let source_path = source.as_ref().to_path_buf();
+    let source_bytes =
+        std::fs::read(&source_path).map_err(|error| RekordboxError(error.to_string()))?;
+    let prepared = oxidj_rekordbox::prepare_playlist_reorder(&source_bytes, request)?;
+    Ok(PreparedPlaylistMemberReorderExport {
+        source: source_path,
+        source_bytes,
+        prepared,
+    })
+}
+
+/// Revalidate source bytes and publish prepared reorder bytes to a new file.
+pub fn export_prepared_rekordbox_playlist_member_reorder(
+    prepared: &PreparedPlaylistMemberReorderExport,
+    output: impl AsRef<Path>,
+) -> Result<(), RekordboxError> {
+    let (current_source, output) = read_new_export_source(&prepared.source, output)?;
+    if current_source != prepared.source_bytes {
+        return Err(RekordboxError(
+            "source changed after playlist-member reorder preparation".into(),
+        ));
+    }
+    publish_new_file(&output, &prepared.prepared.bytes)
+}
+
 /// A source-bound prepared Track Name export retains the exact preview snapshot.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PreparedTrackNameExport {
@@ -942,6 +990,53 @@ fn publish_new_file(output: &Path, bytes: &[u8]) -> Result<(), RekordboxError> {
         let _ = fs::remove_file(&temp);
     }
     result
+}
+
+#[cfg(test)]
+mod playlist_member_reorder_preparation_tests {
+    use super::*;
+
+    fn fixture_source() -> std::path::PathBuf {
+        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../xtask/tests/fixtures/f02-playlist-member-reorder/source.xml")
+            .canonicalize()
+            .unwrap()
+    }
+
+    fn request() -> PlaylistReorderRequest {
+        PlaylistReorderRequest {
+            playlist_index: 0,
+            expected_order: vec!["100".into(), "200".into(), "300".into()],
+            new_order: vec!["300".into(), "100".into(), "200".into()],
+        }
+    }
+
+    #[test]
+    fn prepared_reorder_revalidates_source_and_refuses_alias_or_existing_destination() {
+        let source = fixture_source();
+        let prepared =
+            prepare_rekordbox_playlist_member_reorder_export(&source, &request()).unwrap();
+        let mut duplicate = request();
+        duplicate.new_order = vec!["300".into(), "100".into(), "100".into()];
+        assert!(prepare_rekordbox_playlist_member_reorder_export(&source, &duplicate).is_err());
+        let base =
+            std::env::temp_dir().join(format!("oxidj-member-reorder-{}", std::process::id()));
+        let existing = base.with_extension("existing.xml");
+        std::fs::write(&existing, b"preserve").unwrap();
+        assert!(export_prepared_rekordbox_playlist_member_reorder(&prepared, &source).is_err());
+        assert!(export_prepared_rekordbox_playlist_member_reorder(&prepared, &existing).is_err());
+        assert_eq!(std::fs::read(&existing).unwrap(), b"preserve");
+        let stale_source = base.with_extension("source.xml");
+        let stale_output = base.with_extension("stale.xml");
+        std::fs::copy(&source, &stale_source).unwrap();
+        let stale =
+            prepare_rekordbox_playlist_member_reorder_export(&stale_source, &request()).unwrap();
+        std::fs::write(&stale_source, b"<stale/>").unwrap();
+        assert!(export_prepared_rekordbox_playlist_member_reorder(&stale, &stale_output).is_err());
+        assert!(!stale_output.exists());
+        let _ = std::fs::remove_file(existing);
+        let _ = std::fs::remove_file(stale_source);
+    }
 }
 
 #[cfg(test)]

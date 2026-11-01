@@ -4,10 +4,10 @@ use std::path::PathBuf;
 
 mod components;
 mod control_gallery;
-mod theme;
 #[cfg(test)]
 #[path = "../../../xtask/tests/common/f02_track_name_oracle_support.rs"]
 mod f02_track_name_oracle_support;
+mod theme;
 use components::{PrimaryActionButton, SectionHeading, StatusBadge, StatusKind};
 use theme::ThemeMode;
 
@@ -22,6 +22,12 @@ struct PendingTrackNameEdit {
     source: PathBuf,
     track_id: String,
     prepared: oxidj_application::PreparedTrackNameExport,
+}
+#[derive(Debug, Clone)]
+struct PendingPlaylistMemberReorder {
+    source: PathBuf,
+    playlist_index: usize,
+    prepared: oxidj_application::PreparedPlaylistMemberReorderExport,
 }
 
 struct LibraryApp {
@@ -48,6 +54,10 @@ struct LibraryApp {
     xml_selected_track: Option<String>,
     xml_edit_name: String,
     xml_pending_edit: Option<PendingTrackNameEdit>,
+    xml_selected_playlist: Option<usize>,
+    xml_selected_member: Option<usize>,
+    xml_pending_reorder: Option<PendingPlaylistMemberReorder>,
+    xml_reorder_export_path: String,
     xml_export_path: String,
     xml_edit_error: Option<String>,
     show_control_gallery: bool,
@@ -93,6 +103,10 @@ impl LibraryApp {
             xml_selected_track: None,
             xml_edit_name: String::new(),
             xml_pending_edit: None,
+            xml_selected_playlist: None,
+            xml_selected_member: None,
+            xml_pending_reorder: None,
+            xml_reorder_export_path: String::new(),
             xml_export_path: String::new(),
             xml_edit_error: None,
             show_control_gallery: false,
@@ -295,8 +309,110 @@ impl LibraryApp {
         }
     }
 
+    fn prepare_xml_member_reorder(
+        &mut self,
+        playlist_index: usize,
+        member_index: usize,
+        direction: isize,
+    ) {
+        let Some(source) = self.xml_document_source.clone() else {
+            self.xml_pending_reorder = None;
+            self.xml_edit_error =
+                Some("Playlist reorder refused: no XML document is loaded".into());
+            return;
+        };
+        let Some(Ok(preview)) = self.xml_preview.as_ref() else {
+            return;
+        };
+        let Some(playlist) = preview.playlists.get(playlist_index) else {
+            return;
+        };
+        let target = member_index as isize + direction;
+        if target < 0 || target >= playlist.tracks.len() as isize {
+            self.xml_pending_reorder = None;
+            self.xml_edit_error =
+                Some("Playlist reorder refused: member is at the boundary".into());
+            return;
+        }
+        let mut new_order = playlist.tracks.clone();
+        new_order.swap(member_index, target as usize);
+        if new_order
+            .iter()
+            .collect::<std::collections::HashSet<_>>()
+            .len()
+            != new_order.len()
+        {
+            self.xml_pending_reorder = None;
+            self.xml_edit_error =
+                Some("Playlist reorder refused: duplicate members are unsupported".into());
+            return;
+        }
+        let request = oxidj_application::PlaylistReorderRequest {
+            playlist_index,
+            expected_order: playlist.tracks.clone(),
+            new_order,
+        };
+        match oxidj_application::prepare_rekordbox_playlist_member_reorder_export(&source, &request)
+        {
+            Ok(prepared) => {
+                self.xml_pending_reorder = Some(PendingPlaylistMemberReorder {
+                    source,
+                    playlist_index,
+                    prepared,
+                });
+                self.xml_edit_error = None;
+            }
+            Err(error) => {
+                self.xml_pending_reorder = None;
+                self.xml_edit_error = Some(format!("Playlist reorder refused: {error}"));
+            }
+        }
+    }
+
+    fn export_xml_member_reorder(&mut self) {
+        let Some(pending) = self.xml_pending_reorder.as_ref() else {
+            self.xml_edit_error =
+                Some("Playlist reorder export refused: no pending proposal".into());
+            return;
+        };
+        if self.xml_document_source.as_ref() != Some(&pending.source)
+            || self.xml_selected_playlist != Some(pending.playlist_index)
+        {
+            self.xml_pending_reorder = None;
+            self.xml_edit_error =
+                Some("Playlist reorder export refused: source or playlist changed".into());
+            return;
+        }
+        let output = PathBuf::from(&self.xml_reorder_export_path);
+        if self.xml_reorder_export_path.trim().is_empty() {
+            self.xml_edit_error =
+                Some("Playlist reorder export refused: choose a new destination".into());
+            return;
+        }
+        match oxidj_application::export_prepared_rekordbox_playlist_member_reorder(
+            &pending.prepared,
+            &output,
+        ) {
+            Ok(()) => {
+                self.xml_pending_reorder = None;
+                self.xml_edit_error = None;
+                self.notice = format!("Playlist member order exported to {}", output.display());
+                self.xml_preview = Some(
+                    oxidj_application::preview_rekordbox_xml(&output).map_err(|e| e.to_string()),
+                );
+                self.xml_document_source = Some(output);
+            }
+            Err(error) => {
+                self.xml_edit_error = Some(format!("Playlist reorder export failed: {error}"))
+            }
+        }
+    }
+
     fn preview_xml(&mut self) {
         self.xml_pending_edit = None;
+        self.xml_pending_reorder = None;
+        self.xml_selected_playlist = None;
+        self.xml_selected_member = None;
         self.xml_selected_track = None;
         self.xml_edit_error = None;
         let source = PathBuf::from(&self.xml_path);
@@ -464,10 +580,17 @@ impl eframe::App for LibraryApp {
             });
             ui.horizontal_wrapped(|ui| {
                 ui.label("Rekordbox XML (read-only)");
-                ui.add_sized(
-                    [ui.available_width().clamp(140.0, 360.0), 24.0],
-                    egui::TextEdit::singleline(&mut self.xml_path).hint_text("XML file path"),
-                );
+                let source_changed = ui
+                    .add_sized(
+                        [ui.available_width().clamp(140.0, 360.0), 24.0],
+                        egui::TextEdit::singleline(&mut self.xml_path).hint_text("XML file path"),
+                    )
+                    .changed();
+                if source_changed {
+                    self.xml_pending_reorder = None;
+                    self.xml_selected_playlist = None;
+                    self.xml_selected_member = None;
+                }
                 if (PrimaryActionButton {
                     label: "Preview XML",
                 })
@@ -586,6 +709,48 @@ impl eframe::App for LibraryApp {
                             ui.label("Select one track above to prepare a pending Name edit.");
                         }
                         ui.separator();
+                        SectionHeading { title: "Playlist-member reorder (provisional)" }.show(ui, tokens);
+                        for (index, playlist) in preview.playlists.iter().enumerate() {
+                            let label = format!("#{index} · {} · {}", playlist.path.join(" / "), playlist.name);
+                            if ui.selectable_label(self.xml_selected_playlist == Some(index), label).clicked() {
+                                self.xml_selected_playlist = Some(index);
+                                self.xml_selected_member = None;
+                                self.xml_pending_reorder = None;
+                                self.xml_edit_error = None;
+                            }
+                        }
+                        if let Some(index) = self.xml_selected_playlist {
+                            if let Some(playlist) = preview.playlists.get(index) {
+                                ui.label(format!("Selected playlist #{index}: {} / {}", playlist.path.join(" / "), playlist.name));
+                                for (member_index, track_id) in playlist.tracks.iter().enumerate() {
+                                    if ui.selectable_label(self.xml_selected_member == Some(member_index), format!("{member_index}: TrackID {track_id}")).clicked() {
+                                        self.xml_selected_member = Some(member_index);
+                                        self.xml_pending_reorder = None;
+                                    }
+                                }
+                                if let Some(member_index) = self.xml_selected_member {
+                                    ui.horizontal(|ui| {
+                                        if ui.add_enabled(member_index > 0, egui::Button::new("Move up")).clicked() {
+                                            self.prepare_xml_member_reorder(index, member_index, -1);
+                                        }
+                                        if ui.add_enabled(member_index + 1 < playlist.tracks.len(), egui::Button::new("Move down")).clicked() {
+                                            self.prepare_xml_member_reorder(index, member_index, 1);
+                                        }
+                                    });
+                                }
+                            }
+                        }
+                        if let Some(pending) = &self.xml_pending_reorder {
+                            ui.separator();
+                            ui.label(format!("Pending reorder · playlist #{} · source {}", pending.playlist_index, pending.source.display()));
+                            ui.label("Prepared XML bytes are not written until export.");
+                            ui.horizontal(|ui| {
+                                ui.label("New XML destination");
+                                ui.text_edit_singleline(&mut self.xml_reorder_export_path);
+                            });
+                            if ui.button("Export prepared reorder").clicked() { self.export_xml_member_reorder(); }
+                            if ui.button("Cancel reorder").clicked() { self.xml_pending_reorder = None; }
+                        }
                         SectionHeading { title: "Folders" }.show(ui, tokens);
                         if preview.folders.is_empty() {
                             ui.label("No folders.");
@@ -1063,7 +1228,12 @@ mod keyboard_tests {
             .expect("independent F-02 oracle accepts only the selected Name change");
         let reopened = oxidj_application::preview_rekordbox_xml(&output).unwrap();
         assert_eq!(
-            reopened.tracks.iter().find(|track| track.id == "100").unwrap().name,
+            reopened
+                .tracks
+                .iter()
+                .find(|track| track.id == "100")
+                .unwrap()
+                .name,
             "New < title",
             "reopened output exposes the exported Name"
         );
@@ -1076,6 +1246,93 @@ mod keyboard_tests {
         assert!(app.xml_pending_edit.is_none());
         assert!(app.notice.contains(&output.display().to_string()));
         assert!(app.xml_edit_error.is_none());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn playlist_member_reorder_preview_exports_exact_prepared_bytes_and_reopens_order() {
+        use std::time::{SystemTime, UNIX_EPOCH};
+        let root = std::env::temp_dir().join(format!(
+            "oxidj-ui-member-reorder-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let source = root.join("source.xml");
+        std::fs::copy(
+            concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../xtask/tests/fixtures/f02-playlist-member-reorder/source.xml"
+            ),
+            &source,
+        )
+        .unwrap();
+        let intermediate = root.join("intermediate.xml");
+        let output = root.join("reordered.xml");
+        let mut app = app();
+        app.xml_path = source.display().to_string();
+        app.preview_xml();
+        app.xml_selected_playlist = Some(0);
+        app.xml_selected_member = Some(2);
+        app.prepare_xml_member_reorder(0, 2, -1);
+        let first_bytes = app
+            .xml_pending_reorder
+            .as_ref()
+            .unwrap()
+            .prepared
+            .bytes()
+            .to_vec();
+        assert_eq!(
+            app.xml_pending_reorder.as_ref().unwrap().prepared.source(),
+            source
+        );
+        app.xml_reorder_export_path = intermediate.display().to_string();
+        app.export_xml_member_reorder();
+        assert_eq!(std::fs::read(&intermediate).unwrap(), first_bytes);
+        app.xml_document_source = Some(intermediate.clone());
+        app.xml_preview = Some(
+            oxidj_application::preview_rekordbox_xml(&intermediate).map_err(|e| e.to_string()),
+        );
+        app.xml_selected_playlist = Some(0);
+        app.xml_selected_member = Some(1);
+        app.prepare_xml_member_reorder(0, 1, -1);
+        let expected = app
+            .xml_pending_reorder
+            .as_ref()
+            .unwrap()
+            .prepared
+            .bytes()
+            .to_vec();
+        app.xml_reorder_export_path = output.display().to_string();
+        app.export_xml_member_reorder();
+        let exported = std::fs::read(&output).unwrap();
+        assert_eq!(exported, expected);
+        let reopened = oxidj_application::preview_rekordbox_xml(&output).unwrap();
+        assert_eq!(reopened.playlists[0].tracks, ["300", "100", "200"]);
+        assert_eq!(reopened.playlists[1].tracks, ["200", "400"]);
+        assert_eq!(
+            std::fs::read(&source).unwrap(),
+            include_bytes!("../../../xtask/tests/fixtures/f02-playlist-member-reorder/source.xml")
+        );
+        assert!(app.xml_pending_reorder.is_none());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn playlist_member_reorder_refuses_boundary_and_clears_pending_proposal() {
+        let (root, source) = temporary_xml();
+        let mut app = app();
+        app.xml_path = source.display().to_string();
+        app.preview_xml();
+        app.xml_selected_playlist = Some(0);
+        app.prepare_xml_member_reorder(0, 1, 1);
+        assert!(app.xml_pending_reorder.is_some());
+        app.prepare_xml_member_reorder(0, 0, -1);
+        assert!(app.xml_pending_reorder.is_none());
+        assert!(app.xml_edit_error.as_deref().unwrap().contains("boundary"));
         std::fs::remove_dir_all(root).unwrap();
     }
 
