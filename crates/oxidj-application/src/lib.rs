@@ -232,6 +232,52 @@ pub fn export_prepared_rekordbox_playlist_member_append(
     publish_new_file(&output, &prepared.bytes)
 }
 
+/// A source-bound prepared empty-playlist creation retains its exact preview snapshot.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PreparedPlaylistCreateExport {
+    source: std::path::PathBuf,
+    source_bytes: Vec<u8>,
+    bytes: Vec<u8>,
+}
+
+impl PreparedPlaylistCreateExport {
+    pub fn source(&self) -> &Path {
+        &self.source
+    }
+    pub fn bytes(&self) -> &[u8] {
+        &self.bytes
+    }
+}
+
+/// Prepare a guarded empty playlist creation for preview and source-bound export.
+pub fn prepare_rekordbox_playlist_create_export(
+    source: impl AsRef<Path>,
+    request: &PlaylistCreateRequest,
+) -> Result<PreparedPlaylistCreateExport, RekordboxError> {
+    let source = source.as_ref().to_path_buf();
+    let source_bytes = std::fs::read(&source).map_err(|error| RekordboxError(error.to_string()))?;
+    let prepared = oxidj_rekordbox::prepare_playlist_create(&source_bytes, request)?;
+    Ok(PreparedPlaylistCreateExport {
+        source,
+        source_bytes,
+        bytes: prepared.bytes,
+    })
+}
+
+/// Revalidate source bytes and publish prepared playlist-creation bytes to a new file.
+pub fn export_prepared_rekordbox_playlist_create(
+    prepared: &PreparedPlaylistCreateExport,
+    output: impl AsRef<Path>,
+) -> Result<(), RekordboxError> {
+    let (current_source, output) = read_new_export_source(&prepared.source, output)?;
+    if current_source != prepared.source_bytes {
+        return Err(RekordboxError(
+            "source changed after playlist creation preparation".into(),
+        ));
+    }
+    publish_new_file(&output, &prepared.bytes)
+}
+
 /// A source-bound prepared playlist-member insertion retains its exact preview snapshot.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PreparedPlaylistMemberInsertExport {
@@ -1288,5 +1334,36 @@ mod track_name_preparation_tests {
             .is_err()
         );
         std::fs::remove_file(malformed).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod playlist_create_preparation_tests {
+    use super::*;
+
+    #[test]
+    fn playlist_create_preparation_binds_source_and_exports_only_new_destination() {
+        let source = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../xtask/tests/fixtures/rekordbox-a1/F-02/source.bin")
+            .canonicalize()
+            .unwrap();
+        let request = PlaylistCreateRequest {
+            parent_index: 0,
+            expected_parent_name: "Sets".into(),
+            name: "Practice".into(),
+        };
+        let prepared = prepare_rekordbox_playlist_create_export(&source, &request).unwrap();
+        let output =
+            std::env::temp_dir().join(format!("oxidj-create-{}-out.xml", std::process::id()));
+        let existing =
+            std::env::temp_dir().join(format!("oxidj-create-{}-existing.xml", std::process::id()));
+        std::fs::write(&existing, b"keep").unwrap();
+        assert!(export_prepared_rekordbox_playlist_create(&prepared, &source).is_err());
+        assert!(export_prepared_rekordbox_playlist_create(&prepared, &existing).is_err());
+        assert_eq!(std::fs::read(&existing).unwrap(), b"keep");
+        export_prepared_rekordbox_playlist_create(&prepared, &output).unwrap();
+        assert_eq!(std::fs::read(&output).unwrap(), prepared.bytes());
+        let _ = std::fs::remove_file(output);
+        let _ = std::fs::remove_file(existing);
     }
 }

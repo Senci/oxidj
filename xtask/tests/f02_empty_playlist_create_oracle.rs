@@ -109,7 +109,7 @@ fn playlists(n: &Node, path: &mut Vec<String>, out: &mut Vec<P>) {
         path.pop();
     }
 }
-fn check(b: &[u8]) -> Result<(), String> {
+pub(crate) fn check(b: &[u8]) -> Result<(), String> {
     let root = decode(b);
     let mut ps = vec![];
     playlists(&root, &mut vec![], &mut ps);

@@ -37,7 +37,7 @@
       "checker": {
         "path": "xtask/tests/f02_empty_playlist_create_oracle.rs",
         "version": "f09-operation-oracle-v1",
-        "sha256": "65f0e6e7f4a38f794889ab8a51eaded99db11615759005f25c8228e32d6de91d",
+        "sha256": "f09e58dc7d5b824128e5b4128fcbb23d31816a8e036c23bfaa70f950380f36c8",
         "tests": [
           "independently_decodes_empty_playlist_creation_and_rejects_structural_mutations"
         ]
