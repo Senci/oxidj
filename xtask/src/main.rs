@@ -327,6 +327,75 @@ fn run_cargo_step(step: &str, args: &[&str], env_extra: &[(&str, &str)]) -> i32 
     exit_code
 }
 
+fn validate_onelibrary_graphs(main_graph: &str, reader_graph: &str) -> Result<(), String> {
+    if main_graph.to_ascii_lowercase().contains("sqlcipher") {
+        return Err("SQLCipher feature leaked into the main workspace graph".into());
+    }
+    if !reader_graph.contains("rusqlite v0.40.2")
+        || !reader_graph.contains("bundled-sqlcipher-vendored-openssl")
+    {
+        return Err("isolated reader lacks the pinned SQLCipher/OpenSSL feature graph".into());
+    }
+    Ok(())
+}
+
+fn check_onelibrary_boundary() -> Result<(), String> {
+    let root = workspace_root();
+    let root_tree = Command::new("cargo")
+        .args(["tree", "--workspace", "-e", "features", "--locked"])
+        .current_dir(&root)
+        .output()
+        .map_err(|error| format!("could not inspect main dependency features: {error}"))?;
+    if !root_tree.status.success() {
+        return Err(String::from_utf8_lossy(&root_tree.stderr).into_owned());
+    }
+    let root_tree = String::from_utf8_lossy(&root_tree.stdout);
+
+    let isolated = root.join("adapters/onelibrary-reader");
+    let manifest = std::fs::read_to_string(isolated.join("reader/Cargo.toml"))
+        .map_err(|error| format!("cannot read isolated reader manifest: {error}"))?;
+    for pin in [
+        "version = \"=0.40.2\"",
+        "version = \"=1.8.2\"",
+        "version = \"=1.0.229\"",
+        "=1.0.154",
+    ] {
+        if !manifest.contains(pin) {
+            return Err(format!("isolated reader dependency pin missing: {pin}"));
+        }
+    }
+    if !isolated.join("Cargo.lock").is_file() {
+        return Err("isolated reader Cargo.lock is missing".into());
+    }
+    let reader_tree = Command::new("cargo")
+        .args([
+            "tree",
+            "--manifest-path",
+            "Cargo.toml",
+            "-e",
+            "features",
+            "--locked",
+            "--offline",
+        ])
+        .current_dir(&isolated)
+        .output()
+        .map_err(|error| format!("could not inspect isolated reader features: {error}"))?;
+    if !reader_tree.status.success() {
+        return Err(String::from_utf8_lossy(&reader_tree.stderr).into_owned());
+    }
+    let reader_tree = String::from_utf8_lossy(&reader_tree.stdout);
+    validate_onelibrary_graphs(&root_tree, &reader_tree)?;
+    let licenses = Command::new("cargo")
+        .args(["deny", "check", "licenses"])
+        .current_dir(&isolated)
+        .status()
+        .map_err(|error| format!("could not run isolated locked license gate: {error}"))?;
+    if !licenses.success() {
+        return Err("isolated locked license gate failed".into());
+    }
+    Ok(())
+}
+
 fn cmd_layers() -> i32 {
     println!();
     println!("==> [layers] cargo xtask layers — ADR-004 dependency guard");
@@ -338,9 +407,13 @@ fn cmd_layers() -> i32 {
             return 1;
         }
     };
+    if let Err(error) = check_onelibrary_boundary() {
+        println!("==> [layers] FAIL — OneLibrary isolation: {error}");
+        return 1;
+    }
     match check_layers(&meta) {
         Ok(()) => {
-            println!("==> [layers] PASS — all dependency edges within allowed layers");
+            println!("==> [layers] PASS — ADR-004 layers and OneLibrary SQLCipher isolation");
             0
         }
         Err(violations) => {
@@ -490,6 +563,14 @@ fn main() {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn onelibrary_graph_gate_rejects_sqlcipher_leaks_and_unpinned_isolated_graphs() {
+        let isolated = "rusqlite v0.40.2 feature bundled-sqlcipher-vendored-openssl";
+        assert!(validate_onelibrary_graphs("oxidj-cli features", isolated).is_ok());
+        assert!(validate_onelibrary_graphs("rusqlite feature sqlcipher", isolated).is_err());
+        assert!(validate_onelibrary_graphs("clean", "rusqlite v0.40.2").is_err());
+    }
 
     #[test]
     fn layers_assign_core_bottom_product_crates_above_xtask_exempt() {

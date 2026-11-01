@@ -195,7 +195,9 @@ fn read_preview(path: &Path, key: &[u8]) -> Result<Preview, ()> {
         .prepare("SELECT playlist_id,track_id FROM playlist_tracks ORDER BY playlist_id,position")
         .map_err(|_| ())?;
     let membership_rows = membership_check
-        .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))
+        .query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })
         .map_err(|_| ())?;
     let playlist_ids: std::collections::HashSet<String> = conn
         .prepare("SELECT id FROM playlists")
@@ -204,7 +206,10 @@ fn read_preview(path: &Path, key: &[u8]) -> Result<Preview, ()> {
         .map_err(|_| ())?
         .collect::<Result<_, _>>()
         .map_err(|_| ())?;
-    let track_ids: std::collections::HashSet<String> = tracks.iter().map(|track| track.id.as_str().to_owned()).collect();
+    let track_ids: std::collections::HashSet<String> = tracks
+        .iter()
+        .map(|track| track.id.as_str().to_owned())
+        .collect();
     for row in membership_rows {
         let (playlist_id, track_id) = row.map_err(|_| ())?;
         if !playlist_ids.contains(&playlist_id) || !track_ids.contains(&track_id) {

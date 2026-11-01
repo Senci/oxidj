@@ -253,6 +253,37 @@ mod tests {
     }
 
     #[test]
+    fn manual_protocol_codec_round_trips_and_rejects_malformed_payloads() {
+        let preview = Preview {
+            protocol_version: PROTOCOL_VERSION,
+            schema_profile: SCHEMA_PROFILE_V1,
+            tracks: vec![Track {
+                id: id("src:1"),
+                title: Some("Title".into()),
+                artist: None,
+                album: Some("Album".into()),
+            }],
+            playlists: vec![Playlist {
+                id: id("playlist:1"),
+                parent_id: None,
+                sibling_order: 0,
+                name: "Set".into(),
+                track_ids: vec![id("src:1"), id("src:1")],
+            }],
+        };
+        let encoded = encode_preview(preview.clone()).unwrap();
+        assert_eq!(decode_preview(&encoded), Ok(preview));
+        for malformed in [
+            b"{".as_slice(),
+            b"null",
+            b"[]",
+            br#"{"protocol_version":1}"#,
+        ] {
+            assert_eq!(decode_preview(malformed), Err(Error::ProtocolMismatch));
+        }
+    }
+
+    #[test]
     fn rejects_dangling_membership_duplicate_ids_and_parent_cycles() {
         let base = Preview {
             protocol_version: PROTOCOL_VERSION,

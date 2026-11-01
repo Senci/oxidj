@@ -15,7 +15,7 @@ crates at the **same layer or lower**. Depending on a higher layer is a forbidde
 | 0 | `oxidj-core` | Neutral domain model and rules; zero infrastructure deps. |
 | 1 | `oxidj-library` | Shared catalog/application handlers; owns SQLite and migrations. |
 | 2 | `oxidj-rekordbox` | Isolated vendor XML/DeviceSQL adapter (M4 preview). |
-| 2 | `oxidj-onelibrary` | Read-only OneLibrary DTO and process-protocol boundary; no SQL dependency. |
+| 2 | `oxidj-onelibrary` | Read-only OneLibrary DTO and process-protocol boundary; no SQL dependency. SQLCipher lives only in `adapters/onelibrary-reader`, an independent Cargo workspace excluded from the root graph. `cargo xtask layers` checks the root resolved feature graph excludes SQLCipher and verifies the isolated pinned reader graph and locked license gate. |
 | 3 | `oxidj-application` | Orchestrates shared handlers and adapter operations for callers. |
 | 4 | `oxidj-cli` | Thin command-line presentation; calls application/library handlers. |
 | exempt | `xtask` | Build-time tooling (`cargo xtask`), never a product dep. |
