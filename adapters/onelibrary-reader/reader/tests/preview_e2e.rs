@@ -30,7 +30,7 @@ fn native_encrypted_fixture(path: &std::path::Path) {
     conn.execute_batch("INSERT INTO artist VALUES(7,'Artist','artist');
         INSERT INTO album VALUES(9,'Album',7,NULL,0,'album');
         INSERT INTO content(content_id,title,artist_id_artist,album_id) VALUES(10,'Title',7,9),(11,'Second',7,9);
-        INSERT INTO playlist(playlist_id,sequenceNo,name,attribute,playlist_id_parent) VALUES(20,1,'Root',99,NULL),(21,1,'Nested',-4,20),(22,2,'Twin',0,NULL),(23,3,'Twin',0,NULL);
+        INSERT INTO playlist(playlist_id,sequenceNo,name,attribute,playlist_id_parent) VALUES(20,0,'Root',99,NULL),(21,1,'Nested',-4,20),(22,2,'Twin',0,NULL),(23,3,'Twin',0,NULL);
         INSERT INTO playlist_content VALUES(21,10,1),(21,10,2),(21,11,3);").unwrap();
 }
 
@@ -64,6 +64,8 @@ fn native_schema_profile_previews_only_unambiguous_fields_and_order() {
         serde_json::json!(["content:10", "content:10", "content:11"])
     );
     assert_eq!(json["playlists"][1]["id"], "playlist:22");
+    assert_eq!(json["playlists"][0]["sibling_order"], 0);
+    assert_eq!(json["playlists"][1]["sibling_order"], 1);
     assert_eq!(std::fs::read(&path).unwrap(), before);
     let _ = std::fs::remove_file(path);
 }
@@ -79,7 +81,7 @@ fn rejects_native_schema_and_relation_drift_without_partial_output() {
         "INSERT INTO playlist_content VALUES(21,999,4)",
         "INSERT INTO playlist_content VALUES(999,10,4)",
         "UPDATE playlist SET playlist_id_parent=999 WHERE playlist_id=21",
-        "UPDATE playlist SET sequenceNo=1 WHERE playlist_id=23",
+        "UPDATE playlist SET sequenceNo=2 WHERE playlist_id=23",
     ] {
         let path = temp_db();
         native_encrypted_fixture(&path);

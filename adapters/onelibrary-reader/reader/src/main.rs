@@ -370,7 +370,7 @@ fn read_native_preview(conn: &rusqlite::Connection) -> Result<Preview, ()> {
         .map_err(|_| ())?;
     for row in rows {
         let (raw_id, sequence, name, raw_parent) = row.map_err(|_| ())?;
-        if sequence < 1 || !sibling_sequence.insert((raw_parent, sequence)) {
+        if sequence < 0 || !sibling_sequence.insert((raw_parent, sequence)) {
             return Err(());
         }
         let order = sibling_order.entry(raw_parent).or_default();
