@@ -1,5 +1,26 @@
 # Project Status
 
+## TL;DR roadmap overview (2026-11-01)
+
+| Stage | Status | TL;DR |
+|---|---|---|
+| M0 Bootstrap/research/tooling | Complete | Foundation and repository workflow established. |
+| M1 Library core | Complete for revised local contract | Local catalog scope is capped at 10,000 tracks; historical scale and qualification gates remain separate. |
+| M2 Filesystem import | Complete for revised local contract | Reference-only local import acceptance is complete. |
+| M3 Usable library UI | Complete for revised local contract | Persistent local-library UI acceptance is complete; production GUI/accessibility and 500k/60fps gates remain unpassed. |
+| M4 OneLibrary/Rekordbox interoperability | In progress | Synthetic XML editing/export and read-only PDB/OneLibrary previews exist. Native/vendor compatibility and ADR-005 qualification remain NOT DEMONSTRATED. |
+
+### M4 current-stage detail
+
+| Workstream | Current evidence | Status / next gate |
+|---|---|---|
+| Rekordbox XML | Synthetic parser/export operations and F-09 checker inventory are implemented. | Synthetic scope only; global F-09 and vendor compatibility remain NOT DEMONSTRATED. |
+| DeviceSQL PDB | Read-only preview passed bounded scratch-copy smoke. | Independent format slice; no hardware/application compatibility claim. |
+| OneLibrary reader | Synthetic encrypted profile and provisional native-profile reader are implemented; prior bounded local smoke is recorded below. | Provisional structural evidence only; A3/ADR-005 remain NOT DEMONSTRATED. |
+| A3 native evidence | Exact-name search found a candidate on the read-only owner USB; a private scratch copy is byte-identical. This candidate remains opaque; no records were read. | ADR-005 requires qualified source artifacts/version, lawful exact-record/container extraction and preservation, and an independent checker path. Same card `t_4105b6eb` remains in triage; actual container metadata or an authorized reader plus a verified read-only view remain missing. Do not claim qualification. |
+| Product direction | Sol decision card `t_18cde9a9` remains blocked on the assigned OpenAI-Codex 429 route. | Existing one-shot wake is scheduled for 2026-11-02 09:57 CET; do not check quota or switch route. |
+| Deferred gates | Production GUI/accessibility/platform, 500k/60fps, and vendor qualification evidence. | Preserve as NOT DEMONSTRATED; none is implied by synthetic tests or bounded local smoke. |
+
 ## Current milestone
 
 ### M4 OneLibrary preview — synthetic v1 plus provisional native-profile implementation (2026-11-01)
