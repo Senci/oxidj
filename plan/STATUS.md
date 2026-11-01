@@ -14,11 +14,11 @@
 
 | Workstream | Current evidence | Status / next gate |
 |---|---|---|
-| Rekordbox XML | Synthetic parser/export operations and F-09 checker inventory are implemented. | Synthetic scope only; global F-09 and vendor compatibility remain NOT DEMONSTRATED. |
+| Rekordbox XML | Synthetic parser/export operations and F-09 checker inventory are implemented. Commit `c450606` binds guarded Track Name CLI export to the shared independent F-02 oracle. | Focused CLI/oracle tests and `cargo xtask ci` pass; Sol re-review pending. Synthetic scope only; global F-09 and vendor compatibility remain NOT DEMONSTRATED. |
 | DeviceSQL PDB | Read-only preview passed bounded scratch-copy smoke. | Independent format slice; no hardware/application compatibility claim. |
 | OneLibrary reader | Synthetic encrypted profile and provisional native-profile reader are implemented; prior bounded local smoke is recorded below. | Provisional structural evidence only; A3/ADR-005 remain NOT DEMONSTRATED. |
 | A3 native evidence | Exact-name search found a candidate on the read-only owner USB; a private scratch copy is byte-identical. This candidate remains opaque; no records were read. | ADR-005 requires qualified source artifacts/version, lawful exact-record/container extraction and preservation, and an independent checker path. Same card `t_4105b6eb` remains in triage; actual container metadata or an authorized reader plus a verified read-only view remain missing. Do not claim qualification. |
-| Product direction | Sol decision card `t_18cde9a9` remains blocked on the assigned OpenAI-Codex 429 route. | Existing one-shot wake is scheduled for 2026-11-02 09:57 CET; do not check quota or switch route. |
+| Product direction | Sol decision card `t_18cde9a9` is running as run `1661` on `gpt-6.1-sol` / `openai-codex`. | Await recommendation and reconcile its next increment; no autonomous wake is verified. Do not check quota or switch route. |
 | Deferred gates | Production GUI/accessibility/platform, 500k/60fps, and vendor qualification evidence. | Preserve as NOT DEMONSTRATED; none is implied by synthetic tests or bounded local smoke. |
 
 ## Current milestone
