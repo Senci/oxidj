@@ -138,6 +138,36 @@ pub fn preview_rekordbox_pdb(path: impl AsRef<Path>) -> Result<PdbPreview, PdbPr
     oxidj_rekordbox::parse_pdb_file(path)
 }
 
+/// Source and exact-old guard for a previewable Track Name edit.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TrackNameEditPreparationRequest {
+    pub source: std::path::PathBuf,
+    pub track_id: String,
+    pub expected_old_name: String,
+    pub new_name: String,
+}
+
+/// Read-only application handler: prepare one guarded Track Name edit for preview or export.
+pub fn prepare_rekordbox_track_name_edit(
+    request: &TrackNameEditPreparationRequest,
+) -> Result<PreparedTrackNameEdit, RekordboxError> {
+    let source =
+        std::fs::read(&request.source).map_err(|error| RekordboxError(error.to_string()))?;
+    let adapter_request = TrackNameEditRequest {
+        track_id: request.track_id.clone(),
+        expected_old_name: request.expected_old_name.clone(),
+        new_name: request.new_name.clone(),
+    };
+    prepare_rekordbox_track_name_edit_bytes(&source, &adapter_request)
+}
+
+fn prepare_rekordbox_track_name_edit_bytes(
+    source: &[u8],
+    request: &TrackNameEditRequest,
+) -> Result<PreparedTrackNameEdit, RekordboxError> {
+    oxidj_rekordbox::prepare_track_name_edit(source, request)
+}
+
 /// Export one guarded track Name edit to a new, non-overwriting file.
 pub fn export_rekordbox_track_name_edit(
     input: impl AsRef<Path>,
@@ -145,7 +175,7 @@ pub fn export_rekordbox_track_name_edit(
     request: &TrackNameEditRequest,
 ) -> Result<TrackNameEditChange, RekordboxError> {
     let (source, output) = read_new_export_source(input, output)?;
-    let prepared = oxidj_rekordbox::prepare_track_name_edit(&source, request)?;
+    let prepared = prepare_rekordbox_track_name_edit_bytes(&source, request)?;
     publish_new_file(&output, &prepared.bytes)?;
     Ok(prepared.change)
 }
@@ -854,4 +884,65 @@ fn publish_new_file(output: &Path, bytes: &[u8]) -> Result<(), RekordboxError> {
         let _ = fs::remove_file(&temp);
     }
     result
+}
+
+#[cfg(test)]
+mod track_name_preparation_tests {
+    use super::*;
+
+    fn fixture_source() -> std::path::PathBuf {
+        let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../xtask/tests/fixtures/rekordbox-a1/F-02/source.bin");
+        path.canonicalize().unwrap()
+    }
+
+    #[test]
+    fn preparation_returns_preview_bytes_without_writing_source_or_output() {
+        let source = fixture_source();
+        let before = std::fs::read(&source).unwrap();
+        let destination =
+            std::env::temp_dir().join(format!("oxidj-track-name-output-{}", std::process::id()));
+        let prepared = prepare_rekordbox_track_name_edit(&TrackNameEditPreparationRequest {
+            source: source.clone(),
+            track_id: "100".into(),
+            expected_old_name: "A".into(),
+            new_name: "New < title".into(),
+        })
+        .unwrap();
+        assert_eq!(prepared.change.track_id, "100");
+        assert_eq!(prepared.change.old_name, "A");
+        assert_eq!(prepared.change.new_name, "New < title");
+        assert_ne!(prepared.bytes, before);
+        assert_eq!(std::fs::read(&source).unwrap(), before);
+        assert!(!destination.exists());
+    }
+
+    #[test]
+    fn preparation_rejects_malformed_stale_and_unknown_track_sources() {
+        let source = fixture_source();
+        for (track_id, expected_old_name) in [("100", "stale"), ("999", "A")] {
+            assert!(
+                prepare_rekordbox_track_name_edit(&TrackNameEditPreparationRequest {
+                    source: source.clone(),
+                    track_id: track_id.into(),
+                    expected_old_name: expected_old_name.into(),
+                    new_name: "New".into(),
+                })
+                .is_err()
+            );
+        }
+        let malformed =
+            std::env::temp_dir().join(format!("oxidj-track-name-malformed-{}", std::process::id()));
+        std::fs::write(&malformed, b"<broken").unwrap();
+        assert!(
+            prepare_rekordbox_track_name_edit(&TrackNameEditPreparationRequest {
+                source: malformed.clone(),
+                track_id: "100".into(),
+                expected_old_name: "A".into(),
+                new_name: "New".into(),
+            })
+            .is_err()
+        );
+        std::fs::remove_file(malformed).unwrap();
+    }
 }
