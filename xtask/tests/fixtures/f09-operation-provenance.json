@@ -97,7 +97,7 @@
       "checker": {
         "path": "xtask/tests/f02_playlist_delete_oracle.rs",
         "version": "f09-operation-oracle-v1",
-        "sha256": "ec14392672f60c0d93abec8002f7b5cedfbf379be6b1be5761b36710e9c0383b",
+        "sha256": "cead2367a6ce06b3d7ebe911221ba8c365d3e46b72a90cbaa60f05821134c5e5",
         "tests": [
           "independently_decodes_playlist_deletion_and_rejects_structural_mutations"
         ]

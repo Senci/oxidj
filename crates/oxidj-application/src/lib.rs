@@ -726,6 +726,51 @@ pub fn export_rekordbox_playlist_delete(
     publish_new_file(&output, &prepared.bytes)
 }
 
+/// A source-bound prepared whole-playlist deletion retains its exact preview snapshot.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PreparedPlaylistDeleteExport {
+    source: std::path::PathBuf,
+    source_bytes: Vec<u8>,
+    bytes: Vec<u8>,
+}
+impl PreparedPlaylistDeleteExport {
+    pub fn source(&self) -> &Path {
+        &self.source
+    }
+    pub fn bytes(&self) -> &[u8] {
+        &self.bytes
+    }
+}
+
+/// Prepare deletion of one guarded playlist node for preview and source-bound export.
+pub fn prepare_rekordbox_playlist_delete_export(
+    source: impl AsRef<Path>,
+    request: &PlaylistDeleteRequest,
+) -> Result<PreparedPlaylistDeleteExport, RekordboxError> {
+    let source = source.as_ref().to_path_buf();
+    let source_bytes = std::fs::read(&source).map_err(|error| RekordboxError(error.to_string()))?;
+    let prepared = oxidj_rekordbox::prepare_playlist_delete(&source_bytes, request)?;
+    Ok(PreparedPlaylistDeleteExport {
+        source,
+        source_bytes,
+        bytes: prepared.bytes,
+    })
+}
+
+/// Revalidate source bytes and publish only the prepared deletion to a new file.
+pub fn export_prepared_rekordbox_playlist_delete(
+    prepared: &PreparedPlaylistDeleteExport,
+    output: impl AsRef<Path>,
+) -> Result<(), RekordboxError> {
+    let (current_source, output) = read_new_export_source(&prepared.source, output)?;
+    if current_source != prepared.source_bytes {
+        return Err(RekordboxError(
+            "source changed after playlist deletion preparation".into(),
+        ));
+    }
+    publish_new_file(&output, &prepared.bytes)
+}
+
 /// A source-bound prepared playlist-member removal retains its exact preview snapshot.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PreparedPlaylistMemberDeleteExport {
@@ -1431,6 +1476,57 @@ mod track_name_preparation_tests {
             .is_err()
         );
         std::fs::remove_file(malformed).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod playlist_delete_preparation_tests {
+    use super::*;
+
+    #[test]
+    fn whole_playlist_delete_preparation_is_source_bound_and_never_overwrites() {
+        use std::time::{SystemTime, UNIX_EPOCH};
+        let root = std::env::temp_dir().join(format!(
+            "oxidj-app-playlist-delete-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let source = root.join("source.xml");
+        std::fs::copy(
+            std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("../../xtask/tests/fixtures/f02-playlist-delete/source.xml"),
+            &source,
+        )
+        .unwrap();
+        let original = std::fs::read(&source).unwrap();
+        let request = PlaylistDeleteRequest {
+            playlist_index: 1,
+            expected_name: "Techno".into(),
+            expected_order: vec!["200".into(), "400".into()],
+        };
+        let prepared = prepare_rekordbox_playlist_delete_export(&source, &request).unwrap();
+        assert_ne!(prepared.bytes(), original);
+        assert_eq!(std::fs::read(&source).unwrap(), original);
+        let existing = root.join("existing.xml");
+        std::fs::write(&existing, b"keep").unwrap();
+        assert!(export_prepared_rekordbox_playlist_delete(&prepared, &source).is_err());
+        assert!(export_prepared_rekordbox_playlist_delete(&prepared, &existing).is_err());
+        assert_eq!(std::fs::read(&existing).unwrap(), b"keep");
+        let output = root.join("deleted.xml");
+        export_prepared_rekordbox_playlist_delete(&prepared, &output).unwrap();
+        assert_eq!(std::fs::read(&output).unwrap(), prepared.bytes());
+        let stale_source = root.join("stale.xml");
+        std::fs::copy(&source, &stale_source).unwrap();
+        let stale = prepare_rekordbox_playlist_delete_export(&stale_source, &request).unwrap();
+        std::fs::write(&stale_source, b"changed").unwrap();
+        let stale_output = root.join("stale-output.xml");
+        assert!(export_prepared_rekordbox_playlist_delete(&stale, &stale_output).is_err());
+        assert!(!stale_output.exists());
+        std::fs::remove_dir_all(root).unwrap();
     }
 }
 
