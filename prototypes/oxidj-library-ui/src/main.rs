@@ -5,6 +5,9 @@ use std::path::PathBuf;
 mod components;
 mod control_gallery;
 #[cfg(test)]
+#[path = "../../../xtask/tests/f02_empty_folder_create_oracle.rs"]
+mod f02_empty_folder_create_oracle;
+#[cfg(test)]
 #[path = "../../../xtask/tests/f02_empty_playlist_create_oracle.rs"]
 mod f02_empty_playlist_create_oracle;
 #[cfg(test)]
@@ -94,6 +97,17 @@ struct PendingPlaylistRename {
 }
 
 #[derive(Debug, Clone)]
+struct PendingFolderCreate {
+    source: PathBuf,
+    parent_index: usize,
+    parent_ordinal: usize,
+    parent_name: String,
+    name: String,
+    parent_count: Option<String>,
+    prepared: oxidj_application::PreparedFolderCreateExport,
+}
+
+#[derive(Debug, Clone)]
 struct PendingPlaylistCreate {
     source: PathBuf,
     parent_index: usize,
@@ -158,6 +172,9 @@ struct LibraryApp {
     xml_create_name: String,
     xml_pending_create: Option<PendingPlaylistCreate>,
     xml_create_export_path: String,
+    xml_folder_create_name: String,
+    xml_pending_folder_create: Option<PendingFolderCreate>,
+    xml_folder_create_export_path: String,
     xml_playlist_rename_name: String,
     xml_pending_rename: Option<PendingPlaylistRename>,
     xml_rename_export_path: String,
@@ -225,6 +242,9 @@ impl LibraryApp {
             xml_create_name: String::new(),
             xml_pending_create: None,
             xml_create_export_path: String::new(),
+            xml_folder_create_name: String::new(),
+            xml_pending_folder_create: None,
+            xml_folder_create_export_path: String::new(),
             xml_playlist_rename_name: String::new(),
             xml_pending_rename: None,
             xml_rename_export_path: String::new(),
@@ -715,32 +735,91 @@ impl LibraryApp {
     }
 
     fn prepare_xml_playlist_delete(&mut self, playlist_index: usize) {
-        let (Some(source), Some(Ok(preview))) = (self.xml_document_source.clone(), self.xml_preview.as_ref()) else { return; };
+        let (Some(source), Some(Ok(preview))) =
+            (self.xml_document_source.clone(), self.xml_preview.as_ref())
+        else {
+            return;
+        };
         let Some(playlist) = preview.playlists.get(playlist_index) else {
             self.xml_pending_playlist_delete = None;
-            self.xml_edit_error = Some("Playlist deletion refused: selected playlist is invalid".into());
+            self.xml_edit_error =
+                Some("Playlist deletion refused: selected playlist is invalid".into());
             return;
         };
         let name = playlist.name.clone();
         let expected_order = playlist.tracks.clone();
-        let request = oxidj_application::PlaylistDeleteRequest { playlist_index, expected_name: name.clone(), expected_order: expected_order.clone() };
+        let request = oxidj_application::PlaylistDeleteRequest {
+            playlist_index,
+            expected_name: name.clone(),
+            expected_order: expected_order.clone(),
+        };
         match oxidj_application::prepare_rekordbox_playlist_delete_export(&source, &request) {
-            Ok(prepared) => { self.xml_pending_playlist_delete = Some(PendingPlaylistDelete { source, playlist_index, name, expected_order, prepared }); self.xml_edit_error = None; }
-            Err(error) => { self.xml_pending_playlist_delete = None; self.xml_edit_error = Some(format!("Playlist deletion refused: {error}")); }
+            Ok(prepared) => {
+                self.xml_pending_playlist_delete = Some(PendingPlaylistDelete {
+                    source,
+                    playlist_index,
+                    name,
+                    expected_order,
+                    prepared,
+                });
+                self.xml_edit_error = None;
+            }
+            Err(error) => {
+                self.xml_pending_playlist_delete = None;
+                self.xml_edit_error = Some(format!("Playlist deletion refused: {error}"));
+            }
         }
     }
-    fn cancel_xml_playlist_delete(&mut self) { self.xml_pending_playlist_delete = None; self.xml_edit_error = None; }
+    fn cancel_xml_playlist_delete(&mut self) {
+        self.xml_pending_playlist_delete = None;
+        self.xml_edit_error = None;
+    }
     fn export_xml_playlist_delete(&mut self) {
-        let Some(pending) = self.xml_pending_playlist_delete.clone() else { self.xml_edit_error = Some("Playlist deletion export refused: no pending proposal".into()); return; };
+        let Some(pending) = self.xml_pending_playlist_delete.clone() else {
+            self.xml_edit_error =
+                Some("Playlist deletion export refused: no pending proposal".into());
+            return;
+        };
         let valid = self.xml_document_source.as_ref() == Some(&pending.source)
             && self.xml_selected_playlist == Some(pending.playlist_index)
-            && self.xml_preview.as_ref().and_then(|p| p.as_ref().ok()).and_then(|p| p.playlists.get(pending.playlist_index)).is_some_and(|p| p.name == pending.name && p.tracks == pending.expected_order);
-        if !valid { self.xml_pending_playlist_delete = None; self.xml_edit_error = Some("Playlist deletion refused: source, playlist, name, or membership order changed".into()); return; }
-        if self.xml_playlist_delete_export_path.trim().is_empty() { self.xml_edit_error = Some("Playlist deletion refused: choose a new destination".into()); return; }
+            && self
+                .xml_preview
+                .as_ref()
+                .and_then(|p| p.as_ref().ok())
+                .and_then(|p| p.playlists.get(pending.playlist_index))
+                .is_some_and(|p| p.name == pending.name && p.tracks == pending.expected_order);
+        if !valid {
+            self.xml_pending_playlist_delete = None;
+            self.xml_edit_error = Some(
+                "Playlist deletion refused: source, playlist, name, or membership order changed"
+                    .into(),
+            );
+            return;
+        }
+        if self.xml_playlist_delete_export_path.trim().is_empty() {
+            self.xml_edit_error =
+                Some("Playlist deletion refused: choose a new destination".into());
+            return;
+        }
         let output = PathBuf::from(&self.xml_playlist_delete_export_path);
-        match oxidj_application::export_prepared_rekordbox_playlist_delete(&pending.prepared, &output) {
-            Ok(()) => { self.xml_pending_playlist_delete = None; self.xml_preview = Some(oxidj_application::preview_rekordbox_xml(&output).map_err(|e| e.to_string())); self.xml_document_source = Some(output.clone()); self.notice = format!("Playlist node deleted in {}; collection tracks and other playlists are unchanged", output.display()); }
-            Err(error) => self.xml_edit_error = Some(format!("Playlist deletion export failed: {error}")),
+        match oxidj_application::export_prepared_rekordbox_playlist_delete(
+            &pending.prepared,
+            &output,
+        ) {
+            Ok(()) => {
+                self.xml_pending_playlist_delete = None;
+                self.xml_preview = Some(
+                    oxidj_application::preview_rekordbox_xml(&output).map_err(|e| e.to_string()),
+                );
+                self.xml_document_source = Some(output.clone());
+                self.notice = format!(
+                    "Playlist node deleted in {}; collection tracks and other playlists are unchanged",
+                    output.display()
+                );
+            }
+            Err(error) => {
+                self.xml_edit_error = Some(format!("Playlist deletion export failed: {error}"))
+            }
         }
     }
 
@@ -836,6 +915,103 @@ impl LibraryApp {
             }
             Err(error) => {
                 self.xml_edit_error = Some(format!("Playlist clear export failed: {error}"))
+            }
+        }
+    }
+
+    fn prepare_xml_folder_create(&mut self) {
+        let (Some(source), Some(parent_index)) =
+            (self.xml_document_source.clone(), self.xml_selected_parent)
+        else {
+            self.xml_pending_folder_create = None;
+            self.xml_edit_error =
+                Some("Folder creation refused: select a paired non-root parent".into());
+            return;
+        };
+        let Some(Ok(preview)) = self.xml_preview.as_ref() else {
+            return;
+        };
+        let Some(parent) = preview
+            .folders
+            .get(parent_index)
+            .filter(|folder| folder.path.len() > 1)
+        else {
+            self.xml_pending_folder_create = None;
+            self.xml_edit_error =
+                Some("Folder creation refused: selected parent is invalid or root".into());
+            return;
+        };
+        let parent_name = parent.name.clone();
+        let request = oxidj_application::FolderCreateRequest {
+            parent_index: parent.ordinal.saturating_sub(1),
+            expected_parent_name: parent_name.clone(),
+            name: self.xml_folder_create_name.clone(),
+        };
+        match oxidj_application::prepare_rekordbox_folder_create_export(&source, &request) {
+            Ok(prepared) => {
+                self.xml_pending_folder_create = Some(PendingFolderCreate {
+                    source,
+                    parent_index,
+                    parent_ordinal: parent.ordinal,
+                    parent_name,
+                    name: self.xml_folder_create_name.clone(),
+                    parent_count: parent.count.clone(),
+                    prepared,
+                });
+                self.xml_edit_error = None;
+            }
+            Err(error) => {
+                self.xml_pending_folder_create = None;
+                self.xml_edit_error = Some(format!("Folder creation refused: {error}"));
+            }
+        }
+    }
+
+    fn cancel_xml_folder_create(&mut self) {
+        self.xml_pending_folder_create = None;
+        self.xml_edit_error = None;
+    }
+
+    fn export_xml_folder_create(&mut self) {
+        let Some(pending) = self.xml_pending_folder_create.clone() else {
+            self.xml_edit_error = Some("Folder creation refused: no pending proposal".into());
+            return;
+        };
+        let parent_unchanged = self
+            .xml_preview
+            .as_ref()
+            .and_then(|p| p.as_ref().ok())
+            .and_then(|p| p.folders.get(pending.parent_index))
+            .is_some_and(|parent| {
+                parent.ordinal == pending.parent_ordinal
+                    && parent.name == pending.parent_name
+                    && parent.count == pending.parent_count
+                    && parent.path.len() > 1
+            });
+        if self.xml_document_source.as_ref() != Some(&pending.source)
+            || self.xml_selected_parent != Some(pending.parent_index)
+            || self.xml_folder_create_name != pending.name
+            || !parent_unchanged
+        {
+            self.xml_pending_folder_create = None;
+            self.xml_edit_error =
+                Some("Folder creation refused: source, parent, or name changed".into());
+            return;
+        }
+        let output = PathBuf::from(&self.xml_folder_create_export_path);
+        match oxidj_application::export_prepared_rekordbox_folder_create(&pending.prepared, &output)
+        {
+            Ok(()) => {
+                self.xml_pending_folder_create = None;
+                self.xml_edit_error = None;
+                self.notice = format!("Empty folder exported to {}", output.display());
+                self.xml_preview = Some(
+                    oxidj_application::preview_rekordbox_xml(&output).map_err(|e| e.to_string()),
+                );
+                self.xml_document_source = Some(output);
+            }
+            Err(error) => {
+                self.xml_edit_error = Some(format!("Folder creation export failed: {error}"))
             }
         }
     }
@@ -994,6 +1170,7 @@ impl LibraryApp {
 
     fn on_xml_source_changed(&mut self) {
         self.xml_pending_create = None;
+        self.xml_pending_folder_create = None;
         self.xml_pending_rename = None;
         self.xml_pending_playlist_delete = None;
         self.xml_selected_parent = None;
@@ -1574,6 +1751,7 @@ impl eframe::App for LibraryApp {
                             if ui.selectable_label(self.xml_selected_parent == Some(parent_index), label).clicked() {
                                 self.xml_selected_parent = Some(parent_index);
                                 self.xml_pending_create = None;
+                                self.xml_pending_folder_create = None;
                             }
                         }
                         if let Some(parent_index) = self.xml_selected_parent {
@@ -1590,6 +1768,28 @@ impl eframe::App for LibraryApp {
                             });
                             if ui.button("Export prepared playlist").clicked() { self.export_xml_playlist_create(); }
                             if ui.button("Cancel playlist creation").clicked() { self.xml_pending_create = None; }
+                        }
+                        SectionHeading { title: "Guarded empty-folder creation (provisional)" }.show(ui, tokens);
+                        if let Some(parent_index) = self.xml_selected_parent {
+                            let parent = preview.folders.get(parent_index).filter(|folder| folder.path.len() > 1);
+                            if let Some(parent) = parent {
+                                let label = format!("Selected paired parent #{} · {}", parent.ordinal.saturating_sub(1), parent.path.join(" / "));
+                                ui.label(label);
+                                let changed = ui.text_edit_singleline(&mut self.xml_folder_create_name).changed();
+                                if changed { self.xml_pending_folder_create = None; }
+                                if ui.button("Prepare empty folder").clicked() { self.prepare_xml_folder_create(); }
+                            }
+                        } else {
+                            ui.label("Select a paired non-root parent above to create one empty child folder.");
+                        }
+                        if let Some(pending) = &self.xml_pending_folder_create {
+                            let new_count = pending.parent_count.as_deref().and_then(|v| v.parse::<u64>().ok()).map(|v| v + 1).map(|v| v.to_string()).unwrap_or_else(|| "N+1".into());
+                            let parent_path = preview.folders.get(pending.parent_index).map(|f| f.path.join(" / ")).unwrap_or_default();
+                            ui.strong("Pending folder creation · not exported or saved");
+                            ui.label(format!("Preview: {} / {} · child Count=0 · parent Count {:?} → {} · {} bytes prepared", parent_path, pending.name, pending.parent_count, new_count, pending.prepared.bytes().len()));
+                            ui.horizontal(|ui| { ui.label("New XML destination"); ui.text_edit_singleline(&mut self.xml_folder_create_export_path); });
+                            if ui.button("Export prepared folder").clicked() { self.export_xml_folder_create(); }
+                            if ui.button("Cancel folder creation").clicked() { self.cancel_xml_folder_create(); }
                         }
                         SectionHeading { title: "Playlist-member append (provisional)" }.show(ui, tokens);
                         if let (Some(playlist_index), Some(track_id)) = (self.xml_selected_playlist, self.xml_selected_track.clone()) {
@@ -2359,30 +2559,66 @@ mod keyboard_tests {
     #[test]
     fn whole_playlist_delete_preview_cancel_export_and_oracle_are_source_bound() {
         use std::time::{SystemTime, UNIX_EPOCH};
-        let root = std::env::temp_dir().join(format!("oxidj-ui-playlist-delete-{}-{}", std::process::id(), SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()));
+        let root = std::env::temp_dir().join(format!(
+            "oxidj-ui-playlist-delete-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
         std::fs::create_dir_all(&root).unwrap();
         let source = root.join("source.xml");
-        std::fs::copy(concat!(env!("CARGO_MANIFEST_DIR"), "/../../xtask/tests/fixtures/f02-playlist-delete/source.xml"), &source).unwrap();
+        std::fs::copy(
+            concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../xtask/tests/fixtures/f02-playlist-delete/source.xml"
+            ),
+            &source,
+        )
+        .unwrap();
         let original = std::fs::read(&source).unwrap();
         let catalog = root.join("catalog.sqlite");
         drop(Catalog::open(&catalog).unwrap());
-        let mut app = LibraryApp::new(catalog, ThemeMode::TokyoNight, ThemeMode::TokyoNight.tokens());
+        let mut app = LibraryApp::new(
+            catalog,
+            ThemeMode::TokyoNight,
+            ThemeMode::TokyoNight.tokens(),
+        );
         app.xml_path = source.display().to_string();
         app.preview_xml();
         app.select_xml_playlist(1);
         app.prepare_xml_playlist_delete(1);
-        let prepared = app.xml_pending_playlist_delete.as_ref().unwrap().prepared.bytes().to_vec();
-        let prepared_export = app.xml_pending_playlist_delete.as_ref().unwrap().prepared.clone();
+        let prepared = app
+            .xml_pending_playlist_delete
+            .as_ref()
+            .unwrap()
+            .prepared
+            .bytes()
+            .to_vec();
+        let prepared_export = app
+            .xml_pending_playlist_delete
+            .as_ref()
+            .unwrap()
+            .prepared
+            .clone();
         assert_eq!(std::fs::read(&source).unwrap(), original);
         let stale_output = root.join("stale-source.xml");
         std::fs::write(&source, b"changed source").unwrap();
-        assert!(oxidj_application::export_prepared_rekordbox_playlist_delete(
-            &prepared_export, &stale_output
-        ).is_err());
+        assert!(
+            oxidj_application::export_prepared_rekordbox_playlist_delete(
+                &prepared_export,
+                &stale_output
+            )
+            .is_err()
+        );
         assert!(!stale_output.exists());
         std::fs::write(&source, &original).unwrap();
         app.select_xml_playlist(0);
-        assert!(app.xml_pending_playlist_delete.is_none(), "selection change invalidates proposal");
+        assert!(
+            app.xml_pending_playlist_delete.is_none(),
+            "selection change invalidates proposal"
+        );
         app.select_xml_playlist(1);
         app.prepare_xml_playlist_delete(1);
         let cancelled = root.join("cancelled.xml");
@@ -2399,27 +2635,52 @@ mod keyboard_tests {
             name: "Sets".into(),
             count: Some("99".into()),
         });
-        let parent = immediate_parent_folder(&collision_preview, removed).unwrap_or_else(|| panic!("playlist path {:?}, folders {:?}", removed.path, collision_preview.folders));
+        let parent = immediate_parent_folder(&collision_preview, removed).unwrap_or_else(|| {
+            panic!(
+                "playlist path {:?}, folders {:?}",
+                removed.path, collision_preview.folders
+            )
+        });
         assert_eq!(parent.path, ["ROOT", "Sets"]);
         assert_eq!(parent.name, "Sets");
         assert_eq!(parent.count.as_deref(), Some("3"));
-        assert_eq!(parent.count.as_deref().unwrap().parse::<usize>().unwrap() - 1, 2);
+        assert_eq!(
+            parent.count.as_deref().unwrap().parse::<usize>().unwrap() - 1,
+            2
+        );
         let output = root.join("deleted.xml");
         app.xml_playlist_delete_export_path = output.display().to_string();
         app.export_xml_playlist_delete();
         let exported = std::fs::read(&output).unwrap();
         assert_eq!(exported, prepared);
-        f02_playlist_delete_oracle::check(&exported).expect("actual UI-exported bytes pass independent F-02 oracle");
+        f02_playlist_delete_oracle::check(&exported)
+            .expect("actual UI-exported bytes pass independent F-02 oracle");
         assert_eq!(app.xml_document_source.as_ref(), Some(&output));
         let reopened = app.xml_preview.as_ref().unwrap().as_ref().unwrap();
-        assert_eq!(reopened.playlists.iter().map(|playlist| playlist.name.as_str()).collect::<Vec<_>>(), ["House"]);
+        assert_eq!(
+            reopened
+                .playlists
+                .iter()
+                .map(|playlist| playlist.name.as_str())
+                .collect::<Vec<_>>(),
+            ["House"]
+        );
         assert_eq!(reopened.playlists[0].tracks, ["100", "200", "300"]);
-        let reopened_parent = reopened.folders.iter().find(|folder| folder.name == "Sets").unwrap();
+        let reopened_parent = reopened
+            .folders
+            .iter()
+            .find(|folder| folder.name == "Sets")
+            .unwrap();
         assert_eq!(reopened_parent.count.as_deref(), Some("2"));
         let existing = root.join("existing.xml");
         std::fs::write(&existing, b"keep").unwrap();
-        assert!(oxidj_application::export_prepared_rekordbox_playlist_delete(
-            &prepared_export, &existing).is_err());
+        assert!(
+            oxidj_application::export_prepared_rekordbox_playlist_delete(
+                &prepared_export,
+                &existing
+            )
+            .is_err()
+        );
         assert_eq!(std::fs::read(&existing).unwrap(), b"keep");
         std::fs::remove_dir_all(root).unwrap();
     }
@@ -3484,6 +3745,110 @@ mod keyboard_tests {
             color_hex(ThemeMode::TokyoDay.tokens().secondary)
         );
     }
+    #[test]
+    fn empty_folder_create_ui_exports_prepared_bytes_and_reopens_folder() {
+        use std::time::{SystemTime, UNIX_EPOCH};
+        let root = std::env::temp_dir().join(format!(
+            "oxidj-ui-folder-create-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let source = root.join("source.xml");
+        std::fs::copy(
+            concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../xtask/tests/fixtures/f02-empty-folder-create/source.xml"
+            ),
+            &source,
+        )
+        .unwrap();
+        let original = std::fs::read(&source).unwrap();
+        let catalog = root.join("catalog.sqlite");
+        drop(Catalog::open(&catalog).unwrap());
+        let catalog_before = std::fs::read(&catalog).unwrap();
+        let mut app = LibraryApp::new(
+            catalog.clone(),
+            ThemeMode::TokyoNight,
+            ThemeMode::TokyoNight.tokens(),
+        );
+        app.xml_path = source.display().to_string();
+        app.preview_xml();
+        let preview = app.xml_preview.as_ref().unwrap().as_ref().unwrap();
+        let parent_index = preview
+            .folders
+            .iter()
+            .position(|f| f.name == "Sets" && f.path.len() > 1)
+            .unwrap();
+        app.xml_selected_parent = Some(parent_index);
+        app.xml_folder_create_name = "Practice".into();
+        app.prepare_xml_folder_create();
+        assert!(
+            app.xml_pending_folder_create.is_some(),
+            "preparation: {:?}",
+            app.xml_edit_error
+        );
+        let prepared = app
+            .xml_pending_folder_create
+            .as_ref()
+            .unwrap()
+            .prepared
+            .bytes()
+            .to_vec();
+        app.cancel_xml_folder_create();
+        assert!(app.xml_pending_folder_create.is_none());
+        assert_eq!(std::fs::read(&source).unwrap(), original);
+
+        app.xml_selected_parent = Some(parent_index);
+        app.prepare_xml_folder_create();
+        app.xml_folder_create_name.push('x');
+        app.export_xml_folder_create();
+        assert!(
+            app.xml_pending_folder_create.is_none(),
+            "name change invalidates proposal"
+        );
+        app.xml_folder_create_name = "Practice".into();
+        app.prepare_xml_folder_create();
+        let output = root.join("created.xml");
+        app.xml_folder_create_export_path = output.display().to_string();
+        app.export_xml_folder_create();
+        assert_eq!(std::fs::read(&output).unwrap(), prepared);
+        f02_empty_folder_create_oracle::check(&prepared)
+            .expect("actual UI bytes satisfy independent F-02 oracle");
+        let reopened = oxidj_application::preview_rekordbox_xml(&output).unwrap();
+        let folder = reopened
+            .folders
+            .iter()
+            .find(|f| f.name == "Practice")
+            .unwrap();
+        assert_eq!(folder.path, vec!["ROOT", "Sets", "Practice"]);
+        assert_eq!(folder.count.as_deref(), Some("0"));
+        let parent = reopened
+            .folders
+            .iter()
+            .find(|f| f.path == vec!["ROOT", "Sets"])
+            .unwrap();
+        assert_eq!(parent.count.as_deref(), Some("3"));
+        assert_eq!(std::fs::read(&source).unwrap(), original);
+
+        let mut mutated = String::from_utf8(prepared.clone()).unwrap();
+        mutated = mutated.replacen("Name=\"Practice\"", "Name=\"Other\"", 1);
+        assert!(f02_empty_folder_create_oracle::check(mutated.as_bytes()).is_err());
+        let existing = root.join("existing.xml");
+        std::fs::write(&existing, b"keep").unwrap();
+        app.xml_folder_create_name = "Another".into();
+        app.xml_selected_parent = Some(parent_index);
+        app.prepare_xml_folder_create();
+        app.xml_folder_create_export_path = existing.display().to_string();
+        app.export_xml_folder_create();
+        assert_eq!(std::fs::read(existing).unwrap(), b"keep");
+        assert_eq!(std::fs::read(&catalog).unwrap(), catalog_before);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
     #[test]
     fn empty_playlist_create_ui_exports_prepared_bytes_and_reopens_selectable_playlist() {
         use std::time::{SystemTime, UNIX_EPOCH};

@@ -278,6 +278,52 @@ pub fn export_prepared_rekordbox_playlist_create(
     publish_new_file(&output, &prepared.bytes)
 }
 
+/// A source-bound prepared empty-folder creation retains its exact preview snapshot.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PreparedFolderCreateExport {
+    source: std::path::PathBuf,
+    source_bytes: Vec<u8>,
+    bytes: Vec<u8>,
+}
+
+impl PreparedFolderCreateExport {
+    pub fn source(&self) -> &Path {
+        &self.source
+    }
+    pub fn bytes(&self) -> &[u8] {
+        &self.bytes
+    }
+}
+
+/// Prepare a guarded empty-folder creation for preview and source-bound export.
+pub fn prepare_rekordbox_folder_create_export(
+    source: impl AsRef<Path>,
+    request: &FolderCreateRequest,
+) -> Result<PreparedFolderCreateExport, RekordboxError> {
+    let source = source.as_ref().to_path_buf();
+    let source_bytes = std::fs::read(&source).map_err(|error| RekordboxError(error.to_string()))?;
+    let prepared = oxidj_rekordbox::prepare_folder_create(&source_bytes, request)?;
+    Ok(PreparedFolderCreateExport {
+        source,
+        source_bytes,
+        bytes: prepared.bytes,
+    })
+}
+
+/// Revalidate source bytes and publish prepared folder-creation bytes to a new file.
+pub fn export_prepared_rekordbox_folder_create(
+    prepared: &PreparedFolderCreateExport,
+    output: impl AsRef<Path>,
+) -> Result<(), RekordboxError> {
+    let (current_source, output) = read_new_export_source(&prepared.source, output)?;
+    if current_source != prepared.source_bytes {
+        return Err(RekordboxError(
+            "source changed after folder creation preparation".into(),
+        ));
+    }
+    publish_new_file(&output, &prepared.bytes)
+}
+
 /// A source-bound prepared playlist-member insertion retains its exact preview snapshot.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PreparedPlaylistMemberInsertExport {
@@ -1527,6 +1573,46 @@ mod playlist_delete_preparation_tests {
         assert!(export_prepared_rekordbox_playlist_delete(&stale, &stale_output).is_err());
         assert!(!stale_output.exists());
         std::fs::remove_dir_all(root).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod folder_create_preparation_tests {
+    use super::*;
+
+    #[test]
+    fn folder_create_preparation_is_read_only_source_bound_and_never_overwrites() {
+        let root =
+            std::env::temp_dir().join(format!("oxidj-folder-create-app-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        let source = root.join("source.xml");
+        std::fs::copy(
+            concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../xtask/tests/fixtures/f02-empty-folder-create/source.xml"
+            ),
+            &source,
+        )
+        .unwrap();
+        let original = std::fs::read(&source).unwrap();
+        let request = FolderCreateRequest {
+            parent_index: 0,
+            expected_parent_name: "Sets".into(),
+            name: "Practice".into(),
+        };
+        let prepared = prepare_rekordbox_folder_create_export(&source, &request).unwrap();
+        assert_eq!(std::fs::read(&source).unwrap(), original);
+        assert!(export_prepared_rekordbox_folder_create(&prepared, &source).is_err());
+        let existing = root.join("existing.xml");
+        std::fs::write(&existing, b"keep").unwrap();
+        assert!(export_prepared_rekordbox_folder_create(&prepared, &existing).is_err());
+        assert_eq!(std::fs::read(&existing).unwrap(), b"keep");
+        std::fs::write(&source, b"stale source").unwrap();
+        let stale = root.join("stale.xml");
+        assert!(export_prepared_rekordbox_folder_create(&prepared, &stale).is_err());
+        assert!(!stale.exists());
+        let _ = std::fs::remove_dir_all(root);
     }
 }
 
