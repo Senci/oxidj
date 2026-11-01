@@ -18,7 +18,7 @@ enum Sort {
 struct PendingTrackNameEdit {
     source: PathBuf,
     track_id: String,
-    prepared: oxidj_application::PreparedTrackNameEdit,
+    prepared: oxidj_application::PreparedTrackNameExport,
 }
 
 struct LibraryApp {
@@ -317,7 +317,7 @@ impl LibraryApp {
             expected_old_name: old_name.to_owned(),
             new_name: self.xml_edit_name.clone(),
         };
-        match oxidj_application::prepare_rekordbox_track_name_edit(&request) {
+        match oxidj_application::prepare_rekordbox_track_name_export(&request) {
             Ok(prepared) => {
                 self.xml_pending_edit = Some(PendingTrackNameEdit {
                     source,

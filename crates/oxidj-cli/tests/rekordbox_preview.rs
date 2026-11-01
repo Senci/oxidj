@@ -6771,7 +6771,7 @@ fn prepared_track_name_export_output_passes_shared_f02_oracle() {
     let output = temporary_path("prepared-track-name-output");
     let original = fs::read(fixture).unwrap();
     fs::write(&source, &original).unwrap();
-    let prepared = oxidj_application::prepare_rekordbox_track_name_edit(
+    let prepared = oxidj_application::prepare_rekordbox_track_name_export(
         &oxidj_application::TrackNameEditPreparationRequest {
             source: source.clone(),
             track_id: "100".into(),
