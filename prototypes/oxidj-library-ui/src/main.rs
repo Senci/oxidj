@@ -3308,17 +3308,25 @@ mod keyboard_tests {
         let root = std::env::temp_dir().join(format!("oxidj-ui-playlist-move-order-{}-{}", std::process::id(), SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()));
         std::fs::create_dir_all(&root).unwrap();
         let source = root.join("source.xml");
-        std::fs::copy(concat!(env!("CARGO_MANIFEST_DIR"), "/../../xtask/tests/fixtures/f02-playlist-move/source.xml"), &source).unwrap();
-        for (from, to, label) in [("House", "Techno", "source"), ("Other", "House", "destination")] {
-            std::fs::copy(concat!(env!("CARGO_MANIFEST_DIR"), "/../../xtask/tests/fixtures/f02-playlist-move/source.xml"), &source).unwrap();
+        let fixture = std::fs::read(concat!(env!("CARGO_MANIFEST_DIR"), "/../../xtask/tests/fixtures/f02-playlist-move/source.xml")).unwrap();
+        let house = "<NODE Type=\"1\" Name=\"House\" Entries=\"3\" KeyType=\"0\"><TRACK Key=\"100\"/><TRACK Key=\"200\"/><TRACK Key=\"300\"/></NODE>";
+        let techno = "<NODE Type=\"1\" Name=\"Techno\" Entries=\"2\" KeyType=\"0\"><TRACK Key=\"200\"/><TRACK Key=\"400\"/></NODE>";
+        let other = "<NODE Type=\"1\" Name=\"Other\" Entries=\"1\" KeyType=\"0\"><TRACK Key=\"400\"/></NODE>";
+        let extra = "<NODE Type=\"1\" Name=\"Extra\" Entries=\"1\" KeyType=\"0\"><TRACK Key=\"300\"/></NODE>";
+        for (label, initial, before, after) in [
+            ("source", String::from_utf8(fixture.clone()).unwrap(), format!("{house}{techno}"), format!("{techno}{house}")),
+            ("destination", String::from_utf8(fixture.clone()).unwrap().replace("Name=\"Target\" Count=\"1\"><NODE", &format!("Name=\"Target\" Count=\"2\">{extra}<NODE")), format!("{extra}{other}"), format!("{other}{extra}")),
+        ] {
+            std::fs::write(&source, initial).unwrap();
             let mut app = app(); app.xml_path = source.display().to_string(); app.preview_xml();
             let target = app.xml_preview.as_ref().unwrap().as_ref().unwrap().folders.iter().find(|f| f.name == "Target").unwrap().ordinal;
             app.xml_move_destination = Some(target); app.prepare_xml_playlist_move(0);
-            let mut changed = std::fs::read(&source).unwrap();
-            let a = format!("Name=\"{from}\"").into_bytes();
-            let b = format!("Name=\"{to}\"").into_bytes();
-            let at = changed.windows(a.len()).position(|w| w == a).unwrap(); changed.splice(at..at+a.len(), b);
-            std::fs::write(&source, &changed).unwrap();
+            assert!(app.xml_pending_move.is_some(), "valid initial preparation for {label}");
+            let mut xml = std::fs::read_to_string(&source).unwrap();
+            assert!(xml.contains(&before), "expected original direct-child block order for {label}");
+            xml = xml.replacen(&before, &after, 1);
+            std::fs::write(&source, xml.as_bytes()).unwrap();
+            let changed = std::fs::read(&source).unwrap();
             app.xml_move_export_path = root.join(format!("{label}-order.xml")).display().to_string();
             app.export_xml_playlist_move();
             assert!(app.xml_pending_move.is_none());
