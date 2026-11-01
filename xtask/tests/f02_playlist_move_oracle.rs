@@ -138,7 +138,7 @@ fn observed(bytes: &[u8]) -> Result<Snapshot, String> {
         .collect();
     Ok((ps, counts))
 }
-fn check(bytes: &[u8]) -> Result<(), String> {
+pub fn check(bytes: &[u8]) -> Result<(), String> {
     let (ps, counts) = observed(bytes)?;
     let expected = vec![
         (

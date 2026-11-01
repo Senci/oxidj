@@ -172,7 +172,7 @@
       "checker": {
         "path": "xtask/tests/f02_playlist_move_oracle.rs",
         "version": "f09-operation-oracle-v1",
-        "sha256": "eedbbd106c2f6af604f8315ccb5e65223025269a9ca04a153d65a10e8d5cd512",
+        "sha256": "ad65fca60415eb52efff025648629afe7d3b0e19d29783259266789ced4253f9",
         "tests": [
           "independently_decodes_playlist_move_and_rejects_order_count_membership_mutations"
         ]
@@ -202,7 +202,7 @@
       "checker": {
         "path": "xtask/tests/f02_sibling_folder_reorder_oracle.rs",
         "version": "f09-operation-oracle-v1",
-        "sha256": "9eb483d4b50d8bc62eb73b4e33320d44d1d0b724aa1cd5970ca04d6f21fe1009",
+        "sha256": "6b790f58427579c50eb9daf7ae934ecd637eb4ee808e3e40ef2ba725eb303523",
         "tests": [
           "independently_decodes_folder_reorder_and_rejects_complete_node_mutations"
         ]

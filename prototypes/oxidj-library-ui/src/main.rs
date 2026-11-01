@@ -29,6 +29,9 @@ mod f02_playlist_member_delete_oracle;
 #[path = "../../../xtask/tests/f02_playlist_rename_oracle.rs"]
 mod f02_playlist_rename_oracle;
 #[cfg(test)]
+#[path = "../../../xtask/tests/f02_playlist_move_oracle.rs"]
+mod f02_playlist_move_oracle;
+#[cfg(test)]
 #[path = "../../../xtask/tests/f02_sibling_folder_reorder_oracle.rs"]
 mod f02_sibling_folder_reorder_oracle;
 #[cfg(test)]
@@ -77,6 +80,25 @@ struct PendingSiblingFolderReorder {
     expected_order: Vec<String>,
     new_order: Vec<String>,
     prepared: oxidj_application::PreparedSiblingFolderReorderExport,
+}
+#[derive(Debug, Clone)]
+struct PendingPlaylistMove {
+    source: PathBuf,
+    playlist_index: usize,
+    source_parent_index: usize,
+    source_parent_name: String,
+    source_parent_path: Vec<String>,
+    destination_parent_index: usize,
+    destination_parent_name: String,
+    destination_parent_path: Vec<String>,
+    expected_members: Vec<String>,
+    expected_source_order: Vec<String>,
+    expected_destination_order: Vec<String>,
+    old_path: Vec<String>,
+    new_path: Vec<String>,
+    source_count: Option<String>,
+    destination_count: Option<String>,
+    prepared: oxidj_application::PreparedPlaylistMoveExport,
 }
 #[derive(Debug, Clone)]
 struct PendingPlaylistMemberAppend {
@@ -220,6 +242,9 @@ struct LibraryApp {
     xml_folder_sibling_order: String,
     xml_folder_sibling_pending: Option<PendingSiblingFolderReorder>,
     xml_folder_sibling_export_path: String,
+    xml_move_destination: Option<usize>,
+    xml_pending_move: Option<PendingPlaylistMove>,
+    xml_move_export_path: String,
     xml_pending_append: Option<PendingPlaylistMemberAppend>,
     xml_append_export_path: String,
     xml_insert_position: usize,
@@ -305,6 +330,9 @@ impl LibraryApp {
             xml_folder_sibling_order: String::new(),
             xml_folder_sibling_pending: None,
             xml_folder_sibling_export_path: String::new(),
+            xml_move_destination: None,
+            xml_pending_move: None,
+            xml_move_export_path: String::new(),
             xml_pending_append: None,
             xml_append_export_path: String::new(),
             xml_insert_position: 0,
@@ -768,6 +796,82 @@ impl LibraryApp {
             }
             Err(error) => {
                 self.xml_edit_error = Some(format!("Sibling folder reorder export failed: {error}"))
+            }
+        }
+    }
+
+    fn prepare_xml_playlist_move(&mut self, playlist_index: usize) {
+        self.xml_pending_move = None;
+        let (Some(source), Some(Ok(preview)), Some(destination_ordinal)) = (
+            self.xml_document_source.clone(), self.xml_preview.as_ref(), self.xml_move_destination,
+        ) else { return; };
+        let Some(playlist) = preview.playlists.get(playlist_index) else { return; };
+        let Some(source_parent) = immediate_parent_folder(preview, playlist) else {
+            self.xml_edit_error = Some("Playlist move refused: source parent unavailable".into()); return;
+        };
+        let Some(destination) = preview.folders.iter().find(|f| f.ordinal == destination_ordinal && f.path.len() > 1) else {
+            self.xml_edit_error = Some("Playlist move refused: destination must be a non-root folder".into()); return;
+        };
+        let old_path = playlist.path.clone();
+        let new_path = [
+            destination.path.iter().skip(1).cloned().collect::<Vec<_>>(),
+            vec![playlist.name.clone()],
+        ]
+        .concat();
+        let order_under = |parent: &oxidj_rekordbox::Folder| -> Vec<String> {
+            preview.playlists.iter().filter(|p| p.path.len() >= 2 && p.path[..p.path.len()-1] == parent.path[1..]).map(|p| p.name.clone()).collect()
+        };
+        let source_order = order_under(source_parent);
+        let destination_order = order_under(destination);
+        let request = oxidj_application::PlaylistMoveRequest {
+            playlist_index,
+            expected_playlist_name: playlist.name.clone(),
+            expected_members: playlist.tracks.clone(),
+            source_parent_index: source_parent.ordinal.saturating_sub(1),
+            expected_source_parent_name: source_parent.name.clone(),
+            target_parent_index: destination.ordinal.saturating_sub(1),
+            expected_target_parent_name: destination.name.clone(),
+            expected_target_order: destination_order.clone(),
+        };
+        match oxidj_application::prepare_rekordbox_playlist_move_export(&source, &request) {
+            Ok(prepared) => self.xml_pending_move = Some(PendingPlaylistMove {
+                source, playlist_index, source_parent_index: source_parent.ordinal.saturating_sub(1),
+                source_parent_name: source_parent.name.clone(), source_parent_path: source_parent.path.clone(),
+                destination_parent_index: destination.ordinal.saturating_sub(1), destination_parent_name: destination.name.clone(),
+                destination_parent_path: destination.path.clone(), expected_members: playlist.tracks.clone(),
+                expected_source_order: source_order, expected_destination_order: destination_order,
+                old_path, new_path, source_count: source_parent.count.clone(), destination_count: destination.count.clone(), prepared,
+            }),
+            Err(error) => self.xml_edit_error = Some(format!("Playlist move refused: {error}")),
+        }
+    }
+
+    fn cancel_xml_playlist_move(&mut self) { self.xml_pending_move = None; }
+
+    fn export_xml_playlist_move(&mut self) {
+        let Some(pending) = self.xml_pending_move.as_ref() else { return; };
+        let Some(Ok(preview)) = self.xml_preview.as_ref() else { self.xml_pending_move = None; return; };
+        let source_parent = preview.folders.iter().find(|f| f.ordinal == pending.source_parent_index + 1);
+        let destination = preview.folders.iter().find(|f| f.ordinal == pending.destination_parent_index + 1);
+        let playlist = preview.playlists.get(pending.playlist_index);
+        let order_under = |parent: Option<&oxidj_rekordbox::Folder>| -> Vec<String> {
+            parent.map(|parent| preview.playlists.iter().filter(|p| p.path.len() >= 2 && p.path[..p.path.len()-1] == parent.path[1..]).map(|p| p.name.clone()).collect()).unwrap_or_default()
+        };
+        let stale = self.xml_document_source.as_ref() != Some(&pending.source)
+            || self.xml_selected_playlist != Some(pending.playlist_index)
+            || self.xml_move_destination != Some(pending.destination_parent_index + 1)
+            || playlist.is_none_or(|p| p.name != *pending.old_path.last().unwrap_or(&String::new()) || p.tracks != pending.expected_members)
+            || source_parent.is_none_or(|p| p.name != pending.source_parent_name || p.path != pending.source_parent_path || p.count != pending.source_count)
+            || destination.is_none_or(|p| p.name != pending.destination_parent_name || p.path != pending.destination_parent_path || p.count != pending.destination_count)
+            || order_under(source_parent) != pending.expected_source_order
+            || order_under(destination) != pending.expected_destination_order;
+        if stale { self.xml_pending_move = None; self.xml_edit_error = Some("Playlist move invalidated by source, selection, parent or order change".into()); return; }
+        let output = PathBuf::from(&self.xml_move_export_path);
+        match oxidj_application::export_prepared_rekordbox_playlist_move(&pending.prepared, &output) {
+            Ok(()) => { self.xml_pending_move = None; self.xml_path = output.display().to_string(); self.preview_xml(); }
+            Err(error) => {
+                self.xml_pending_move = None;
+                self.xml_edit_error = Some(format!("Playlist move export failed: {error}"));
             }
         }
     }
@@ -1723,6 +1827,7 @@ impl LibraryApp {
     fn select_xml_playlist(&mut self, index: usize) {
         self.xml_pending_rename = None;
         self.xml_pending_playlist_delete = None;
+        self.xml_pending_move = None;
         self.xml_playlist_rename_name = self
             .xml_preview
             .as_ref()
@@ -2214,6 +2319,25 @@ impl eframe::App for LibraryApp {
                             ui.horizontal(|ui| { ui.label("New XML destination"); ui.text_edit_singleline(&mut self.xml_folder_sibling_export_path); });
                             if ui.button("Export prepared sibling folders").clicked() { self.export_xml_sibling_folder_reorder(); }
                             if ui.button("Cancel sibling folder reorder").clicked() { self.cancel_xml_sibling_folder_reorder(); }
+                        }
+                        SectionHeading { title: "Guarded cross-folder playlist move (provisional)" }.show(ui, tokens);
+                        for folder in preview.folders.iter().filter(|f| f.path.len() > 1) {
+                            if ui.selectable_label(self.xml_move_destination == Some(folder.ordinal), format!("Destination #{} · {}", folder.ordinal, folder.path.join(" / "))).clicked() {
+                                self.xml_move_destination = Some(folder.ordinal);
+                                self.xml_pending_move = None;
+                            }
+                        }
+                        if let Some(index) = self.xml_selected_playlist {
+                            if ui.button("Prepare cross-folder move").clicked() { self.prepare_xml_playlist_move(index); }
+                        }
+                        if let Some(pending) = &self.xml_pending_move {
+                            let old_count = pending.source_count.as_deref().unwrap_or("?");
+                            let new_source_count = pending.source_count.as_deref().and_then(|v| v.parse::<usize>().ok()).map(|v| v.saturating_sub(1).to_string()).unwrap_or_else(|| "N-1".into());
+                            let new_destination_count = pending.destination_count.as_deref().and_then(|v| v.parse::<usize>().ok()).map(|v| (v+1).to_string()).unwrap_or_else(|| "N+1".into());
+                            ui.label(format!("Preview #{} · {} → {} · source Count {old_count} → {new_source_count}; destination Count {} → {new_destination_count}", pending.playlist_index, pending.old_path.join(" / "), pending.new_path.join(" / "), pending.destination_count.as_deref().unwrap_or("?")));
+                            ui.horizontal(|ui| { ui.label("New XML destination"); ui.text_edit_singleline(&mut self.xml_move_export_path); });
+                            if ui.button("Export prepared playlist move").clicked() { self.export_xml_playlist_move(); }
+                            if ui.button("Cancel playlist move").clicked() { self.cancel_xml_playlist_move(); }
                         }
                         SectionHeading { title: "Playlist-member reorder (provisional)" }.show(ui, tokens);
                         for (index, playlist) in preview.playlists.iter().enumerate() {
@@ -2979,6 +3103,109 @@ mod keyboard_tests {
         existing.xml_folder_sibling_export_path = protected.display().to_string(); existing.export_xml_sibling_folder_reorder();
         assert_eq!(std::fs::read(protected).unwrap(), b"keep");
         assert_eq!(std::fs::read(existing_source).unwrap(), std::fs::read(fixture).unwrap());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn playlist_move_ui_exports_prepared_bytes_and_runs_independent_oracle() {
+        use std::time::{SystemTime, UNIX_EPOCH};
+        let root = std::env::temp_dir().join(format!("oxidj-ui-playlist-move-{}-{}", std::process::id(), SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()));
+        std::fs::create_dir_all(&root).unwrap();
+        let source = root.join("source.xml");
+        std::fs::copy(concat!(env!("CARGO_MANIFEST_DIR"), "/../../xtask/tests/fixtures/f02-playlist-move/source.xml"), &source).unwrap();
+        let original = std::fs::read(&source).unwrap();
+        let catalog = root.join("catalog.sqlite");
+        let mut app = LibraryApp::new(catalog.clone(), ThemeMode::TokyoNight, ThemeMode::TokyoNight.tokens());
+        app.xml_path = source.display().to_string();
+        app.preview_xml();
+        let source_tracks: Vec<_> = app.xml_preview.as_ref().unwrap().as_ref().unwrap().tracks.iter().map(|track| (track.id.clone(), track.name.clone(), track.location.clone())).collect();
+        let target = app.xml_preview.as_ref().unwrap().as_ref().unwrap().folders.iter().find(|f| f.name == "Target").unwrap().ordinal;
+        app.xml_selected_playlist = Some(0);
+        app.xml_move_destination = Some(target);
+        app.prepare_xml_playlist_move(0);
+        let prepared = app.xml_pending_move.as_ref().unwrap().prepared.bytes().to_vec();
+        assert_eq!(
+            app.xml_pending_move.as_ref().unwrap().old_path,
+            ["Sets", "House"]
+        );
+        assert_eq!(
+            app.xml_pending_move.as_ref().unwrap().new_path,
+            ["Target", "House"]
+        );
+        app.cancel_xml_playlist_move();
+        assert!(app.xml_pending_move.is_none());
+        assert_eq!(std::fs::read(&source).unwrap(), original);
+        app.prepare_xml_playlist_move(0);
+        app.xml_move_export_path = source.display().to_string();
+        app.export_xml_playlist_move();
+        assert_eq!(std::fs::read(&source).unwrap(), original, "source alias cannot overwrite");
+        assert!(app.xml_pending_move.is_none());
+        let existing = root.join("existing.xml");
+        std::fs::write(&existing, b"preserve").unwrap();
+        app.prepare_xml_playlist_move(0);
+        app.xml_move_export_path = existing.display().to_string();
+        app.export_xml_playlist_move();
+        assert_eq!(std::fs::read(&existing).unwrap(), b"preserve");
+        assert!(app.xml_pending_move.is_none());
+        app.prepare_xml_playlist_move(0);
+        let out = root.join("moved.xml");
+        app.xml_move_export_path = out.display().to_string();
+        app.export_xml_playlist_move();
+        let bytes = std::fs::read(&out).unwrap();
+        assert_eq!(bytes, prepared);
+        f02_playlist_move_oracle::check(&bytes).unwrap();
+        let reopened = oxidj_application::preview_rekordbox_xml(&out).unwrap();
+        assert!(reopened.playlists.iter().any(|p| p.path == ["Target", "House"] && p.name == "House" && p.tracks == ["100", "200", "300"]), "reopened: {:?}", reopened.playlists);
+        assert_eq!(reopened.folders.iter().find(|f| f.name == "Sets").unwrap().count.as_deref(), Some("1"));
+        assert_eq!(reopened.folders.iter().find(|f| f.name == "Target").unwrap().count.as_deref(), Some("2"));
+        assert_eq!(
+            reopened.tracks.iter().map(|track| (track.id.clone(), track.name.clone(), track.location.clone())).collect::<Vec<_>>(),
+            source_tracks,
+            "collection tracks must be unchanged"
+        );
+        assert_eq!(
+            std::fs::read(&source).unwrap(),
+            original,
+            "source bytes must remain unchanged"
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn playlist_move_ui_invalidates_source_selection_and_destination_changes() {
+        use std::time::{SystemTime, UNIX_EPOCH};
+        let root = std::env::temp_dir().join(format!("oxidj-ui-playlist-move-stale-{}-{}", std::process::id(), SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()));
+        std::fs::create_dir_all(&root).unwrap();
+        let source = root.join("source.xml");
+        std::fs::copy(concat!(env!("CARGO_MANIFEST_DIR"), "/../../xtask/tests/fixtures/f02-playlist-move/source.xml"), &source).unwrap();
+        let mut app = app();
+        app.xml_path = source.display().to_string();
+        app.preview_xml();
+        let target = app.xml_preview.as_ref().unwrap().as_ref().unwrap().folders.iter().find(|f| f.name == "Target").unwrap().ordinal;
+        let sets = app.xml_preview.as_ref().unwrap().as_ref().unwrap().folders.iter().find(|f| f.name == "Sets").unwrap().ordinal;
+        app.xml_selected_playlist = Some(0);
+        app.xml_move_destination = Some(target);
+        app.prepare_xml_playlist_move(0);
+        app.select_xml_playlist(1);
+        assert!(app.xml_pending_move.is_none(), "selection change cancels pending move");
+        app.xml_selected_playlist = Some(0);
+        app.xml_move_destination = Some(target);
+        app.prepare_xml_playlist_move(0);
+        app.xml_move_destination = Some(sets);
+        app.xml_move_export_path = root.join("destination-stale.xml").display().to_string();
+        app.export_xml_playlist_move();
+        assert!(app.xml_pending_move.is_none());
+        assert!(!root.join("destination-stale.xml").exists());
+        app.xml_move_destination = Some(target);
+        app.prepare_xml_playlist_move(0);
+        let mut changed = std::fs::read(&source).unwrap();
+        changed.push(b' ');
+        std::fs::write(&source, changed.clone()).unwrap();
+        app.xml_move_export_path = root.join("source-stale.xml").display().to_string();
+        app.export_xml_playlist_move();
+        assert!(app.xml_pending_move.is_none());
+        assert!(!root.join("source-stale.xml").exists());
+        assert_eq!(std::fs::read(&source).unwrap(), changed);
         std::fs::remove_dir_all(root).unwrap();
     }
 

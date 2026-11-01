@@ -1257,6 +1257,54 @@ pub fn export_rekordbox_playlist_move(
     publish_new_file(&output, &prepared.bytes)
 }
 
+/// Source-bound prepared playlist move for preview and revalidated export.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PreparedPlaylistMoveExport {
+    source: std::path::PathBuf,
+    source_bytes: Vec<u8>,
+    prepared: PreparedPlaylistMove,
+}
+impl PreparedPlaylistMoveExport {
+    pub fn source(&self) -> &Path {
+        &self.source
+    }
+    pub fn bytes(&self) -> &[u8] {
+        &self.prepared.bytes
+    }
+}
+
+/// Prepare a guarded playlist move without writing an output file.
+pub fn prepare_rekordbox_playlist_move_export(
+    source: impl AsRef<Path>,
+    request: &PlaylistMoveRequest,
+) -> Result<PreparedPlaylistMoveExport, RekordboxError> {
+    let source = source.as_ref().to_path_buf();
+    let source_bytes = std::fs::read(&source).map_err(|error| RekordboxError(error.to_string()))?;
+    let prepared = oxidj_rekordbox::prepare_playlist_move(&source_bytes, request)?;
+    Ok(PreparedPlaylistMoveExport {
+        source,
+        source_bytes,
+        prepared,
+    })
+}
+
+/// Revalidate the source snapshot and publish only the previously prepared bytes.
+pub fn export_prepared_rekordbox_playlist_move(
+    prepared: &PreparedPlaylistMoveExport,
+    output: impl AsRef<Path>,
+) -> Result<(), RekordboxError> {
+    let current =
+        std::fs::read(&prepared.source).map_err(|error| RekordboxError(error.to_string()))?;
+    if current != prepared.source_bytes {
+        return Err(RekordboxError("source changed since preparation".into()));
+    }
+    let output = output.as_ref();
+    if output == prepared.source {
+        return Err(RekordboxError("output aliases source".into()));
+    }
+    publish_new_file(output, &prepared.prepared.bytes)
+}
+
 /// Export one guarded folder subtree move to a new, non-overwriting file.
 pub fn export_rekordbox_folder_move(
     input: impl AsRef<Path>,
