@@ -138,6 +138,51 @@ pub fn preview_rekordbox_pdb(path: impl AsRef<Path>) -> Result<PdbPreview, PdbPr
     oxidj_rekordbox::parse_pdb_file(path)
 }
 
+/// A source-bound prepared sibling-playlist reorder retains its exact preview snapshot.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PreparedSiblingPlaylistReorderExport {
+    source: std::path::PathBuf,
+    source_bytes: Vec<u8>,
+    prepared: PreparedSiblingPlaylistReorder,
+}
+
+impl PreparedSiblingPlaylistReorderExport {
+    pub fn source(&self) -> &Path {
+        &self.source
+    }
+    pub fn bytes(&self) -> &[u8] {
+        &self.prepared.bytes
+    }
+}
+
+pub fn prepare_rekordbox_sibling_playlist_reorder_export(
+    source: impl AsRef<Path>,
+    request: &SiblingPlaylistReorderRequest,
+) -> Result<PreparedSiblingPlaylistReorderExport, RekordboxError> {
+    let source_path = source.as_ref().to_path_buf();
+    let source_bytes =
+        std::fs::read(&source_path).map_err(|error| RekordboxError(error.to_string()))?;
+    let prepared = oxidj_rekordbox::prepare_sibling_playlist_reorder(&source_bytes, request)?;
+    Ok(PreparedSiblingPlaylistReorderExport {
+        source: source_path,
+        source_bytes,
+        prepared,
+    })
+}
+
+pub fn export_prepared_rekordbox_sibling_playlist_reorder(
+    prepared: &PreparedSiblingPlaylistReorderExport,
+    output: impl AsRef<Path>,
+) -> Result<(), RekordboxError> {
+    let (current_source, output) = read_new_export_source(&prepared.source, output)?;
+    if current_source != prepared.source_bytes {
+        return Err(RekordboxError(
+            "source changed after sibling-playlist reorder preparation".into(),
+        ));
+    }
+    publish_new_file(&output, &prepared.prepared.bytes)
+}
+
 /// A source-bound prepared playlist-member reorder retains its exact preview snapshot.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PreparedPlaylistMemberReorderExport {

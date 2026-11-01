@@ -83,7 +83,7 @@ fn decode(b: &[u8]) -> Node {
     }
     root.unwrap()
 }
-fn verify(b: &[u8]) -> Result<(), String> {
+pub fn verify(b: &[u8]) -> Result<(), String> {
     let root = decode(b);
     let c = root.named("COLLECTION")[0];
     let tracks: Vec<_> = c
