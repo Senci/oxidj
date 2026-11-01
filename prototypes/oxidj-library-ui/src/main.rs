@@ -102,6 +102,19 @@ struct PendingPlaylistCreate {
     prepared: oxidj_application::PreparedPlaylistCreateExport,
 }
 
+fn immediate_parent_folder<'a>(
+    preview: &'a oxidj_rekordbox::Preview,
+    playlist: &oxidj_rekordbox::Playlist,
+) -> Option<&'a oxidj_rekordbox::Folder> {
+    let parent_name = playlist.path.get(playlist.path.len().checked_sub(2)?)?;
+    let ancestors = playlist.path.get(..playlist.path.len().checked_sub(1)?)?;
+    preview.folders.iter().find(|folder| {
+        folder.name == *parent_name
+            && folder.path.len() == ancestors.len() + 1
+            && folder.path.get(1..) == Some(ancestors)
+    })
+}
+
 struct LibraryApp {
     db_path: PathBuf,
     catalog: Result<Catalog, String>,
@@ -1496,13 +1509,10 @@ impl eframe::App for LibraryApp {
                             ui.label(format!("Source: {} · playlist #{} · {:?}", pending.source.display(), pending.playlist_index, pending.name));
                             ui.label(format!("Ordered members: {:?}", pending.expected_order));
                             ui.label(format!("Proposed result: remove playlist node {:?} and its memberships", pending.name));
-                            let parent_name = self.xml_preview.as_ref().and_then(|p| p.as_ref().ok())
-                                .and_then(|p| p.playlists.get(pending.playlist_index))
-                                .and_then(|playlist| playlist.path.get(playlist.path.len().saturating_sub(2)))
-                                .cloned();
-                            if let Some(parent) = parent_name.and_then(|name| self.xml_preview.as_ref()
+                            if let Some(parent) = self.xml_preview.as_ref()
                                 .and_then(|p| p.as_ref().ok())
-                                .and_then(|p| p.folders.iter().find(|folder| folder.name == name))) {
+                                .and_then(|p| p.playlists.get(pending.playlist_index)
+                                    .and_then(|playlist| immediate_parent_folder(p, playlist))) {
                                 if let Some(count) = parent.count.as_deref().and_then(|value| value.parse::<usize>().ok()) {
                                     ui.label(format!("Immediate parent {:?} Count: {count} → {}", parent.name, count.saturating_sub(1)));
                                 }
@@ -2382,8 +2392,15 @@ mod keyboard_tests {
         app.prepare_xml_playlist_delete(1);
         let preview_before = app.xml_preview.as_ref().unwrap().as_ref().unwrap();
         let removed = &preview_before.playlists[1];
-        let parent_name = removed.path[removed.path.len() - 2].as_str();
-        let parent = preview_before.folders.iter().find(|folder| folder.name == parent_name).unwrap();
+        let mut collision_preview = preview_before.clone();
+        collision_preview.folders.push(oxidj_rekordbox::Folder {
+            ordinal: 99,
+            path: vec!["ROOT".into(), "Other".into(), "Sets".into()],
+            name: "Sets".into(),
+            count: Some("99".into()),
+        });
+        let parent = immediate_parent_folder(&collision_preview, removed).unwrap_or_else(|| panic!("playlist path {:?}, folders {:?}", removed.path, collision_preview.folders));
+        assert_eq!(parent.path, ["ROOT", "Sets"]);
         assert_eq!(parent.name, "Sets");
         assert_eq!(parent.count.as_deref(), Some("3"));
         assert_eq!(parent.count.as_deref().unwrap().parse::<usize>().unwrap() - 1, 2);
