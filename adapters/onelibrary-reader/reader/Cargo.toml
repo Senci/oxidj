@@ -1,0 +1,17 @@
+[package]
+name = "oxidj-onelibrary-reader"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.99.0"
+license = "MIT"
+publish = false
+
+[dependencies]
+oxidj-onelibrary = { path = "../../../crates/oxidj-onelibrary" }
+rusqlite = { version = "=0.40.2", default-features = false, features = ["bundled-sqlcipher-vendored-openssl", "hooks"] }
+zeroize = { version = "=1.8.2", default-features = false }
+serde = { version = "=1.0.229", default-features = false }
+serde_json = "=1.0.154"
+
+[dev-dependencies]
+rusqlite = { version = "=0.40.2", default-features = false, features = ["bundled-sqlcipher-vendored-openssl", "hooks"]}

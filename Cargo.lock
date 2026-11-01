@@ -156,7 +156,9 @@ checksum = "63fa2238e662d3d3c1a71168b3278f23422cf9bf76f6943ee6b1c2581d74eb5c"
 name = "oxidj-application"
 version = "0.1.0"
 dependencies = [
+ "oxidj-onelibrary",
  "oxidj-rekordbox",
+ "zeroize",
 ]
 
 [[package]]
@@ -184,6 +186,13 @@ dependencies = [
  "rusqlite",
  "rusqlite_migration",
  "sha2",
+]
+
+[[package]]
+name = "oxidj-onelibrary"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
 ]
 
 [[package]]
@@ -364,6 +373,12 @@ dependencies = [
  "serde_json",
  "sha2",
 ]
+
+[[package]]
+name = "zeroize"
+version = "1.8.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b97154e67e32c85465826e8bcc1c59429aaaf107c1e4a9e53c8d8ccd5eff88d0"
 
 [[package]]
 name = "zmij"

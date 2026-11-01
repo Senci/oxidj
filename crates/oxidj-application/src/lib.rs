@@ -1,6 +1,11 @@
 //! Shared application handlers for CLI and future UI callers.
 
-use std::path::Path;
+use std::{
+    io::{self, IsTerminal, Read, Write},
+    path::Path,
+    process::{Command, Stdio},
+};
+use zeroize::{Zeroize, Zeroizing};
 
 pub use oxidj_rekordbox::{
     Error as RekordboxError, ExportDecision, ExportPreflight, FolderCreateRequest,
@@ -44,6 +49,83 @@ pub use oxidj_rekordbox::{
     TrackTonalityEditRequest, TrackTotalTimeEditChange, TrackTotalTimeEditRequest,
     TrackYearEditChange, TrackYearEditRequest,
 };
+
+pub use oxidj_onelibrary::{
+    Error as OneLibraryError, Playlist as OneLibraryPlaylist, Preview as OneLibraryPreview,
+    SourceId as OneLibrarySourceId, Track as OneLibraryTrack,
+};
+
+/// Validate a complete OneLibrary reader response before exposing it to callers.
+pub fn validate_onelibrary_preview(
+    preview: OneLibraryPreview,
+) -> Result<OneLibraryPreview, OneLibraryError> {
+    oxidj_onelibrary::validate(preview)
+}
+
+/// Read a one-shot key from an explicit non-terminal stdin pipe, then invoke the sibling reader.
+pub fn preview_onelibrary_stdin(
+    path: impl AsRef<Path>,
+) -> Result<OneLibraryPreview, OneLibraryError> {
+    if io::stdin().is_terminal() {
+        return Err(OneLibraryError::ReaderFailed);
+    }
+    let mut secret = Zeroizing::new(Vec::with_capacity(4097));
+    io::stdin()
+        .lock()
+        .take(4097)
+        .read_to_end(&mut secret)
+        .map_err(|_| OneLibraryError::ReaderFailed)?;
+    if secret.is_empty() || secret.len() > 4096 {
+        secret.zeroize();
+        return Err(OneLibraryError::ReaderFailed);
+    }
+    preview_onelibrary(path, secret.as_slice())
+}
+
+/// Run the installed sibling reader once and expose only a fully decoded response.
+/// The key is piped directly to the reader's stdin and never placed in argv/env.
+pub fn preview_onelibrary(
+    path: impl AsRef<Path>,
+    key: &[u8],
+) -> Result<OneLibraryPreview, OneLibraryError> {
+    if key.is_empty() || key.len() > 4096 {
+        return Err(OneLibraryError::ReaderFailed);
+    }
+    let executable = std::env::current_exe()
+        .ok()
+        .and_then(|p| {
+            p.parent()
+                .map(|parent| parent.join("oxidj-onelibrary-reader"))
+        })
+        .ok_or(OneLibraryError::ReaderFailed)?;
+    let mut child = Command::new(executable)
+        .arg("--key-stdin")
+        .arg(path.as_ref())
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .map_err(|_| OneLibraryError::ReaderFailed)?;
+    let mut secret = Zeroizing::new(key.to_vec());
+    let write_result = child
+        .stdin
+        .take()
+        .ok_or(OneLibraryError::ReaderFailed)?
+        .write_all(secret.as_slice());
+    secret.zeroize();
+    if write_result.is_err() {
+        let _ = child.kill();
+        let _ = child.wait();
+        return Err(OneLibraryError::ReaderFailed);
+    }
+    let output = child
+        .wait_with_output()
+        .map_err(|_| OneLibraryError::ReaderFailed)?;
+    if !output.status.success() {
+        return Err(OneLibraryError::ReaderFailed);
+    }
+    oxidj_onelibrary::decode_preview(&output.stdout)
+}
 
 /// Read-only preview handler; parsing and vendor-specific semantics stay in the adapter.
 pub fn preview_rekordbox_xml(path: impl AsRef<Path>) -> Result<Preview, RekordboxError> {

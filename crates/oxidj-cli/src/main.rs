@@ -61,10 +61,54 @@ fn run(args: &[String]) -> i32 {
             }
         },
         "catalog" => run_catalog(&args[2..]),
+        "onelibrary" => run_onelibrary(&args[2..]),
         "rekordbox" => run_rekordbox(&args[2..]),
         unknown => {
             eprintln!("error: unknown command: {unknown}");
             USAGE
+        }
+    }
+}
+
+fn run_onelibrary(args: &[String]) -> i32 {
+    if args.len() != 4 || args[0] != "preview" || args[1] != "--db" || args[3] != "--key-stdin" {
+        eprintln!(
+            "error: expected onelibrary preview --db PATH --key-stdin (provide key bytes on non-terminal stdin)"
+        );
+        return USAGE;
+    }
+    match oxidj_application::preview_onelibrary_stdin(&args[2]) {
+        Ok(preview) => {
+            println!("Tracks:");
+            for track in preview.tracks {
+                println!(
+                    "Track\t{}\tTitle={:?}\tArtist={:?}\tAlbum={:?}",
+                    track.id.as_str(),
+                    track.title,
+                    track.artist,
+                    track.album
+                );
+            }
+            println!("Playlists:");
+            for playlist in preview.playlists {
+                println!(
+                    "Playlist\t{}\tParent={:?}\tOrder={}\tName={:?}\tTracks={:?}",
+                    playlist.id.as_str(),
+                    playlist.parent_id.as_ref().map(|id| id.as_str()),
+                    playlist.sibling_order,
+                    playlist.name,
+                    playlist
+                        .track_ids
+                        .iter()
+                        .map(|id| id.as_str())
+                        .collect::<Vec<_>>()
+                );
+            }
+            OK
+        }
+        Err(_) => {
+            eprintln!("error: OneLibrary preview rejected input");
+            DOMAIN
         }
     }
 }
@@ -2435,7 +2479,7 @@ fn print_usage(to_stdout: bool) {
     let _ = writeln!(output, "commands:");
     let _ = writeln!(
         output,
-        "  rekordbox preview --xml <path>   Read-only Rekordbox XML preview\n  rekordbox pdb-preview --pdb <path> Read-only legacy DeviceSQL PDB preview",
+        "  onelibrary preview --db <path> --key-stdin   Read-only synthetic-profile preview; key bytes required on non-terminal stdin\n  rekordbox preview --xml <path>   Read-only Rekordbox XML preview\n  rekordbox pdb-preview --pdb <path> Read-only legacy DeviceSQL PDB preview",
     );
     let _ = writeln!(
         output,

@@ -14,7 +14,8 @@ crates at the **same layer or lower**. Depending on a higher layer is a forbidde
 |-------|-------|------|
 | 0 | `oxidj-core` | Neutral domain model and rules; zero infrastructure deps. |
 | 1 | `oxidj-library` | Shared catalog/application handlers; owns SQLite and migrations. |
-| 2 | `oxidj-rekordbox` | Isolated vendor XML adapter (M4 preview). |
+| 2 | `oxidj-rekordbox` | Isolated vendor XML/DeviceSQL adapter (M4 preview). |
+| 2 | `oxidj-onelibrary` | Read-only OneLibrary DTO and process-protocol boundary; no SQL dependency. |
 | 3 | `oxidj-application` | Orchestrates shared handlers and adapter operations for callers. |
 | 4 | `oxidj-cli` | Thin command-line presentation; calls application/library handlers. |
 | exempt | `xtask` | Build-time tooling (`cargo xtask`), never a product dep. |
@@ -38,6 +39,8 @@ flowchart TB
     cli["oxidj-cli<br/>layer 4"] --> app["oxidj-application<br/>layer 3"]
     cli --> library["oxidj-library<br/>layer 1"]
     app --> rekordbox
+    app --> onelibrary["oxidj-onelibrary<br/>layer 2; DTO/protocol"]
+    onelibrary --> reader["independent SQLCipher reader workspace<br/>layer 2 product process"]
     rekordbox --> xml["quick-xml"]
     rekordbox --> pdb["rekordbox-pdb (pinned read-only use)"]
     library --> core["oxidj-core<br/>layer 0"]
@@ -64,7 +67,11 @@ analysis and UI remain outside this slice.
    persistence and vendor crates. Library allows only `rusqlite` and
    `rusqlite_migration` from persistence and the three named M2 decoders from
    audio; it denies all other audio, UI, other persistence and vendor crates.
-   These checks include normal, dev and build dependencies.
+   `oxidj-onelibrary` has no SQL dependency; only the independent reader workspace
+   may use exactly `rusqlite =0.40.2` with defaults off and features
+   `bundled-sqlcipher-vendored-openssl,hooks`. Main-workspace feature resolution
+   must remain SQLCipher-free. Both workspaces use committed locks and their own
+   license checks. These checks include normal, dev and build dependencies.
 3. **Every new product crate must be classified.** A workspace member with no
    layer assignment fails until it is added to the layer table in
    `xtask/src/main.rs`. This is what keeps the gate meaningful as the crate set

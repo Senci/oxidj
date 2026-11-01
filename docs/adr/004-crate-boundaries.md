@@ -29,7 +29,9 @@ flowchart TB
     cli["oxidj-cli"] --> app["oxidj-application<br/>typed application handlers"]
     ui["oxidj-ui<br/>M3"] --> app
     app --> library["oxidj-library<br/>commands, import/export"]
-    app --> adapters["oxidj-rekordbox<br/>read-only XML + DeviceSQL PDB previews"]
+    app --> adapters["oxidj-rekordbox<br/>read-only XML + DeviceSQL previews"]
+    app --> onelibrary["oxidj-onelibrary<br/>preview DTO/protocol"]
+    onelibrary --> reader["separate one-shot SQLCipher reader<br/>independent Cargo workspace"]
     library --> core["oxidj-core<br/>neutral domain; no UI, persistence, audio, or vendor deps"]
     adapters --> xml["quick-xml<br/>XML parsing only"]
     adapters --> pdb["rekordbox-pdb<br/>pinned read API only"]
@@ -53,7 +55,7 @@ These decoders are denied in `oxidj-core` and `oxidj-cli`; every other audio dep
 
 **Command-first application layer:** Stateful operations (import, edit, export, analysis) flow through typed internal commands in `oxidj-application`/`oxidj-library`, usable by GUI, CLI, tests, and future automation without duplication. Read-only source previews may use a typed application handler that composes an isolated format adapter directly; the adapter depends only on its parsing library and does not require catalog/library access. This preview path is inspection-only and does not imply catalog mutation or compatibility guarantees. (soundcraft.md ADOPT: "One application-operation path for UI and headless callers.")
 
-**M0 scope:** Only `oxidj-core` and `oxidj-cli` were scaffolded. Additional crates and adapter responsibilities are introduced when implemented responsibilities warrant them. The bounded M4 Rekordbox read-only XML preview is one such adapter; it does not claim application compatibility. The M2 import decoders are hosted directly by `oxidj-library` under the narrow exception above.
+**M0 scope:** Only `oxidj-core` and `oxidj-cli` were scaffolded. Additional crates and adapter responsibilities are introduced when implemented responsibilities warrant them. The bounded M4 Rekordbox read-only XML preview is one such adapter; it does not claim application compatibility. A bounded OneLibrary preview uses a layer-2 DTO/protocol adapter and a separately built one-shot SQLCipher reader; SQLCipher features must never enter the main Cargo graph or catalog persistence. The reader is a product component, not exempt build tooling. Neither preview claims vendor compatibility. The M2 import decoders are hosted directly by `oxidj-library` under the narrow exception above.
 
 ## Evidence
 

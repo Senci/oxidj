@@ -2,6 +2,10 @@
 
 ## Current milestone
 
+### M4 OneLibrary preview — synthetic-only provisional implementation (2026-11-01)
+
+The bounded schema-profile v1 reader/preview is under implementation on this task. The encrypted synthetic reader fixture tests pass (3 tests); `cargo xtask ci` passes (`layers=ok fmt=ok clippy=ok check=ok`). The isolated `cargo deny check licenses` passes after removing the unnecessary serde derive/proc-macro dependency, without changing ADR-009. Remaining schema/relation/order/security rejection and application/CLI-to-sibling-reader coverage, executable SQLCipher-isolation/dependency gates, notices, full review and commit remain pending. No private library data used; synthetic source remains unchanged. Vendor compatibility, native-source evidence, A3 and ADR-005 remain NOT DEMONSTRATED.
+
 ### Pre-alpha visual evidence archive (2026-10-28)
 
 **A1 production-adapter binding (reviewed commit `11907ad`):** `xtask/tests/rekordbox_xml_a1.rs` binds F-02/F-07/F-10 production parse/preflight to frozen synthetic goldens, checks F-07 BPM edited state through the production adapter, and asserts byte-identical production-library `export_xml` no-edit output for each case. Reviewer independently passed the focused suite (5 tests) and `cargo xtask ci` (`layers=ok fmt=ok clippy=ok check=ok`). Synthetic-only evidence: no Rekordbox/OneLibrary compatibility, global F-09, A3, or qualification claim.

@@ -1,0 +1,14 @@
+[package]
+name = "oxidj-onelibrary"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Read-only OneLibrary preview boundary."
+publish = false
+
+[dependencies]
+serde_json = { workspace = true }
+
+[lints]
+workspace = true

@@ -37,6 +37,7 @@ fn layer_of(name: &str) -> Option<u8> {
         "oxidj-core" => Some(0),
         "oxidj-library" => Some(1),
         "oxidj-rekordbox" => Some(2),
+        "oxidj-onelibrary" => Some(2),
         "oxidj-application" => Some(3),
         "oxidj-cli" => Some(4),
         _ => None,
