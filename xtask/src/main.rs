@@ -327,66 +327,150 @@ fn run_cargo_step(step: &str, args: &[&str], env_extra: &[(&str, &str)]) -> i32 
     exit_code
 }
 
-fn validate_onelibrary_graphs(main_graph: &str, reader_graph: &str) -> Result<(), String> {
-    if main_graph.to_ascii_lowercase().contains("sqlcipher") {
-        return Err("SQLCipher feature leaked into the main workspace graph".into());
-    }
-    if !reader_graph.contains("rusqlite v0.40.2")
-        || !reader_graph.contains("bundled-sqlcipher-vendored-openssl")
+fn validate_onelibrary_graphs(
+    main_graphs: &[&str],
+    reader_meta: &serde_json::Value,
+) -> Result<(), String> {
+    if main_graphs
+        .iter()
+        .any(|graph| graph.to_ascii_lowercase().contains("sqlcipher"))
     {
-        return Err("isolated reader lacks the pinned SQLCipher/OpenSSL feature graph".into());
+        return Err("SQLCipher feature leaked into a main workspace feature graph".into());
+    }
+    let packages = reader_meta["packages"]
+        .as_array()
+        .ok_or("isolated metadata has no packages")?;
+    let versions: HashMap<&str, Vec<&str>> = {
+        let mut found: HashMap<&str, Vec<&str>> = HashMap::new();
+        for package in packages {
+            if let (Some(name), Some(version)) =
+                (package["name"].as_str(), package["version"].as_str())
+            {
+                found.entry(name).or_default().push(version);
+            }
+        }
+        found
+    };
+    for (name, expected) in [
+        ("rusqlite", "0.40.2"),
+        ("libsqlite3-sys", "0.38.2"),
+        ("zeroize", "1.8.2"),
+        ("serde", "1.0.229"),
+        ("serde_json", "1.0.154"),
+    ] {
+        if versions
+            .get(name)
+            .is_none_or(|actual| actual.as_slice() != [expected])
+        {
+            return Err(format!(
+                "isolated dependency {name} must resolve exactly once at {expected}"
+            ));
+        }
+    }
+    let root = reader_meta["packages"]
+        .as_array()
+        .and_then(|packages| {
+            packages
+                .iter()
+                .find(|p| p["name"] == "oxidj-onelibrary-reader")
+        })
+        .ok_or("isolated reader package missing")?;
+    for (name, expected_req, expected_features) in [
+        (
+            "rusqlite",
+            "=0.40.2",
+            vec!["bundled-sqlcipher-vendored-openssl", "hooks"],
+        ),
+        ("zeroize", "=1.8.2", vec![]),
+        ("serde", "=1.0.229", vec![]),
+        ("serde_json", "=1.0.154", vec![]),
+    ] {
+        let deps = root["dependencies"]
+            .as_array()
+            .ok_or("reader dependencies missing")?;
+        let matches: Vec<_> = deps
+            .iter()
+            .filter(|d| d["name"] == name && d["kind"].is_null())
+            .collect();
+        let defaults_expected = name == "serde_json";
+        if matches.len() != 1
+            || matches[0]["req"] != expected_req
+            || matches[0]["uses_default_features"] != defaults_expected
+            || matches[0]["features"].as_array().is_none_or(|f| {
+                f.iter().filter_map(|x| x.as_str()).collect::<Vec<_>>() != expected_features
+            })
+        {
+            return Err(format!(
+                "isolated dependency {name} has an unexpected manifest configuration"
+            ));
+        }
+    }
+    let nodes = reader_meta["resolve"]["nodes"]
+        .as_array()
+        .ok_or("isolated resolved graph missing")?;
+    let has_feature = |name: &str, feature: &str| {
+        nodes.iter().any(|n| {
+            n["id"]
+                .as_str()
+                .is_some_and(|id| id.contains(&format!("#{name}@")))
+                && n["features"]
+                    .as_array()
+                    .is_some_and(|f| f.iter().any(|x| x == feature))
+        })
+    };
+    if !has_feature("rusqlite", "bundled-sqlcipher-vendored-openssl")
+        || !has_feature("libsqlite3-sys", "bundled-sqlcipher-vendored-openssl")
+    {
+        return Err("isolated SQLCipher feature is not resolved on the expected packages".into());
     }
     Ok(())
 }
 
 fn check_onelibrary_boundary() -> Result<(), String> {
     let root = workspace_root();
-    let root_tree = Command::new("cargo")
-        .args(["tree", "--workspace", "-e", "features", "--locked"])
-        .current_dir(&root)
-        .output()
-        .map_err(|error| format!("could not inspect main dependency features: {error}"))?;
-    if !root_tree.status.success() {
-        return Err(String::from_utf8_lossy(&root_tree.stderr).into_owned());
-    }
-    let root_tree = String::from_utf8_lossy(&root_tree.stdout);
-
-    let isolated = root.join("adapters/onelibrary-reader");
-    let manifest = std::fs::read_to_string(isolated.join("reader/Cargo.toml"))
-        .map_err(|error| format!("cannot read isolated reader manifest: {error}"))?;
-    for pin in [
-        "version = \"=0.40.2\"",
-        "version = \"=1.8.2\"",
-        "version = \"=1.0.229\"",
-        "=1.0.154",
-    ] {
-        if !manifest.contains(pin) {
-            return Err(format!("isolated reader dependency pin missing: {pin}"));
+    let mut main_graphs = Vec::new();
+    for features in ["", "--all-features"] {
+        let mut command = Command::new("cargo");
+        command.args(["tree", "--workspace", "-e", "features", "--locked"]);
+        if !features.is_empty() {
+            command.arg(features);
         }
+        let output = command
+            .current_dir(&root)
+            .output()
+            .map_err(|error| format!("could not inspect main dependency features: {error}"))?;
+        if !output.status.success() {
+            return Err(String::from_utf8_lossy(&output.stderr).into_owned());
+        }
+        main_graphs.push(String::from_utf8_lossy(&output.stdout).into_owned());
     }
-    if !isolated.join("Cargo.lock").is_file() {
-        return Err("isolated reader Cargo.lock is missing".into());
-    }
-    let reader_tree = Command::new("cargo")
+    let isolated = root.join("adapters/onelibrary-reader");
+    let reader_meta = Command::new("cargo")
         .args([
-            "tree",
+            "metadata",
             "--manifest-path",
             "Cargo.toml",
-            "-e",
-            "features",
+            "--format-version",
+            "1",
             "--locked",
             "--offline",
+            "--all-features",
         ])
         .current_dir(&isolated)
         .output()
-        .map_err(|error| format!("could not inspect isolated reader features: {error}"))?;
-    if !reader_tree.status.success() {
-        return Err(String::from_utf8_lossy(&reader_tree.stderr).into_owned());
+        .map_err(|error| format!("could not resolve isolated reader metadata: {error}"))?;
+    if !reader_meta.status.success() {
+        return Err(String::from_utf8_lossy(&reader_meta.stderr).into_owned());
     }
-    let reader_tree = String::from_utf8_lossy(&reader_tree.stdout);
-    validate_onelibrary_graphs(&root_tree, &reader_tree)?;
+    let reader_meta: serde_json::Value = serde_json::from_slice(&reader_meta.stdout)
+        .map_err(|e| format!("invalid isolated metadata: {e}"))?;
+    if !isolated.join("Cargo.lock").is_file() {
+        return Err("isolated reader Cargo.lock is missing".into());
+    }
+    let graph_refs: Vec<&str> = main_graphs.iter().map(String::as_str).collect();
+    validate_onelibrary_graphs(&graph_refs, &reader_meta)?;
     let licenses = Command::new("cargo")
-        .args(["deny", "check", "licenses"])
+        .args(["deny", "--locked", "check", "licenses"])
         .current_dir(&isolated)
         .status()
         .map_err(|error| format!("could not run isolated locked license gate: {error}"))?;
@@ -564,12 +648,52 @@ mod tests {
     use super::*;
     use serde_json::json;
 
+    fn reader_metadata() -> serde_json::Value {
+        let pkgs = [
+            ("rusqlite", "0.40.2"),
+            ("libsqlite3-sys", "0.38.2"),
+            ("zeroize", "1.8.2"),
+            ("serde", "1.0.229"),
+            ("serde_json", "1.0.154"),
+        ];
+        let mut packages: Vec<_> = pkgs
+            .iter()
+            .map(|(name, version)| json!({"name":name,"version":version}))
+            .collect();
+        packages.push(json!({"name":"oxidj-onelibrary-reader","version":"0.1.0","dependencies":[
+            {"name":"rusqlite","req":"=0.40.2","kind":null,"uses_default_features":false,"features":["bundled-sqlcipher-vendored-openssl","hooks"]},
+            {"name":"zeroize","req":"=1.8.2","kind":null,"uses_default_features":false,"features":[]},
+            {"name":"serde","req":"=1.0.229","kind":null,"uses_default_features":false,"features":[]},
+            {"name":"serde_json","req":"=1.0.154","kind":null,"uses_default_features":true,"features":[]}
+        ]}));
+        json!({"packages":packages,"resolve":{"nodes":[
+            {"id":"registry#rusqlite@0.40.2","features":["bundled-sqlcipher-vendored-openssl"]},
+            {"id":"registry#libsqlite3-sys@0.38.2","features":["bundled-sqlcipher-vendored-openssl"]}
+        ]}})
+    }
+
     #[test]
-    fn onelibrary_graph_gate_rejects_sqlcipher_leaks_and_unpinned_isolated_graphs() {
-        let isolated = "rusqlite v0.40.2 feature bundled-sqlcipher-vendored-openssl";
-        assert!(validate_onelibrary_graphs("oxidj-cli features", isolated).is_ok());
-        assert!(validate_onelibrary_graphs("rusqlite feature sqlcipher", isolated).is_err());
-        assert!(validate_onelibrary_graphs("clean", "rusqlite v0.40.2").is_err());
+    fn onelibrary_graph_gate_checks_all_main_features_and_named_exact_reader_pins() {
+        let reader = reader_metadata();
+        assert!(
+            validate_onelibrary_graphs(&["main default", "main all features"], &reader).is_ok()
+        );
+        assert!(
+            validate_onelibrary_graphs(&["main default", "optional sqlcipher feature"], &reader)
+                .is_err()
+        );
+        let mut wrong_pin = reader.clone();
+        wrong_pin["packages"][5]["dependencies"][0]["req"] = json!("=0.40.1");
+        assert!(validate_onelibrary_graphs(&["clean"], &wrong_pin).is_err());
+        let mut extra_version = reader.clone();
+        extra_version["packages"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!({"name":"rusqlite","version":"0.39.0"}));
+        assert!(validate_onelibrary_graphs(&["clean"], &extra_version).is_err());
+        let mut wrong_feature = reader.clone();
+        wrong_feature["resolve"]["nodes"][1]["features"] = json!([]);
+        assert!(validate_onelibrary_graphs(&["clean"], &wrong_feature).is_err());
     }
 
     #[test]
