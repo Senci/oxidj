@@ -2,6 +2,54 @@ use eframe::egui;
 use oxidj_library::{Catalog, TrackAvailability, TrackDetails};
 use std::path::PathBuf;
 
+fn direct_xml_node_order(source: &std::path::Path, wanted: &[String]) -> Result<Vec<String>, String> {
+    use quick_xml::{events::Event, Reader};
+    let bytes = std::fs::read(source).map_err(|e| e.to_string())?;
+    let mut reader = Reader::from_reader(bytes.as_slice());
+    let mut buf = Vec::new();
+    let mut folders: Vec<String> = Vec::new();
+    let mut folder_frames: Vec<bool> = Vec::new();
+    let mut result = Vec::new();
+    loop {
+        match reader.read_event_into(&mut buf).map_err(|e| e.to_string())? {
+            Event::Start(e) if e.name().as_ref() == b"NODE" => {
+                let mut kind = None;
+                let mut name = None;
+                for attr in e.attributes().with_checks(false) {
+                    let attr = attr.map_err(|e| e.to_string())?;
+                    let value = attr.decoded_and_normalized_value(quick_xml::XmlVersion::Implicit1_0, reader.decoder()).map_err(|e| e.to_string())?.into_owned();
+                    match attr.key.as_ref() { b"Type" => kind = Some(value), b"Name" => name = Some(value), _ => {} }
+                }
+                let kind = kind.ok_or("NODE missing Type")?;
+                let name = name.ok_or("NODE missing Name")?;
+                if folders == wanted { result.push(name.clone()); }
+                let is_folder = kind == "0";
+                if is_folder && !folder_frames.is_empty() { folders.push(name); }
+                folder_frames.push(is_folder && !folder_frames.is_empty());
+            }
+            Event::Empty(e) if e.name().as_ref() == b"NODE" => {
+                let mut kind = None;
+                let mut name = None;
+                for attr in e.attributes().with_checks(false) {
+                    let attr = attr.map_err(|e| e.to_string())?;
+                    let value = attr.decoded_and_normalized_value(quick_xml::XmlVersion::Implicit1_0, reader.decoder()).map_err(|e| e.to_string())?.into_owned();
+                    match attr.key.as_ref() { b"Type" => kind = Some(value), b"Name" => name = Some(value), _ => {} }
+                }
+                let name = name.ok_or("NODE missing Name")?;
+                if folders == wanted { result.push(name); }
+                let _ = kind;
+            }
+            Event::End(e) if e.name().as_ref() == b"NODE" => {
+                if folder_frames.pop().unwrap_or(false) { folders.pop(); }
+            }
+            Event::Eof => break,
+            _ => {}
+        }
+        buf.clear();
+    }
+    Ok(result)
+}
+
 mod components;
 mod control_gallery;
 #[cfg(test)]
@@ -819,7 +867,7 @@ impl LibraryApp {
         ]
         .concat();
         let order_under = |parent: &oxidj_rekordbox::Folder| -> Vec<String> {
-            preview.playlists.iter().filter(|p| p.path.len() >= 2 && p.path[..p.path.len()-1] == parent.path[1..]).map(|p| p.name.clone()).collect()
+            direct_xml_node_order(&source, &parent.path[1..]).unwrap_or_default()
         };
         let source_order = order_under(source_parent);
         let destination_order = order_under(destination);
@@ -855,7 +903,7 @@ impl LibraryApp {
         let destination = preview.folders.iter().find(|f| f.ordinal == pending.destination_parent_index + 1);
         let playlist = preview.playlists.get(pending.playlist_index);
         let order_under = |parent: Option<&oxidj_rekordbox::Folder>| -> Vec<String> {
-            parent.map(|parent| preview.playlists.iter().filter(|p| p.path.len() >= 2 && p.path[..p.path.len()-1] == parent.path[1..]).map(|p| p.name.clone()).collect()).unwrap_or_default()
+            parent.and_then(|parent| direct_xml_node_order(&pending.source, &parent.path[1..]).ok()).unwrap_or_default()
         };
         let stale = self.xml_document_source.as_ref() != Some(&pending.source)
             || self.xml_selected_playlist != Some(pending.playlist_index)
@@ -3206,6 +3254,27 @@ mod keyboard_tests {
         assert!(app.xml_pending_move.is_none());
         assert!(!root.join("source-stale.xml").exists());
         assert_eq!(std::fs::read(&source).unwrap(), changed);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn playlist_move_ui_accepts_mixed_folder_and_playlist_children() {
+        use std::time::{SystemTime, UNIX_EPOCH};
+        let root = std::env::temp_dir().join(format!("oxidj-ui-playlist-move-mixed-{}-{}", std::process::id(), SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()));
+        std::fs::create_dir_all(&root).unwrap();
+        let source = root.join("source.xml");
+        let fixture = std::fs::read(concat!(env!("CARGO_MANIFEST_DIR"), "/../../xtask/tests/fixtures/f02-playlist-move/source.xml")).unwrap();
+        let xml = String::from_utf8(fixture).unwrap().replace("Name=\"Target\" Count=\"1\"><NODE", "Name=\"Target\" Count=\"2\"><NODE Type=\"0\" Name=\"Sub\" Count=\"0\"/><NODE");
+        std::fs::write(&source, xml).unwrap();
+        let mut app = app();
+        app.xml_path = source.display().to_string();
+        app.preview_xml();
+        let target = app.xml_preview.as_ref().unwrap().as_ref().unwrap().folders.iter().find(|f| f.name == "Target").unwrap().ordinal;
+        assert_eq!(direct_xml_node_order(&source, &["Target".into()]).unwrap(), ["Sub", "Other"]);
+        app.xml_selected_playlist = Some(0);
+        app.xml_move_destination = Some(target);
+        app.prepare_xml_playlist_move(0);
+        assert!(app.xml_pending_move.is_some(), "mixed direct child order should prepare successfully");
         std::fs::remove_dir_all(root).unwrap();
     }
 
