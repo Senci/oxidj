@@ -6760,3 +6760,33 @@ fn track_artist_cli_export_matches_independent_f02_oracle() {
     let _ = fs::remove_file(input);
     let _ = fs::remove_file(output);
 }
+
+#[test]
+fn prepared_track_name_export_output_passes_shared_f02_oracle() {
+    let fixture = format!(
+        "{}/../../xtask/tests/fixtures/rekordbox-a1/F-02/source.bin",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let source = temporary_path("prepared-track-name-source");
+    let output = temporary_path("prepared-track-name-output");
+    let original = fs::read(fixture).unwrap();
+    fs::write(&source, &original).unwrap();
+    let prepared = oxidj_application::prepare_rekordbox_track_name_edit(
+        &oxidj_application::TrackNameEditPreparationRequest {
+            source: source.clone(),
+            track_id: "100".into(),
+            expected_old_name: "A".into(),
+            new_name: "New < title".into(),
+        },
+    )
+    .unwrap();
+
+    oxidj_application::export_prepared_rekordbox_track_name_edit(&prepared, &output).unwrap();
+
+    let actual = fs::read(&output).unwrap();
+    assert_eq!(actual, prepared.bytes());
+    f02_track_name_oracle_support::check(&actual).unwrap();
+    assert_eq!(fs::read(&source).unwrap(), original);
+    let _ = fs::remove_file(source);
+    let _ = fs::remove_file(output);
+}

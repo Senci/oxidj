@@ -26,13 +26,13 @@ pub use oxidj_rekordbox::{
     PreparedTrackDateAddedEdit, PreparedTrackDateModifiedEdit, PreparedTrackDelete,
     PreparedTrackDiscNumberEdit, PreparedTrackGenreEdit, PreparedTrackGroupingEdit,
     PreparedTrackKindEdit, PreparedTrackLabelEdit, PreparedTrackLastPlayedEdit,
-    PreparedTrackMixEdit, PreparedTrackNameEdit, PreparedTrackNumberEdit,
-    PreparedTrackPlayCountEdit, PreparedTrackRatingEdit, PreparedTrackRemixerEdit,
-    PreparedTrackSampleRateEdit, PreparedTrackSizeEdit, PreparedTrackTotalTimeEdit,
-    PreparedTrackYearEdit, Preview, SiblingFolderReorderRequest, SiblingPlaylistReorderRequest,
-    TempoBeatEditChange, TempoBeatEditRequest, TempoEditChange, TempoEditRequest,
-    TempoMeterEditChange, TempoMeterEditRequest, TempoStartEditChange, TempoStartEditRequest,
-    TrackAlbumEditChange, TrackAlbumEditRequest, TrackArtistEditChange, TrackArtistEditRequest,
+    PreparedTrackMixEdit, PreparedTrackNumberEdit, PreparedTrackPlayCountEdit,
+    PreparedTrackRatingEdit, PreparedTrackRemixerEdit, PreparedTrackSampleRateEdit,
+    PreparedTrackSizeEdit, PreparedTrackTotalTimeEdit, PreparedTrackYearEdit, Preview,
+    SiblingFolderReorderRequest, SiblingPlaylistReorderRequest, TempoBeatEditChange,
+    TempoBeatEditRequest, TempoEditChange, TempoEditRequest, TempoMeterEditChange,
+    TempoMeterEditRequest, TempoStartEditChange, TempoStartEditRequest, TrackAlbumEditChange,
+    TrackAlbumEditRequest, TrackArtistEditChange, TrackArtistEditRequest,
     TrackAverageBpmEditChange, TrackAverageBpmEditRequest, TrackBitRateEditChange,
     TrackBitRateEditRequest, TrackColourEditChange, TrackColourEditRequest,
     TrackCommentsEditChange, TrackCommentsEditRequest, TrackComposerEditChange,
@@ -138,6 +138,29 @@ pub fn preview_rekordbox_pdb(path: impl AsRef<Path>) -> Result<PdbPreview, PdbPr
     oxidj_rekordbox::parse_pdb_file(path)
 }
 
+/// A prepared Track Name edit retains the exact source snapshot used for preview.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PreparedTrackNameEdit {
+    source: std::path::PathBuf,
+    source_bytes: Vec<u8>,
+    bytes: Vec<u8>,
+    change: TrackNameEditChange,
+}
+
+impl PreparedTrackNameEdit {
+    pub fn source(&self) -> &Path {
+        &self.source
+    }
+
+    pub fn bytes(&self) -> &[u8] {
+        &self.bytes
+    }
+
+    pub fn change(&self) -> &TrackNameEditChange {
+        &self.change
+    }
+}
+
 /// Source and exact-old guard for a previewable Track Name edit.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TrackNameEditPreparationRequest {
@@ -158,13 +181,34 @@ pub fn prepare_rekordbox_track_name_edit(
         expected_old_name: request.expected_old_name.clone(),
         new_name: request.new_name.clone(),
     };
-    prepare_rekordbox_track_name_edit_bytes(&source, &adapter_request)
+    let prepared = prepare_rekordbox_track_name_edit_bytes(&source, &adapter_request)?;
+    Ok(PreparedTrackNameEdit {
+        source: request.source.clone(),
+        source_bytes: source,
+        bytes: prepared.bytes,
+        change: prepared.change,
+    })
+}
+
+/// Export only a prepared Track Name edit, after confirming its source is unchanged.
+pub fn export_prepared_rekordbox_track_name_edit(
+    prepared: &PreparedTrackNameEdit,
+    output: impl AsRef<Path>,
+) -> Result<TrackNameEditChange, RekordboxError> {
+    let (current_source, output) = read_new_export_source(&prepared.source, output)?;
+    if current_source != prepared.source_bytes {
+        return Err(RekordboxError(
+            "source changed after Track Name edit preparation".into(),
+        ));
+    }
+    publish_new_file(&output, &prepared.bytes)?;
+    Ok(prepared.change.clone())
 }
 
 fn prepare_rekordbox_track_name_edit_bytes(
     source: &[u8],
     request: &TrackNameEditRequest,
-) -> Result<PreparedTrackNameEdit, RekordboxError> {
+) -> Result<oxidj_rekordbox::PreparedTrackNameEdit, RekordboxError> {
     oxidj_rekordbox::prepare_track_name_edit(source, request)
 }
 

@@ -45,6 +45,7 @@ struct LibraryApp {
     xml_selected_track: Option<String>,
     xml_edit_name: String,
     xml_pending_edit: Option<PendingTrackNameEdit>,
+    xml_export_path: String,
     xml_edit_error: Option<String>,
     show_control_gallery: bool,
     control_gallery: control_gallery::GalleryState,
@@ -89,6 +90,7 @@ impl LibraryApp {
             xml_selected_track: None,
             xml_edit_name: String::new(),
             xml_pending_edit: None,
+            xml_export_path: String::new(),
             xml_edit_error: None,
             show_control_gallery: false,
             control_gallery: control_gallery::GalleryState::default(),
@@ -305,7 +307,8 @@ impl LibraryApp {
     fn prepare_xml_name_edit(&mut self, track_id: &str, old_name: &str) {
         let Some(source) = self.xml_document_source.clone() else {
             self.xml_pending_edit = None;
-            self.xml_edit_error = Some("Track Name preparation refused: no XML document is loaded".into());
+            self.xml_edit_error =
+                Some("Track Name preparation refused: no XML document is loaded".into());
             return;
         };
         let request = oxidj_application::TrackNameEditPreparationRequest {
@@ -333,6 +336,40 @@ impl LibraryApp {
     fn cancel_xml_name_edit(&mut self) {
         self.xml_pending_edit = None;
         self.xml_edit_error = None;
+    }
+
+    fn export_xml_name_edit(&mut self) {
+        self.notice.clear();
+        let Some(pending) = self.xml_pending_edit.as_ref() else {
+            self.xml_edit_error =
+                Some("Track Name export refused: no prepared pending edit".into());
+            return;
+        };
+        if self.xml_document_source.as_ref() != Some(&pending.source) {
+            self.xml_edit_error =
+                Some("Track Name export refused: pending edit is not for the loaded source".into());
+            return;
+        }
+        let output = PathBuf::from(&self.xml_export_path);
+        if self.xml_export_path.trim().is_empty() {
+            self.xml_edit_error =
+                Some("Track Name export refused: choose a new XML destination".into());
+            return;
+        }
+        match oxidj_application::export_prepared_rekordbox_track_name_edit(
+            &pending.prepared,
+            &output,
+        ) {
+            Ok(change) => {
+                self.xml_pending_edit = None;
+                self.xml_edit_error = None;
+                self.notice = format!("Track Name exported to {}", output.display());
+                self.xml_edit_name = change.new_name;
+            }
+            Err(error) => {
+                self.xml_edit_error = Some(format!("Track Name export failed: {error}"));
+            }
+        }
     }
 
     fn theme_selection_ui(&mut self, ui: &mut egui::Ui) -> (egui::Rect, Option<[egui::Rect; 3]>) {
@@ -529,8 +566,15 @@ impl eframe::App for LibraryApp {
                                 ui.strong("Pending edit · not exported or saved");
                                 ui.label(format!("Source: {}", pending.source.display()));
                                 ui.label(format!("TrackID: {}", pending.track_id));
-                                ui.label(format!("Original Name: {:?}", pending.prepared.change.old_name));
-                                ui.label(format!("Proposed Name: {:?}", pending.prepared.change.new_name));
+                                ui.label(format!("Original Name: {:?}", pending.prepared.change().old_name));
+                                ui.label(format!("Proposed Name: {:?}", pending.prepared.change().new_name));
+                                ui.horizontal(|ui| {
+                                    ui.label("New XML destination");
+                                    ui.text_edit_singleline(&mut self.xml_export_path);
+                                });
+                                if ui.button("Export prepared edit").clicked() {
+                                    self.export_xml_name_edit();
+                                }
                                 if ui.button("Cancel pending edit").clicked() {
                                     self.cancel_xml_name_edit();
                                 }
@@ -967,15 +1011,123 @@ mod keyboard_tests {
         let root = std::env::temp_dir().join(format!(
             "oxidj-ui-name-edit-{}-{}",
             std::process::id(),
-            SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_nanos()
+            SystemTime::now()
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
         ));
         std::fs::create_dir_all(&root).unwrap();
         let source = root.join("library.xml");
         std::fs::write(
             &source,
             include_bytes!("../../../xtask/tests/fixtures/rekordbox-a1/F-02/source.bin"),
-        ).unwrap();
+        )
+        .unwrap();
         (root, source)
+    }
+
+    #[test]
+    fn explicit_export_writes_exact_prepared_bytes_and_preserves_source_and_catalog() {
+        let (root, source) = temporary_xml();
+        let output = root.join("edited.xml");
+        let original = std::fs::read(&source).unwrap();
+        let catalog_path = root.join("catalog.sqlite");
+        drop(Catalog::open(&catalog_path).unwrap());
+        let catalog_before = std::fs::read(&catalog_path).unwrap();
+        let mut app = LibraryApp::new(
+            catalog_path.clone(),
+            ThemeMode::TokyoNight,
+            ThemeMode::TokyoNight.tokens(),
+        );
+        app.xml_path = source.display().to_string();
+        app.preview_xml();
+        app.xml_edit_name = "New < title".into();
+        app.prepare_xml_name_edit("100", "A");
+        let previewed_bytes = app
+            .xml_pending_edit
+            .as_ref()
+            .unwrap()
+            .prepared
+            .bytes()
+            .to_vec();
+        app.xml_export_path = output.display().to_string();
+
+        app.export_xml_name_edit();
+
+        assert_eq!(std::fs::read(&output).unwrap(), previewed_bytes);
+        assert_eq!(std::fs::read(&source).unwrap(), original);
+        assert_eq!(
+            std::fs::read(&catalog_path).unwrap(),
+            catalog_before,
+            "XML export changed catalog bytes"
+        );
+        assert!(app.xml_pending_edit.is_none());
+        assert!(app.notice.contains(&output.display().to_string()));
+        assert!(app.xml_edit_error.is_none());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn export_refuses_stale_source_alias_existing_output_and_surfaces_write_failure() {
+        let (root, source) = temporary_xml();
+        let original = std::fs::read(&source).unwrap();
+        let mut app = app();
+        app.xml_path = source.display().to_string();
+        app.preview_xml();
+        app.xml_edit_name = "New < title".into();
+        app.prepare_xml_name_edit("100", "A");
+        let prepared_bytes = app
+            .xml_pending_edit
+            .as_ref()
+            .unwrap()
+            .prepared
+            .bytes()
+            .to_vec();
+
+        app.xml_export_path = source.display().to_string();
+        app.export_xml_name_edit();
+        assert!(app.xml_pending_edit.is_some());
+        assert!(app.xml_edit_error.as_deref().unwrap().contains("same file"));
+        assert_eq!(std::fs::read(&source).unwrap(), original);
+
+        let existing = root.join("existing.xml");
+        std::fs::write(&existing, b"keep me").unwrap();
+        app.xml_export_path = existing.display().to_string();
+        app.export_xml_name_edit();
+        assert!(app.xml_pending_edit.is_some());
+        assert_eq!(std::fs::read(&existing).unwrap(), b"keep me");
+
+        std::fs::write(&source, b"stale source").unwrap();
+        let stale_out = root.join("stale.xml");
+        app.xml_export_path = stale_out.display().to_string();
+        app.export_xml_name_edit();
+        assert!(app.xml_pending_edit.is_some());
+        assert!(!stale_out.exists());
+        assert!(
+            app.xml_edit_error
+                .as_deref()
+                .unwrap()
+                .contains("source changed")
+        );
+        assert_ne!(prepared_bytes, std::fs::read(&source).unwrap());
+
+        std::fs::write(&source, &original).unwrap();
+        let failed_out = root.join("missing-parent").join("failed.xml");
+        app.xml_export_path = failed_out.display().to_string();
+        app.export_xml_name_edit();
+        assert!(app.xml_pending_edit.is_some());
+        assert!(
+            app.xml_edit_error
+                .as_deref()
+                .unwrap()
+                .starts_with("Track Name export failed:")
+        );
+        assert!(
+            app.notice.is_empty(),
+            "failure must not acknowledge success"
+        );
+        assert_eq!(std::fs::read(&source).unwrap(), original);
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
@@ -989,16 +1141,20 @@ mod keyboard_tests {
         app.xml_selected_track = Some("100".into());
         app.xml_edit_name = "Renamed".into();
         app.prepare_xml_name_edit("100", "A");
-        let pending = app.xml_pending_edit.as_ref().expect("prepared pending edit");
+        let pending = app
+            .xml_pending_edit
+            .as_ref()
+            .expect("prepared pending edit");
         assert_eq!(pending.source, source);
         assert_eq!(pending.track_id, "100");
-        assert_eq!(pending.prepared.change.track_id, "100");
-        assert_eq!(pending.prepared.change.old_name, "A");
-        assert_eq!(pending.prepared.change.new_name, "Renamed");
+        assert_eq!(pending.prepared.change().track_id, "100");
+        assert_eq!(pending.prepared.change().old_name, "A");
+        assert_eq!(pending.prepared.change().new_name, "Renamed");
         assert_eq!(std::fs::read(&source).unwrap(), original);
         app.cancel_xml_name_edit();
         assert!(app.xml_pending_edit.is_none());
         assert!(app.xml_edit_error.is_none());
+        assert!(app.notice.is_empty());
         std::fs::remove_dir_all(root).unwrap();
     }
 
@@ -1031,21 +1187,37 @@ mod keyboard_tests {
         app.xml_edit_name = "New".into();
         app.prepare_xml_name_edit("7", "Old");
         let error = app.xml_edit_error.as_ref().expect("guard refusal surfaced");
-        assert!(error.starts_with("Track Name preparation refused:"), "{error}");
+        assert!(
+            error.starts_with("Track Name preparation refused:"),
+            "{error}"
+        );
         assert!(app.xml_pending_edit.is_none());
         let ctx = egui::Context::default();
         let tokens = ThemeMode::TokyoNight.tokens();
         let error = app.xml_edit_error.clone().unwrap();
         let output = ctx.run(egui::RawInput::default(), |ctx| {
             egui::CentralPanel::default().show(ctx, |ui| {
-                StatusBadge { label: &error, kind: StatusKind::Error }.show(ui, tokens);
+                StatusBadge {
+                    label: &error,
+                    kind: StatusKind::Error,
+                }
+                .show(ui, tokens);
             });
         });
-        let labels = output.shapes.iter().filter_map(|clipped| match &clipped.shape {
-            egui::Shape::Text(text) => Some(text.galley.job.text.to_string()),
-            _ => None,
-        }).collect::<Vec<_>>();
-        assert!(labels.iter().any(|label| label.contains("Track Name preparation refused")), "{labels:?}");
+        let labels = output
+            .shapes
+            .iter()
+            .filter_map(|clipped| match &clipped.shape {
+                egui::Shape::Text(text) => Some(text.galley.job.text.to_string()),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert!(
+            labels
+                .iter()
+                .any(|label| label.contains("Track Name preparation refused")),
+            "{labels:?}"
+        );
         std::fs::remove_dir_all(root).unwrap();
     }
 
