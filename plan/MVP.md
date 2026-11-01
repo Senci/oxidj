@@ -1,5 +1,10 @@
 # MVP Milestones
 
+## Latest M4 increment (2026-11-01)
+
+- Commit `06074a5` exposes provisional Rekordbox XML playlist-member reorder through source-bound prepare/preview, up/down controls, cancel, new-file export, and output reopen. The UI reuses the guarded adapter and shared synthetic F-02 oracle; focused UI (45), application (3), oracle (1), and `cargo xtask ci` passed. Sol approved in review run `1681`.
+- Synthetic scope only. Full workspace tests in the independent review exited 101 on `f09_operation_provenance` checker-source digest drift; the F-02 reorder oracle passed. M4 remains in progress. ADR-005/A3, vendor compatibility, production GUI/accessibility, and performance remain **NOT DEMONSTRATED**; live Bot Screen interaction remains **NOT RUN**.
+
 - M0 Bootstrap/research/tooling — verified complete 2026-10-15.
 - M1 Library core — revised local-library acceptance v1 below; vendor-schema/interoperability criteria remain separate and unpassed.
 - M2 Filesystem import — revised reference-only local importer acceptance v1 below.
