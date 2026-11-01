@@ -217,7 +217,7 @@
       "checker": {
         "path": "xtask/tests/f02_sibling_playlist_reorder_oracle.rs",
         "version": "f09-operation-oracle-v1",
-        "sha256": "180db7316b524a81208d82f25c1260462f403349ccbdaf1a7ae6c4c3aa5685ac",
+        "sha256": "20c612584f670740d433cdb7a367c48582b4baa0bfc5f9fcea93ed403cb695e6",
         "tests": [
           "independently_decodes_sibling_reorder_and_rejects_output_mutations"
         ]
