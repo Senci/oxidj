@@ -619,11 +619,9 @@ impl LibraryApp {
             &output,
         ) {
             Ok(()) => {
-                let source = pending.source.clone();
                 self.xml_sibling_pending = None;
                 self.xml_path = output.display().to_string();
                 self.preview_xml();
-                let _ = source;
             }
             Err(error) => {
                 self.xml_edit_error =
@@ -2718,6 +2716,22 @@ mod keyboard_tests {
         app.export_xml_sibling_playlist_reorder();
         let bytes = std::fs::read(root.join("reordered.xml")).unwrap();
         f02_sibling_playlist_reorder_oracle::verify(&bytes).unwrap();
+        let reopened = app.xml_preview.as_ref().unwrap().as_ref().unwrap();
+        let reopened_order: Vec<_> = reopened
+            .playlists
+            .iter()
+            .filter(|playlist| playlist.path.len() == 2 && playlist.path[0] == "Sets")
+            .map(|playlist| playlist.name.as_str())
+            .collect();
+        assert_eq!(reopened_order, ["Techno", "House"]);
+        assert_eq!(
+            app.xml_document_source.as_ref().unwrap(),
+            &root.join("reordered.xml")
+        );
+        // A second export to the same path is refused and cannot overwrite the valid export.
+        let exported = std::fs::read(root.join("reordered.xml")).unwrap();
+        app.export_xml_sibling_playlist_reorder();
+        assert_eq!(std::fs::read(root.join("reordered.xml")).unwrap(), exported);
         let mutated = String::from_utf8(bytes)
             .unwrap()
             .replace("Name=\"Sets\" Count=\"3\"", "Name=\"Sets\" Count=\"4\"");
@@ -2725,6 +2739,127 @@ mod keyboard_tests {
         assert_eq!(
             std::fs::read(source).unwrap(),
             include_bytes!("../../../xtask/tests/fixtures/f02-sibling-playlist-reorder/source.xml")
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn sibling_playlist_reorder_ui_guards_reject_stale_invalid_cancel_and_existing_destination() {
+        use std::time::{SystemTime, UNIX_EPOCH};
+        let root = std::env::temp_dir().join(format!(
+            "oxidj-ui-sibling-guards-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let fixture = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../xtask/tests/fixtures/f02-sibling-playlist-reorder/source.xml"
+        );
+        let setup = |label: &str| {
+            let source = root.join(format!("{label}.xml"));
+            std::fs::copy(fixture, &source).unwrap();
+            let mut app = app();
+            app.xml_path = source.display().to_string();
+            app.preview_xml();
+            app.xml_sibling_parent = Some(
+                app.xml_preview
+                    .as_ref()
+                    .unwrap()
+                    .as_ref()
+                    .unwrap()
+                    .folders
+                    .iter()
+                    .find(|folder| folder.name == "Sets")
+                    .unwrap()
+                    .ordinal,
+            );
+            app.xml_sibling_order = "Techno, House".into();
+            app.prepare_xml_sibling_playlist_reorder();
+            (app, source)
+        };
+
+        for invalid in ["House, House", "House, Missing", "House"] {
+            let (mut app, source) = setup("invalid");
+            app.xml_sibling_order = invalid.into();
+            app.prepare_xml_sibling_playlist_reorder();
+            assert!(app.xml_sibling_pending.is_none(), "accepted {invalid}");
+            let destination = root.join("invalid-output.xml");
+            app.xml_sibling_export_path = destination.display().to_string();
+            app.export_xml_sibling_playlist_reorder();
+            assert!(!destination.exists());
+            assert_eq!(
+                std::fs::read(source).unwrap(),
+                std::fs::read(fixture).unwrap()
+            );
+        }
+
+        for stale in ["source", "parent", "order"] {
+            let (mut app, source) = setup(stale);
+            match stale {
+                "source" => app.xml_document_source = Some(root.join("different.xml")),
+                "parent" => {
+                    app.xml_preview
+                        .as_mut()
+                        .unwrap()
+                        .as_mut()
+                        .unwrap()
+                        .folders
+                        .iter_mut()
+                        .find(|folder| folder.name == "Sets")
+                        .unwrap()
+                        .name = "Renamed".into()
+                }
+                "order" => {
+                    let preview = app.xml_preview.as_mut().unwrap().as_mut().unwrap();
+                    let house = preview
+                        .playlists
+                        .iter()
+                        .position(|p| p.name == "House")
+                        .unwrap();
+                    let techno = preview
+                        .playlists
+                        .iter()
+                        .position(|p| p.name == "Techno")
+                        .unwrap();
+                    preview.playlists.swap(house, techno);
+                }
+                _ => unreachable!(),
+            }
+            let destination = root.join(format!("{stale}-output.xml"));
+            app.xml_sibling_export_path = destination.display().to_string();
+            app.export_xml_sibling_playlist_reorder();
+            assert!(app.xml_sibling_pending.is_none());
+            assert!(!destination.exists(), "stale {stale} created output");
+            assert_eq!(
+                std::fs::read(source).unwrap(),
+                std::fs::read(fixture).unwrap()
+            );
+        }
+
+        let (mut cancelled, source) = setup("cancel");
+        cancelled.xml_sibling_pending = None; // UI Cancel sibling reorder action
+        let destination = root.join("cancel-output.xml");
+        cancelled.xml_sibling_export_path = destination.display().to_string();
+        cancelled.export_xml_sibling_playlist_reorder();
+        assert!(!destination.exists());
+        assert_eq!(
+            std::fs::read(source).unwrap(),
+            std::fs::read(fixture).unwrap()
+        );
+
+        let (mut refused, source) = setup("destination");
+        let destination = root.join("already-exists.xml");
+        std::fs::write(&destination, b"do not overwrite").unwrap();
+        refused.xml_sibling_export_path = destination.display().to_string();
+        refused.export_xml_sibling_playlist_reorder();
+        assert_eq!(std::fs::read(destination).unwrap(), b"do not overwrite");
+        assert_eq!(
+            std::fs::read(source).unwrap(),
+            std::fs::read(fixture).unwrap()
         );
         std::fs::remove_dir_all(root).unwrap();
     }
