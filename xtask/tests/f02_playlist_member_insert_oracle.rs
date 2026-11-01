@@ -4,7 +4,7 @@ use oxidj_rekordbox::{PlaylistMemberInsertRequest, prepare_playlist_member_inser
 use quick_xml::{Reader, XmlVersion, events::Event};
 use serde_json as _;
 use sha2 as _;
-const SOURCE: &[u8] = include_bytes!("fixtures/f02-playlist-member-insert/source.xml");
+pub(crate) const SOURCE: &[u8] = include_bytes!("fixtures/f02-playlist-member-insert/source.xml");
 #[derive(Debug)]
 struct Node {
     name: String,
@@ -121,7 +121,7 @@ fn playlists(node: &Node, path: &mut Vec<String>, out: &mut Vec<Playlist>) {
         path.pop();
     }
 }
-fn check(bytes: &[u8]) -> Result<(), String> {
+pub(crate) fn check(bytes: &[u8]) -> Result<(), String> {
     let root = decode(bytes);
     let mut actual = vec![];
     playlists(&root, &mut vec![], &mut actual);
