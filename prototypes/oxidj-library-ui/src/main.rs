@@ -5,6 +5,9 @@ use std::path::PathBuf;
 mod components;
 mod control_gallery;
 mod theme;
+#[cfg(test)]
+#[path = "../../../xtask/tests/common/f02_track_name_oracle_support.rs"]
+mod f02_track_name_oracle_support;
 use components::{PrimaryActionButton, SectionHeading, StatusBadge, StatusKind};
 use theme::ThemeMode;
 
@@ -1054,7 +1057,16 @@ mod keyboard_tests {
 
         app.export_xml_name_edit();
 
-        assert_eq!(std::fs::read(&output).unwrap(), previewed_bytes);
+        let exported_bytes = std::fs::read(&output).unwrap();
+        assert_eq!(exported_bytes, previewed_bytes);
+        f02_track_name_oracle_support::check(&exported_bytes)
+            .expect("independent F-02 oracle accepts only the selected Name change");
+        let reopened = oxidj_application::preview_rekordbox_xml(&output).unwrap();
+        assert_eq!(
+            reopened.tracks.iter().find(|track| track.id == "100").unwrap().name,
+            "New < title",
+            "reopened output exposes the exported Name"
+        );
         assert_eq!(std::fs::read(&source).unwrap(), original);
         assert_eq!(
             std::fs::read(&catalog_path).unwrap(),

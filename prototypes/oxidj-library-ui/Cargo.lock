@@ -2304,6 +2304,7 @@ dependencies = [
  "eframe",
  "oxidj-application",
  "oxidj-library",
+ "quick-xml",
 ]
 
 [[package]]
