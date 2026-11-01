@@ -1495,7 +1495,19 @@ impl eframe::App for LibraryApp {
                             ui.strong("Pending whole-playlist deletion · not exported or saved");
                             ui.label(format!("Source: {} · playlist #{} · {:?}", pending.source.display(), pending.playlist_index, pending.name));
                             ui.label(format!("Ordered members: {:?}", pending.expected_order));
-                            ui.label("Deletes this playlist node only; collection tracks and shared memberships in other playlists stay intact.");
+                            ui.label(format!("Proposed result: remove playlist node {:?} and its memberships", pending.name));
+                            let parent_name = self.xml_preview.as_ref().and_then(|p| p.as_ref().ok())
+                                .and_then(|p| p.playlists.get(pending.playlist_index))
+                                .and_then(|playlist| playlist.path.get(playlist.path.len().saturating_sub(2)))
+                                .cloned();
+                            if let Some(parent) = parent_name.and_then(|name| self.xml_preview.as_ref()
+                                .and_then(|p| p.as_ref().ok())
+                                .and_then(|p| p.folders.iter().find(|folder| folder.name == name))) {
+                                if let Some(count) = parent.count.as_deref().and_then(|value| value.parse::<usize>().ok()) {
+                                    ui.label(format!("Immediate parent {:?} Count: {count} → {}", parent.name, count.saturating_sub(1)));
+                                }
+                            }
+                            ui.label("Collection tracks and shared memberships in other playlists stay intact.");
                             ui.horizontal(|ui| { ui.label("New XML destination"); ui.text_edit_singleline(&mut self.xml_playlist_delete_export_path); });
                             if ui.button("Export prepared playlist deletion").clicked() { self.export_xml_playlist_delete(); }
                             if ui.button("Cancel playlist deletion").clicked() { self.cancel_xml_playlist_delete(); }
@@ -2368,6 +2380,13 @@ mod keyboard_tests {
         app.cancel_xml_playlist_delete();
         assert!(!cancelled.exists());
         app.prepare_xml_playlist_delete(1);
+        let preview_before = app.xml_preview.as_ref().unwrap().as_ref().unwrap();
+        let removed = &preview_before.playlists[1];
+        let parent_name = removed.path[removed.path.len() - 2].as_str();
+        let parent = preview_before.folders.iter().find(|folder| folder.name == parent_name).unwrap();
+        assert_eq!(parent.name, "Sets");
+        assert_eq!(parent.count.as_deref(), Some("3"));
+        assert_eq!(parent.count.as_deref().unwrap().parse::<usize>().unwrap() - 1, 2);
         let output = root.join("deleted.xml");
         app.xml_playlist_delete_export_path = output.display().to_string();
         app.export_xml_playlist_delete();
@@ -2375,6 +2394,11 @@ mod keyboard_tests {
         assert_eq!(exported, prepared);
         f02_playlist_delete_oracle::check(&exported).expect("actual UI-exported bytes pass independent F-02 oracle");
         assert_eq!(app.xml_document_source.as_ref(), Some(&output));
+        let reopened = app.xml_preview.as_ref().unwrap().as_ref().unwrap();
+        assert_eq!(reopened.playlists.iter().map(|playlist| playlist.name.as_str()).collect::<Vec<_>>(), ["House"]);
+        assert_eq!(reopened.playlists[0].tracks, ["100", "200", "300"]);
+        let reopened_parent = reopened.folders.iter().find(|folder| folder.name == "Sets").unwrap();
+        assert_eq!(reopened_parent.count.as_deref(), Some("2"));
         let existing = root.join("existing.xml");
         std::fs::write(&existing, b"keep").unwrap();
         assert!(oxidj_application::export_prepared_rekordbox_playlist_delete(
