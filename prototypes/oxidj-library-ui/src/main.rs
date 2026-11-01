@@ -4024,6 +4024,13 @@ mod keyboard_tests {
             app.xml_pending_folder_delete.is_none(),
             "changed selection invalidates"
         );
+        let existing = root.join("existing.xml");
+        std::fs::write(&existing, b"keep").unwrap();
+        app.xml_selected_folder_delete = Some(index);
+        app.prepare_xml_folder_delete();
+        app.xml_folder_delete_export_path = existing.display().to_string();
+        app.export_xml_folder_delete();
+        assert_eq!(std::fs::read(&existing).unwrap(), b"keep", "existing destination is preserved");
         app.xml_selected_folder_delete = Some(index);
         app.prepare_xml_folder_delete();
         let output = root.join("deleted.xml");
