@@ -321,6 +321,49 @@ pub fn export_prepared_rekordbox_folder_delete(
     publish_new_file(&output, &prepared.bytes)
 }
 
+/// A source-bound prepared folder rename retains its exact preview snapshot.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PreparedFolderRenameExport {
+    source: std::path::PathBuf,
+    source_bytes: Vec<u8>,
+    bytes: Vec<u8>,
+}
+impl PreparedFolderRenameExport {
+    pub fn source(&self) -> &Path {
+        &self.source
+    }
+    pub fn bytes(&self) -> &[u8] {
+        &self.bytes
+    }
+}
+/// Prepare a guarded non-root folder rename for preview and source-bound export.
+pub fn prepare_rekordbox_folder_rename_export(
+    source: impl AsRef<Path>,
+    request: &FolderRenameRequest,
+) -> Result<PreparedFolderRenameExport, RekordboxError> {
+    let source = source.as_ref().to_path_buf();
+    let source_bytes = std::fs::read(&source).map_err(|error| RekordboxError(error.to_string()))?;
+    let prepared = oxidj_rekordbox::prepare_folder_rename(&source_bytes, request)?;
+    Ok(PreparedFolderRenameExport {
+        source,
+        source_bytes,
+        bytes: prepared.bytes,
+    })
+}
+/// Revalidate source bytes and publish prepared rename bytes to a new file.
+pub fn export_prepared_rekordbox_folder_rename(
+    prepared: &PreparedFolderRenameExport,
+    output: impl AsRef<Path>,
+) -> Result<(), RekordboxError> {
+    let (current_source, output) = read_new_export_source(&prepared.source, output)?;
+    if current_source != prepared.source_bytes {
+        return Err(RekordboxError(
+            "source changed after folder rename preparation".into(),
+        ));
+    }
+    publish_new_file(&output, &prepared.bytes)
+}
+
 /// A source-bound prepared empty-folder creation retains its exact preview snapshot.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PreparedFolderCreateExport {

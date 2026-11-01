@@ -14,6 +14,9 @@ mod f02_empty_folder_delete_oracle;
 #[path = "../../../xtask/tests/f02_empty_playlist_create_oracle.rs"]
 mod f02_empty_playlist_create_oracle;
 #[cfg(test)]
+#[path = "../../../xtask/tests/f02_folder_rename_oracle.rs"]
+mod f02_folder_rename_oracle;
+#[cfg(test)]
 #[path = "../../../xtask/tests/f02_playlist_clear_oracle.rs"]
 mod f02_playlist_clear_oracle;
 #[cfg(test)]
@@ -113,6 +116,17 @@ struct PendingFolderDelete {
 }
 
 #[derive(Debug, Clone)]
+struct PendingFolderRename {
+    source: PathBuf,
+    folder_index: usize,
+    ordinal: usize,
+    old_name: String,
+    path: Vec<String>,
+    new_name: String,
+    prepared: oxidj_application::PreparedFolderRenameExport,
+}
+
+#[derive(Debug, Clone)]
 struct PendingFolderCreate {
     source: PathBuf,
     parent_index: usize,
@@ -194,6 +208,10 @@ struct LibraryApp {
     xml_selected_folder_delete: Option<usize>,
     xml_pending_folder_delete: Option<PendingFolderDelete>,
     xml_folder_delete_export_path: String,
+    xml_selected_folder_rename: Option<usize>,
+    xml_folder_rename_name: String,
+    xml_pending_folder_rename: Option<PendingFolderRename>,
+    xml_folder_rename_export_path: String,
     xml_playlist_rename_name: String,
     xml_pending_rename: Option<PendingPlaylistRename>,
     xml_rename_export_path: String,
@@ -267,6 +285,10 @@ impl LibraryApp {
             xml_selected_folder_delete: None,
             xml_pending_folder_delete: None,
             xml_folder_delete_export_path: String::new(),
+            xml_selected_folder_rename: None,
+            xml_folder_rename_name: String::new(),
+            xml_pending_folder_rename: None,
+            xml_folder_rename_export_path: String::new(),
             xml_playlist_rename_name: String::new(),
             xml_pending_rename: None,
             xml_rename_export_path: String::new(),
@@ -1065,6 +1087,93 @@ impl LibraryApp {
         }
     }
 
+    fn prepare_xml_folder_rename(&mut self) {
+        let (Some(source), Some(folder_index)) = (
+            self.xml_document_source.clone(),
+            self.xml_selected_folder_rename,
+        ) else {
+            self.xml_pending_folder_rename = None;
+            self.xml_edit_error = Some("Folder rename refused: select one non-root folder".into());
+            return;
+        };
+        let Some(Ok(preview)) = self.xml_preview.as_ref() else {
+            return;
+        };
+        let Some(folder) = preview
+            .folders
+            .get(folder_index)
+            .filter(|f| f.path.len() > 1)
+        else {
+            self.xml_pending_folder_rename = None;
+            self.xml_edit_error =
+                Some("Folder rename refused: root or invalid folder selection".into());
+            return;
+        };
+        let request = oxidj_application::FolderRenameRequest {
+            folder_index: folder.ordinal.saturating_sub(1),
+            expected_old_name: folder.name.clone(),
+            new_name: self.xml_folder_rename_name.clone(),
+        };
+        match oxidj_application::prepare_rekordbox_folder_rename_export(&source, &request) {
+            Ok(prepared) => {
+                self.xml_pending_folder_rename = Some(PendingFolderRename {
+                    source,
+                    folder_index,
+                    ordinal: folder.ordinal,
+                    old_name: folder.name.clone(),
+                    path: folder.path.clone(),
+                    new_name: self.xml_folder_rename_name.clone(),
+                    prepared,
+                });
+                self.xml_edit_error = None;
+            }
+            Err(error) => {
+                self.xml_pending_folder_rename = None;
+                self.xml_edit_error = Some(format!("Folder rename preparation refused: {error}"));
+            }
+        }
+    }
+    fn export_xml_folder_rename(&mut self) {
+        let Some(pending) = self.xml_pending_folder_rename.clone() else {
+            self.xml_edit_error = Some("Folder rename export refused: no prepared proposal".into());
+            return;
+        };
+        let unchanged = self
+            .xml_preview
+            .as_ref()
+            .and_then(|p| p.as_ref().ok())
+            .and_then(|p| p.folders.get(pending.folder_index))
+            .is_some_and(|f| {
+                f.ordinal == pending.ordinal && f.name == pending.old_name && f.path == pending.path
+            });
+        if self.xml_document_source.as_ref() != Some(&pending.source)
+            || self.xml_selected_folder_rename != Some(pending.folder_index)
+            || self.xml_folder_rename_name != pending.new_name
+            || !unchanged
+        {
+            self.xml_pending_folder_rename = None;
+            self.xml_edit_error =
+                Some("Folder rename export refused: source, selection, or name changed".into());
+            return;
+        }
+        let output = PathBuf::from(&self.xml_folder_rename_export_path);
+        match oxidj_application::export_prepared_rekordbox_folder_rename(&pending.prepared, &output)
+        {
+            Ok(()) => {
+                self.xml_pending_folder_rename = None;
+                self.xml_preview = Some(
+                    oxidj_application::preview_rekordbox_xml(&output).map_err(|e| e.to_string()),
+                );
+                self.xml_document_source = Some(output.clone());
+                self.notice = format!("Folder renamed in {}", output.display());
+                self.xml_edit_error = None;
+            }
+            Err(error) => {
+                self.xml_edit_error = Some(format!("Folder rename export failed: {error}"))
+            }
+        }
+    }
+
     fn prepare_xml_folder_create(&mut self) {
         let (Some(source), Some(parent_index)) =
             (self.xml_document_source.clone(), self.xml_selected_parent)
@@ -1316,6 +1425,8 @@ impl LibraryApp {
 
     fn on_xml_source_changed(&mut self) {
         self.xml_pending_create = None;
+        self.xml_pending_folder_rename = None;
+        self.xml_selected_folder_rename = None;
         self.xml_pending_folder_create = None;
         self.xml_pending_folder_delete = None;
         self.xml_selected_folder_delete = None;
@@ -1487,6 +1598,8 @@ impl LibraryApp {
     }
 
     fn preview_xml(&mut self) {
+        self.xml_pending_folder_rename = None;
+        self.xml_selected_folder_rename = None;
         self.xml_pending_folder_delete = None;
         self.xml_selected_folder_delete = None;
         self.xml_pending_folder_create = None;
@@ -1941,6 +2054,31 @@ impl eframe::App for LibraryApp {
                             ui.horizontal(|ui| { ui.label("New XML destination"); ui.text_edit_singleline(&mut self.xml_folder_create_export_path); });
                             if ui.button("Export prepared folder").clicked() { self.export_xml_folder_create(); }
                             if ui.button("Cancel folder creation").clicked() { self.cancel_xml_folder_create(); }
+                        }
+                        SectionHeading { title: "Guarded folder rename (provisional)" }.show(ui, tokens);
+                        for (index, folder) in preview.folders.iter().enumerate() {
+                            if ui.selectable_label(self.xml_selected_folder_rename == Some(index), format!("Folder #{} · {}", folder.ordinal, folder.path.join(" / "))).clicked() {
+                                self.xml_selected_folder_rename = Some(index);
+                                self.xml_folder_rename_name = folder.name.clone();
+                                self.xml_pending_folder_rename = None;
+                            }
+                        }
+                        if let Some(index) = self.xml_selected_folder_rename {
+                            if let Some(folder) = preview.folders.get(index).filter(|f| f.path.len() > 1) {
+                                ui.label(format!("Selected #{} · {} · {:?}", folder.ordinal, folder.path.join(" / "), folder.name));
+                                if ui.text_edit_singleline(&mut self.xml_folder_rename_name).changed() { self.xml_pending_folder_rename = None; }
+                                if ui.button("Prepare folder rename").clicked() { self.prepare_xml_folder_rename(); }
+                            } else { ui.label("Root cannot be renamed."); }
+                        }
+                        if let Some(pending) = &self.xml_pending_folder_rename {
+                            ui.strong("Pending folder rename · not exported or saved");
+                            ui.label(format!("{} · {:?} → {:?}", pending.path.join(" / "), pending.old_name, pending.new_name));
+                            for playlist in preview.playlists.iter().filter(|p| p.path.starts_with(&pending.path)) {
+                                ui.label(format!("Affected playlist: {}", playlist.path.join(" / ")));
+                            }
+                            ui.horizontal(|ui| { ui.label("New XML destination"); ui.text_edit_singleline(&mut self.xml_folder_rename_export_path); });
+                            if ui.button("Export prepared folder rename").clicked() { self.export_xml_folder_rename(); }
+                            if ui.button("Cancel folder rename").clicked() { self.xml_pending_folder_rename = None; }
                         }
                         SectionHeading { title: "Guarded empty-folder deletion (provisional)" }.show(ui, tokens);
                         for (index, folder) in preview.folders.iter().enumerate() {
@@ -4030,7 +4168,11 @@ mod keyboard_tests {
         app.prepare_xml_folder_delete();
         app.xml_folder_delete_export_path = existing.display().to_string();
         app.export_xml_folder_delete();
-        assert_eq!(std::fs::read(&existing).unwrap(), b"keep", "existing destination is preserved");
+        assert_eq!(
+            std::fs::read(&existing).unwrap(),
+            b"keep",
+            "existing destination is preserved"
+        );
         app.xml_selected_folder_delete = Some(index);
         app.prepare_xml_folder_delete();
         let output = root.join("deleted.xml");
@@ -4078,6 +4220,81 @@ mod keyboard_tests {
             1,
         );
         assert!(f02_empty_folder_delete_oracle::check(mutated.as_bytes()).is_err());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn folder_rename_ui_prepares_exports_reopens_and_runs_independent_oracle() {
+        use std::time::{SystemTime, UNIX_EPOCH};
+        let root = std::env::temp_dir().join(format!(
+            "oxidj-ui-folder-rename-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let source = root.join("source.xml");
+        std::fs::copy(
+            concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../xtask/tests/fixtures/f02-folder-rename/source.xml"
+            ),
+            &source,
+        )
+        .unwrap();
+        let original = std::fs::read(&source).unwrap();
+        let catalog = root.join("catalog.sqlite");
+        drop(Catalog::open(&catalog).unwrap());
+        let catalog_before = std::fs::read(&catalog).unwrap();
+        let mut app = LibraryApp::new(
+            catalog.clone(),
+            ThemeMode::TokyoNight,
+            ThemeMode::TokyoNight.tokens(),
+        );
+        app.xml_path = source.display().to_string();
+        app.preview_xml();
+        let preview = app.xml_preview.as_ref().unwrap().as_ref().unwrap();
+        let index = preview
+            .folders
+            .iter()
+            .position(|f| f.name == "Sets" && f.path.len() > 1)
+            .unwrap();
+        app.xml_selected_folder_rename = Some(index);
+        app.xml_folder_rename_name = "Renamed".into();
+        app.prepare_xml_folder_rename();
+        let prepared = app
+            .xml_pending_folder_rename
+            .as_ref()
+            .unwrap()
+            .prepared
+            .bytes()
+            .to_vec();
+        app.xml_pending_folder_rename = None;
+        assert_eq!(
+            std::fs::read(&source).unwrap(),
+            original,
+            "preview/cancel are write-free"
+        );
+        app.prepare_xml_folder_rename();
+        app.xml_folder_rename_name.push('x');
+        app.export_xml_folder_rename();
+        assert!(
+            app.xml_pending_folder_rename.is_none(),
+            "name changes invalidate proposal"
+        );
+        app.xml_folder_rename_name = "Renamed".into();
+        app.prepare_xml_folder_rename();
+        let output = root.join("renamed.xml");
+        app.xml_folder_rename_export_path = output.display().to_string();
+        app.export_xml_folder_rename();
+        let exported_bytes = std::fs::read(&output).unwrap();
+        assert_eq!(exported_bytes, prepared);
+        let reopened = oxidj_application::preview_rekordbox_xml(&output).unwrap();
+        assert!(reopened.folders.iter().any(|f| f.name == "Renamed"));
+        assert_eq!(std::fs::read(&source).unwrap(), original);
+        assert_eq!(std::fs::read(catalog).unwrap(), catalog_before);
         std::fs::remove_dir_all(root).unwrap();
     }
 
