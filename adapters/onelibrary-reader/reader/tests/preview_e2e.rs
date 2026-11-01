@@ -48,6 +48,22 @@ fn run(path: &std::path::Path, key: &[u8]) -> std::process::Output {
     child.wait_with_output().unwrap()
 }
 
+fn mutate_fixture(path: &std::path::Path, sql: &str) {
+    let conn = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_WRITE).unwrap();
+    let rc = unsafe { rusqlite::ffi::sqlite3_key(conn.handle(), SECRET.as_ptr().cast(), SECRET.len() as i32) };
+    assert_eq!(rc, rusqlite::ffi::SQLITE_OK);
+    conn.execute_batch(sql).unwrap();
+}
+
+fn assert_rejected_unchanged(path: &std::path::Path) {
+    let before = std::fs::read(path).unwrap();
+    let output = run(path, SECRET);
+    assert!(!output.status.success());
+    assert!(output.stdout.is_empty());
+    assert_eq!(String::from_utf8_lossy(&output.stderr).trim(), "OneLibrary reader failed");
+    assert_eq!(std::fs::read(path).unwrap(), before);
+}
+
 #[test]
 fn encrypted_synthetic_profile_produces_complete_preview_without_mutating_source() {
     let path = temp_db();
@@ -89,6 +105,20 @@ fn encrypted_synthetic_profile_produces_complete_preview_without_mutating_source
     );
     assert_eq!(std::fs::read(&path).unwrap(), before);
     let _ = std::fs::remove_file(path);
+}
+
+#[test]
+fn rejects_orphan_membership_owner_and_generated_schema_column() {
+    let orphan = temp_db();
+    encrypted_fixture(&orphan);
+    mutate_fixture(&orphan, "PRAGMA foreign_keys=OFF; INSERT INTO playlist_tracks VALUES('missing-playlist',0,'src:1')");
+    assert_rejected_unchanged(&orphan);
+    let generated = temp_db();
+    encrypted_fixture(&generated);
+    mutate_fixture(&generated, "ALTER TABLE tracks ADD COLUMN unexpected TEXT GENERATED ALWAYS AS (title) VIRTUAL");
+    assert_rejected_unchanged(&generated);
+    let _ = std::fs::remove_file(orphan);
+    let _ = std::fs::remove_file(generated);
 }
 
 #[test]

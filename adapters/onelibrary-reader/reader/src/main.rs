@@ -189,6 +189,28 @@ fn read_preview(path: &Path, key: &[u8]) -> Result<Preview, ()> {
     }
     drop(stmt);
 
+    // Validate all membership owners/targets before iterating playlists; otherwise
+    // orphan rows disappear from the per-playlist query and look like success.
+    let mut membership_check = conn
+        .prepare("SELECT playlist_id,track_id FROM playlist_tracks ORDER BY playlist_id,position")
+        .map_err(|_| ())?;
+    let membership_rows = membership_check
+        .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))
+        .map_err(|_| ())?;
+    let playlist_ids: std::collections::HashSet<String> = conn
+        .prepare("SELECT id FROM playlists")
+        .map_err(|_| ())?
+        .query_map([], |row| row.get(0))
+        .map_err(|_| ())?
+        .collect::<Result<_, _>>()
+        .map_err(|_| ())?;
+    let track_ids: std::collections::HashSet<String> = tracks.iter().map(|track| track.id.as_str().to_owned()).collect();
+    for row in membership_rows {
+        let (playlist_id, track_id) = row.map_err(|_| ())?;
+        if !playlist_ids.contains(&playlist_id) || !track_ids.contains(&track_id) {
+            return Err(());
+        }
+    }
     let mut playlists = Vec::new();
     let mut membership_stmt = conn
         .prepare("SELECT track_id FROM playlist_tracks WHERE playlist_id=?1 ORDER BY position")
@@ -264,7 +286,7 @@ fn verify_table(
         return Err(());
     }
     let mut stmt = conn
-        .prepare(&format!("PRAGMA table_info({name})"))
+        .prepare(&format!("PRAGMA table_xinfo({name})"))
         .map_err(|_| ())?;
     let rows = stmt
         .query_map([], |row| {
