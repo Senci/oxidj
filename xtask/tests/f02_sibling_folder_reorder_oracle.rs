@@ -110,7 +110,7 @@ fn walk(n: &Node, path: &mut Vec<String>, fs: &mut Vec<Folder>, ps: &mut Vec<Pla
         path.pop();
     }
 }
-fn check(b: &[u8]) -> Result<(), String> {
+pub fn check(b: &[u8]) -> Result<(), String> {
     let root = decode(b);
     let (mut fs, mut ps) = (vec![], vec![]);
     walk(&root, &mut vec![], &mut fs, &mut ps);

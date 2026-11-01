@@ -29,6 +29,9 @@ mod f02_playlist_member_delete_oracle;
 #[path = "../../../xtask/tests/f02_playlist_rename_oracle.rs"]
 mod f02_playlist_rename_oracle;
 #[cfg(test)]
+#[path = "../../../xtask/tests/f02_sibling_folder_reorder_oracle.rs"]
+mod f02_sibling_folder_reorder_oracle;
+#[cfg(test)]
 #[path = "../../../xtask/tests/f02_sibling_playlist_reorder_oracle.rs"]
 mod f02_sibling_playlist_reorder_oracle;
 #[cfg(test)]
@@ -64,6 +67,16 @@ struct PendingSiblingPlaylistReorder {
     expected_order: Vec<String>,
     new_order: Vec<String>,
     prepared: oxidj_application::PreparedSiblingPlaylistReorderExport,
+}
+#[derive(Debug, Clone)]
+struct PendingSiblingFolderReorder {
+    source: PathBuf,
+    parent_index: usize,
+    parent_name: String,
+    parent_path: Vec<String>,
+    expected_order: Vec<String>,
+    new_order: Vec<String>,
+    prepared: oxidj_application::PreparedSiblingFolderReorderExport,
 }
 #[derive(Debug, Clone)]
 struct PendingPlaylistMemberAppend {
@@ -203,6 +216,10 @@ struct LibraryApp {
     xml_sibling_order: String,
     xml_sibling_pending: Option<PendingSiblingPlaylistReorder>,
     xml_sibling_export_path: String,
+    xml_folder_sibling_parent: Option<usize>,
+    xml_folder_sibling_order: String,
+    xml_folder_sibling_pending: Option<PendingSiblingFolderReorder>,
+    xml_folder_sibling_export_path: String,
     xml_pending_append: Option<PendingPlaylistMemberAppend>,
     xml_append_export_path: String,
     xml_insert_position: usize,
@@ -284,6 +301,10 @@ impl LibraryApp {
             xml_sibling_order: String::new(),
             xml_sibling_pending: None,
             xml_sibling_export_path: String::new(),
+            xml_folder_sibling_parent: None,
+            xml_folder_sibling_order: String::new(),
+            xml_folder_sibling_pending: None,
+            xml_folder_sibling_export_path: String::new(),
             xml_pending_append: None,
             xml_append_export_path: String::new(),
             xml_insert_position: 0,
@@ -631,6 +652,122 @@ impl LibraryApp {
             Err(error) => {
                 self.xml_edit_error =
                     Some(format!("Sibling playlist reorder export failed: {error}"))
+            }
+        }
+    }
+
+    fn prepare_xml_sibling_folder_reorder(&mut self) {
+        self.xml_folder_sibling_pending = None;
+        let Some(source) = self.xml_document_source.clone() else {
+            return;
+        };
+        let Some(Ok(preview)) = self.xml_preview.as_ref() else {
+            return;
+        };
+        let Some(parent_ordinal) = self.xml_folder_sibling_parent else {
+            return;
+        };
+        let Some(parent) = preview
+            .folders
+            .iter()
+            .find(|f| f.ordinal == parent_ordinal && f.path.len() > 1)
+        else {
+            return;
+        };
+        let expected_order: Vec<String> = preview
+            .folders
+            .iter()
+            .filter(|f| f.path.len() > 2 && f.path[..f.path.len() - 1] == parent.path)
+            .map(|f| f.name.clone())
+            .collect();
+        let new_order: Vec<String> = self
+            .xml_folder_sibling_order
+            .split(',')
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_owned)
+            .collect();
+        let request = oxidj_application::SiblingFolderReorderRequest {
+            parent_index: parent_ordinal.saturating_sub(1),
+            expected_parent_name: parent.name.clone(),
+            expected_order: expected_order.clone(),
+            new_order: new_order.clone(),
+        };
+        match oxidj_application::prepare_rekordbox_sibling_folder_reorder_export(&source, &request)
+        {
+            Ok(prepared) => {
+                self.xml_folder_sibling_pending = Some(PendingSiblingFolderReorder {
+                    source,
+                    parent_index: parent_ordinal.saturating_sub(1),
+                    parent_name: parent.name.clone(),
+                    parent_path: parent.path.clone(),
+                    expected_order,
+                    new_order,
+                    prepared,
+                });
+                self.xml_edit_error = None;
+            }
+            Err(error) => {
+                self.xml_edit_error = Some(format!("Sibling folder reorder refused: {error}"));
+            }
+        }
+    }
+
+    fn cancel_xml_sibling_folder_reorder(&mut self) {
+        self.xml_folder_sibling_pending = None;
+    }
+
+    fn export_xml_sibling_folder_reorder(&mut self) {
+        let Some(pending) = self.xml_folder_sibling_pending.as_ref() else {
+            return;
+        };
+        let parent = self
+            .xml_preview
+            .as_ref()
+            .and_then(|p| p.as_ref().ok())
+            .and_then(|p| {
+                p.folders
+                    .iter()
+                    .find(|f| f.ordinal == pending.parent_index + 1)
+            });
+        let order: Vec<String> = self
+            .xml_preview
+            .as_ref()
+            .and_then(|p| p.as_ref().ok())
+            .map(|p| {
+                p.folders
+                    .iter()
+                    .filter(|f| {
+                        f.path.len() > 2
+                            && parent.is_some_and(|par| f.path[..f.path.len() - 1] == par.path)
+                    })
+                    .map(|f| f.name.clone())
+                    .collect()
+            })
+            .unwrap_or_default();
+        if self.xml_document_source.as_ref() != Some(&pending.source)
+            || self.xml_folder_sibling_parent != Some(pending.parent_index + 1)
+            || parent.is_none_or(|p| p.name != pending.parent_name || p.path != pending.parent_path)
+            || order != pending.expected_order
+        {
+            self.xml_folder_sibling_pending = None;
+            self.xml_edit_error = Some(
+                "Sibling folder reorder invalidated by source, parent, or order change".into(),
+            );
+            return;
+        }
+        let output = PathBuf::from(&self.xml_folder_sibling_export_path);
+        match oxidj_application::export_prepared_rekordbox_sibling_folder_reorder(
+            &pending.prepared,
+            &output,
+        ) {
+            Ok(()) => {
+                self.xml_folder_sibling_pending = None;
+                self.xml_path = output.display().to_string();
+                self.preview_xml();
+            }
+            Err(error) => {
+                self.xml_edit_error = Some(format!("Sibling folder reorder export failed: {error}"))
             }
         }
     }
@@ -2061,6 +2198,23 @@ impl eframe::App for LibraryApp {
                             if ui.button("Export prepared sibling order").clicked() { self.export_xml_sibling_playlist_reorder(); }
                             if ui.button("Cancel sibling reorder").clicked() { self.cancel_xml_sibling_playlist_reorder(); }
                         }
+                        SectionHeading { title: "Sibling folder order (provisional)" }.show(ui, tokens);
+                        for folder in preview.folders.iter().filter(|f| f.path.len() > 1) {
+                            let label = format!("Parent #{} · {}", folder.ordinal, folder.path.join(" / "));
+                            if ui.selectable_label(self.xml_folder_sibling_parent == Some(folder.ordinal), label).clicked() {
+                                self.xml_folder_sibling_parent = Some(folder.ordinal);
+                                self.xml_folder_sibling_pending = None;
+                                self.xml_folder_sibling_order = preview.folders.iter().filter(|child| child.path.len() > 2 && child.path[..child.path.len()-1] == folder.path).map(|child| child.name.clone()).collect::<Vec<_>>().join(", ");
+                            }
+                        }
+                        ui.horizontal(|ui| { ui.label("Requested direct folder order (comma-separated names)"); if ui.text_edit_singleline(&mut self.xml_folder_sibling_order).changed() { self.xml_folder_sibling_pending = None; } });
+                        if ui.button("Prepare sibling folder reorder preview").clicked() { self.prepare_xml_sibling_folder_reorder(); }
+                        if let Some(pending) = &self.xml_folder_sibling_pending {
+                            ui.label(format!("Preview · parent #{} {} · {:?} → {:?} (playlist slots retained)", pending.parent_index, pending.parent_name, pending.expected_order, pending.new_order));
+                            ui.horizontal(|ui| { ui.label("New XML destination"); ui.text_edit_singleline(&mut self.xml_folder_sibling_export_path); });
+                            if ui.button("Export prepared sibling folders").clicked() { self.export_xml_sibling_folder_reorder(); }
+                            if ui.button("Cancel sibling folder reorder").clicked() { self.cancel_xml_sibling_folder_reorder(); }
+                        }
                         SectionHeading { title: "Playlist-member reorder (provisional)" }.show(ui, tokens);
                         for (index, playlist) in preview.playlists.iter().enumerate() {
                             let label = format!("#{index} · {} · {}", playlist.path.join(" / "), playlist.name);
@@ -2673,6 +2827,159 @@ mod keyboard_tests {
             ThemeMode::TokyoNight,
             ThemeMode::TokyoNight.tokens(),
         )
+    }
+
+    #[test]
+    fn sibling_folder_reorder_ui_exports_verified_bytes_and_guards_refusals() {
+        use std::time::{SystemTime, UNIX_EPOCH};
+        let root = std::env::temp_dir().join(format!(
+            "oxidj-ui-sibling-folder-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let fixture = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../xtask/tests/fixtures/f02-sibling-folder-reorder/source.xml"
+        );
+        let source = root.join("source.xml");
+        std::fs::copy(fixture, &source).unwrap();
+        let mut app = app();
+        app.xml_path = source.display().to_string();
+        app.preview_xml();
+        let parent = app
+            .xml_preview
+            .as_ref()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .folders
+            .iter()
+            .find(|f| f.name == "Sets")
+            .unwrap();
+        app.xml_folder_sibling_parent = Some(parent.ordinal);
+        app.xml_folder_sibling_order = "Beta, Alpha".into();
+        app.prepare_xml_sibling_folder_reorder();
+        assert!(app.xml_folder_sibling_pending.is_some(), "{:?}", app.xml_edit_error);
+        let pending = app.xml_folder_sibling_pending.as_ref().unwrap();
+        assert_eq!(pending.expected_order, ["Alpha", "Beta"]);
+        assert_eq!(pending.new_order, ["Beta", "Alpha"]);
+        let dest = root.join("output.xml");
+        app.xml_folder_sibling_export_path = dest.display().to_string();
+        app.export_xml_sibling_folder_reorder();
+        let bytes = std::fs::read(&dest).unwrap();
+        f02_sibling_folder_reorder_oracle::check(&bytes).unwrap();
+        let reopened = app.xml_preview.as_ref().unwrap().as_ref().unwrap();
+        let set = reopened.folders.iter().find(|f| f.name == "Sets").unwrap();
+        let children: Vec<_> = reopened
+            .folders
+            .iter()
+            .filter(|f| f.path.len() > 2 && f.path[..f.path.len() - 1] == set.path)
+            .map(|f| f.name.as_str())
+            .collect();
+        assert_eq!(children, ["Beta", "Alpha"]);
+        assert!(
+            reopened
+                .playlists
+                .iter()
+                .any(|p| p.name == "Interleaved" && p.tracks == ["200", "400"])
+        );
+        assert_eq!(
+            std::fs::read(&source).unwrap(),
+            std::fs::read(fixture).unwrap()
+        );
+        let mutated = String::from_utf8(bytes.clone())
+            .unwrap()
+            .replace("Name=\"Sets\" Count=\"3\"", "Name=\"Sets\" Count=\"4\"");
+        assert!(f02_sibling_folder_reorder_oracle::check(mutated.as_bytes()).is_err());
+        app.export_xml_sibling_folder_reorder();
+        assert_eq!(std::fs::read(&dest).unwrap(), bytes);
+
+        let source2 = root.join("stale.xml");
+        std::fs::copy(fixture, &source2).unwrap();
+        let mut stale = LibraryApp::new(
+            PathBuf::from("/definitely/missing/oxidj-test.sqlite"),
+            ThemeMode::TokyoNight,
+            ThemeMode::TokyoNight.tokens(),
+        );
+        stale.xml_path = source2.display().to_string();
+        stale.preview_xml();
+        stale.xml_folder_sibling_parent = Some(
+            stale
+                .xml_preview
+                .as_ref()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .folders
+                .iter()
+                .find(|f| f.name == "Sets")
+                .unwrap()
+                .ordinal,
+        );
+        stale.xml_folder_sibling_order = "Beta, Alpha".into();
+        stale.prepare_xml_sibling_folder_reorder();
+        stale.xml_document_source = Some(root.join("other.xml"));
+        stale.xml_folder_sibling_export_path = root.join("stale-output.xml").display().to_string();
+        stale.export_xml_sibling_folder_reorder();
+        assert!(stale.xml_folder_sibling_pending.is_none());
+        assert!(!root.join("stale-output.xml").exists());
+        let setup = |label: &str, order: &str| {
+            let path = root.join(format!("{label}.xml"));
+            std::fs::copy(fixture, &path).unwrap();
+            let mut candidate = LibraryApp::new(PathBuf::from("/definitely/missing/oxidj-test.sqlite"), ThemeMode::TokyoNight, ThemeMode::TokyoNight.tokens());
+            candidate.xml_path = path.display().to_string(); candidate.preview_xml();
+            candidate.xml_folder_sibling_parent = Some(candidate.xml_preview.as_ref().unwrap().as_ref().unwrap().folders.iter().find(|f| f.name == "Sets").unwrap().ordinal);
+            candidate.xml_folder_sibling_order = order.into(); candidate.prepare_xml_sibling_folder_reorder();
+            (candidate, path)
+        };
+        for stale_kind in ["parent", "order"] {
+            let (mut candidate, source) = setup("changed", "Beta, Alpha");
+            if stale_kind == "parent" {
+                candidate.xml_preview.as_mut().unwrap().as_mut().unwrap().folders.iter_mut().find(|f| f.name == "Sets").unwrap().name = "Changed".into();
+            } else {
+                let folders = &mut candidate.xml_preview.as_mut().unwrap().as_mut().unwrap().folders;
+                let alpha = folders.iter().position(|f| f.name == "Alpha").unwrap();
+                let beta = folders.iter().position(|f| f.name == "Beta").unwrap();
+                folders.swap(alpha, beta);
+            }
+            let output = root.join(format!("{stale_kind}-output.xml"));
+            candidate.xml_folder_sibling_export_path = output.display().to_string();
+            candidate.export_xml_sibling_folder_reorder();
+            assert!(candidate.xml_folder_sibling_pending.is_none());
+            assert!(!output.exists());
+            assert_eq!(std::fs::read(source).unwrap(), std::fs::read(fixture).unwrap());
+        }
+        let (mut root_parent, root_source) = setup("root-parent", "Beta, Alpha");
+        root_parent.xml_folder_sibling_parent = Some(0);
+        root_parent.prepare_xml_sibling_folder_reorder();
+        assert!(root_parent.xml_folder_sibling_pending.is_none());
+        assert_eq!(std::fs::read(root_source).unwrap(), std::fs::read(fixture).unwrap());
+        for invalid in ["Beta, Beta", "Beta, Missing", "Beta"] {
+            let (candidate, path) = setup("invalid", invalid);
+            assert!(candidate.xml_folder_sibling_pending.is_none(), "accepted {invalid}");
+            assert_eq!(std::fs::read(path).unwrap(), std::fs::read(fixture).unwrap());
+        }
+        let (mut cancelled, cancel_source) = setup("cancel", "Beta, Alpha");
+        cancelled.cancel_xml_sibling_folder_reorder();
+        let cancelled_output = root.join("cancel-output.xml");
+        cancelled.xml_folder_sibling_export_path = cancelled_output.display().to_string();
+        cancelled.export_xml_sibling_folder_reorder();
+        assert!(!cancelled_output.exists());
+        assert_eq!(std::fs::read(cancel_source).unwrap(), std::fs::read(fixture).unwrap());
+        let (mut alias, alias_source) = setup("alias", "Beta, Alpha");
+        alias.xml_folder_sibling_export_path = alias_source.display().to_string();
+        alias.export_xml_sibling_folder_reorder();
+        assert_eq!(std::fs::read(alias_source).unwrap(), std::fs::read(fixture).unwrap());
+        let (mut existing, existing_source) = setup("existing", "Beta, Alpha");
+        let protected = root.join("protected.xml"); std::fs::write(&protected, b"keep").unwrap();
+        existing.xml_folder_sibling_export_path = protected.display().to_string(); existing.export_xml_sibling_folder_reorder();
+        assert_eq!(std::fs::read(protected).unwrap(), b"keep");
+        assert_eq!(std::fs::read(existing_source).unwrap(), std::fs::read(fixture).unwrap());
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

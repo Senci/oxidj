@@ -183,6 +183,47 @@ pub fn export_prepared_rekordbox_sibling_playlist_reorder(
     publish_new_file(&output, &prepared.prepared.bytes)
 }
 
+/// A source-bound prepared sibling-folder reorder retains its exact preview snapshot.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PreparedSiblingFolderReorderExport {
+    source: std::path::PathBuf,
+    source_bytes: Vec<u8>,
+    prepared: PreparedSiblingFolderReorder,
+}
+impl PreparedSiblingFolderReorderExport {
+    pub fn source(&self) -> &Path {
+        &self.source
+    }
+    pub fn bytes(&self) -> &[u8] {
+        &self.prepared.bytes
+    }
+}
+pub fn prepare_rekordbox_sibling_folder_reorder_export(
+    source: impl AsRef<Path>,
+    request: &SiblingFolderReorderRequest,
+) -> Result<PreparedSiblingFolderReorderExport, RekordboxError> {
+    let source = source.as_ref().to_path_buf();
+    let source_bytes = std::fs::read(&source).map_err(|error| RekordboxError(error.to_string()))?;
+    let prepared = oxidj_rekordbox::prepare_sibling_folder_reorder(&source_bytes, request)?;
+    Ok(PreparedSiblingFolderReorderExport {
+        source,
+        source_bytes,
+        prepared,
+    })
+}
+pub fn export_prepared_rekordbox_sibling_folder_reorder(
+    prepared: &PreparedSiblingFolderReorderExport,
+    output: impl AsRef<Path>,
+) -> Result<(), RekordboxError> {
+    let (current_source, output) = read_new_export_source(&prepared.source, output)?;
+    if current_source != prepared.source_bytes {
+        return Err(RekordboxError(
+            "source changed after sibling-folder reorder preparation".into(),
+        ));
+    }
+    publish_new_file(&output, &prepared.prepared.bytes)
+}
+
 /// A source-bound prepared playlist-member reorder retains its exact preview snapshot.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PreparedPlaylistMemberReorderExport {
