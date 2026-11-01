@@ -679,6 +679,11 @@ impl LibraryApp {
         }
     }
 
+    fn cancel_xml_playlist_clear(&mut self) {
+        self.xml_pending_clear = None;
+        self.xml_edit_error = None;
+    }
+
     fn export_xml_playlist_clear(&mut self) {
         let Some(pending) = self.xml_pending_clear.clone() else {
             self.xml_edit_error = Some("Playlist clear export refused: no pending proposal".into());
@@ -760,6 +765,15 @@ impl LibraryApp {
 
     fn invalidate_xml_member_delete(&mut self) {
         self.xml_pending_delete = None;
+    }
+
+    fn select_xml_track(&mut self, track_id: &str, name: &str) {
+        self.xml_selected_track = Some(track_id.to_owned());
+        self.xml_edit_name = name.to_owned();
+        self.xml_pending_edit = None;
+        self.xml_pending_insert = None;
+        self.xml_pending_clear = None;
+        self.xml_edit_error = None;
     }
 
     fn on_xml_source_changed(&mut self) {
@@ -1092,11 +1106,7 @@ impl eframe::App for LibraryApp {
                                         for track in &preview.tracks {
                                             let selected = self.xml_selected_track.as_deref() == Some(&track.id);
                                             if ui.selectable_label(selected, "Select").clicked() {
-                                                self.xml_selected_track = Some(track.id.clone());
-                                                self.xml_edit_name = track.name.clone();
-                                                self.xml_pending_edit = None;
-                                                self.xml_pending_insert = None;
-                                                self.xml_edit_error = None;
+                                                self.select_xml_track(&track.id, &track.name);
                                             }
                                             ui.label(&track.name);
                                             ui.label(track.artist.as_deref().unwrap_or("—"));
@@ -1194,7 +1204,7 @@ impl eframe::App for LibraryApp {
                                 ui.text_edit_singleline(&mut self.xml_clear_export_path);
                             });
                             if ui.button("Export prepared clear").clicked() { self.export_xml_playlist_clear(); }
-                            if ui.button("Cancel clear").clicked() { self.xml_pending_clear = None; }
+                            if ui.button("Cancel clear").clicked() { self.cancel_xml_playlist_clear(); }
                         }
                         if let Some(pending) = &self.xml_pending_reorder {
                             ui.separator();
@@ -1791,10 +1801,18 @@ mod keyboard_tests {
         assert_eq!(std::fs::read(&source).unwrap(), original, "preparation is read-only");
         let cancelled = root.join("cancelled.xml");
         app.xml_clear_export_path = cancelled.display().to_string();
-        app.xml_pending_clear = None;
+        app.cancel_xml_playlist_clear();
+        assert!(app.xml_pending_clear.is_none(), "cancel clears proposal");
         assert!(!cancelled.exists(), "cancel writes nothing");
         app.prepare_xml_playlist_clear(0);
         let output = root.join("cleared.xml");
+        app.xml_clear_export_path = output.display().to_string();
+        app.select_xml_track("200", "B");
+        assert!(app.xml_pending_clear.is_none(), "track selection invalidates pending clear");
+        app.export_xml_playlist_clear();
+        assert!(!output.exists(), "invalidated proposal cannot export");
+        app.select_xml_playlist(0);
+        app.prepare_xml_playlist_clear(0);
         app.xml_clear_export_path = output.display().to_string();
         app.export_xml_playlist_clear();
         let exported = std::fs::read(&output).unwrap();
