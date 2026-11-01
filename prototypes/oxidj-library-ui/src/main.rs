@@ -5,6 +5,9 @@ use std::path::PathBuf;
 mod components;
 mod control_gallery;
 #[cfg(test)]
+#[path = "../../../xtask/tests/f02_playlist_member_delete_oracle.rs"]
+mod f02_playlist_member_delete_oracle;
+#[cfg(test)]
 #[path = "../../../xtask/tests/common/f02_track_name_oracle_support.rs"]
 mod f02_track_name_oracle_support;
 mod theme;
@@ -35,6 +38,14 @@ struct PendingPlaylistMemberAppend {
     playlist_index: usize,
     track_id: String,
     prepared: oxidj_application::PreparedPlaylistMemberAppendExport,
+}
+#[derive(Debug, Clone)]
+struct PendingPlaylistMemberDelete {
+    source: PathBuf,
+    playlist_index: usize,
+    member_index: usize,
+    track_id: String,
+    prepared: oxidj_application::PreparedPlaylistMemberDeleteExport,
 }
 
 struct LibraryApp {
@@ -67,6 +78,8 @@ struct LibraryApp {
     xml_reorder_export_path: String,
     xml_pending_append: Option<PendingPlaylistMemberAppend>,
     xml_append_export_path: String,
+    xml_pending_delete: Option<PendingPlaylistMemberDelete>,
+    xml_delete_export_path: String,
     xml_export_path: String,
     xml_edit_error: Option<String>,
     show_control_gallery: bool,
@@ -118,6 +131,8 @@ impl LibraryApp {
             xml_reorder_export_path: String::new(),
             xml_pending_append: None,
             xml_append_export_path: String::new(),
+            xml_pending_delete: None,
+            xml_delete_export_path: String::new(),
             xml_export_path: String::new(),
             xml_edit_error: None,
             show_control_gallery: false,
@@ -498,10 +513,116 @@ impl LibraryApp {
         }
     }
 
+    fn prepare_xml_member_delete(&mut self, playlist_index: usize, member_index: usize) {
+        let Some(source) = self.xml_document_source.clone() else {
+            self.xml_pending_delete = None;
+            self.xml_edit_error =
+                Some("Playlist removal refused: no XML document is loaded".into());
+            return;
+        };
+        let Some(Ok(preview)) = self.xml_preview.as_ref() else {
+            return;
+        };
+        let Some(playlist) = preview.playlists.get(playlist_index) else {
+            self.xml_pending_delete = None;
+            self.xml_edit_error =
+                Some("Playlist removal refused: selected playlist is invalid".into());
+            return;
+        };
+        let Some(track_id) = playlist.tracks.get(member_index).cloned() else {
+            self.xml_pending_delete = None;
+            self.xml_edit_error =
+                Some("Playlist removal refused: selected membership is invalid".into());
+            return;
+        };
+        let request = oxidj_application::PlaylistMemberDeletePreparationRequest {
+            source: source.clone(),
+            removal: oxidj_application::PlaylistMemberDeleteRequest {
+                playlist_index,
+                expected_order: playlist.tracks.clone(),
+                track_id: track_id.clone(),
+            },
+        };
+        match oxidj_application::prepare_rekordbox_playlist_member_delete_export(&request) {
+            Ok(prepared) => {
+                self.xml_pending_delete = Some(PendingPlaylistMemberDelete {
+                    source,
+                    playlist_index,
+                    member_index,
+                    track_id,
+                    prepared,
+                });
+                self.xml_edit_error = None;
+            }
+            Err(error) => {
+                self.xml_pending_delete = None;
+                self.xml_edit_error = Some(format!("Playlist removal refused: {error}"));
+            }
+        }
+    }
+
+    fn invalidate_xml_member_delete(&mut self) {
+        self.xml_pending_delete = None;
+    }
+
+    fn cancel_xml_member_delete(&mut self) {
+        self.invalidate_xml_member_delete();
+        self.xml_edit_error = None;
+    }
+
+    fn export_xml_member_delete(&mut self) {
+        let Some(pending) = self.xml_pending_delete.as_ref() else {
+            self.xml_edit_error =
+                Some("Playlist removal export refused: no pending proposal".into());
+            return;
+        };
+        let Some(Ok(preview)) = self.xml_preview.as_ref() else {
+            return;
+        };
+        if self.xml_document_source.as_ref() != Some(&pending.source)
+            || self.xml_selected_playlist != Some(pending.playlist_index)
+            || self.xml_selected_member != Some(pending.member_index)
+            || preview
+                .playlists
+                .get(pending.playlist_index)
+                .and_then(|playlist| playlist.tracks.get(pending.member_index))
+                != Some(&pending.track_id)
+        {
+            self.xml_pending_delete = None;
+            self.xml_edit_error =
+                Some("Playlist removal export refused: source or membership changed".into());
+            return;
+        }
+        let output = PathBuf::from(&self.xml_delete_export_path);
+        if self.xml_delete_export_path.trim().is_empty() {
+            self.xml_edit_error =
+                Some("Playlist removal export refused: choose a new destination".into());
+            return;
+        }
+        match oxidj_application::export_prepared_rekordbox_playlist_member_delete(
+            &pending.prepared,
+            &output,
+        ) {
+            Ok(()) => {
+                self.notice = format!("Playlist member removed to {}", output.display());
+                self.xml_pending_delete = None;
+                self.xml_edit_error = None;
+                self.xml_preview = Some(
+                    oxidj_application::preview_rekordbox_xml(&output).map_err(|e| e.to_string()),
+                );
+                self.xml_document_source = Some(output);
+            }
+            Err(error) => {
+                self.xml_edit_error = Some(format!("Playlist removal export failed: {error}"))
+            }
+        }
+    }
+
     fn preview_xml(&mut self) {
         self.xml_pending_edit = None;
         self.xml_pending_reorder = None;
         self.xml_pending_append = None;
+        self.xml_pending_delete = None;
         self.xml_selected_playlist = None;
         self.xml_selected_member = None;
         self.xml_selected_track = None;
@@ -680,6 +801,7 @@ impl eframe::App for LibraryApp {
                 if source_changed {
                     self.xml_pending_reorder = None;
                     self.xml_pending_append = None;
+                    self.invalidate_xml_member_delete();
                     self.xml_selected_playlist = None;
                     self.xml_selected_member = None;
                 }
@@ -809,6 +931,7 @@ impl eframe::App for LibraryApp {
                                 self.xml_selected_member = None;
                                 self.xml_pending_reorder = None;
                                 self.xml_pending_append = None;
+                                self.invalidate_xml_member_delete();
                                 self.xml_edit_error = None;
                             }
                         }
@@ -819,6 +942,7 @@ impl eframe::App for LibraryApp {
                                     if ui.selectable_label(self.xml_selected_member == Some(member_index), format!("{member_index}: TrackID {track_id}")).clicked() {
                                         self.xml_selected_member = Some(member_index);
                                         self.xml_pending_reorder = None;
+                                        self.invalidate_xml_member_delete();
                                     }
                                 }
                                 if let Some(member_index) = self.xml_selected_member {
@@ -828,6 +952,9 @@ impl eframe::App for LibraryApp {
                                         }
                                         if ui.add_enabled(member_index + 1 < playlist.tracks.len(), egui::Button::new("Move down")).clicked() {
                                             self.prepare_xml_member_reorder(index, member_index, 1);
+                                        }
+                                        if ui.button("Prepare removal").clicked() {
+                                            self.prepare_xml_member_delete(index, member_index);
                                         }
                                     });
                                 }
@@ -843,6 +970,19 @@ impl eframe::App for LibraryApp {
                             });
                             if ui.button("Export prepared reorder").clicked() { self.export_xml_member_reorder(); }
                             if ui.button("Cancel reorder").clicked() { self.xml_pending_reorder = None; }
+                        }
+                        if let Some(pending) = &self.xml_pending_delete {
+                            ui.separator();
+                            ui.strong("Pending removal · not exported or saved");
+                            ui.label(format!("Source: {}", pending.source.display()));
+                            ui.label(format!("Playlist #{} · remove membership {} (TrackID {})", pending.playlist_index, pending.member_index, pending.track_id));
+                            ui.label(format!("Prepared output: {} bytes", pending.prepared.bytes().len()));
+                            ui.horizontal(|ui| {
+                                ui.label("New XML destination");
+                                ui.text_edit_singleline(&mut self.xml_delete_export_path);
+                            });
+                            if ui.button("Export prepared removal").clicked() { self.export_xml_member_delete(); }
+                            if ui.button("Cancel removal").clicked() { self.cancel_xml_member_delete(); }
                         }
                         SectionHeading { title: "Playlist-member append (provisional)" }.show(ui, tokens);
                         if let (Some(playlist_index), Some(track_id)) = (self.xml_selected_playlist, self.xml_selected_track.clone()) {
@@ -1363,6 +1503,170 @@ mod keyboard_tests {
         assert!(app.xml_pending_edit.is_none());
         assert!(app.notice.contains(&output.display().to_string()));
         assert!(app.xml_edit_error.is_none());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn playlist_member_removal_preview_cancel_export_and_oracle_are_source_bound() {
+        use std::time::{SystemTime, UNIX_EPOCH};
+        let root = std::env::temp_dir().join(format!(
+            "oxidj-ui-member-delete-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let source = root.join("source.xml");
+        std::fs::copy(
+            concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../xtask/tests/fixtures/f02-playlist-member-delete/source.xml"
+            ),
+            &source,
+        )
+        .unwrap();
+        let original = std::fs::read(&source).unwrap();
+        let catalog = root.join("catalog.sqlite");
+        drop(Catalog::open(&catalog).unwrap());
+        let catalog_before = std::fs::read(&catalog).unwrap();
+        let mut app = LibraryApp::new(
+            catalog.clone(),
+            ThemeMode::TokyoNight,
+            ThemeMode::TokyoNight.tokens(),
+        );
+        app.xml_path = source.display().to_string();
+        app.preview_xml();
+        app.xml_selected_playlist = Some(0);
+        app.xml_selected_member = Some(1);
+        app.prepare_xml_member_delete(0, 1);
+        let prepared = app
+            .xml_pending_delete
+            .as_ref()
+            .unwrap()
+            .prepared
+            .bytes()
+            .to_vec();
+        assert_eq!(std::fs::read(&source).unwrap(), original);
+        let cancelled = root.join("cancelled.xml");
+        app.xml_delete_export_path = cancelled.display().to_string();
+        app.cancel_xml_member_delete();
+        assert!(!cancelled.exists());
+        app.prepare_xml_member_delete(0, 1);
+        assert_eq!(
+            app.xml_pending_delete.as_ref().unwrap().prepared.bytes(),
+            prepared
+        );
+        let output = root.join("removed.xml");
+        app.xml_delete_export_path = output.display().to_string();
+        app.export_xml_member_delete();
+        let exported = std::fs::read(&output).unwrap();
+        assert_eq!(exported, prepared);
+        f02_playlist_member_delete_oracle::check(&exported)
+            .expect("actual UI-exported bytes pass independent F-02 oracle");
+        let mut mutation = exported.clone();
+        let index = mutation
+            .windows(9)
+            .position(|w| w == b"Key=\"100\"")
+            .unwrap();
+        mutation[index + 5] = b'9';
+        assert!(
+            f02_playlist_member_delete_oracle::check(&mutation).is_err(),
+            "oracle rejects semantic mutation"
+        );
+        let reopened = oxidj_application::preview_rekordbox_xml(&output).unwrap();
+        assert_eq!(reopened.playlists[0].tracks, ["100", "300"]);
+        assert_eq!(reopened.playlists[1].tracks, ["200", "400"]);
+        assert_eq!(std::fs::read(&source).unwrap(), original);
+        assert_eq!(std::fs::read(&catalog).unwrap(), catalog_before);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn playlist_member_removal_proposal_invalidation_clears_stale_preview() {
+        use std::time::{SystemTime, UNIX_EPOCH};
+        let root = std::env::temp_dir().join(format!(
+            "oxidj-ui-member-delete-invalidate-{}-{}",
+            std::process::id(),
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let source = root.join("source.xml");
+        std::fs::copy(
+            concat!(env!("CARGO_MANIFEST_DIR"), "/../../xtask/tests/fixtures/f02-playlist-member-delete/source.xml"),
+            &source,
+        ).unwrap();
+        let mut app = app();
+        app.xml_path = source.display().to_string();
+        app.preview_xml();
+        app.xml_selected_playlist = Some(0);
+        app.xml_selected_member = Some(1);
+        app.prepare_xml_member_delete(0, 1);
+        assert!(app.xml_pending_delete.is_some());
+        app.invalidate_xml_member_delete();
+        assert!(app.xml_pending_delete.is_none());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn playlist_member_removal_refuses_stale_source_membership_and_existing_output() {
+        use std::time::{SystemTime, UNIX_EPOCH};
+        let root = std::env::temp_dir().join(format!(
+            "oxidj-ui-member-delete-guards-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let source = root.join("source.xml");
+        let fixture = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../xtask/tests/fixtures/f02-playlist-member-delete/source.xml"
+        );
+        std::fs::copy(fixture, &source).unwrap();
+        let mut app = app();
+        app.xml_path = source.display().to_string();
+        app.preview_xml();
+        app.xml_selected_playlist = Some(0);
+        app.xml_selected_member = Some(1);
+        if let Some(Ok(preview)) = app.xml_preview.as_mut() {
+            preview.playlists[0].tracks[1] = "999".into();
+        }
+        app.prepare_xml_member_delete(0, 1);
+        assert!(app.xml_pending_delete.is_none(), "stale membership accepted");
+        app.xml_preview = Some(oxidj_application::preview_rekordbox_xml(&source).map_err(|e| e.to_string()));
+        app.prepare_xml_member_delete(0, 99);
+        assert!(app.xml_pending_delete.is_none());
+        app.prepare_xml_member_delete(0, 1);
+        let pending = app.xml_pending_delete.take().unwrap();
+        let stale = root.join("stale.xml");
+        std::fs::write(&source, b"stale source").unwrap();
+        assert!(
+            oxidj_application::export_prepared_rekordbox_playlist_member_delete(
+                &pending.prepared,
+                &stale
+            )
+            .is_err()
+        );
+        assert!(!stale.exists());
+        std::fs::copy(fixture, &source).unwrap();
+        app.xml_preview =
+            Some(oxidj_application::preview_rekordbox_xml(&source).map_err(|e| e.to_string()));
+        app.prepare_xml_member_delete(0, 1);
+        let pending = app.xml_pending_delete.take().unwrap();
+        let existing = root.join("existing.xml");
+        std::fs::write(&existing, b"keep").unwrap();
+        assert!(
+            oxidj_application::export_prepared_rekordbox_playlist_member_delete(
+                &pending.prepared,
+                &existing
+            )
+            .is_err()
+        );
+        assert_eq!(std::fs::read(&existing).unwrap(), b"keep");
         std::fs::remove_dir_all(root).unwrap();
     }
 

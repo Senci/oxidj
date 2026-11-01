@@ -121,7 +121,7 @@ fn playlists(node: &Node, path: &mut Vec<String>, out: &mut Vec<Playlist>) {
         path.pop();
     }
 }
-fn check(bytes: &[u8]) -> Result<(), String> {
+pub fn check(bytes: &[u8]) -> Result<(), String> {
     let root = decode(bytes);
     let mut actual = vec![];
     playlists(&root, &mut vec![], &mut actual);

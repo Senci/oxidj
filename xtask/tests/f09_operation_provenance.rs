@@ -7,7 +7,7 @@ use std::{collections::BTreeMap, fs, path::PathBuf};
 
 type Files = BTreeMap<String, Vec<u8>>;
 const MANIFEST: &str = "tests/fixtures/f09-operation-provenance.json";
-const MANIFEST_SHA256: &str = "a2f7f8e40bb40ab397bd1c8fe2d92c2dc54384baa236278dc3791c9e1a0c1420";
+const MANIFEST_SHA256: &str = "c7ad2ce1cc189e58df1121ef31e1628c183abfac3ff8ed83c063290a7b63232f";
 const TRACK_NAME_HELPER: &str = "xtask/tests/common/f02_track_name_oracle_support.rs";
 
 fn sha(bytes: &[u8]) -> String {
@@ -24,13 +24,17 @@ fn is_oracle(path: &str) -> bool {
         && path.ends_with("_oracle.rs")
 }
 fn fixture(source: &str) -> String {
-    let relative = source
+    let relative = if let Some(relative) = source
         .split("include_bytes!(\"")
         .nth(1)
-        .unwrap()
-        .split('"')
-        .next()
-        .unwrap();
+        .and_then(|tail| tail.split('\"').next())
+    {
+        relative.to_owned()
+    } else if source.contains("f02_playlist_member_append_oracle_shared.rs") {
+        "fixtures/f02-playlist-member-append/source.xml".to_owned()
+    } else {
+        panic!("oracle source does not bind a fixture via include_bytes!: {source}");
+    };
     format!("xtask/tests/{relative}")
 }
 fn tests(source: &str) -> Vec<String> {

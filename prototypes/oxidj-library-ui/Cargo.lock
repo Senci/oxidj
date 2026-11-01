@@ -2304,7 +2304,10 @@ dependencies = [
  "eframe",
  "oxidj-application",
  "oxidj-library",
+ "oxidj-rekordbox",
  "quick-xml",
+ "serde_json",
+ "sha2",
 ]
 
 [[package]]

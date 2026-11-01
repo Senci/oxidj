@@ -13,3 +13,6 @@ oxidj-application = { path = "../../crates/oxidj-application" }
 
 [dev-dependencies]
 quick-xml = "=0.41.0"
+serde_json = "1"
+sha2 = "=0.10.9"
+oxidj-rekordbox = { path = "../../crates/oxidj-rekordbox" }

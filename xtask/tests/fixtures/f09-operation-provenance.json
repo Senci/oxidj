@@ -127,7 +127,7 @@
       "checker": {
         "path": "xtask/tests/f02_playlist_member_delete_oracle.rs",
         "version": "f09-operation-oracle-v1",
-        "sha256": "d850939077666e75d4be1fde8d130dc50dc732273c959d7cee2046d9d3e7b6b7",
+        "sha256": "bc8e1b372973a438ac3267c39553872d75071b38df46eb3d269bd4bf56be73d5",
         "tests": [
           "independently_decodes_member_removal_and_rejects_semantic_mutations"
         ]
