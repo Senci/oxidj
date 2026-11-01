@@ -487,10 +487,14 @@
       "checker": {
         "path": "xtask/tests/f02_track_name_edit_oracle.rs",
         "version": "f09-operation-oracle-v1",
-        "sha256": "dae054d9ead15cd3b707cf617e5d8da72c828a6d421bbe23f41966c420a28aaa",
+        "sha256": "00923ebf2530fc4e7fb7357da27536e6bea44fe7f93c4bc2f214373fba991559",
         "tests": [
           "independently_verifies_guarded_track_name_edit_and_rejects_mutations"
-        ]
+        ],
+        "helper": {
+          "path": "xtask/tests/common/f02_track_name_oracle_support.rs",
+          "sha256": "2ad49efe7408281eb4ab1a1c165a059eb624e283bb960ed405f19ca8afa0f215"
+        }
       },
       "source": "xtask/tests/fixtures/rekordbox-a1/F-02/source.bin",
       "artifacts": [

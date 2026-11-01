@@ -7,7 +7,8 @@ use std::{collections::BTreeMap, fs, path::PathBuf};
 
 type Files = BTreeMap<String, Vec<u8>>;
 const MANIFEST: &str = "tests/fixtures/f09-operation-provenance.json";
-const MANIFEST_SHA256: &str = "192a3155bfe5c4fe0cd19a3fb3652c346a2b158620d18b9cdd16fb9824b282f9";
+const MANIFEST_SHA256: &str = "a2f7f8e40bb40ab397bd1c8fe2d92c2dc54384baa236278dc3791c9e1a0c1420";
+const TRACK_NAME_HELPER: &str = "xtask/tests/common/f02_track_name_oracle_support.rs";
 
 fn sha(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
@@ -70,6 +71,10 @@ fn snapshot() -> Files {
         }
         files.insert(key, bytes);
     }
+    files.insert(
+        TRACK_NAME_HELPER.to_owned(),
+        fs::read(root.join(TRACK_NAME_HELPER)).expect("missing shared Track Name oracle helper"),
+    );
     files
 }
 fn manifest() -> Value {
@@ -113,6 +118,25 @@ fn validate(manifest: &Value, files: &Files) -> Result<(), String> {
             checker["sha256"] == sha(bytes),
             "checker source digest drift"
         );
+        if path == "xtask/tests/f02_track_name_edit_oracle.rs" {
+            let helper = &checker["helper"];
+            require!(
+                helper["path"] == TRACK_NAME_HELPER,
+                "Track Name helper binding drift"
+            );
+            let helper_bytes = files
+                .get(TRACK_NAME_HELPER)
+                .ok_or("missing Track Name helper source")?;
+            require!(
+                helper["sha256"] == sha(helper_bytes),
+                "Track Name helper source digest drift"
+            );
+        } else {
+            require!(
+                checker.get("helper").is_none(),
+                "unexpected shared helper binding"
+            );
+        }
         let text = std::str::from_utf8(bytes).map_err(|_| "checker source encoding")?;
         let executable = tests(text);
         require!(!executable.is_empty(), "missing executable checker test");
@@ -147,7 +171,11 @@ fn validate(manifest: &Value, files: &Files) -> Result<(), String> {
             "missing artifact provenance"
         );
     }
-    let actual: Vec<_> = files.keys().filter(|p| !is_oracle(p)).cloned().collect();
+    let actual: Vec<_> = files
+        .keys()
+        .filter(|p| !is_oracle(p) && p.as_str() != TRACK_NAME_HELPER)
+        .cloned()
+        .collect();
     require!(
         artifacts.keys().cloned().collect::<Vec<_>>() == actual,
         "global artifact inventory drift"
@@ -207,6 +235,38 @@ fn rejects_missing_binding_and_checker_fixture_artifact_drift() {
             "accepted missing {field}"
         );
     }
+    let name_binding = original["bindings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .position(|b| b["checker"]["path"] == "xtask/tests/f02_track_name_edit_oracle.rs")
+        .unwrap();
+    for field in ["path", "sha256"] {
+        let mut changed = original.clone();
+        changed["bindings"][name_binding]["checker"]["helper"][field] = Value::Null;
+        assert!(
+            validate(&changed, &files).is_err(),
+            "accepted missing helper {field}"
+        );
+    }
+    let mut changed = original.clone();
+    changed["bindings"][name_binding]["checker"]["helper"]["path"] = "wrong.rs".into();
+    assert!(
+        validate(&changed, &files).is_err(),
+        "accepted wrong helper path"
+    );
+    let mut changed = files.clone();
+    changed.get_mut(TRACK_NAME_HELPER).unwrap()[0] ^= 1;
+    assert!(
+        validate(&original, &changed).is_err(),
+        "accepted same-length helper drift"
+    );
+    let mut changed = files.clone();
+    changed.remove(TRACK_NAME_HELPER);
+    assert!(
+        validate(&original, &changed).is_err(),
+        "accepted missing helper source"
+    );
     for key in files.keys() {
         let mut changed = files.clone();
         changed.get_mut(key).unwrap()[0] ^= 1;
