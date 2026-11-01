@@ -3099,109 +3099,8 @@ fn track_colour_edit_escapes_xml_and_rejects_stale_guard_without_writing() {
     let _ = fs::remove_file(output);
 }
 
-#[derive(Debug, PartialEq, Eq)]
-struct TrackNameXmlNode {
-    name: String,
-    attrs: Vec<(String, String)>,
-    children: Vec<TrackNameXmlNode>,
-}
-
-fn decode_track_name_xml(bytes: &[u8]) -> TrackNameXmlNode {
-    use quick_xml::{Reader, XmlVersion, events::Event};
-
-    let mut reader = Reader::from_reader(bytes);
-    let mut stack: Vec<TrackNameXmlNode> = Vec::new();
-    let mut root = None;
-    loop {
-        match reader.read_event().unwrap() {
-            Event::Start(event) => {
-                let name = String::from_utf8(event.local_name().as_ref().to_vec()).unwrap();
-                let attrs = event
-                    .attributes()
-                    .map(|attr| {
-                        let attr = attr.unwrap();
-                        (
-                            String::from_utf8(attr.key.local_name().as_ref().to_vec()).unwrap(),
-                            attr.decoded_and_normalized_value(
-                                XmlVersion::Explicit1_0,
-                                reader.decoder(),
-                            )
-                            .unwrap()
-                            .into_owned(),
-                        )
-                    })
-                    .collect();
-                stack.push(TrackNameXmlNode {
-                    name,
-                    attrs,
-                    children: vec![],
-                });
-            }
-            Event::Empty(event) => {
-                let name = String::from_utf8(event.local_name().as_ref().to_vec()).unwrap();
-                let attrs = event
-                    .attributes()
-                    .map(|attr| {
-                        let attr = attr.unwrap();
-                        (
-                            String::from_utf8(attr.key.local_name().as_ref().to_vec()).unwrap(),
-                            attr.decoded_and_normalized_value(
-                                XmlVersion::Explicit1_0,
-                                reader.decoder(),
-                            )
-                            .unwrap()
-                            .into_owned(),
-                        )
-                    })
-                    .collect();
-                let node = TrackNameXmlNode {
-                    name,
-                    attrs,
-                    children: vec![],
-                };
-                if let Some(parent) = stack.last_mut() {
-                    parent.children.push(node);
-                } else {
-                    root = Some(node);
-                }
-            }
-            Event::End(_) => {
-                let node = stack.pop().unwrap();
-                if let Some(parent) = stack.last_mut() {
-                    parent.children.push(node);
-                } else {
-                    root = Some(node);
-                }
-            }
-            Event::Eof => break,
-            _ => {}
-        }
-    }
-    root.unwrap()
-}
-
-fn rename_track_100(node: &mut TrackNameXmlNode, new_name: &str) -> bool {
-    if node.name == "TRACK"
-        && node
-            .attrs
-            .iter()
-            .any(|(key, value)| key == "TrackID" && value == "100")
-    {
-        let name = node
-            .attrs
-            .iter_mut()
-            .find(|(key, _)| key == "Name")
-            .unwrap();
-        assert_eq!(name.1, "A");
-        name.1 = new_name.to_owned();
-        return true;
-    }
-    let mut found = false;
-    for child in &mut node.children {
-        found |= rename_track_100(child, new_name);
-    }
-    found
-}
+#[path = "../../../xtask/tests/common/f02_track_name_oracle_support.rs"]
+mod f02_track_name_oracle_support;
 
 #[test]
 fn track_name_edit_exports_one_guarded_name_and_rejects_stale_or_wrong_target() {
@@ -3240,13 +3139,7 @@ fn track_name_edit_exports_one_guarded_name_and_rejects_stale_or_wrong_target() 
         "{}",
         String::from_utf8_lossy(&success.stderr)
     );
-    let actual = decode_track_name_xml(&fs::read(&output).unwrap());
-    let mut expected_tree = decode_track_name_xml(&source);
-    assert!(rename_track_100(&mut expected_tree, "New < title"));
-    assert_eq!(
-        actual, expected_tree,
-        "CLI output differs beyond TrackID 100 Name"
-    );
+    f02_track_name_oracle_support::check(&fs::read(&output).unwrap()).unwrap();
     assert_eq!(fs::read(&input).unwrap(), source);
 
     let stale_output = temporary_path("track-name-stale");
