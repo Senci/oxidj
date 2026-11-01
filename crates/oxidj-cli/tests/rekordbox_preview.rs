@@ -199,6 +199,50 @@ fn assert_only_frozen_f07_battito_edit(source: &[u8], output: &[u8]) {
     );
 }
 
+fn assert_only_track_artist_edit(source: &[u8], output: &[u8]) {
+    let mut expected = independently_decode_xml(source);
+    let actual = independently_decode_xml(output);
+    let collection = expected
+        .children
+        .iter_mut()
+        .find(|node| node.name == "COLLECTION")
+        .unwrap();
+    let target = collection
+        .children
+        .iter_mut()
+        .find(|node| {
+            node.name == "TRACK"
+                && node
+                    .attributes
+                    .iter()
+                    .any(|(key, value)| key == "TrackID" && value == "100")
+        })
+        .unwrap();
+    let artist = target
+        .attributes
+        .iter_mut()
+        .find(|(key, _)| key == "Artist")
+        .unwrap();
+    assert_eq!(artist.1, "Old & exact");
+    artist.1 = "New Artist".into();
+    let untouched = collection
+        .children
+        .iter()
+        .find(|node| {
+            node.name == "TRACK"
+                && node
+                    .attributes
+                    .iter()
+                    .any(|(key, value)| key == "TrackID" && value == "200")
+        })
+        .unwrap();
+    assert!(!untouched.attributes.iter().any(|(key, _)| key == "Artist"));
+    assert_eq!(
+        actual, expected,
+        "CLI output differs beyond TrackID 100 Artist"
+    );
+}
+
 fn assert_only_frozen_f07_end_edit(source: &[u8], output: &[u8]) {
     let mut expected = independently_decode_xml(source);
     let actual = independently_decode_xml(output);
@@ -6638,4 +6682,65 @@ fn track_sample_rate_edit_preserves_raw_xml_and_rejects_stale_values() {
     let _ = fs::remove_file(output);
     let _ = fs::remove_file(stale_output);
     let _ = fs::remove_file(empty_output);
+}
+
+#[test]
+fn track_artist_cli_export_matches_independent_f02_oracle() {
+    let fixture = format!(
+        "{}/../../xtask/tests/fixtures/f02-track-artist-edit/source.xml",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let source = fs::read(&fixture).unwrap();
+    let input = temporary_path("track-artist-oracle-input");
+    let output = temporary_path("track-artist-oracle-output");
+    fs::write(&input, &source).unwrap();
+    let invoke = |track_id: &str, expected: &str, target: &std::path::Path| {
+        Command::new(env!("CARGO_BIN_EXE_oxidj-cli"))
+            .args([
+                "rekordbox",
+                "edit-track-artist",
+                "--xml",
+                input.to_str().unwrap(),
+                "--output",
+                target.to_str().unwrap(),
+                "--track-id",
+                track_id,
+                "--expected-artist",
+                expected,
+                "--artist",
+                "New Artist",
+            ])
+            .output()
+            .unwrap()
+    };
+    let result = invoke("100", "Old & exact", &output);
+    assert_eq!(result.status.code(), Some(0), "{:?}", result.stderr);
+    let exported = fs::read(&output).unwrap();
+    assert_only_track_artist_edit(&source, &exported);
+    assert_eq!(
+        fs::read(&input).unwrap(),
+        source,
+        "CLI changed source bytes"
+    );
+    for (track_id, expected) in [
+        ("100", "stale"),
+        ("200", "Old & exact"),
+        ("999", "Old & exact"),
+    ] {
+        let rejected_output = temporary_path("track-artist-oracle-rejected");
+        let rejected = invoke(track_id, expected, &rejected_output);
+        assert_ne!(
+            rejected.status.code(),
+            Some(0),
+            "accepted TrackID={track_id}"
+        );
+        assert!(
+            !rejected_output.exists(),
+            "created output for TrackID={track_id}"
+        );
+        let _ = fs::remove_file(rejected_output);
+    }
+    assert_eq!(fs::read(&input).unwrap(), source);
+    let _ = fs::remove_file(input);
+    let _ = fs::remove_file(output);
 }
