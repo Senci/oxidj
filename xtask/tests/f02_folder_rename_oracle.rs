@@ -100,6 +100,56 @@ fn verify(bytes: &[u8], expected: &Node) -> Result<(), String> {
     }
     Ok(())
 }
+/// Check UI-exported bytes against the independent frozen F-02 semantic baseline.
+pub fn check_ui_export(bytes: &[u8], new_name: &str) -> Result<(), String> {
+    let mut expected = decode(SOURCE);
+    let playlists = &mut expected
+        .children
+        .iter_mut()
+        .find(|n| n.name == "PLAYLISTS")
+        .unwrap()
+        .children[0];
+    let sets = &mut playlists
+        .children
+        .iter_mut()
+        .find(|n| n.name == "NODE" && n.attr("Name") == "Sets")
+        .unwrap();
+    sets.set_attr("Name", new_name);
+    verify(bytes, &expected)
+}
+
+/// Ensure the same actual output is rejected after a semantic mutation.
+pub fn check_ui_export_mutation_rejected(bytes: &[u8], new_name: &str) {
+    check_ui_export(bytes, new_name).expect("unmutated UI export satisfies independent oracle");
+    let mut expected = decode(SOURCE);
+    let playlists = &mut expected
+        .children
+        .iter_mut()
+        .find(|n| n.name == "PLAYLISTS")
+        .unwrap()
+        .children[0];
+    let sets = &mut playlists
+        .children
+        .iter_mut()
+        .find(|n| n.name == "NODE" && n.attr("Name") == "Sets")
+        .unwrap();
+    sets.set_attr("Name", new_name);
+    let source = String::from_utf8(bytes.to_vec()).unwrap();
+    let mutated = source.replacen(
+        &format!("Name=\"{new_name}\""),
+        "Name=\"Oracle mutation\"",
+        1,
+    );
+    assert_ne!(
+        source, mutated,
+        "mutation target exists in actual UI output"
+    );
+    assert!(
+        verify(mutated.as_bytes(), &expected).is_err(),
+        "independent oracle must reject mutation to actual UI output"
+    );
+}
+
 #[test]
 fn independently_decodes_guarded_folder_rename_and_rejects_mutations() {
     let frozen = SOURCE.to_vec();

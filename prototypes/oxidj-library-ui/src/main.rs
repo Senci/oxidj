@@ -4224,6 +4224,60 @@ mod keyboard_tests {
     }
 
     #[test]
+    fn folder_rename_ui_refuses_stale_and_invalid_exports_without_overwriting() {
+        use std::time::{SystemTime, UNIX_EPOCH};
+        let root = std::env::temp_dir().join(format!("oxidj-ui-folder-rename-guards-{}-{}", std::process::id(), SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()));
+        std::fs::create_dir_all(&root).unwrap();
+        let source = root.join("source.xml");
+        let fixture = std::fs::read(concat!(env!("CARGO_MANIFEST_DIR"), "/../../xtask/tests/fixtures/f02-folder-rename/source.xml")).unwrap();
+        let with_sibling = String::from_utf8(fixture).unwrap().replace("    </NODE>\n  </PLAYLISTS>", "      <NODE Type=\"0\" Name=\"Other\" Count=\"0\"/>\n    </NODE>\n  </PLAYLISTS>");
+        std::fs::write(&source, with_sibling).unwrap();
+        let original = std::fs::read(&source).unwrap();
+        let mut app = LibraryApp::new(root.join("catalog.sqlite"), ThemeMode::TokyoNight, ThemeMode::TokyoNight.tokens());
+        app.xml_path = source.display().to_string();
+        app.preview_xml();
+        let folders = &app.xml_preview.as_ref().unwrap().as_ref().unwrap().folders;
+        let index = folders.iter().position(|f| f.name == "Sets" && f.path.len() > 1).unwrap();
+        app.xml_selected_folder_rename = Some(index);
+        app.xml_folder_rename_name = "Renamed".into();
+        app.prepare_xml_folder_rename();
+        app.xml_selected_folder_rename = Some(index + 1);
+        app.xml_folder_rename_export_path = root.join("selection.xml").display().to_string();
+        app.export_xml_folder_rename();
+        assert!(app.xml_pending_folder_rename.is_none());
+        assert!(!root.join("selection.xml").exists());
+
+        for (selection, name) in [(Some(0), "Renamed"), (Some(usize::MAX), "Renamed"), (Some(index), "") , (Some(index), "bad\0name"), (Some(index), "Other")] {
+            app.xml_selected_folder_rename = selection;
+            app.xml_folder_rename_name = name.into();
+            app.prepare_xml_folder_rename();
+            assert!(app.xml_pending_folder_rename.is_none(), "selection={selection:?}, name={name:?}");
+        }
+        app.xml_selected_folder_rename = Some(index);
+        app.xml_folder_rename_name = "Renamed".into();
+        app.prepare_xml_folder_rename();
+        let existing = root.join("existing.xml");
+        std::fs::write(&existing, b"preserve me").unwrap();
+        app.xml_folder_rename_export_path = existing.display().to_string();
+        app.export_xml_folder_rename();
+        assert_eq!(std::fs::read(&existing).unwrap(), b"preserve me");
+
+        app.xml_selected_folder_rename = Some(index);
+        app.prepare_xml_folder_rename();
+        app.xml_folder_rename_export_path = source.display().to_string();
+        app.export_xml_folder_rename();
+        assert_eq!(std::fs::read(&source).unwrap(), original, "source alias preserved");
+
+        app.xml_folder_rename_export_path = root.join("stale.xml").display().to_string();
+        app.prepare_xml_folder_rename();
+        let mut changed = original.clone(); changed.push(b' '); std::fs::write(&source, &changed).unwrap();
+        app.export_xml_folder_rename();
+        assert!(!root.join("stale.xml").exists());
+        assert_eq!(std::fs::read(&source).unwrap(), changed);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn folder_rename_ui_prepares_exports_reopens_and_runs_independent_oracle() {
         use std::time::{SystemTime, UNIX_EPOCH};
         let root = std::env::temp_dir().join(format!(
@@ -4291,6 +4345,7 @@ mod keyboard_tests {
         app.export_xml_folder_rename();
         let exported_bytes = std::fs::read(&output).unwrap();
         assert_eq!(exported_bytes, prepared);
+        f02_folder_rename_oracle::check_ui_export_mutation_rejected(&exported_bytes, "Renamed");
         let reopened = oxidj_application::preview_rekordbox_xml(&output).unwrap();
         assert!(reopened.folders.iter().any(|f| f.name == "Renamed"));
         assert_eq!(std::fs::read(&source).unwrap(), original);
