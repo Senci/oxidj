@@ -82,7 +82,7 @@
       "checker": {
         "path": "xtask/tests/f02_playlist_clear_oracle.rs",
         "version": "f09-operation-oracle-v1",
-        "sha256": "6f4ea8ceb6257f2bd8b9d5a67381ea3ca0a7bb2eb215da47aaac24bc841622d5",
+        "sha256": "349e1d1bb34ded33a8b67a8552e7ba54a53e58901fd5a1688c2f1aafd635f832",
         "tests": [
           "independently_decodes_playlist_clear_and_rejects_structural_mutations"
         ]

@@ -744,6 +744,52 @@ pub fn export_rekordbox_playlist_member_delete(
     publish_new_file(&output, &prepared.bytes)
 }
 
+/// A source-bound prepared playlist clear retains its exact preview snapshot.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PreparedPlaylistClearExport {
+    source: std::path::PathBuf,
+    source_bytes: Vec<u8>,
+    bytes: Vec<u8>,
+}
+
+impl PreparedPlaylistClearExport {
+    pub fn source(&self) -> &Path {
+        &self.source
+    }
+    pub fn bytes(&self) -> &[u8] {
+        &self.bytes
+    }
+}
+
+/// Prepare one guarded playlist clear for preview and source-bound export.
+pub fn prepare_rekordbox_playlist_clear_export(
+    source: impl AsRef<Path>,
+    request: &PlaylistClearRequest,
+) -> Result<PreparedPlaylistClearExport, RekordboxError> {
+    let source = source.as_ref().to_path_buf();
+    let source_bytes = std::fs::read(&source).map_err(|error| RekordboxError(error.to_string()))?;
+    let prepared = oxidj_rekordbox::prepare_playlist_clear(&source_bytes, request)?;
+    Ok(PreparedPlaylistClearExport {
+        source,
+        source_bytes,
+        bytes: prepared.bytes,
+    })
+}
+
+/// Revalidate source bytes and publish prepared clear bytes to a new file.
+pub fn export_prepared_rekordbox_playlist_clear(
+    prepared: &PreparedPlaylistClearExport,
+    output: impl AsRef<Path>,
+) -> Result<(), RekordboxError> {
+    let (current_source, output) = read_new_export_source(&prepared.source, output)?;
+    if current_source != prepared.source_bytes {
+        return Err(RekordboxError(
+            "source changed after playlist clear preparation".into(),
+        ));
+    }
+    publish_new_file(&output, &prepared.bytes)
+}
+
 /// Export one guarded clearing of playlist membership to a new file.
 pub fn export_rekordbox_playlist_clear(
     input: impl AsRef<Path>,
