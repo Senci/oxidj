@@ -8,6 +8,9 @@ mod control_gallery;
 #[path = "../../../xtask/tests/f02_empty_folder_create_oracle.rs"]
 mod f02_empty_folder_create_oracle;
 #[cfg(test)]
+#[path = "../../../xtask/tests/f02_empty_folder_delete_oracle.rs"]
+mod f02_empty_folder_delete_oracle;
+#[cfg(test)]
 #[path = "../../../xtask/tests/f02_empty_playlist_create_oracle.rs"]
 mod f02_empty_playlist_create_oracle;
 #[cfg(test)]
@@ -97,6 +100,19 @@ struct PendingPlaylistRename {
 }
 
 #[derive(Debug, Clone)]
+struct PendingFolderDelete {
+    source: PathBuf,
+    folder_index: usize,
+    ordinal: usize,
+    name: String,
+    path: Vec<String>,
+    count: Option<String>,
+    parent_path: Vec<String>,
+    parent_count: Option<String>,
+    prepared: oxidj_application::PreparedFolderDeleteExport,
+}
+
+#[derive(Debug, Clone)]
 struct PendingFolderCreate {
     source: PathBuf,
     parent_index: usize,
@@ -175,6 +191,9 @@ struct LibraryApp {
     xml_folder_create_name: String,
     xml_pending_folder_create: Option<PendingFolderCreate>,
     xml_folder_create_export_path: String,
+    xml_selected_folder_delete: Option<usize>,
+    xml_pending_folder_delete: Option<PendingFolderDelete>,
+    xml_folder_delete_export_path: String,
     xml_playlist_rename_name: String,
     xml_pending_rename: Option<PendingPlaylistRename>,
     xml_rename_export_path: String,
@@ -245,6 +264,9 @@ impl LibraryApp {
             xml_folder_create_name: String::new(),
             xml_pending_folder_create: None,
             xml_folder_create_export_path: String::new(),
+            xml_selected_folder_delete: None,
+            xml_pending_folder_delete: None,
+            xml_folder_delete_export_path: String::new(),
             xml_playlist_rename_name: String::new(),
             xml_pending_rename: None,
             xml_rename_export_path: String::new(),
@@ -919,6 +941,130 @@ impl LibraryApp {
         }
     }
 
+    fn prepare_xml_folder_delete(&mut self) {
+        let (Some(source), Some(folder_index)) = (
+            self.xml_document_source.clone(),
+            self.xml_selected_folder_delete,
+        ) else {
+            self.xml_pending_folder_delete = None;
+            self.xml_edit_error = Some("Folder deletion refused: select one folder".into());
+            return;
+        };
+        let Some(Ok(preview)) = self.xml_preview.as_ref() else {
+            return;
+        };
+        let Some(folder) = preview
+            .folders
+            .get(folder_index)
+            .filter(|f| f.path.len() > 1 && f.count.as_deref() == Some("0"))
+        else {
+            self.xml_pending_folder_delete = None;
+            self.xml_edit_error =
+                Some("Folder deletion refused: folder must be empty and non-root".into());
+            return;
+        };
+        let Some(parent_path) = folder
+            .path
+            .get(..folder.path.len() - 1)
+            .map(<[String]>::to_vec)
+        else {
+            return;
+        };
+        let Some(parent) = preview.folders.iter().find(|f| f.path == parent_path) else {
+            self.xml_pending_folder_delete = None;
+            self.xml_edit_error =
+                Some("Folder deletion refused: immediate parent not found by full path".into());
+            return;
+        };
+        let request = oxidj_application::FolderDeleteRequest {
+            folder_index: folder.ordinal.saturating_sub(1),
+            expected_name: folder.name.clone(),
+        };
+        match oxidj_application::prepare_rekordbox_folder_delete_export(&source, &request) {
+            Ok(prepared) => {
+                self.xml_pending_folder_delete = Some(PendingFolderDelete {
+                    source,
+                    folder_index,
+                    ordinal: folder.ordinal,
+                    name: folder.name.clone(),
+                    path: folder.path.clone(),
+                    count: folder.count.clone(),
+                    parent_path,
+                    parent_count: parent.count.clone(),
+                    prepared,
+                });
+                self.xml_edit_error = None;
+            }
+            Err(error) => {
+                self.xml_pending_folder_delete = None;
+                self.xml_edit_error = Some(format!("Folder deletion refused: {error}"));
+            }
+        }
+    }
+    fn cancel_xml_folder_delete(&mut self) {
+        self.xml_pending_folder_delete = None;
+        self.xml_edit_error = None;
+    }
+    fn export_xml_folder_delete(&mut self) {
+        let Some(pending) = self.xml_pending_folder_delete.clone() else {
+            self.xml_edit_error = Some("Folder deletion refused: no pending proposal".into());
+            return;
+        };
+        let parent_unchanged = self
+            .xml_preview
+            .as_ref()
+            .and_then(|p| p.as_ref().ok())
+            .is_some_and(|p| {
+                p.folders
+                    .iter()
+                    .any(|f| f.path == pending.parent_path && f.count == pending.parent_count)
+            });
+        let valid = self.xml_document_source.as_ref() == Some(&pending.source)
+            && self.xml_selected_folder_delete == Some(pending.folder_index)
+            && parent_unchanged
+            && self
+                .xml_preview
+                .as_ref()
+                .and_then(|p| p.as_ref().ok())
+                .and_then(|p| p.folders.get(pending.folder_index))
+                .is_some_and(|f| {
+                    f.ordinal == pending.ordinal
+                        && f.name == pending.name
+                        && f.path == pending.path
+                        && f.count == pending.count
+                        && f.count.as_deref() == Some("0")
+                });
+        if !valid {
+            self.xml_pending_folder_delete = None;
+            self.xml_edit_error =
+                Some("Folder deletion refused: source or selected folder identity changed".into());
+            return;
+        }
+        let output = PathBuf::from(&self.xml_folder_delete_export_path);
+        match oxidj_application::export_prepared_rekordbox_folder_delete(&pending.prepared, &output)
+        {
+            Ok(()) => {
+                self.xml_pending_folder_delete = None;
+                self.xml_edit_error = None;
+                self.notice = format!("Empty folder deletion exported to {}", output.display());
+                self.xml_preview = Some(
+                    oxidj_application::preview_rekordbox_xml(&output).map_err(|e| e.to_string()),
+                );
+                self.xml_document_source = Some(output);
+                self.xml_selected_folder_delete = None;
+            }
+            Err(error) => {
+                if error
+                    .to_string()
+                    .contains("source changed after folder deletion preparation")
+                {
+                    self.xml_pending_folder_delete = None;
+                }
+                self.xml_edit_error = Some(format!("Folder deletion export failed: {error}"))
+            }
+        }
+    }
+
     fn prepare_xml_folder_create(&mut self) {
         let (Some(source), Some(parent_index)) =
             (self.xml_document_source.clone(), self.xml_selected_parent)
@@ -1171,6 +1317,8 @@ impl LibraryApp {
     fn on_xml_source_changed(&mut self) {
         self.xml_pending_create = None;
         self.xml_pending_folder_create = None;
+        self.xml_pending_folder_delete = None;
+        self.xml_selected_folder_delete = None;
         self.xml_pending_rename = None;
         self.xml_pending_playlist_delete = None;
         self.xml_selected_parent = None;
@@ -1339,6 +1487,9 @@ impl LibraryApp {
     }
 
     fn preview_xml(&mut self) {
+        self.xml_pending_folder_delete = None;
+        self.xml_selected_folder_delete = None;
+        self.xml_pending_folder_create = None;
         self.xml_pending_clear = None;
         self.xml_pending_edit = None;
         self.xml_pending_reorder = None;
@@ -1790,6 +1941,28 @@ impl eframe::App for LibraryApp {
                             ui.horizontal(|ui| { ui.label("New XML destination"); ui.text_edit_singleline(&mut self.xml_folder_create_export_path); });
                             if ui.button("Export prepared folder").clicked() { self.export_xml_folder_create(); }
                             if ui.button("Cancel folder creation").clicked() { self.cancel_xml_folder_create(); }
+                        }
+                        SectionHeading { title: "Guarded empty-folder deletion (provisional)" }.show(ui, tokens);
+                        for (index, folder) in preview.folders.iter().enumerate() {
+                            let label = format!("Folder #{} · {} · Count={}", folder.ordinal, folder.path.join(" / "), folder.count.as_deref().unwrap_or("missing"));
+                            if ui.selectable_label(self.xml_selected_folder_delete == Some(index), label).clicked() {
+                                self.xml_selected_folder_delete = Some(index);
+                                self.xml_pending_folder_delete = None;
+                            }
+                        }
+                        if let Some(index) = self.xml_selected_folder_delete {
+                            if let Some(folder) = preview.folders.get(index) {
+                                ui.label(format!("Selected #{} {:?} · {} · Count={}", folder.ordinal, folder.name, folder.path.join(" / "), folder.count.as_deref().unwrap_or("missing")));
+                                if ui.button("Prepare empty-folder deletion").clicked() { self.prepare_xml_folder_delete(); }
+                            }
+                        }
+                        if let Some(pending) = &self.xml_pending_folder_delete {
+                            let next_count = pending.parent_count.as_deref().and_then(|n| n.parse::<usize>().ok()).map(|n| n.saturating_sub(1).to_string()).unwrap_or_else(|| "N-1".into());
+                            ui.strong("Pending folder deletion · not exported or saved");
+                            ui.label(format!("Remove {} · Count=0 · immediate parent {} Count {:?} → {} · {} bytes prepared", pending.path.join(" / "), pending.parent_path.join(" / "), pending.parent_count, next_count, pending.prepared.bytes().len()));
+                            ui.horizontal(|ui| { ui.label("New XML destination"); ui.text_edit_singleline(&mut self.xml_folder_delete_export_path); });
+                            if ui.button("Export prepared folder deletion").clicked() { self.export_xml_folder_delete(); }
+                            if ui.button("Cancel folder deletion").clicked() { self.cancel_xml_folder_delete(); }
                         }
                         SectionHeading { title: "Playlist-member append (provisional)" }.show(ui, tokens);
                         if let (Some(playlist_index), Some(track_id)) = (self.xml_selected_playlist, self.xml_selected_track.clone()) {
@@ -3745,6 +3918,162 @@ mod keyboard_tests {
             color_hex(ThemeMode::TokyoDay.tokens().secondary)
         );
     }
+    #[test]
+    fn empty_folder_delete_ui_exports_prepared_bytes_and_reopens_without_stale_selection() {
+        use std::time::{SystemTime, UNIX_EPOCH};
+        let root = std::env::temp_dir().join(format!(
+            "oxidj-ui-folder-delete-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let source = root.join("source.xml");
+        std::fs::copy(
+            concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../xtask/tests/fixtures/f02-empty-folder-delete/source.xml"
+            ),
+            &source,
+        )
+        .unwrap();
+        let original = std::fs::read(&source).unwrap();
+        let catalog = root.join("catalog.sqlite");
+        drop(Catalog::open(&catalog).unwrap());
+        let catalog_before = std::fs::read(&catalog).unwrap();
+        let mut app = LibraryApp::new(
+            catalog.clone(),
+            ThemeMode::TokyoNight,
+            ThemeMode::TokyoNight.tokens(),
+        );
+        app.xml_path = source.display().to_string();
+        app.preview_xml();
+        let preview = app.xml_preview.as_ref().unwrap().as_ref().unwrap();
+        let mut index = preview
+            .folders
+            .iter()
+            .position(|f| f.name == "Empty" && f.path == ["ROOT", "Sets", "Empty"])
+            .unwrap();
+        let mut same_named_other_parent = preview
+            .folders
+            .iter()
+            .find(|f| f.path == ["ROOT", "Sets"])
+            .unwrap()
+            .clone();
+        same_named_other_parent.path = vec!["ROOT".into(), "Other".into(), "Sets".into()];
+        same_named_other_parent.count = Some("99".into());
+        app.xml_preview
+            .as_mut()
+            .unwrap()
+            .as_mut()
+            .unwrap()
+            .folders
+            .insert(0, same_named_other_parent);
+        index += 1;
+        app.xml_selected_folder_delete = Some(index);
+        app.prepare_xml_folder_delete();
+        assert!(
+            app.xml_pending_folder_delete.is_some(),
+            "prepare error: {:?}",
+            app.xml_edit_error
+        );
+        let bytes = app
+            .xml_pending_folder_delete
+            .as_ref()
+            .unwrap()
+            .prepared
+            .bytes()
+            .to_vec();
+        app.cancel_xml_folder_delete();
+        assert!(app.xml_pending_folder_delete.is_none());
+        assert_eq!(std::fs::read(&source).unwrap(), original);
+        app.xml_selected_folder_delete = Some(index);
+        app.prepare_xml_folder_delete();
+        app.xml_folder_delete_export_path = source.display().to_string();
+        app.export_xml_folder_delete();
+        assert_eq!(
+            std::fs::read(&source).unwrap(),
+            original,
+            "source alias must not overwrite input"
+        );
+        app.xml_selected_folder_delete = Some(index);
+        app.prepare_xml_folder_delete();
+        let changed_source = root.join("changed.xml");
+        app.xml_folder_delete_export_path = changed_source.display().to_string();
+        let mut changed = original.clone();
+        changed.push(b' ');
+        std::fs::write(&source, &changed).unwrap();
+        app.export_xml_folder_delete();
+        assert!(
+            !changed_source.exists(),
+            "source revalidation rejects stale preparation"
+        );
+        assert!(
+            app.xml_pending_folder_delete.is_none(),
+            "stale source invalidates the pending proposal"
+        );
+        assert_eq!(std::fs::read(&source).unwrap(), changed);
+        std::fs::write(&source, &original).unwrap();
+        app.xml_selected_folder_delete = Some(index);
+        app.prepare_xml_folder_delete();
+        app.xml_selected_folder_delete = Some(0);
+        app.export_xml_folder_delete();
+        assert!(
+            app.xml_pending_folder_delete.is_none(),
+            "changed selection invalidates"
+        );
+        app.xml_selected_folder_delete = Some(index);
+        app.prepare_xml_folder_delete();
+        let output = root.join("deleted.xml");
+        app.xml_folder_delete_export_path = output.display().to_string();
+        app.export_xml_folder_delete();
+        assert_eq!(std::fs::read(&output).unwrap(), bytes);
+        f02_empty_folder_delete_oracle::check(&bytes)
+            .expect("actual UI bytes satisfy independent F-02 oracle");
+        let reopened = oxidj_application::preview_rekordbox_xml(&output).unwrap();
+        assert!(
+            !reopened
+                .folders
+                .iter()
+                .any(|f| f.path == ["ROOT", "Sets", "Empty"])
+        );
+        assert_eq!(
+            reopened
+                .folders
+                .iter()
+                .find(|f| f.path == ["ROOT", "Sets"])
+                .unwrap()
+                .count
+                .as_deref(),
+            Some("2")
+        );
+        assert_eq!(app.xml_selected_folder_delete, None);
+        assert_eq!(std::fs::read(&source).unwrap(), original);
+        assert_eq!(std::fs::read(&catalog).unwrap(), catalog_before);
+        let existing = root.join("existing.xml");
+        std::fs::write(&existing, b"keep").unwrap();
+        app.xml_document_source = Some(output.clone());
+        app.xml_selected_folder_delete = Some(0);
+        app.prepare_xml_folder_delete();
+        app.xml_folder_delete_export_path = output.display().to_string();
+        app.export_xml_folder_delete();
+        assert_eq!(
+            std::fs::read(&output).unwrap(),
+            bytes,
+            "source alias cannot overwrite"
+        );
+        assert_eq!(std::fs::read(existing).unwrap(), b"keep");
+        let mutated = String::from_utf8(bytes.clone()).unwrap().replacen(
+            "Name=\"Sets\" Count=\"2\"",
+            "Name=\"Sets\" Count=\"3\"",
+            1,
+        );
+        assert!(f02_empty_folder_delete_oracle::check(mutated.as_bytes()).is_err());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
     #[test]
     fn empty_folder_create_ui_exports_prepared_bytes_and_reopens_folder() {
         use std::time::{SystemTime, UNIX_EPOCH};
