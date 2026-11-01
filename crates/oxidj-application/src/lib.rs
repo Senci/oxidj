@@ -52,7 +52,8 @@ pub use oxidj_rekordbox::{
 
 pub use oxidj_onelibrary::{
     Error as OneLibraryError, Playlist as OneLibraryPlaylist, Preview as OneLibraryPreview,
-    SourceId as OneLibrarySourceId, Track as OneLibraryTrack,
+    SCHEMA_PROFILE_NATIVE as ONELIBRARY_SCHEMA_PROFILE_NATIVE, SourceId as OneLibrarySourceId,
+    Track as OneLibraryTrack,
 };
 
 /// Validate a complete OneLibrary reader response before exposing it to callers.

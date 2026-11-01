@@ -79,6 +79,17 @@ fn run_onelibrary(args: &[String]) -> i32 {
     }
     match oxidj_application::preview_onelibrary_stdin(&args[2]) {
         Ok(preview) => {
+            println!(
+                "Profile: {}",
+                if preview.schema_profile == oxidj_application::ONELIBRARY_SCHEMA_PROFILE_NATIVE {
+                    "native OneLibrary (provisional structural match; no application-release claim)"
+                } else {
+                    "synthetic v1"
+                }
+            );
+            println!(
+                "Supported subset: title, artist name, album name, playlist hierarchy/order and ordered memberships. Excluded: BPM, length, path, cues/ANLZ, history, tags, color, artwork, and analysis."
+            );
             println!("Tracks:");
             for track in preview.tracks {
                 println!(
@@ -2479,7 +2490,9 @@ fn print_usage(to_stdout: bool) {
     let _ = writeln!(output, "commands:");
     let _ = writeln!(
         output,
-        "  onelibrary preview --db <path> --key-stdin   Read-only synthetic-profile preview; key bytes required on non-terminal stdin\n  rekordbox preview --xml <path>   Read-only Rekordbox XML preview\n  rekordbox pdb-preview --pdb <path> Read-only legacy DeviceSQL PDB preview",
+        "  onelibrary preview --db <path> --key-stdin   Read-only provisional native-profile preview when the pinned 22-table/4-index signature matches; otherwise synthetic v1. Supports title, artist, album, playlist hierarchy/order and membership only. Excludes BPM, length, paths, cues/ANLZ, history, tags, color, artwork and analysis.
+  rekordbox preview --xml <path>   Read-only Rekordbox XML preview
+  rekordbox pdb-preview --pdb <path> Read-only legacy DeviceSQL PDB preview",
     );
     let _ = writeln!(
         output,

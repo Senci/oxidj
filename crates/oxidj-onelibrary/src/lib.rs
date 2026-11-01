@@ -8,6 +8,8 @@ use std::fmt;
 /// Current synthetic schema profile. This is not a claim about vendor schemas.
 pub const PROTOCOL_VERSION: u16 = 1;
 pub const SCHEMA_PROFILE_V1: u16 = 1;
+/// Provisional native OneLibrary profile matched by the pinned structural signature.
+pub const SCHEMA_PROFILE_NATIVE: u16 = 2;
 
 /// Source-scoped identifier; never interchangeable with an OxiDJ catalog ID.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -164,7 +166,12 @@ pub fn encode_preview(preview: Preview) -> Result<Vec<u8>, Error> {
 
 /// Reject malformed cross-references before a complete preview is returned.
 pub fn validate(preview: Preview) -> Result<Preview, Error> {
-    if preview.protocol_version != PROTOCOL_VERSION || preview.schema_profile != SCHEMA_PROFILE_V1 {
+    if preview.protocol_version != PROTOCOL_VERSION
+        || !matches!(
+            preview.schema_profile,
+            SCHEMA_PROFILE_V1 | SCHEMA_PROFILE_NATIVE
+        )
+    {
         return Err(Error::ProtocolMismatch);
     }
     let track_ids: std::collections::HashSet<_> =
@@ -250,6 +257,25 @@ mod tests {
         assert_eq!(checked.tracks[0].title.as_deref(), Some(""));
         assert_eq!(checked.tracks[0].artist, None);
         assert_eq!(checked.playlists[0].track_ids.len(), 2);
+    }
+
+    #[test]
+    fn native_profile_codec_accepts_only_supported_profile_version() {
+        let mut preview = Preview {
+            protocol_version: PROTOCOL_VERSION,
+            schema_profile: 2,
+            tracks: vec![Track {
+                id: id("native:content:1"),
+                title: Some("Title".into()),
+                artist: Some("Artist".into()),
+                album: Some("Album".into()),
+            }],
+            playlists: vec![],
+        };
+        let encoded = encode_preview(preview.clone()).unwrap();
+        assert_eq!(decode_preview(&encoded), Ok(preview.clone()));
+        preview.schema_profile = 3;
+        assert_eq!(validate(preview), Err(Error::ProtocolMismatch));
     }
 
     #[test]

@@ -2,7 +2,9 @@
 
 ## Current milestone
 
-### M4 OneLibrary preview — synthetic-only provisional implementation (2026-11-01)
+### M4 OneLibrary preview — synthetic v1 plus provisional native-profile implementation (2026-11-01)
+
+The native profile is distinct from synthetic profile v1. It accepts only the pinned 22-table/4-index, complete column-signature schema with `user_version=0`/`application_id=0`, and maps only title/artist/album plus playlist hierarchy/order/membership. The complete synthetic encrypted-shape suite passes, including schema/relation drift rejection, duplicate membership retention, CLI subset/exclusions, key privacy and source-byte immutability. Native compatibility and release identity are NOT DEMONSTRATED. Lead-only native scratch smoke is NOT RUN in this session: bounded authorized local home-root searches found no exact-name export candidate; removable/USB media was not searched or accessed.
 
 The bounded schema-profile v1 implementation is synthetic-only and locally testable on this task. The isolated encrypted reader suite passes (1 unit + 9 subprocess integration tests), including wrong-key, schema/version/table/column, dangling/duplicate/cyclic relation, ordering, sidecar, key-boundary, no-partial-output and source-byte-preservation checks; the manual protocol codec has round-trip/malformed-input coverage. A real CLI→application→sibling-reader encrypted-fixture success/failure test passes. The `cargo xtask layers` gate checks the main resolved-feature graph excludes SQLCipher, validates isolated pinned dependencies/features/lockfile, and runs the isolated locked license check; ADR-009 is unchanged. `cargo xtask ci` passes (`layers=ok fmt=ok clippy=ok check=ok`), and xtask tests pass. Implementation and regression tests were synthetic-only. Task-scoped implementation is committed on local master as fd93e296ee784fcd86400f37b8369cc779846517 and approved by Sol in run 1648. Native/vendor compatibility, local schema match, A3 and ADR-005 remain NOT DEMONSTRATED.
 

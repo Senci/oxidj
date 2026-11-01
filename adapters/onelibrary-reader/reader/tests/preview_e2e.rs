@@ -15,6 +15,80 @@ fn temp_db() -> std::path::PathBuf {
     std::env::temp_dir().join(format!("oxidj-onelibrary-{n}.db"))
 }
 
+fn native_encrypted_fixture(path: &std::path::Path) {
+    let conn = Connection::open_with_flags(
+        path,
+        OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_CREATE,
+    )
+    .unwrap();
+    let rc = unsafe {
+        rusqlite::ffi::sqlite3_key(conn.handle(), SECRET.as_ptr().cast(), SECRET.len() as i32)
+    };
+    assert_eq!(rc, rusqlite::ffi::SQLITE_OK);
+    conn.execute_batch(include_str!("../src/native-schema.sql"))
+        .unwrap();
+    conn.execute_batch("INSERT INTO artist VALUES(7,'Artist','artist');
+        INSERT INTO album VALUES(9,'Album',7,NULL,0,'album');
+        INSERT INTO content(content_id,title,artist_id_artist,album_id) VALUES(10,'Title',7,9),(11,'Second',7,9);
+        INSERT INTO playlist(playlist_id,sequenceNo,name,attribute,playlist_id_parent) VALUES(20,1,'Root',99,NULL),(21,1,'Nested',-4,20),(22,2,'Twin',0,NULL),(23,3,'Twin',0,NULL);
+        INSERT INTO playlist_content VALUES(21,10,1),(21,10,2),(21,11,3);").unwrap();
+}
+
+#[test]
+fn native_schema_profile_previews_only_unambiguous_fields_and_order() {
+    let path = temp_db();
+    native_encrypted_fixture(&path);
+    let before = std::fs::read(&path).unwrap();
+    let output = run(&path, SECRET);
+    assert!(
+        output.status.success(),
+        "native profile should be accepted; stderr={}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["schema_profile"], 2);
+    assert_eq!(
+        json["tracks"][0],
+        serde_json::json!({"id":"content:10","title":"Title","artist":"Artist","album":"Album"})
+    );
+    assert_eq!(json["tracks"][0].get("duration_ms"), None);
+    let nested = json["playlists"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|p| p["id"] == "playlist:21")
+        .unwrap();
+    assert_eq!(nested["parent_id"], "playlist:20");
+    assert_eq!(
+        nested["track_ids"],
+        serde_json::json!(["content:10", "content:10", "content:11"])
+    );
+    assert_eq!(json["playlists"][1]["id"], "playlist:22");
+    assert_eq!(std::fs::read(&path).unwrap(), before);
+    let _ = std::fs::remove_file(path);
+}
+
+#[test]
+fn rejects_native_schema_and_relation_drift_without_partial_output() {
+    for sql in [
+        "ALTER TABLE content ADD COLUMN unexpected varchar",
+        "CREATE INDEX unexpected_index ON content(title)",
+        "CREATE VIEW unexpected_view AS SELECT title FROM content",
+        "UPDATE content SET artist_id_artist=999 WHERE content_id=10",
+        "UPDATE content SET album_id=999 WHERE content_id=10",
+        "INSERT INTO playlist_content VALUES(21,999,4)",
+        "INSERT INTO playlist_content VALUES(999,10,4)",
+        "UPDATE playlist SET playlist_id_parent=999 WHERE playlist_id=21",
+        "UPDATE playlist SET sequenceNo=1 WHERE playlist_id=23",
+    ] {
+        let path = temp_db();
+        native_encrypted_fixture(&path);
+        mutate_fixture(&path, sql);
+        assert_rejected_unchanged(&path);
+        let _ = std::fs::remove_file(path);
+    }
+}
+
 fn encrypted_fixture(path: &std::path::Path) {
     let conn = Connection::open_with_flags(
         path,
@@ -302,6 +376,45 @@ fn cli_application_sibling_reader_success_and_failure_are_end_to_end() {
         }
         assert_eq!(std::fs::read(&path).unwrap(), before);
     }
+    let native_path = dir.join("native.db");
+    native_encrypted_fixture(&native_path);
+    let native_before = std::fs::read(&native_path).unwrap();
+    let mut child = std::process::Command::new(&cli)
+        .args(["onelibrary", "preview", "--db"])
+        .arg(&native_path)
+        .arg("--key-stdin")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child.stdin.take().unwrap().write_all(SECRET).unwrap();
+    let output = child.wait_with_output().unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let text = String::from_utf8(output.stdout).unwrap();
+    assert!(text.contains("native OneLibrary (provisional structural match"));
+    assert!(text.contains("Supported subset: title, artist name, album name"));
+    for excluded in [
+        "BPM",
+        "length",
+        "path",
+        "cues/ANLZ",
+        "history",
+        "tags",
+        "color",
+        "artwork",
+        "analysis",
+    ] {
+        assert!(
+            text.contains(excluded),
+            "missing explicit exclusion: {excluded}"
+        );
+    }
+    assert_eq!(std::fs::read(&native_path).unwrap(), native_before);
     let _ = std::fs::remove_dir_all(dir);
 }
 

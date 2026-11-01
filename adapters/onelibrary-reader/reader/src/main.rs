@@ -120,7 +120,13 @@ fn read_preview(path: &Path, key: &[u8]) -> Result<Preview, ()> {
     let user_version: i64 = conn
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .map_err(|_| ())?;
-    if query_only != 1 || trusted_schema != 0 || user_version != 1 {
+    if query_only != 1 || trusted_schema != 0 {
+        return Err(());
+    }
+    if user_version == 0 {
+        return read_native_preview(&conn);
+    }
+    if user_version != 1 {
         return Err(());
     }
     let table_names: Vec<String> = conn
@@ -272,6 +278,197 @@ fn read_preview(path: &Path, key: &[u8]) -> Result<Preview, ()> {
         playlists,
     };
     oxidj_onelibrary::validate(preview).map_err(|_| ())
+}
+
+fn read_native_preview(conn: &rusqlite::Connection) -> Result<Preview, ()> {
+    let application_id: i64 = conn
+        .query_row("PRAGMA application_id", [], |r| r.get(0))
+        .map_err(|_| ())?;
+    if application_id != 0 || !matches_native_schema(conn)? {
+        return Err(());
+    }
+    let mut tracks = Vec::new();
+    let mut track_ids = std::collections::HashSet::new();
+    let mut stmt = conn.prepare("SELECT c.content_id,c.title,c.artist_id_artist,a.artist_id,a.name,c.album_id,b.album_id,b.name FROM content c LEFT JOIN artist a ON a.artist_id=c.artist_id_artist LEFT JOIN album b ON b.album_id=c.album_id ORDER BY c.content_id").map_err(|_| ())?;
+    let rows = stmt
+        .query_map([], |r| {
+            Ok((
+                r.get::<_, i64>(0)?,
+                r.get::<_, Option<String>>(1)?,
+                r.get::<_, Option<i64>>(2)?,
+                r.get::<_, Option<i64>>(3)?,
+                r.get::<_, Option<String>>(4)?,
+                r.get::<_, Option<i64>>(5)?,
+                r.get::<_, Option<i64>>(6)?,
+                r.get::<_, Option<String>>(7)?,
+            ))
+        })
+        .map_err(|_| ())?;
+    for row in rows {
+        let (id, title, artist_id, joined_artist_id, artist, album_id, joined_album_id, album) =
+            row.map_err(|_| ())?;
+        if artist_id != joined_artist_id || album_id != joined_album_id {
+            return Err(());
+        }
+        let source_id = SourceId::new(format!("content:{id}")).map_err(|_| ())?;
+        if !track_ids.insert(source_id.as_str().to_owned()) {
+            return Err(());
+        }
+        tracks.push(Track {
+            id: source_id,
+            title,
+            artist,
+            album,
+        });
+    }
+    drop(stmt);
+
+    let mut memberships: std::collections::HashMap<i64, Vec<(i64, i64)>> =
+        std::collections::HashMap::new();
+    let mut membership_stmt = conn.prepare("SELECT playlist_id,content_id,sequenceNo FROM playlist_content ORDER BY playlist_id,sequenceNo").map_err(|_| ())?;
+    let rows = membership_stmt
+        .query_map([], |r| {
+            Ok((
+                r.get::<_, i64>(0)?,
+                r.get::<_, i64>(1)?,
+                r.get::<_, i64>(2)?,
+            ))
+        })
+        .map_err(|_| ())?;
+    let mut last: Option<(i64, i64)> = None;
+    for row in rows {
+        let (playlist_id, content_id, sequence) = row.map_err(|_| ())?;
+        if sequence < 1
+            || !track_ids.contains(&format!("content:{content_id}"))
+            || last == Some((playlist_id, sequence))
+        {
+            return Err(());
+        }
+        last = Some((playlist_id, sequence));
+        memberships
+            .entry(playlist_id)
+            .or_default()
+            .push((sequence, content_id));
+    }
+    drop(membership_stmt);
+
+    let mut playlists = Vec::new();
+    let mut sibling_order: std::collections::HashMap<Option<i64>, u32> =
+        std::collections::HashMap::new();
+    let mut sibling_sequence: std::collections::HashSet<(Option<i64>, i64)> =
+        std::collections::HashSet::new();
+    let mut stmt = conn.prepare("SELECT playlist_id,sequenceNo,name,playlist_id_parent FROM playlist ORDER BY playlist_id_parent,sequenceNo,playlist_id").map_err(|_| ())?;
+    let rows = stmt
+        .query_map([], |r| {
+            Ok((
+                r.get::<_, i64>(0)?,
+                r.get::<_, i64>(1)?,
+                r.get::<_, String>(2)?,
+                r.get::<_, Option<i64>>(3)?,
+            ))
+        })
+        .map_err(|_| ())?;
+    for row in rows {
+        let (raw_id, sequence, name, raw_parent) = row.map_err(|_| ())?;
+        if sequence < 1 || !sibling_sequence.insert((raw_parent, sequence)) {
+            return Err(());
+        }
+        let order = sibling_order.entry(raw_parent).or_default();
+        let mut members = memberships.remove(&raw_id).unwrap_or_default();
+        members.sort_by_key(|(position, _)| *position);
+        let track_ids = members
+            .into_iter()
+            .map(|(_, id)| SourceId::new(format!("content:{id}")).map_err(|_| ()))
+            .collect::<Result<Vec<_>, _>>()?;
+        playlists.push(Playlist {
+            id: SourceId::new(format!("playlist:{raw_id}")).map_err(|_| ())?,
+            parent_id: raw_parent
+                .map(|id| SourceId::new(format!("playlist:{id}")))
+                .transpose()
+                .map_err(|_| ())?,
+            sibling_order: *order,
+            name,
+            track_ids,
+        });
+        *order = order.checked_add(1).ok_or(())?;
+    }
+    if !memberships.is_empty() {
+        return Err(());
+    }
+    let preview = Preview {
+        protocol_version: oxidj_onelibrary::PROTOCOL_VERSION,
+        schema_profile: oxidj_onelibrary::SCHEMA_PROFILE_NATIVE,
+        tracks,
+        playlists,
+    };
+    oxidj_onelibrary::validate(preview).map_err(|_| ())
+}
+
+fn matches_native_schema(conn: &rusqlite::Connection) -> Result<bool, ()> {
+    let reference = rusqlite::Connection::open_in_memory().map_err(|_| ())?;
+    reference
+        .execute_batch(include_str!("native-schema.sql"))
+        .map_err(|_| ())?;
+    Ok(schema_signature(conn)? == schema_signature(&reference)?)
+}
+
+fn schema_signature(conn: &rusqlite::Connection) -> Result<Vec<String>, ()> {
+    let mut signature = Vec::new();
+    let mut stmt = conn.prepare("SELECT type,name,tbl_name,sql FROM sqlite_schema WHERE name NOT LIKE 'sqlite_%' ORDER BY type,name").map_err(|_| ())?;
+    let objects = stmt
+        .query_map([], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, String>(2)?,
+                r.get::<_, Option<String>>(3)?,
+            ))
+        })
+        .map_err(|_| ())?;
+    let objects = objects.collect::<Result<Vec<_>, _>>().map_err(|_| ())?;
+    drop(stmt);
+    for (kind, name, table, sql) in objects {
+        let sql = sql
+            .ok_or(())?
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ")
+            .to_ascii_lowercase();
+        signature.push(format!("{kind}:{name}:{table}:{sql}"));
+        if kind == "table" {
+            let mut cols = conn.prepare(r#"SELECT name,type,"notnull",dflt_value,pk,hidden FROM pragma_table_xinfo(?1) ORDER BY cid"#).map_err(|_| ())?;
+            let rows = cols
+                .query_map([&name], |r| {
+                    Ok(format!(
+                        "{}|{}|{}|{:?}|{}|{}",
+                        r.get::<_, String>(0)?,
+                        r.get::<_, String>(1)?,
+                        r.get::<_, i64>(2)?,
+                        r.get::<_, Option<String>>(3)?,
+                        r.get::<_, i64>(4)?,
+                        r.get::<_, i64>(5)?
+                    ))
+                })
+                .map_err(|_| ())?;
+            for row in rows {
+                signature.push(format!("column:{name}:{}", row.map_err(|_| ())?));
+            }
+        } else if kind == "index" {
+            let mut cols = conn
+                .prepare("SELECT name FROM pragma_index_info(?1) ORDER BY seqno")
+                .map_err(|_| ())?;
+            let rows = cols
+                .query_map([&name], |r| r.get::<_, Option<String>>(0))
+                .map_err(|_| ())?;
+            for row in rows {
+                signature.push(format!(
+                    "index-column:{name}:{}",
+                    row.map_err(|_| ())?.ok_or(())?
+                ));
+            }
+        }
+    }
+    Ok(signature)
 }
 
 fn verify_table(
