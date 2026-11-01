@@ -1426,7 +1426,26 @@ mod keyboard_tests {
         let output = root.join("appended.xml");
         app.xml_append_export_path = output.display().to_string();
         app.export_xml_member_append();
-        assert_eq!(std::fs::read(&output).unwrap(), prepared);
+        mod f02_oracle {
+            include!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../xtask/tests/common/f02_playlist_member_append_oracle_shared.rs"
+            ));
+        }
+        assert_eq!(f02_oracle::SOURCE, original.as_slice());
+        f02_oracle::check(&std::fs::read(&output).unwrap()).unwrap();
+        let mutated = std::fs::read(&output)
+            .unwrap()
+            .windows(9)
+            .position(|w| w == b"Key=\"100\"");
+        assert!(mutated.is_some());
+        let mut bad = std::fs::read(&output).unwrap();
+        let at = mutated.unwrap();
+        bad[at + 5] = b'9';
+        assert!(
+            f02_oracle::check(&bad).is_err(),
+            "oracle must reject semantic mutation"
+        );
         let reopened = oxidj_application::preview_rekordbox_xml(&output).unwrap();
         assert_eq!(reopened.playlists[1].tracks, ["200", "400", "100"]);
         assert_eq!(reopened.playlists[0].tracks, ["100", "200", "300"]);
