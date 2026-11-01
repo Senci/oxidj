@@ -112,7 +112,7 @@
       "checker": {
         "path": "xtask/tests/f02_playlist_member_append_oracle.rs",
         "version": "f09-operation-oracle-v1",
-        "sha256": "f89efc66450ee2f5240062cafd2a5dc85bf02d4a57de6ac763eefe3f2df94194",
+        "sha256": "1814cfc9a60b41119b4d99efb3f6b5b851ba2094733be48cc805afb62a8eca9c",
         "tests": [
           "independently_decodes_member_append_and_rejects_semantic_mutations"
         ]
@@ -142,7 +142,7 @@
       "checker": {
         "path": "xtask/tests/f02_playlist_member_insert_oracle.rs",
         "version": "f09-operation-oracle-v1",
-        "sha256": "962f5aba8611db4d1a34c71b1d388ec8affe38907cdd589c78c7d0c0df17692e",
+        "sha256": "21945fb4812acb778d1d518648472c50e36c0d41c901deb0f013c9d1cf15335e",
         "tests": [
           "independently_decodes_member_insertion_and_rejects_semantic_mutations"
         ]
