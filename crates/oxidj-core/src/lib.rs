@@ -9,6 +9,8 @@
 //! tests (unit, integration, and doctest). Serialization lives in storage /
 //! adapter crates, not here.
 
+pub mod publish;
+
 use core::fmt;
 use core::str::FromStr;
 

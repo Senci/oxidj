@@ -8,6 +8,7 @@ description = "Application handlers coordinating OxiDJ libraries and adapters."
 publish = false
 
 [dependencies]
+oxidj-core = { workspace = true }
 oxidj-rekordbox = { workspace = true }
 oxidj-onelibrary = { workspace = true }
 zeroize = { workspace = true }

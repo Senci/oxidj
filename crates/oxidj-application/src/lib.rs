@@ -1084,7 +1084,7 @@ pub fn export_prepared_rekordbox_playlist_move(
         return Err(RekordboxError("source changed since preparation".into()));
     }
     let output = output.as_ref();
-    if output == prepared.source {
+    if same_canonical_path(output, &prepared.source) {
         return Err(RekordboxError("output aliases source".into()));
     }
     publish_new_file(output, &prepared.prepared.bytes)
@@ -1347,6 +1347,25 @@ fn read_new_export_source(
     Ok((bytes, output.to_path_buf()))
 }
 
+/// True when both paths resolve to the same file, even via symlinks or
+/// relative spellings; the output need not exist yet.
+fn same_canonical_path(output: &Path, source: &Path) -> bool {
+    let canonical_output = std::fs::canonicalize(output).or_else(|_| {
+        let parent = output
+            .parent()
+            .filter(|p| !p.as_os_str().is_empty())
+            .unwrap_or_else(|| Path::new("."));
+        let name = output
+            .file_name()
+            .ok_or_else(|| std::io::Error::other("no file name"))?;
+        std::fs::canonicalize(parent).map(|p| p.join(name))
+    });
+    match (canonical_output, std::fs::canonicalize(source)) {
+        (Ok(a), Ok(b)) => a == b,
+        _ => output == source,
+    }
+}
+
 fn publish_new_file(output: &Path, bytes: &[u8]) -> Result<(), RekordboxError> {
     use std::{fs, io::Write};
     let parent = output
@@ -1369,8 +1388,12 @@ fn publish_new_file(output: &Path, bytes: &[u8]) -> Result<(), RekordboxError> {
         file.write_all(bytes)
             .map_err(|e| RekordboxError(e.to_string()))?;
         file.sync_all().map_err(|e| RekordboxError(e.to_string()))?;
-        fs::hard_link(&temp, output).map_err(|e| RekordboxError(e.to_string()))?;
-        fs::remove_file(&temp).map_err(|e| RekordboxError(e.to_string()))?;
+        oxidj_core::publish::publish_no_clobber(&temp, output).map_err(|e| match e {
+            oxidj_core::publish::PublishError::DestinationExists => {
+                RekordboxError("refusing to overwrite existing output".into())
+            }
+            e => RekordboxError(e.to_string()),
+        })?;
         Ok(())
     })();
     if result.is_err() {
@@ -2423,6 +2446,24 @@ mod publish_new_file_tests {
         );
         assert!(publish_new_file(&output, b"other").is_err());
         assert_eq!(std::fs::read(&output).unwrap(), b"new", "never overwrite");
+        std::fs::remove_dir_all(root).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod canonical_alias_tests {
+    use super::*;
+
+    #[test]
+    fn symlink_and_relative_spellings_alias_the_source() {
+        let root = std::env::temp_dir().join(format!("oxidj-app-alias-{}", std::process::id()));
+        std::fs::create_dir_all(root.join("sub")).unwrap();
+        let source = root.join("src.xml");
+        std::fs::write(&source, b"x").unwrap();
+        std::os::unix::fs::symlink(&source, root.join("link.xml")).unwrap();
+        assert!(same_canonical_path(&root.join("link.xml"), &source));
+        assert!(same_canonical_path(&root.join("sub/../src.xml"), &source));
+        assert!(!same_canonical_path(&root.join("new.xml"), &source));
         std::fs::remove_dir_all(root).unwrap();
     }
 }

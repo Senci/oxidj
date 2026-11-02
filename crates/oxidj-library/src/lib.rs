@@ -124,8 +124,14 @@ impl Catalog {
             }
             drop(target);
             validate_database(&temporary)?;
-            publish_new_file(&temporary, destination)
-                .map_err(|_| CatalogError::Sqlite(rusqlite::Error::InvalidQuery))?;
+            publish_new_file(&temporary, destination).map_err(|error| match error {
+                oxidj_core::publish::PublishError::DestinationExists => {
+                    CatalogError::DestinationExists
+                }
+                oxidj_core::publish::PublishError::Io(_) => {
+                    CatalogError::Sqlite(rusqlite::Error::InvalidQuery)
+                }
+            })?;
             Ok(())
         })();
         if let Err(error) = result {
@@ -149,8 +155,14 @@ impl Catalog {
             }
             drop(target);
             validate_database(&temporary)?;
-            publish_new_file(&temporary, destination)
-                .map_err(|_| CatalogError::Sqlite(rusqlite::Error::InvalidQuery))?;
+            publish_new_file(&temporary, destination).map_err(|error| match error {
+                oxidj_core::publish::PublishError::DestinationExists => {
+                    CatalogError::DestinationExists
+                }
+                oxidj_core::publish::PublishError::Io(_) => {
+                    CatalogError::Sqlite(rusqlite::Error::InvalidQuery)
+                }
+            })?;
             Ok(())
         })();
         if let Err(error) = result {
@@ -192,8 +204,14 @@ impl Catalog {
                 catalog.list_tracks()?;
             }
             remove_database_sidecars(&temporary).map_err(CatalogError::Cleanup)?;
-            publish_new_file(&temporary, destination)
-                .map_err(|_| CatalogError::Sqlite(rusqlite::Error::InvalidQuery))?;
+            publish_new_file(&temporary, destination).map_err(|error| match error {
+                oxidj_core::publish::PublishError::DestinationExists => {
+                    CatalogError::DestinationExists
+                }
+                oxidj_core::publish::PublishError::Io(_) => {
+                    CatalogError::Sqlite(rusqlite::Error::InvalidQuery)
+                }
+            })?;
             Ok(())
         })();
         if let Err(error) = result {
@@ -959,13 +977,13 @@ fn temporary_path(destination: &Path) -> std::path::PathBuf {
     destination.with_file_name(format!(".oxidj-{}-{nonce}.tmp", std::process::id()))
 }
 
-fn publish_new_file(temporary: &Path, destination: &Path) -> std::io::Result<()> {
+fn publish_new_file(
+    temporary: &Path,
+    destination: &Path,
+) -> Result<(), oxidj_core::publish::PublishError> {
     #[cfg(test)]
     wait_at_publication_test_barrier(temporary);
-    // Same-directory hard-link creation is atomic and never replaces a path
-    // created concurrently after the initial existence check.
-    std::fs::hard_link(temporary, destination)?;
-    std::fs::remove_file(temporary)
+    oxidj_core::publish::publish_no_clobber(temporary, destination)
 }
 
 #[cfg(test)]
@@ -1996,10 +2014,7 @@ mod tests {
             sidecar.push(suffix);
             temporary_clean &= !std::path::PathBuf::from(sidecar).exists();
         }
-        let returned_explicit_error = matches!(
-            &result,
-            Err(CatalogError::Sqlite(rusqlite::Error::InvalidQuery))
-        );
+        let returned_explicit_error = matches!(&result, Err(CatalogError::DestinationExists));
         let destination_preserved = returned_explicit_error
             && std::fs::read(&destination).is_ok_and(|bytes| bytes == b"competing-sentinel");
         let unrelated_preserved =
