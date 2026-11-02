@@ -207,6 +207,9 @@ mod f02_track_artist_edit_oracle;
 #[path = "../../../xtask/tests/f02_track_comments_edit_oracle.rs"]
 mod f02_track_comments_edit_oracle;
 #[cfg(test)]
+#[path = "../../../xtask/tests/f02_track_label_edit_oracle.rs"]
+mod f02_track_label_edit_oracle;
+#[cfg(test)]
 #[path = "../../../xtask/tests/f02_track_genre_edit_oracle.rs"]
 mod f02_track_genre_edit_oracle;
 #[cfg(test)]
@@ -246,6 +249,13 @@ struct PendingTrackAlbumEdit {
     track_id: String,
     prepared: oxidj_application::PreparedTrackAlbumExport,
 }
+#[derive(Debug, Clone)]
+struct PendingTrackLabelEdit {
+    source: PathBuf,
+    track_id: String,
+    prepared: oxidj_application::PreparedTrackLabelExport,
+}
+
 #[derive(Debug, Clone)]
 struct PendingTrackGenreEdit {
     source: PathBuf,
@@ -456,6 +466,9 @@ struct LibraryApp {
     xml_album_export_path: String,
     xml_edit_genre: String,
     xml_pending_genre_edit: Option<PendingTrackGenreEdit>,
+    xml_edit_label: String,
+    xml_label_export_path: String,
+    xml_pending_label_edit: Option<PendingTrackLabelEdit>,
     xml_genre_export_path: String,
     xml_selected_playlist: Option<usize>,
     xml_selected_member: Option<usize>,
@@ -560,6 +573,9 @@ impl LibraryApp {
             xml_album_export_path: String::new(),
             xml_edit_genre: String::new(),
             xml_pending_genre_edit: None,
+            xml_edit_label: String::new(),
+            xml_label_export_path: String::new(),
+            xml_pending_label_edit: None,
             xml_genre_export_path: String::new(),
             xml_selected_playlist: None,
             xml_selected_member: None,
@@ -2322,6 +2338,14 @@ impl LibraryApp {
             .and_then(|t| t.genre.clone())
             .unwrap_or_default();
         self.xml_pending_genre_edit = None;
+        self.xml_edit_label = self
+            .xml_preview
+            .as_ref()
+            .and_then(|p| p.as_ref().ok())
+            .and_then(|p| p.tracks.iter().find(|t| t.id == track_id))
+            .and_then(|t| t.label.clone())
+            .unwrap_or_default();
+        self.xml_pending_label_edit = None;
         self.xml_pending_edit = None;
         self.xml_pending_artist_edit = None;
         self.xml_pending_comments_edit = None;
@@ -3004,6 +3028,100 @@ impl LibraryApp {
         }
     }
 
+    fn prepare_xml_label_edit(&mut self, track_id: &str, old_label: Option<&str>) {
+        let Some(old_label) = old_label else {
+            self.xml_pending_label_edit = None;
+            self.xml_edit_error = Some(
+                "Track Label preparation refused: selected track has no Label attribute".into(),
+            );
+            return;
+        };
+        let Some(source) = self.xml_document_source.clone() else {
+            self.xml_pending_label_edit = None;
+            self.xml_edit_error =
+                Some("Track Label preparation refused: no XML document is loaded".into());
+            return;
+        };
+        let request = oxidj_application::TrackLabelEditPreparationRequest {
+            source: source.clone(),
+            track_id: track_id.to_owned(),
+            expected_old_label: old_label.to_owned(),
+            new_label: self.xml_edit_label.clone(),
+        };
+        match oxidj_application::prepare_rekordbox_track_label_export(&request) {
+            Ok(prepared) => {
+                self.xml_pending_label_edit = Some(PendingTrackLabelEdit {
+                    source,
+                    track_id: track_id.to_owned(),
+                    prepared,
+                });
+                self.xml_edit_error = None;
+            }
+            Err(error) => {
+                self.xml_pending_label_edit = None;
+                self.xml_edit_error = Some(format!("Track Label preparation refused: {error}"));
+            }
+        }
+    }
+
+    fn cancel_xml_label_edit(&mut self) {
+        self.xml_pending_label_edit = None;
+        self.xml_edit_error = None;
+    }
+
+    fn export_xml_label_edit(&mut self) {
+        self.notice.clear();
+        let Some(pending) = self.xml_pending_label_edit.clone() else {
+            self.xml_edit_error =
+                Some("Track Label export refused: no prepared pending edit".into());
+            return;
+        };
+        let proposal = pending.prepared.change();
+        let selected_label = self
+            .xml_preview
+            .as_ref()
+            .and_then(|p| p.as_ref().ok())
+            .and_then(|p| p.tracks.iter().find(|t| t.id == pending.track_id))
+            .and_then(|t| t.label.as_deref());
+        if self.xml_document_source.as_ref() != Some(&pending.source)
+            || self.xml_selected_track.as_deref() != Some(&pending.track_id)
+            || self.xml_edit_label != proposal.new_label
+            || selected_label != Some(proposal.old_label.as_str())
+        {
+            self.xml_pending_label_edit = None;
+            self.xml_edit_error = Some(
+                "Track Label export refused: source, selected track, or proposed value changed"
+                    .into(),
+            );
+            return;
+        }
+        let output = PathBuf::from(&self.xml_label_export_path);
+        if self.xml_label_export_path.trim().is_empty() {
+            self.xml_edit_error =
+                Some("Track Label export refused: choose a new XML destination".into());
+            return;
+        }
+        match oxidj_application::export_prepared_rekordbox_track_label_edit(
+            &pending.prepared,
+            &output,
+        ) {
+            Ok(change) => {
+                self.xml_pending_label_edit = None;
+                self.xml_edit_error = None;
+                self.notice = format!("Track Label exported to {}", output.display());
+                self.xml_label_export_path = output.display().to_string();
+                self.xml_path = output.display().to_string();
+                self.xml_document_source = Some(output.clone());
+                self.xml_preview = Some(
+                    oxidj_application::preview_rekordbox_xml(&output).map_err(|e| e.to_string()),
+                );
+                self.xml_edit_label = change.new_label;
+            }
+            Err(error) => self.xml_edit_error = Some(format!("Track Label export failed: {error}")),
+        }
+    }
+
+
     fn theme_selection_ui(&mut self, ui: &mut egui::Ui) -> (egui::Rect, Option<[egui::Rect; 3]>) {
         let mut selected = self.theme;
         let mut option_rects = None;
@@ -3418,6 +3536,66 @@ impl eframe::App for LibraryApp {
                             }
                         } else {
                             ui.label("Select one track above to prepare a pending Genre edit.");
+                        }
+                        SectionHeading {
+                            title: "Track Label edit (provisional)",
+                        }
+                        .show(ui, tokens);
+                        if let Some(track_id) = self.xml_selected_track.clone() {
+                            if let Some(track) = preview.tracks.iter().find(|t| t.id == track_id) {
+                                ui.label(format!("Selected TrackID: {track_id}"));
+                                if let Some(label) = track.label.as_deref() {
+                                    ui.label(if label.is_empty() {
+                                        "Current Label: present but empty"
+                                    } else {
+                                        "Current Label: present"
+                                    });
+                                    ui.horizontal(|ui| {
+                                        ui.label("Proposed Label");
+                                        if ui
+                                            .text_edit_singleline(&mut self.xml_edit_label)
+                                            .changed()
+                                        {
+                                            self.xml_pending_label_edit = None;
+                                        }
+                                    });
+                                    if ui.button("Prepare pending Label edit").clicked() {
+                                        self.prepare_xml_label_edit(&track.id, Some(label));
+                                    }
+                                    if let Some(pending) = &self.xml_pending_label_edit {
+                                        ui.separator();
+                                        ui.strong("Pending Label edit · not exported or saved");
+                                        ui.label(format!("Source: {}", pending.source.display()));
+                                        ui.label(format!("TrackID: {}", pending.track_id));
+                                        ui.label(format!(
+                                            "Original Label: {:?}",
+                                            pending.prepared.change().old_label
+                                        ));
+                                        ui.label(format!(
+                                            "Proposed Label: {:?}",
+                                            pending.prepared.change().new_label
+                                        ));
+                                        ui.horizontal(|ui| {
+                                            ui.label("New XML destination");
+                                            ui.text_edit_singleline(&mut self.xml_label_export_path);
+                                        });
+                                        if ui.button("Export prepared Label edit").clicked() {
+                                            self.export_xml_label_edit();
+                                        }
+                                        if ui.button("Cancel pending Label edit").clicked() {
+                                            self.cancel_xml_label_edit();
+                                        }
+                                    }
+                                } else {
+                                    self.xml_pending_label_edit = None;
+                                    ui.label("Selected track has no Label attribute; insertion is not supported.");
+                                }
+                            } else {
+                                self.xml_pending_label_edit = None;
+                                ui.label("Selected TrackID is no longer in the loaded preview.");
+                            }
+                        } else {
+                            ui.label("Select one track above to prepare a pending Label edit.");
                         }
                         ui.separator();
                         SectionHeading { title: "Sibling playlist order (provisional)" }.show(ui, tokens);
@@ -4048,6 +4226,7 @@ impl eframe::App for LibraryApp {
                             }
                             ui.small(&item.track.path);
                         });
+
                         ui.label(
                             item.duration_seconds
                                 .map(|v| format!("{v:.2} s"))
@@ -7242,6 +7421,156 @@ mod keyboard_tests {
     }
 
     #[test]
+    fn track_label_edit_ui_exports_previewed_bytes_and_reopens_output() {
+        use std::time::{SystemTime, UNIX_EPOCH};
+        let root = std::env::temp_dir().join(format!(
+            "oxidj-ui-track-label-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let source = root.join("source.xml");
+        std::fs::write(
+            &source,
+            include_bytes!("../../../xtask/tests/fixtures/f02-track-label-edit/source.xml"),
+        )
+        .unwrap();
+        let original = std::fs::read(&source).unwrap();
+        let catalog = root.join("catalog.sqlite");
+        drop(Catalog::open(&catalog).unwrap());
+        let catalog_before = std::fs::read(&catalog).unwrap();
+        let mut app = LibraryApp::new(
+            catalog.clone(),
+            ThemeMode::TokyoNight,
+            ThemeMode::TokyoNight.tokens(),
+        );
+        app.xml_path = source.display().to_string();
+        app.preview_xml();
+        app.select_xml_track("100", "A");
+        assert_eq!(app.xml_edit_label, "old & imprint");
+        app.xml_edit_label = "new < imprint".into();
+        app.prepare_xml_label_edit("100", Some("old & imprint"));
+        let prepared = app
+            .xml_pending_label_edit
+            .as_ref()
+            .unwrap()
+            .prepared
+            .bytes()
+            .to_vec();
+        assert_eq!(std::fs::read(&source).unwrap(), original);
+        let cancelled = root.join("cancelled.xml");
+        app.xml_label_export_path = cancelled.display().to_string();
+        app.cancel_xml_label_edit();
+        assert!(app.xml_pending_label_edit.is_none());
+        assert!(!cancelled.exists());
+        app.prepare_xml_label_edit("100", Some("old & imprint"));
+        app.xml_label_export_path.clear();
+        app.export_xml_label_edit();
+        assert!(app.xml_pending_label_edit.is_some());
+        assert!(app.xml_edit_error.as_deref().unwrap().contains("choose a new XML destination"));
+        app.xml_label_export_path = source.display().to_string();
+        app.export_xml_label_edit();
+        assert!(app.xml_edit_error.is_some(), "source alias must be refused");
+        assert_eq!(std::fs::read(&source).unwrap(), original);
+        let existing = root.join("existing.xml");
+        std::fs::write(&existing, b"preserve").unwrap();
+        app.xml_label_export_path = existing.display().to_string();
+        app.export_xml_label_edit();
+        assert!(app.xml_edit_error.is_some(), "existing output must be refused");
+        assert_eq!(std::fs::read(&existing).unwrap(), b"preserve");
+        app.xml_label_export_path = root.join("missing/output.xml").display().to_string();
+        app.export_xml_label_edit();
+        assert!(app.xml_edit_error.is_some(), "write failure must be surfaced");
+        assert!(app.notice.is_empty(), "failure must not claim success");
+        app.xml_label_export_path = root.join("stale-source.xml").display().to_string();
+        std::fs::write(&source, b"<changed/>").unwrap();
+        app.export_xml_label_edit();
+        assert!(app.xml_edit_error.as_deref().unwrap().contains("source changed"));
+        assert!(!root.join("stale-source.xml").exists());
+        std::fs::write(&source, &original).unwrap();
+        app.prepare_xml_label_edit("100", Some("old & imprint"));
+        app.xml_edit_label = "changed after preview".into();
+        let stale_proposal = root.join("stale-proposal.xml");
+        app.xml_label_export_path = stale_proposal.display().to_string();
+        app.export_xml_label_edit();
+        assert!(!stale_proposal.exists());
+        assert!(app.xml_pending_label_edit.is_none());
+        app.xml_edit_label = "new < imprint".into();
+        app.prepare_xml_label_edit("100", Some("stale old value"));
+        assert!(app.xml_pending_label_edit.is_none());
+        app.prepare_xml_label_edit("200", Some("old & imprint"));
+        assert!(
+            app.xml_pending_label_edit.is_none(),
+            "absent Label insertion is refused"
+        );
+        app.prepare_xml_label_edit("100", Some("old & imprint"));
+        let changed_selection = root.join("changed-selection.xml");
+        app.xml_label_export_path = changed_selection.display().to_string();
+        app.select_xml_track("200", "B");
+        app.export_xml_label_edit();
+        assert!(!changed_selection.exists());
+        app.prepare_xml_label_edit("100", Some("old & imprint"));
+        let changed_source = root.join("different.xml");
+        app.xml_document_source = Some(changed_source);
+        let stale_source = root.join("stale-source.xml");
+        app.xml_label_export_path = stale_source.display().to_string();
+        app.export_xml_label_edit();
+        assert!(!stale_source.exists());
+        app.xml_document_source = Some(source.clone());
+        app.select_xml_track("100", "A");
+        app.xml_edit_label = "new < imprint".into();
+        app.prepare_xml_label_edit("100", Some("old & imprint"));
+        let output = root.join("edited.xml");
+        app.xml_label_export_path = output.display().to_string();
+        app.export_xml_label_edit();
+        let bytes = std::fs::read(&output).unwrap();
+        assert_eq!(bytes, prepared);
+        f02_track_label_edit_oracle::check(&bytes)
+            .expect("independent F-02 oracle accepts UI-exported Label bytes");
+        assert!(String::from_utf8_lossy(&bytes).contains("Label=\"new &lt; imprint\""));
+        let mutated = String::from_utf8(bytes.clone())
+            .unwrap()
+            .replacen("Label=\"new &lt; imprint\"", "Label=\"altered\"", 1);
+        assert!(f02_track_label_edit_oracle::check(mutated.as_bytes()).is_err());
+        assert_eq!(std::fs::read(&source).unwrap(), original);
+        assert_eq!(std::fs::read(&catalog).unwrap(), catalog_before);
+        assert_eq!(
+            app.xml_preview
+                .as_ref()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .tracks
+                .iter()
+                .find(|t| t.id == "100")
+                .unwrap()
+                .label
+                .as_deref(),
+            Some("new < imprint")
+        );
+        assert_eq!(
+            app.xml_preview
+                .as_ref()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .tracks
+                .iter()
+                .find(|t| t.id == "200")
+                .unwrap()
+                .label,
+            None,
+            "absent Label remains absent on other tracks"
+        );
+        assert!(app.xml_pending_label_edit.is_none());
+        assert!(app.xml_edit_error.is_none());
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
     fn track_genre_edit_ui_refuses_invalid_xml_unknown_and_stale_old_value() {
         let (root, source) = temporary_xml();
         std::fs::write(
@@ -7304,6 +7633,68 @@ mod keyboard_tests {
     }
 
     #[test]
+    fn track_label_edit_ui_refuses_invalid_xml_unknown_and_stale_old_value() {
+        let (root, source) = temporary_xml();
+        std::fs::write(
+            &source,
+            include_bytes!("../../../xtask/tests/fixtures/f02-track-label-edit/source.xml"),
+        )
+        .unwrap();
+        let mut app = app();
+        app.xml_path = source.display().to_string();
+        app.preview_xml();
+        app.select_xml_track("999", "Unknown");
+        app.xml_edit_label = "Changed".into();
+        app.prepare_xml_label_edit("999", Some("old & imprint"));
+        assert!(app.xml_pending_label_edit.is_none());
+
+        app.select_xml_track("100", "A");
+        app.xml_edit_label = "bad\u{1}".into();
+        app.prepare_xml_label_edit("100", Some("old & imprint"));
+        assert!(app.xml_pending_label_edit.is_none());
+
+        app.xml_edit_label = "Changed".into();
+        app.prepare_xml_label_edit("100", Some("stale"));
+        assert!(app.xml_pending_label_edit.is_none());
+
+        std::fs::write(
+            &source,
+            String::from_utf8(
+                include_bytes!("../../../xtask/tests/fixtures/f02-track-label-edit/source.xml")
+                    .to_vec(),
+            )
+            .unwrap()
+            .replace("TrackID=\"200\"", "TrackID=\"100\""),
+        )
+        .unwrap();
+        app.preview_xml();
+        app.select_xml_track("100", "A");
+        app.xml_edit_label = "Changed".into();
+        app.prepare_xml_label_edit("100", Some("old & imprint"));
+        assert!(app.xml_pending_label_edit.is_none(), "duplicate target must refuse");
+
+        std::fs::write(
+            &source,
+            String::from_utf8(
+                include_bytes!("../../../xtask/tests/fixtures/f02-track-label-edit/source.xml")
+                    .to_vec(),
+            )
+            .unwrap()
+            .replace("Label=\"old &amp; imprint\"", "Label=\"\""),
+        )
+        .unwrap();
+        app.xml_path = source.display().to_string();
+        app.preview_xml();
+        app.select_xml_track("100", "A");
+        assert_eq!(app.xml_edit_label, "", "present-empty Label must stay editable");
+        app.xml_edit_label = "Restored".into();
+        app.prepare_xml_label_edit("100", Some(""));
+        assert!(app.xml_pending_label_edit.is_some(), "present-empty Label is editable");
+        app.cancel_xml_label_edit();
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn track_genre_edit_ui_round_trips_entities_and_whitespace() {
         let (root, source) = temporary_xml();
         std::fs::write(
@@ -7338,6 +7729,45 @@ mod keyboard_tests {
                 .genre
                 .as_deref(),
             Some(genre)
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn track_label_edit_ui_round_trips_entities_and_whitespace() {
+        let (root, source) = temporary_xml();
+        std::fs::write(
+            &source,
+            include_bytes!("../../../xtask/tests/fixtures/f02-track-label-edit/source.xml"),
+        )
+        .unwrap();
+        let mut app = app();
+        app.xml_path = source.display().to_string();
+        app.preview_xml();
+        app.select_xml_track("100", "A");
+        let label = "new < imprint & mix\tfirst\nsecond\r";
+        app.xml_edit_label = label.into();
+        app.prepare_xml_label_edit("100", Some("old & imprint"));
+        assert!(app.xml_pending_label_edit.is_some());
+        app.xml_label_export_path = root.join("escaped.xml").display().to_string();
+        app.export_xml_label_edit();
+        let output = PathBuf::from(&app.xml_label_export_path);
+        let bytes = std::fs::read(&output).unwrap();
+        let text = String::from_utf8(bytes).unwrap();
+        assert!(text.contains("Label=\"new &lt; imprint &amp; mix&#9;first&#10;second&#13;\""));
+        assert_eq!(
+            app.xml_preview
+                .as_ref()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .tracks
+                .iter()
+                .find(|track| track.id == "100")
+                .unwrap()
+                .label
+                .as_deref(),
+            Some(label)
         );
         std::fs::remove_dir_all(root).unwrap();
     }

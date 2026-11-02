@@ -442,7 +442,7 @@
       "checker": {
         "path": "xtask/tests/f02_track_label_edit_oracle.rs",
         "version": "f09-operation-oracle-v1",
-        "sha256": "09d5a7a7f298ff144cd972eed256f97bbd15622cea2908c92a6dc1156b2f5bba",
+        "sha256": "6a4defd166b6a08733fef54856d5a117915ba41690a0b392fd17c662576f6641",
         "tests": [
           "independently_verifies_guarded_track_label_edit_and_rejects_mutations"
         ]
