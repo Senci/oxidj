@@ -24,11 +24,22 @@ pub struct PdbPlaylistPreview {
     pub name: String,
     pub hierarchy: Vec<String>,
     pub ordered_track_ids: Vec<PdbTrackId>,
+    /// Raw sibling sort key from the source playlist tree.
+    pub sort_order: u32,
+}
+/// A playlist-tree folder node (parent `PdbNodeId(0)` is the implicit root).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PdbFolderPreview {
+    pub source_id: PdbNodeId,
+    pub parent_id: PdbNodeId,
+    pub name: String,
+    pub sort_order: u32,
 }
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PdbPreview {
     pub tracks: Vec<PdbTrackPreview>,
     pub playlists: Vec<PdbPlaylistPreview>,
+    pub folders: Vec<PdbFolderPreview>,
 }
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PdbPreviewError(pub String);
@@ -156,7 +167,23 @@ pub fn parse_pdb(bytes: &[u8]) -> Result<PdbPreview, PdbPreviewError> {
                 .into_iter()
                 .map(|entry| PdbTrackId(entry.track_id))
                 .collect(),
+            sort_order: node.sort_order,
         });
     }
-    Ok(PdbPreview { tracks, playlists })
+    let folders = parsed
+        .playlist_tree
+        .iter()
+        .filter(|node| node.is_folder)
+        .map(|node| PdbFolderPreview {
+            source_id: PdbNodeId(node.id),
+            parent_id: PdbNodeId(node.parent_id),
+            name: node.name.clone(),
+            sort_order: node.sort_order,
+        })
+        .collect();
+    Ok(PdbPreview {
+        tracks,
+        playlists,
+        folders,
+    })
 }

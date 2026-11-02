@@ -90,11 +90,13 @@ impl std::fmt::Display for Error {
 impl std::error::Error for Error {}
 
 mod edit;
+mod library_xml;
 mod pdb;
 mod playlist;
 mod xml;
 
 pub use edit::*;
+pub use library_xml::*;
 pub use pdb::*;
 pub use playlist::*;
 pub use xml::*;

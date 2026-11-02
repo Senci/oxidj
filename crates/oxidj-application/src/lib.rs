@@ -7,6 +7,14 @@ use std::{
 };
 use zeroize::{Zeroize, Zeroizing};
 
+mod library_import;
+pub use library_import::{
+    LibraryExportReport, LibraryImportReport, LibraryWorkflowError, NotCarried,
+    OneLibraryCrossCheck, export_library_xml, import_library_from_pdb, library_from_pdb_preview,
+    onelibrary_cross_check,
+};
+pub use oxidj_library::{LibraryCounts, LibraryNode, LibrarySnapshot, LibraryTrack};
+
 pub use oxidj_rekordbox::{
     Error as RekordboxError, ExportDecision, ExportPreflight, FolderCreateRequest,
     FolderDeleteRequest, FolderMoveRequest, FolderRenameChange, FolderRenameRequest, PdbPreview,
@@ -1366,7 +1374,7 @@ fn same_canonical_path(output: &Path, source: &Path) -> bool {
     }
 }
 
-fn publish_new_file(output: &Path, bytes: &[u8]) -> Result<(), RekordboxError> {
+pub(crate) fn publish_new_file(output: &Path, bytes: &[u8]) -> Result<(), RekordboxError> {
     use std::{fs, io::Write};
     let parent = output
         .parent()

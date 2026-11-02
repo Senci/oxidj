@@ -1618,6 +1618,12 @@ fn run_catalog(args: &[String]) -> i32 {
         eprintln!("error: catalog requires init, list, backup, or restore");
         return USAGE;
     };
+    if action == "import-library" {
+        return run_import_library(&args[1..]);
+    }
+    if action == "export-library-xml" {
+        return run_export_library_xml(&args[1..]);
+    }
     if action == "import" {
         let Some(dir_index) = args.iter().position(|arg| arg == "--dir") else {
             eprintln!("error: catalog import requires --dir PATH");
@@ -1736,6 +1742,93 @@ fn run_catalog(args: &[String]) -> i32 {
     }
 }
 
+fn print_counts(counts: &oxidj_application::LibraryCounts) {
+    println!("Tracks: {}", counts.tracks);
+    println!("Folders: {}", counts.folders);
+    println!("Playlists: {}", counts.playlists);
+    println!("Memberships: {}", counts.memberships);
+}
+
+fn print_not_carried(not_carried: &oxidj_application::NotCarried) {
+    for (name, count) in &not_carried.track_attributes {
+        println!("NotCarried\tTRACK@{name}\t{count}");
+    }
+    for (name, count) in &not_carried.track_elements {
+        println!("NotCarried\tTRACK/{name}\t{count}");
+    }
+    println!("AbsentInSource\tArtist\t{}", not_carried.artist_absent);
+    println!("AbsentInSource\tAlbum\t{}", not_carried.album_absent);
+}
+
+/// `catalog import-library --pdb SRC --catalog NEW [--onelibrary-db DB --key-stdin]`.
+/// Aggregate-only output: counts and booleans, never names, paths or IDs.
+fn run_import_library(args: &[String]) -> i32 {
+    let (pdb, catalog, onelibrary) = match args {
+        [a, pdb, b, catalog] if a == "--pdb" && b == "--catalog" => (pdb, catalog, None),
+        [a, pdb, b, catalog, c, db, d]
+            if a == "--pdb" && b == "--catalog" && c == "--onelibrary-db" && d == "--key-stdin" =>
+        {
+            (pdb, catalog, Some(std::path::Path::new(db.as_str())))
+        }
+        _ => {
+            eprintln!(
+                "error: expected catalog import-library --pdb SRC --catalog NEW [--onelibrary-db DB --key-stdin]"
+            );
+            return USAGE;
+        }
+    };
+    match oxidj_application::import_library_from_pdb(pdb, catalog, onelibrary) {
+        Ok(report) => {
+            print_counts(&report.counts);
+            println!("LocationsUriEncoded: {}", report.locations_uri_encoded);
+            println!("SourceUnchanged: {}", report.source_unchanged);
+            println!("CatalogMatchesSource: {}", report.catalog_matches_source);
+            if let Some(check) = report.onelibrary {
+                println!(
+                    "OneLibraryCrossCheck\ttracks={}\tplaylists={}\tmemberships={}\ttracks_equal={}\tplaylists_equal={}\tmemberships_equal={}\tsource_unchanged={}",
+                    check.tracks,
+                    check.playlists,
+                    check.memberships,
+                    check.tracks_equal,
+                    check.playlists_equal,
+                    check.memberships_equal,
+                    check.source_unchanged
+                );
+            }
+            print_not_carried(&report.not_carried);
+            OK
+        }
+        Err(error) => {
+            eprintln!("error: import-library refused: {error}");
+            DOMAIN
+        }
+    }
+}
+
+/// `catalog export-library-xml --catalog DB --output NEW`: no-edit, new-file-only.
+fn run_export_library_xml(args: &[String]) -> i32 {
+    let [a, catalog, b, output] = args else {
+        eprintln!("error: expected catalog export-library-xml --catalog DB --output NEW");
+        return USAGE;
+    };
+    if a != "--catalog" || b != "--output" {
+        eprintln!("error: expected catalog export-library-xml --catalog DB --output NEW");
+        return USAGE;
+    }
+    match oxidj_application::export_library_xml(catalog, output) {
+        Ok(report) => {
+            print_counts(&report.counts);
+            println!("PreviewVerified: {}", report.preview_verified);
+            print_not_carried(&report.not_carried);
+            OK
+        }
+        Err(error) => {
+            eprintln!("error: export-library-xml refused: {error}");
+            DOMAIN
+        }
+    }
+}
+
 fn print_usage(to_stdout: bool) {
     let output = if to_stdout {
         &mut std::io::stdout().lock() as &mut dyn std::io::Write
@@ -1748,7 +1841,9 @@ fn print_usage(to_stdout: bool) {
         output,
         "  onelibrary preview --db <path> --key-stdin   Read-only provisional native-profile preview when the pinned 22-table/4-index signature matches; otherwise synthetic v1. Supports title, artist, album, playlist hierarchy/order and membership only. Excludes BPM, length, paths, cues/ANLZ, history, tags, color, artwork and analysis.
   rekordbox preview --xml <path>   Read-only Rekordbox XML preview
-  rekordbox pdb-preview --pdb <path> Read-only legacy DeviceSQL PDB preview",
+  rekordbox pdb-preview --pdb <path> Read-only legacy DeviceSQL PDB preview
+  catalog import-library --pdb <src> --catalog <new> [--onelibrary-db <db> --key-stdin]   Import a PDB library into a new catalog (aggregate-only report)
+  catalog export-library-xml --catalog <db> --output <new>   Export the imported library as new Rekordbox XML (no edits)",
     );
     let _ = writeln!(
         output,

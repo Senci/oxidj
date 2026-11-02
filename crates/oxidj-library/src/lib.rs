@@ -8,7 +8,10 @@ use std::fmt;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-const SCHEMA_VERSION: i64 = 2;
+mod imported_library;
+pub use imported_library::{LibraryCounts, LibraryNode, LibrarySnapshot, LibraryTrack};
+
+const SCHEMA_VERSION: i64 = 3;
 const MIGRATION_LIST: &[M<'static>] = &[
     M::up(
         "CREATE TABLE tracks (\
@@ -35,6 +38,32 @@ const MIGRATION_LIST: &[M<'static>] = &[
             missing INTEGER NOT NULL DEFAULT 0 CHECK (missing IN (0, 1))\
         );\
         CREATE INDEX tracks_path_idx ON tracks(path);",
+    ),
+    // M7: reference-only imported library metadata (no audio); see imported_library.rs.
+    M::up(
+        "CREATE TABLE library_tracks (\
+            position INTEGER PRIMARY KEY CHECK (position >= 0),\
+            title TEXT NOT NULL,\
+            artist TEXT,\
+            album TEXT,\
+            tempo_hundredths_bpm INTEGER NOT NULL CHECK (tempo_hundredths_bpm >= 0),\
+            duration_seconds INTEGER NOT NULL CHECK (duration_seconds >= 0),\
+            location TEXT NOT NULL\
+        );\
+        CREATE TABLE library_nodes (\
+            id INTEGER PRIMARY KEY CHECK (id > 0),\
+            parent_id INTEGER REFERENCES library_nodes(id),\
+            sibling_order INTEGER NOT NULL CHECK (sibling_order >= 0),\
+            name TEXT NOT NULL,\
+            is_folder INTEGER NOT NULL CHECK (is_folder IN (0, 1)),\
+            UNIQUE (parent_id, sibling_order)\
+        );\
+        CREATE TABLE library_members (\
+            node_id INTEGER NOT NULL REFERENCES library_nodes(id),\
+            position INTEGER NOT NULL CHECK (position >= 0),\
+            track_position INTEGER NOT NULL REFERENCES library_tracks(position),\
+            PRIMARY KEY (node_id, position)\
+        );",
     ),
 ];
 const MIGRATIONS: Migrations<'static> = Migrations::from_slice(MIGRATION_LIST);

@@ -39,6 +39,7 @@ flowchart TB
     cli["oxidj-cli<br/>layer 4"] --> app["oxidj-application<br/>layer 3"]
     cli --> library["oxidj-library<br/>layer 1"]
     app --> rekordbox
+    app --> library
     app --> onelibrary["oxidj-onelibrary<br/>layer 2; DTO/protocol"]
     onelibrary --> reader["independent SQLCipher reader workspace<br/>layer 2 product process"]
     rekordbox --> xml["quick-xml"]
@@ -51,7 +52,16 @@ flowchart TB
 
 The bounded M4 XML preview keeps XML parsing in `oxidj-rekordbox` at layer 2; the
 application handler invokes that adapter and exposes it to the CLI without making
-the parser a CLI or library dependency. The separate DeviceSQL `export.pdb`
+the parser a CLI or library dependency.
+
+The M7 library import/export slice adds one downward edge, `oxidj-application`
+(layer 3) → `oxidj-library` (layer 1): the application handler maps the adapter's
+PDB preview into the library's vendor-neutral `LibrarySnapshot` and maps a stored
+snapshot into the adapter's XML-writer DTO. The library never depends on an adapter
+and no adapter depends on the library; the existing gate already permits this
+downward edge.
+
+The separate DeviceSQL `export.pdb`
 preview uses the pinned `rekordbox-pdb` git revision only from this adapter. Its
 read-only handler exposes source-scoped IDs and paths for display, never maps them
 to OxiDJ catalog IDs, and does not expose the upstream writer API. This does not

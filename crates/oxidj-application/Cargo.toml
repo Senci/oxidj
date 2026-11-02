@@ -9,6 +9,7 @@ publish = false
 
 [dependencies]
 oxidj-core = { workspace = true }
+oxidj-library = { workspace = true }
 oxidj-rekordbox = { workspace = true }
 oxidj-onelibrary = { workspace = true }
 zeroize = { workspace = true }

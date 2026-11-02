@@ -17,7 +17,8 @@ Condensed 2026-11-02. Full prior text (per-increment evidence, M0-09 verificatio
 | M2 Filesystem import | Complete for revised local contract | Reference-only local import acceptance is complete (WAV/MP3/FLAC declared matrix). |
 | M3 Usable library UI | Complete for revised local contract | Persistent local-library UI acceptance is complete; production GUI/accessibility and 500k/60fps gates remain unpassed. |
 | M4 OneLibrary/Rekordbox interoperability | In progress | Synthetic XML editing/export and read-only PDB/OneLibrary previews exist. Native/vendor compatibility and ADR-005 qualification remain NOT DEMONSTRATED. |
-| M5 DJ metadata; M6 Analysis; M7 MVP interoperability proof | Not started | Unchanged wider-product milestones (plan/MVP.md). |
+| M5 DJ metadata; M6 Analysis | Not started | Unchanged wider-product milestones (plan/MVP.md). |
+| M7 MVP interoperability proof | In progress | Smallest slice (card `t_712e2b28`): `catalog import-library` (PDB preview → new catalog, OneLibrary read-only aggregate cross-check) and `catalog export-library-xml` (no-edit, verified, new-file-only). Synthetic CLI pipeline test with independent quick-xml decoder; private staged-copy run aggregate-only (1,330 tracks / 20 playlists / 901 memberships, order preserved, sources byte-identical). Fields the PDB preview cannot supply are reported "not carried". Rekordbox/hardware acceptance of the XML NOT DEMONSTRATED. |
 
 ## M4 workstreams
 
