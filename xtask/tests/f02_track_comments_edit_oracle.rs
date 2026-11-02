@@ -100,7 +100,7 @@ fn has_comments(n: &N, track_id: &str) -> bool {
         && n.attrs.iter().any(|(k, _)| k == "Comments"))
         || n.children.iter().any(|child| has_comments(child, track_id))
 }
-fn check(bytes: &[u8]) -> Result<(), String> {
+pub fn check(bytes: &[u8]) -> Result<(), String> {
     let actual = decode(bytes);
     let mut expected = decode(SOURCE);
     assert!(

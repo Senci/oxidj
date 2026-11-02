@@ -307,7 +307,7 @@
       "checker": {
         "path": "xtask/tests/f02_track_comments_edit_oracle.rs",
         "version": "f09-operation-oracle-v1",
-        "sha256": "d76bb263925aa3ef6ca66fde22af9d9d5be1e3f5d7da86ac02a2c7886b4d4ced",
+        "sha256": "cf272f5d62490ba372d38a27a04677310666a1aaf35adcae7dcebd507c27975a",
         "tests": [
           "independently_verifies_guarded_track_comments_edit_and_rejects_mutations"
         ]

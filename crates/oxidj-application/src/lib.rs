@@ -634,6 +634,27 @@ impl PreparedTrackArtistExport {
     }
 }
 
+/// A source-bound prepared Track Comments export retains its exact preview snapshot.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PreparedTrackCommentsExport {
+    source: std::path::PathBuf,
+    source_bytes: Vec<u8>,
+    bytes: Vec<u8>,
+    change: TrackCommentsEditChange,
+}
+
+impl PreparedTrackCommentsExport {
+    pub fn source(&self) -> &Path {
+        &self.source
+    }
+    pub fn bytes(&self) -> &[u8] {
+        &self.bytes
+    }
+    pub fn change(&self) -> &TrackCommentsEditChange {
+        &self.change
+    }
+}
+
 /// Source and exact-old guard for a previewable Track Name edit.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TrackNameEditPreparationRequest {
@@ -650,6 +671,50 @@ pub struct TrackArtistEditPreparationRequest {
     pub track_id: String,
     pub expected_old_artist: String,
     pub new_artist: String,
+}
+
+/// Source and exact-old guard for a previewable Track Comments edit.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TrackCommentsEditPreparationRequest {
+    pub source: std::path::PathBuf,
+    pub track_id: String,
+    pub expected_old_comments: String,
+    pub new_comments: String,
+}
+
+/// Prepare one guarded Comments edit without writing any file.
+pub fn prepare_rekordbox_track_comments_export(
+    request: &TrackCommentsEditPreparationRequest,
+) -> Result<PreparedTrackCommentsExport, RekordboxError> {
+    let source =
+        std::fs::read(&request.source).map_err(|error| RekordboxError(error.to_string()))?;
+    let adapter_request = TrackCommentsEditRequest {
+        track_id: request.track_id.clone(),
+        expected_old_comments: request.expected_old_comments.clone(),
+        new_comments: request.new_comments.clone(),
+    };
+    let prepared = oxidj_rekordbox::prepare_track_comments_edit(&source, &adapter_request)?;
+    Ok(PreparedTrackCommentsExport {
+        source: request.source.clone(),
+        source_bytes: source,
+        bytes: prepared.bytes,
+        change: prepared.change,
+    })
+}
+
+/// Export only a prepared Comments edit after source revalidation, to a new path.
+pub fn export_prepared_rekordbox_track_comments_edit(
+    prepared: &PreparedTrackCommentsExport,
+    output: impl AsRef<Path>,
+) -> Result<TrackCommentsEditChange, RekordboxError> {
+    let (current_source, output) = read_new_export_source(&prepared.source, output)?;
+    if current_source != prepared.source_bytes {
+        return Err(RekordboxError(
+            "source changed after Track Comments edit preparation".into(),
+        ));
+    }
+    publish_new_file(&output, &prepared.bytes)?;
+    Ok(prepared.change.clone())
 }
 
 /// Read-only application handler: prepare one guarded Track Name edit for preview.
@@ -2008,6 +2073,128 @@ mod track_artist_preparation_tests {
             new_artist: "Restored".into(),
         };
         assert!(prepare_rekordbox_track_artist_edit(&request).is_ok());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod track_comments_preparation_tests {
+    use super::*;
+
+    fn copy_fixture(root: &std::path::Path) -> std::path::PathBuf {
+        let source = root.join("source.xml");
+        std::fs::copy(
+            concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../xtask/tests/fixtures/f02-track-comments-edit/source.xml"
+            ),
+            &source,
+        )
+        .unwrap();
+        source
+    }
+
+    fn temp_root(label: &str) -> std::path::PathBuf {
+        std::env::temp_dir().join(format!(
+            "oxidj-track-comments-{label}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ))
+    }
+
+    #[test]
+    fn prepared_comments_export_is_source_bound_and_never_overwrites() {
+        let root = temp_root("export");
+        std::fs::create_dir_all(&root).unwrap();
+        let source = copy_fixture(&root);
+        let original = std::fs::read(&source).unwrap();
+        let request = TrackCommentsEditPreparationRequest {
+            source: source.clone(),
+            track_id: "100".into(),
+            expected_old_comments: "old & note".into(),
+            new_comments: "new < note\nsecond line".into(),
+        };
+        let prepared = prepare_rekordbox_track_comments_export(&request).unwrap();
+        assert_eq!(prepared.change().old_comments, "old & note");
+        assert_eq!(prepared.change().new_comments, request.new_comments);
+        assert_eq!(std::fs::read(&source).unwrap(), original);
+
+        assert!(export_prepared_rekordbox_track_comments_edit(&prepared, &source).is_err());
+        let existing = root.join("existing.xml");
+        std::fs::write(&existing, b"preserve").unwrap();
+        assert!(export_prepared_rekordbox_track_comments_edit(&prepared, &existing).is_err());
+        assert_eq!(std::fs::read(&existing).unwrap(), b"preserve");
+
+        let output = root.join("edited.xml");
+        let change = export_prepared_rekordbox_track_comments_edit(&prepared, &output).unwrap();
+        assert_eq!(change.new_comments, request.new_comments);
+        let bytes = std::fs::read(&output).unwrap();
+        assert_eq!(bytes, prepared.bytes());
+        let text = String::from_utf8(bytes).unwrap();
+        assert!(text.contains("Comments=\"new &lt; note&#10;second line\""));
+        assert_eq!(std::fs::read(&source).unwrap(), original);
+        let reopened = preview_rekordbox_xml(&output).unwrap();
+        assert_eq!(
+            reopened
+                .tracks
+                .iter()
+                .find(|track| track.id == "100")
+                .unwrap()
+                .comments
+                .as_deref(),
+            Some(request.new_comments.as_str())
+        );
+        assert_eq!(
+            reopened
+                .tracks
+                .iter()
+                .find(|track| track.id == "200")
+                .unwrap()
+                .comments,
+            None
+        );
+
+        let stale = prepare_rekordbox_track_comments_export(&request).unwrap();
+        std::fs::write(&source, b"<changed/>").unwrap();
+        let stale_output = root.join("stale.xml");
+        assert!(export_prepared_rekordbox_track_comments_edit(&stale, &stale_output).is_err());
+        assert!(!stale_output.exists());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn preparation_refuses_absent_stale_and_invalid_comments_but_accepts_present_empty() {
+        let root = temp_root("guards");
+        std::fs::create_dir_all(&root).unwrap();
+        let source = copy_fixture(&root);
+        for (track_id, expected_old_comments, new_comments) in [
+            ("200", "old & note", "new"),
+            ("100", "stale", "new"),
+            ("100", "old & note", "bad\u{1}"),
+        ] {
+            let request = TrackCommentsEditPreparationRequest {
+                source: source.clone(),
+                track_id: track_id.into(),
+                expected_old_comments: expected_old_comments.into(),
+                new_comments: new_comments.into(),
+            };
+            assert!(prepare_rekordbox_track_comments_export(&request).is_err());
+        }
+
+        let xml = std::fs::read_to_string(&source)
+            .unwrap()
+            .replace("Comments=\"old &amp; note\"", "Comments=\"\"");
+        std::fs::write(&source, xml).unwrap();
+        let request = TrackCommentsEditPreparationRequest {
+            source,
+            track_id: "100".into(),
+            expected_old_comments: String::new(),
+            new_comments: "restored".into(),
+        };
+        assert!(prepare_rekordbox_track_comments_export(&request).is_ok());
         std::fs::remove_dir_all(root).unwrap();
     }
 }

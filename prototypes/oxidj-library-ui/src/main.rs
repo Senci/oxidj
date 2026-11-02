@@ -202,6 +202,9 @@ mod f02_sibling_playlist_reorder_oracle;
 #[path = "../../../xtask/tests/f02_track_artist_edit_oracle.rs"]
 mod f02_track_artist_edit_oracle;
 #[cfg(test)]
+#[path = "../../../xtask/tests/f02_track_comments_edit_oracle.rs"]
+mod f02_track_comments_edit_oracle;
+#[cfg(test)]
 #[path = "../../../xtask/tests/common/f02_track_name_oracle_support.rs"]
 mod f02_track_name_oracle_support;
 mod theme;
@@ -225,6 +228,12 @@ struct PendingTrackArtistEdit {
     source: PathBuf,
     track_id: String,
     prepared: oxidj_application::PreparedTrackArtistExport,
+}
+#[derive(Debug, Clone)]
+struct PendingTrackCommentsEdit {
+    source: PathBuf,
+    track_id: String,
+    prepared: oxidj_application::PreparedTrackCommentsExport,
 }
 #[derive(Debug, Clone)]
 struct PendingPlaylistMemberReorder {
@@ -422,6 +431,9 @@ struct LibraryApp {
     xml_edit_artist: String,
     xml_pending_artist_edit: Option<PendingTrackArtistEdit>,
     xml_artist_export_path: String,
+    xml_edit_comments: String,
+    xml_pending_comments_edit: Option<PendingTrackCommentsEdit>,
+    xml_comments_export_path: String,
     xml_selected_playlist: Option<usize>,
     xml_selected_member: Option<usize>,
     xml_pending_reorder: Option<PendingPlaylistMemberReorder>,
@@ -517,6 +529,9 @@ impl LibraryApp {
             xml_edit_artist: String::new(),
             xml_pending_artist_edit: None,
             xml_artist_export_path: String::new(),
+            xml_edit_comments: String::new(),
+            xml_pending_comments_edit: None,
+            xml_comments_export_path: String::new(),
             xml_selected_playlist: None,
             xml_selected_member: None,
             xml_pending_reorder: None,
@@ -2256,8 +2271,16 @@ impl LibraryApp {
             .and_then(|preview| preview.tracks.iter().find(|track| track.id == track_id))
             .and_then(|track| track.artist.clone())
             .unwrap_or_default();
+        self.xml_edit_comments = self
+            .xml_preview
+            .as_ref()
+            .and_then(|preview| preview.as_ref().ok())
+            .and_then(|preview| preview.tracks.iter().find(|track| track.id == track_id))
+            .and_then(|track| track.comments.clone())
+            .unwrap_or_default();
         self.xml_pending_edit = None;
         self.xml_pending_artist_edit = None;
+        self.xml_pending_comments_edit = None;
         self.xml_pending_insert = None;
         self.xml_pending_clear = None;
         self.xml_edit_error = None;
@@ -2275,6 +2298,7 @@ impl LibraryApp {
         self.xml_selected_parent = None;
         self.xml_pending_clear = None;
         self.xml_pending_artist_edit = None;
+        self.xml_pending_comments_edit = None;
         self.xml_pending_reorder = None;
         self.xml_pending_append = None;
         self.xml_pending_insert = None;
@@ -2448,6 +2472,7 @@ impl LibraryApp {
         self.xml_pending_clear = None;
         self.xml_pending_edit = None;
         self.xml_pending_artist_edit = None;
+        self.xml_pending_comments_edit = None;
         self.xml_pending_reorder = None;
         self.xml_pending_append = None;
         self.xml_pending_insert = None;
@@ -2630,6 +2655,108 @@ impl LibraryApp {
             }
             Err(error) => {
                 self.xml_edit_error = Some(format!("Track Artist export failed: {error}"));
+            }
+        }
+    }
+
+    fn prepare_xml_comments_edit(&mut self, track_id: &str, old_comments: Option<&str>) {
+        let Some(old_comments) = old_comments else {
+            self.xml_pending_comments_edit = None;
+            self.xml_edit_error = Some(
+                "Track Comments preparation refused: selected track has no Comments attribute"
+                    .into(),
+            );
+            return;
+        };
+        let Some(source) = self.xml_document_source.clone() else {
+            self.xml_pending_comments_edit = None;
+            self.xml_edit_error =
+                Some("Track Comments preparation refused: no XML document is loaded".into());
+            return;
+        };
+        let request = oxidj_application::TrackCommentsEditPreparationRequest {
+            source: source.clone(),
+            track_id: track_id.to_owned(),
+            expected_old_comments: old_comments.to_owned(),
+            new_comments: self.xml_edit_comments.clone(),
+        };
+        match oxidj_application::prepare_rekordbox_track_comments_export(&request) {
+            Ok(prepared) => {
+                self.xml_pending_comments_edit = Some(PendingTrackCommentsEdit {
+                    source,
+                    track_id: track_id.to_owned(),
+                    prepared,
+                });
+                self.xml_edit_error = None;
+            }
+            Err(error) => {
+                self.xml_pending_comments_edit = None;
+                self.xml_edit_error = Some(format!("Track Comments preparation refused: {error}"));
+            }
+        }
+    }
+
+    fn cancel_xml_comments_edit(&mut self) {
+        self.xml_pending_comments_edit = None;
+        self.xml_edit_error = None;
+    }
+
+    fn export_xml_comments_edit(&mut self) {
+        self.notice.clear();
+        let Some(pending) = self.xml_pending_comments_edit.clone() else {
+            self.xml_edit_error =
+                Some("Track Comments export refused: no prepared pending edit".into());
+            return;
+        };
+        let proposal = pending.prepared.change();
+        let selected_comments = self
+            .xml_preview
+            .as_ref()
+            .and_then(|preview| preview.as_ref().ok())
+            .and_then(|preview| {
+                preview
+                    .tracks
+                    .iter()
+                    .find(|track| track.id == pending.track_id)
+            })
+            .and_then(|track| track.comments.as_deref());
+        if self.xml_document_source.as_ref() != Some(&pending.source)
+            || self.xml_selected_track.as_deref() != Some(&pending.track_id)
+            || self.xml_edit_comments != proposal.new_comments
+            || selected_comments != Some(proposal.old_comments.as_str())
+        {
+            self.xml_pending_comments_edit = None;
+            self.xml_edit_error = Some(
+                "Track Comments export refused: source, selected track, or proposed value changed"
+                    .into(),
+            );
+            return;
+        }
+        let output = PathBuf::from(&self.xml_comments_export_path);
+        if self.xml_comments_export_path.trim().is_empty() {
+            self.xml_edit_error =
+                Some("Track Comments export refused: choose a new XML destination".into());
+            return;
+        }
+        match oxidj_application::export_prepared_rekordbox_track_comments_edit(
+            &pending.prepared,
+            &output,
+        ) {
+            Ok(change) => {
+                self.xml_pending_comments_edit = None;
+                self.xml_edit_error = None;
+                self.notice = format!("Track Comments exported to {}", output.display());
+                self.xml_comments_export_path = output.display().to_string();
+                self.xml_path = output.display().to_string();
+                self.xml_document_source = Some(output.clone());
+                self.xml_preview = Some(
+                    oxidj_application::preview_rekordbox_xml(&output)
+                        .map_err(|error| error.to_string()),
+                );
+                self.xml_edit_comments = change.new_comments;
+            }
+            Err(error) => {
+                self.xml_edit_error = Some(format!("Track Comments export failed: {error}"));
             }
         }
     }
@@ -2888,6 +3015,58 @@ impl eframe::App for LibraryApp {
                             }
                         } else {
                             ui.label("Select one track above to prepare a pending Artist edit.");
+                        }
+                        ui.separator();
+                        ui.strong("Prepare one guarded Comments edit");
+                        if let Some(track_id) = self.xml_selected_track.clone() {
+                            if let Some(track) = preview.tracks.iter().find(|track| track.id == track_id) {
+                                ui.label(format!("Selected TrackID: {track_id}"));
+                                if track.comments.is_none() {
+                                    ui.label("Selected track has no Comments attribute; insertion is not supported.");
+                                } else {
+                                    ui.label(if track.comments.as_deref() == Some("") {
+                                        "Current Comments: present but empty"
+                                    } else {
+                                        "Current Comments: present"
+                                    });
+                                    if ui.add(
+                                        egui::TextEdit::multiline(&mut self.xml_edit_comments)
+                                            .desired_rows(4)
+                                            .hint_text("Comments"),
+                                    ).changed() {
+                                        self.xml_pending_comments_edit = None;
+                                    }
+                                    if ui.button("Prepare pending Comments edit").clicked() {
+                                        self.prepare_xml_comments_edit(
+                                            &track.id,
+                                            track.comments.as_deref(),
+                                        );
+                                    }
+                                    if let Some(pending) = &self.xml_pending_comments_edit {
+                                        ui.separator();
+                                        ui.strong("Pending Comments edit · not exported or saved");
+                                        ui.label(format!("Source: {}", pending.source.display()));
+                                        ui.label(format!("TrackID: {}", pending.track_id));
+                                        ui.label(format!("Original Comments: {:?}", pending.prepared.change().old_comments));
+                                        ui.label(format!("Proposed Comments: {:?}", pending.prepared.change().new_comments));
+                                        ui.horizontal(|ui| {
+                                            ui.label("New XML destination");
+                                            ui.text_edit_singleline(&mut self.xml_comments_export_path);
+                                        });
+                                        if ui.button("Export prepared Comments edit").clicked() {
+                                            self.export_xml_comments_edit();
+                                        }
+                                        if ui.button("Cancel pending Comments edit").clicked() {
+                                            self.cancel_xml_comments_edit();
+                                        }
+                                    }
+                                }
+                            } else {
+                                self.xml_pending_comments_edit = None;
+                                ui.label("Selected TrackID is no longer in the loaded preview.");
+                            }
+                        } else {
+                            ui.label("Select one track above to prepare a pending Comments edit.");
                         }
                         ui.separator();
                         SectionHeading { title: "Sibling playlist order (provisional)" }.show(ui, tokens);
@@ -6338,6 +6517,218 @@ mod keyboard_tests {
         app.xml_artist_export_path = output.display().to_string();
         app.export_xml_artist_edit();
         assert!(app.xml_pending_artist_edit.is_some());
+        assert!(
+            app.xml_edit_error
+                .as_deref()
+                .unwrap()
+                .contains("source changed")
+        );
+        assert!(!output.exists());
+        std::fs::write(&source, original).unwrap();
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn track_comments_edit_ui_exports_previewed_bytes_through_independent_oracle() {
+        use std::time::{SystemTime, UNIX_EPOCH};
+        let root = std::env::temp_dir().join(format!(
+            "oxidj-ui-track-comments-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let source = root.join("source.xml");
+        std::fs::write(
+            &source,
+            include_bytes!("../../../xtask/tests/fixtures/f02-track-comments-edit/source.xml"),
+        )
+        .unwrap();
+        let original = std::fs::read(&source).unwrap();
+        let catalog = root.join("catalog.sqlite");
+        drop(Catalog::open(&catalog).unwrap());
+        let catalog_before = std::fs::read(&catalog).unwrap();
+        let mut app = LibraryApp::new(
+            catalog.clone(),
+            ThemeMode::TokyoNight,
+            ThemeMode::TokyoNight.tokens(),
+        );
+        app.xml_path = source.display().to_string();
+        app.preview_xml();
+        app.select_xml_track("100", "A");
+        assert_eq!(app.xml_edit_comments, "old & note");
+        app.xml_edit_comments = "new < note".into();
+        app.prepare_xml_comments_edit("100", Some("old & note"));
+        let prepared_bytes = app
+            .xml_pending_comments_edit
+            .as_ref()
+            .expect("prepared Comments edit")
+            .prepared
+            .bytes()
+            .to_vec();
+        assert_eq!(std::fs::read(&source).unwrap(), original);
+        assert_eq!(std::fs::read(&catalog).unwrap(), catalog_before);
+
+        let cancelled = root.join("cancelled.xml");
+        app.xml_comments_export_path = cancelled.display().to_string();
+        app.cancel_xml_comments_edit();
+        assert!(app.xml_pending_comments_edit.is_none());
+        assert!(!cancelled.exists(), "cancel must not write output");
+
+        app.prepare_xml_comments_edit("100", Some("old & note"));
+        let existing = root.join("existing.xml");
+        std::fs::write(&existing, b"preserve").unwrap();
+        app.xml_comments_export_path = existing.display().to_string();
+        app.export_xml_comments_edit();
+        assert!(
+            app.xml_edit_error.is_some(),
+            "export errors must be surfaced"
+        );
+        assert_eq!(std::fs::read(&existing).unwrap(), b"preserve");
+        assert_eq!(std::fs::read(&source).unwrap(), original);
+
+        app.xml_comments_export_path = root.join("edited.xml").display().to_string();
+        app.export_xml_comments_edit();
+        let output = PathBuf::from(&app.xml_comments_export_path);
+        let bytes = std::fs::read(&output).unwrap();
+        assert_eq!(bytes, prepared_bytes);
+        f02_track_comments_edit_oracle::check(&bytes)
+            .expect("independent F-02 oracle accepts only selected Comments edit");
+        let mutated = String::from_utf8(bytes.clone()).unwrap().replacen(
+            "Comments=\"new &lt; note\"",
+            "Comments=\"altered\"",
+            1,
+        );
+        assert_ne!(mutated.as_bytes(), bytes.as_slice());
+        assert!(f02_track_comments_edit_oracle::check(mutated.as_bytes()).is_err());
+        assert_eq!(std::fs::read(&source).unwrap(), original);
+        assert_eq!(std::fs::read(&catalog).unwrap(), catalog_before);
+        let reopened = app.xml_preview.as_ref().unwrap().as_ref().unwrap();
+        assert_eq!(
+            reopened
+                .tracks
+                .iter()
+                .find(|track| track.id == "100")
+                .unwrap()
+                .comments
+                .as_deref(),
+            Some("new < note")
+        );
+        assert_eq!(
+            reopened
+                .tracks
+                .iter()
+                .find(|track| track.id == "200")
+                .unwrap()
+                .comments,
+            None,
+            "absent Comments remains absent on other tracks"
+        );
+        assert!(app.xml_pending_comments_edit.is_none());
+        assert!(app.xml_edit_error.is_none());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn track_comments_edit_ui_refuses_absent_and_changed_proposal() {
+        use std::time::{SystemTime, UNIX_EPOCH};
+        let root = std::env::temp_dir().join(format!(
+            "oxidj-ui-track-comments-guards-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let source = root.join("source.xml");
+        std::fs::write(
+            &source,
+            include_bytes!("../../../xtask/tests/fixtures/f02-track-comments-edit/source.xml"),
+        )
+        .unwrap();
+        let mut app = app();
+        app.xml_path = source.display().to_string();
+        app.preview_xml();
+
+        app.select_xml_track("200", "B");
+        app.prepare_xml_comments_edit("200", None);
+        assert!(app.xml_pending_comments_edit.is_none());
+        assert!(
+            app.xml_edit_error
+                .as_deref()
+                .unwrap()
+                .contains("no Comments attribute")
+        );
+
+        app.select_xml_track("100", "A");
+        app.xml_edit_comments = "new < note".into();
+        app.prepare_xml_comments_edit("100", Some("old & note"));
+        app.xml_edit_comments.push('!');
+        app.xml_comments_export_path = root.join("changed.xml").display().to_string();
+        app.export_xml_comments_edit();
+        assert!(app.xml_pending_comments_edit.is_none());
+        assert!(
+            app.xml_edit_error
+                .as_deref()
+                .unwrap()
+                .contains("proposed value changed")
+        );
+        assert!(!root.join("changed.xml").exists());
+
+        app.xml_edit_comments = "new < note".into();
+        app.prepare_xml_comments_edit("100", Some("old & note"));
+        assert!(app.xml_pending_comments_edit.is_some());
+        app.select_xml_track("200", "B");
+        assert!(app.xml_pending_comments_edit.is_none());
+
+        app.select_xml_track("100", "A");
+        app.prepare_xml_comments_edit("100", Some("old & note"));
+        assert!(app.xml_pending_comments_edit.is_some());
+        app.preview_xml();
+        assert!(app.xml_pending_comments_edit.is_none());
+
+        let empty_comments = std::fs::read(&source)
+            .unwrap()
+            .windows(b"Comments=\"old &amp; note\"".len())
+            .position(|window| window == b"Comments=\"old &amp; note\"")
+            .expect("fixture Comments attribute") as usize;
+        let mut empty_fixture = std::fs::read(&source).unwrap();
+        empty_fixture.splice(
+            empty_comments..empty_comments + b"Comments=\"old &amp; note\"".len(),
+            b"Comments=\"\"".iter().copied(),
+        );
+        std::fs::write(&source, empty_fixture).unwrap();
+        app.preview_xml();
+        app.select_xml_track("100", "A");
+        assert!(app.xml_edit_comments.is_empty());
+        app.prepare_xml_comments_edit("100", Some(""));
+        assert!(app.xml_pending_comments_edit.is_some());
+        app.cancel_xml_comments_edit();
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn track_comments_edit_ui_rejects_stale_source_without_output() {
+        let (root, source) = temporary_xml();
+        std::fs::write(
+            &source,
+            include_bytes!("../../../xtask/tests/fixtures/f02-track-comments-edit/source.xml"),
+        )
+        .unwrap();
+        let original = std::fs::read(&source).unwrap();
+        let mut app = app();
+        app.xml_path = source.display().to_string();
+        app.preview_xml();
+        app.select_xml_track("100", "A");
+        app.xml_edit_comments = "new < note".into();
+        app.prepare_xml_comments_edit("100", Some("old & note"));
+        std::fs::write(&source, b"<changed/>").unwrap();
+        let output = root.join("stale.xml");
+        app.xml_comments_export_path = output.display().to_string();
+        app.export_xml_comments_edit();
         assert!(
             app.xml_edit_error
                 .as_deref()
