@@ -11,7 +11,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 mod imported_library;
 pub use imported_library::{LibraryCounts, LibraryNode, LibrarySnapshot, LibraryTrack};
 
-const SCHEMA_VERSION: i64 = 3;
+const SCHEMA_VERSION: i64 = 4;
 const MIGRATION_LIST: &[M<'static>] = &[
     M::up(
         "CREATE TABLE tracks (\
@@ -64,6 +64,22 @@ const MIGRATION_LIST: &[M<'static>] = &[
             track_position INTEGER NOT NULL REFERENCES library_tracks(position),\
             PRIMARY KEY (node_id, position)\
         );",
+    ),
+    // M7 slice 2: optional imported track metadata (NULL = source supplied no value).
+    M::up(
+        "ALTER TABLE library_tracks ADD COLUMN genre TEXT;\
+        ALTER TABLE library_tracks ADD COLUMN label TEXT;\
+        ALTER TABLE library_tracks ADD COLUMN musical_key TEXT;\
+        ALTER TABLE library_tracks ADD COLUMN comments TEXT;\
+        ALTER TABLE library_tracks ADD COLUMN date_added TEXT;\
+        ALTER TABLE library_tracks ADD COLUMN year INTEGER CHECK (year > 0);\
+        ALTER TABLE library_tracks ADD COLUMN bit_rate INTEGER CHECK (bit_rate > 0);\
+        ALTER TABLE library_tracks ADD COLUMN sample_rate INTEGER CHECK (sample_rate > 0);\
+        ALTER TABLE library_tracks ADD COLUMN file_size INTEGER CHECK (file_size > 0);\
+        ALTER TABLE library_tracks ADD COLUMN track_number INTEGER CHECK (track_number > 0);\
+        ALTER TABLE library_tracks ADD COLUMN disc_number INTEGER CHECK (disc_number > 0);\
+        ALTER TABLE library_tracks ADD COLUMN rating_stars INTEGER \
+            CHECK (rating_stars BETWEEN 1 AND 5);",
     ),
 ];
 const MIGRATIONS: Migrations<'static> = Migrations::from_slice(MIGRATION_LIST);

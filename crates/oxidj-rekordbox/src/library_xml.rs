@@ -3,7 +3,8 @@
 use super::*;
 
 /// One COLLECTION TRACK to write. `track_id` is the XML `TrackID`/playlist `Key`.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// Optional attributes are written only when `Some`.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct LibraryXmlTrack {
     pub track_id: u32,
     pub name: String,
@@ -13,7 +14,39 @@ pub struct LibraryXmlTrack {
     pub total_time_seconds: u32,
     /// Already a URI; written verbatim.
     pub location: String,
+    pub genre: Option<String>,
+    pub label: Option<String>,
+    pub tonality: Option<String>,
+    pub comments: Option<String>,
+    /// `YYYY-MM-DD`.
+    pub date_added: Option<String>,
+    pub year: Option<u32>,
+    pub size: Option<u64>,
+    pub disc_number: Option<u32>,
+    pub track_number: Option<u32>,
+    pub bit_rate: Option<u32>,
+    pub sample_rate: Option<u32>,
+    /// 1..=5 stars, written as the XML 0–255 scale (`stars * 51`).
+    pub rating_stars: Option<u8>,
 }
+
+/// Optional TRACK attributes this writer emits when the caller supplies a value.
+pub const LIBRARY_XML_OPTIONAL_TRACK_ATTRIBUTES: &[&str] = &[
+    "Artist",
+    "Album",
+    "Genre",
+    "Size",
+    "DiscNumber",
+    "TrackNumber",
+    "Year",
+    "DateAdded",
+    "BitRate",
+    "SampleRate",
+    "Comments",
+    "Rating",
+    "Tonality",
+    "Label",
+];
 
 /// One PLAYLISTS NODE to write, in sibling order.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -31,26 +64,14 @@ pub enum LibraryXmlNode {
 /// TRACK attributes this writer never emits (the catalog and the DeviceSQL PDB
 /// preview do not supply them); callers report them as "not carried".
 pub const LIBRARY_XML_NOT_WRITTEN_TRACK_ATTRIBUTES: &[&str] = &[
-    "Comments",
-    "Genre",
-    "Label",
     "Composer",
     "Grouping",
     "Remixer",
     "Mix",
-    "Tonality",
     "Kind",
-    "Year",
-    "Size",
-    "DiscNumber",
-    "TrackNumber",
-    "BitRate",
-    "SampleRate",
-    "DateAdded",
     "DateModified",
     "LastPlayed",
     "PlayCount",
-    "Rating",
     "Colour",
 ];
 /// TRACK child elements this writer never emits (beat grid, cues).
@@ -90,20 +111,61 @@ pub fn write_library_xml(
             t.track_id,
             checked(&t.name)?
         );
-        if let Some(artist) = &t.artist {
-            let _ = write!(out, " Artist=\"{}\"", checked(artist)?);
+        let text = |out: &mut String, key: &str, value: &Option<String>| -> Result<(), Error> {
+            if let Some(value) = value {
+                let _ = write!(out, " {key}=\"{}\"", checked(value)?);
+            }
+            Ok(())
+        };
+        let number = |out: &mut String, key: &str, value: Option<u64>| {
+            if let Some(value) = value {
+                let _ = write!(out, " {key}=\"{value}\"");
+            }
+        };
+        if t.date_added.as_deref().is_some_and(|d| {
+            d.len() != 10
+                || !d.bytes().enumerate().all(|(i, b)| {
+                    if i == 4 || i == 7 {
+                        b == b'-'
+                    } else {
+                        b.is_ascii_digit()
+                    }
+                })
+        }) {
+            return Err(Error("library DateAdded is not YYYY-MM-DD".into()));
         }
-        if let Some(album) = &t.album {
-            let _ = write!(out, " Album=\"{}\"", checked(album)?);
+        if t.rating_stars
+            .is_some_and(|stars| !(1..=5).contains(&stars))
+        {
+            return Err(Error("library rating is outside 1..=5 stars".into()));
         }
-        let _ = writeln!(
+        text(&mut out, "Artist", &t.artist)?;
+        text(&mut out, "Album", &t.album)?;
+        text(&mut out, "Genre", &t.genre)?;
+        number(&mut out, "Size", t.size);
+        let _ = write!(out, " TotalTime=\"{}\"", t.total_time_seconds);
+        number(&mut out, "DiscNumber", t.disc_number.map(u64::from));
+        number(&mut out, "TrackNumber", t.track_number.map(u64::from));
+        number(&mut out, "Year", t.year.map(u64::from));
+        let _ = write!(
             out,
-            " TotalTime=\"{}\" AverageBpm=\"{}.{:02}\" Location=\"{}\"/>",
-            t.total_time_seconds,
+            " AverageBpm=\"{}.{:02}\"",
             t.average_bpm_hundredths / 100,
-            t.average_bpm_hundredths % 100,
-            checked(&t.location)?
+            t.average_bpm_hundredths % 100
         );
+        text(&mut out, "DateAdded", &t.date_added)?;
+        number(&mut out, "BitRate", t.bit_rate.map(u64::from));
+        number(&mut out, "SampleRate", t.sample_rate.map(u64::from));
+        text(&mut out, "Comments", &t.comments)?;
+        number(
+            &mut out,
+            "Rating",
+            t.rating_stars.map(|stars| u64::from(stars) * 51),
+        );
+        let _ = write!(out, " Location=\"{}\"", checked(&t.location)?);
+        text(&mut out, "Tonality", &t.tonality)?;
+        text(&mut out, "Label", &t.label)?;
+        out.push_str("/>\n");
     }
     out.push_str("  </COLLECTION>\n  <PLAYLISTS>\n");
     fn node(
@@ -176,6 +238,7 @@ mod library_xml_tests {
                 average_bpm_hundredths: 12_805,
                 total_time_seconds: 181,
                 location: "file://localhost/a%20b.wav".into(),
+                ..LibraryXmlTrack::default()
             },
             LibraryXmlTrack {
                 track_id: 2,
@@ -185,6 +248,7 @@ mod library_xml_tests {
                 average_bpm_hundredths: 9_000,
                 total_time_seconds: 7,
                 location: "file://localhost/two.mp3".into(),
+                ..LibraryXmlTrack::default()
             },
         ];
         let roots = vec![
@@ -242,6 +306,7 @@ mod library_xml_tests {
             average_bpm_hundredths: 0,
             total_time_seconds: 0,
             location: "file://localhost/one.wav".into(),
+            ..LibraryXmlTrack::default()
         };
         let bad_key = [LibraryXmlNode::Playlist {
             name: "P".into(),
@@ -249,8 +314,93 @@ mod library_xml_tests {
         }];
         assert!(write_library_xml(std::slice::from_ref(&track), &bad_key).is_err());
         assert!(write_library_xml(&[track.clone(), track.clone()], &[]).is_err());
-        let mut control = track;
+        let mut control = track.clone();
         control.name = "bad\u{1}".into();
         assert!(write_library_xml(&[control], &[]).is_err());
+        for bad in [
+            LibraryXmlTrack {
+                date_added: Some("2026-1-02".into()),
+                ..track.clone()
+            },
+            LibraryXmlTrack {
+                rating_stars: Some(6),
+                ..track.clone()
+            },
+            LibraryXmlTrack {
+                genre: Some("bad\u{1}".into()),
+                ..track.clone()
+            },
+        ] {
+            assert!(write_library_xml(&[bad], &[]).is_err());
+        }
+    }
+
+    #[test]
+    fn optional_metadata_is_written_only_when_present_and_reparses() {
+        let full = LibraryXmlTrack {
+            track_id: 1,
+            name: "Full".into(),
+            location: "file://localhost/full.wav".into(),
+            genre: Some("G & <H>".into()),
+            label: Some("L".into()),
+            tonality: Some("8A".into()),
+            comments: Some("C \"q\"".into()),
+            date_added: Some("2026-03-04".into()),
+            year: Some(1999),
+            size: Some(5_000_000_000),
+            disc_number: Some(2),
+            track_number: Some(11),
+            bit_rate: Some(320),
+            sample_rate: Some(44_100),
+            rating_stars: Some(3),
+            ..LibraryXmlTrack::default()
+        };
+        let bare = LibraryXmlTrack {
+            track_id: 2,
+            name: "Bare".into(),
+            location: "file://localhost/bare.wav".into(),
+            ..LibraryXmlTrack::default()
+        };
+        let bytes = write_library_xml(&[full, bare], &[]).unwrap();
+        let preview = parse(&bytes).unwrap();
+        assert!(preview.unsupported.is_empty());
+        let t = &preview.tracks[0];
+        assert_eq!(t.genre.as_deref(), Some("G & <H>"));
+        assert_eq!(t.label.as_deref(), Some("L"));
+        assert_eq!(t.tonality.as_deref(), Some("8A"));
+        assert_eq!(t.comments.as_deref(), Some("C \"q\""));
+        assert_eq!(t.date_added.as_deref(), Some("2026-03-04"));
+        assert_eq!(t.year.as_deref(), Some("1999"));
+        assert_eq!(t.size.as_deref(), Some("5000000000"));
+        assert_eq!(t.disc_number.as_deref(), Some("2"));
+        assert_eq!(t.track_number.as_deref(), Some("11"));
+        assert_eq!(t.bit_rate.as_deref(), Some("320"));
+        assert_eq!(t.sample_rate.as_deref(), Some("44100"));
+        assert_eq!(t.rating.as_deref(), Some("153"));
+        let b = &preview.tracks[1];
+        for value in [
+            &b.artist,
+            &b.album,
+            &b.genre,
+            &b.label,
+            &b.tonality,
+            &b.comments,
+            &b.date_added,
+            &b.year,
+            &b.size,
+            &b.disc_number,
+            &b.track_number,
+            &b.bit_rate,
+            &b.sample_rate,
+            &b.rating,
+        ] {
+            assert_eq!(value, &None);
+        }
+        let text = String::from_utf8(bytes).unwrap();
+        let bare_line = text.lines().find(|l| l.contains("Name=\"Bare\"")).unwrap();
+        assert_eq!(
+            bare_line.trim(),
+            "<TRACK TrackID=\"2\" Name=\"Bare\" TotalTime=\"0\" AverageBpm=\"0.00\" Location=\"file://localhost/bare.wav\"/>"
+        );
     }
 }

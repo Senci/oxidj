@@ -2845,3 +2845,193 @@ fn rejects_duplicate_track_ids() {
             .contains("duplicate track identity")
     );
 }
+
+// --- M7 slice 2: synthetic DeviceSQL track metadata (built here, no vendor bytes) ---
+
+fn devicesql_string(value: &str) -> Vec<u8> {
+    assert!(value.is_ascii() && value.len() < 127);
+    let mut encoded = vec![((value.len() + 1) * 2 + 1) as u8];
+    encoded.extend_from_slice(value.as_bytes());
+    encoded
+}
+
+/// One page per table (index i -> page i+1), up to 16 rows each.
+fn devicesql(tables: &[(u32, Vec<Vec<u8>>)]) -> Vec<u8> {
+    let mut bytes = vec![0u8; (tables.len() + 1) * 4096];
+    bytes[4..8].copy_from_slice(&4096u32.to_le_bytes());
+    bytes[8..12].copy_from_slice(&(tables.len() as u32).to_le_bytes());
+    for (index, (table_type, rows)) in tables.iter().enumerate() {
+        assert!(rows.len() <= 16);
+        let page_index = (index + 1) as u32;
+        let dir = 0x1c + index * 16;
+        bytes[dir..dir + 4].copy_from_slice(&table_type.to_le_bytes());
+        bytes[dir + 8..dir + 12].copy_from_slice(&page_index.to_le_bytes());
+        bytes[dir + 12..dir + 16].copy_from_slice(&page_index.to_le_bytes());
+        let page = page_index as usize * 4096;
+        bytes[page + 0x18] = rows.len() as u8;
+        let mut heap = 0usize;
+        for (i, row) in rows.iter().enumerate() {
+            bytes[page + 0x28 + heap..page + 0x28 + heap + row.len()].copy_from_slice(row);
+            let slot = page + 4096 - 6 - 2 * i;
+            bytes[slot..slot + 2].copy_from_slice(&(heap as u16).to_le_bytes());
+            heap += (row.len() + 3) & !3;
+        }
+        let present = ((1u32 << rows.len()) - 1) as u16;
+        bytes[page + 4092..page + 4094].copy_from_slice(&present.to_le_bytes());
+    }
+    bytes
+}
+
+#[derive(Default)]
+struct SyntheticTrackRow {
+    id: u32,
+    genre_id: u32,
+    label_id: u32,
+    key_id: u32,
+    sample_rate: u32,
+    file_size: u32,
+    bit_rate: u32,
+    track_number: u32,
+    disc_number: u16,
+    year: u16,
+    rating: u8,
+    date_added: &'static str,
+    comment: &'static str,
+}
+
+fn synthetic_track_row(t: &SyntheticTrackRow) -> Vec<u8> {
+    let mut row = vec![0u8; 0x88];
+    let put32 =
+        |row: &mut Vec<u8>, at: usize, v: u32| row[at..at + 4].copy_from_slice(&v.to_le_bytes());
+    put32(&mut row, 0x08, t.sample_rate);
+    put32(&mut row, 0x10, t.file_size);
+    put32(&mut row, 0x20, t.key_id);
+    put32(&mut row, 0x28, t.label_id);
+    put32(&mut row, 0x30, t.bit_rate);
+    put32(&mut row, 0x34, t.track_number);
+    put32(&mut row, 0x3c, t.genre_id);
+    put32(&mut row, 0x48, t.id);
+    row[0x4c..0x4e].copy_from_slice(&t.disc_number.to_le_bytes());
+    row[0x50..0x52].copy_from_slice(&t.year.to_le_bytes());
+    row[0x59] = t.rating;
+    let mut strings = vec![String::new(); 21];
+    strings[10] = t.date_added.into();
+    strings[16] = t.comment.into();
+    strings[17] = format!("T{}", t.id);
+    strings[20] = format!("/t{}.wav", t.id);
+    let mut offset = 0x88u16;
+    let mut data = Vec::new();
+    for (index, value) in strings.iter().enumerate() {
+        row[0x5e + index * 2..0x60 + index * 2].copy_from_slice(&offset.to_le_bytes());
+        let encoded = devicesql_string(value);
+        offset += encoded.len() as u16;
+        data.extend_from_slice(&encoded);
+    }
+    row.extend(data);
+    row
+}
+
+/// Genre/label rows: id at 0, name at 4. Key rows: id at 0, name at 8.
+fn id_name_row(id: u32, name_at: usize, name: &str) -> Vec<u8> {
+    let mut row = vec![0u8; name_at];
+    row[0..4].copy_from_slice(&id.to_le_bytes());
+    row.extend(devicesql_string(name));
+    row
+}
+
+#[test]
+fn pdb_track_metadata_carries_resolved_values_and_never_invents() {
+    let full = SyntheticTrackRow {
+        id: 1,
+        genre_id: 5,
+        label_id: 6,
+        key_id: 7,
+        sample_rate: 44_100,
+        file_size: 9_876_543,
+        bit_rate: 320,
+        track_number: 4,
+        disc_number: 2,
+        year: 2001,
+        rating: 4,
+        date_added: "2024-02-29",
+        comment: "c1",
+    };
+    // All absent: ids 0, numerics 0, strings empty.
+    let absent = SyntheticTrackRow {
+        id: 2,
+        ..SyntheticTrackRow::default()
+    };
+    // Ids that resolve to empty names are absent, not empty strings.
+    let empty = SyntheticTrackRow {
+        id: 3,
+        genre_id: 8,
+        label_id: 9,
+        key_id: 10,
+        ..SyntheticTrackRow::default()
+    };
+    // Unknown ids, an ambiguous (duplicated) genre id, a malformed date, rating > 5.
+    let unknown = SyntheticTrackRow {
+        id: 4,
+        genre_id: 11,
+        label_id: 99,
+        key_id: 98,
+        rating: 6,
+        date_added: "29/02/2024",
+        ..SyntheticTrackRow::default()
+    };
+    let bytes = devicesql(&[
+        (
+            0,
+            [&full, &absent, &empty, &unknown]
+                .iter()
+                .map(|t| synthetic_track_row(t))
+                .collect(),
+        ),
+        (
+            1,
+            vec![
+                id_name_row(5, 4, "g5"),
+                id_name_row(8, 4, ""),
+                id_name_row(11, 4, "first"),
+                id_name_row(11, 4, "second"),
+            ],
+        ),
+        (4, vec![id_name_row(6, 4, "l6"), id_name_row(9, 4, "")]),
+        (5, vec![id_name_row(7, 8, "8A"), id_name_row(10, 8, "")]),
+    ]);
+    let original = bytes.clone();
+    let preview = parse_pdb(&bytes).unwrap();
+    assert_eq!(bytes, original);
+    let [f, a, e, u] = preview.tracks.as_slice() else {
+        panic!("expected four tracks");
+    };
+    assert_eq!(f.genre.as_deref(), Some("g5"));
+    assert_eq!(f.label.as_deref(), Some("l6"));
+    assert_eq!(f.tonality.as_deref(), Some("8A"));
+    assert_eq!(f.comments.as_deref(), Some("c1"));
+    assert_eq!(f.date_added.as_deref(), Some("2024-02-29"));
+    assert_eq!(f.year, Some(2001));
+    assert_eq!(f.bit_rate, Some(320));
+    assert_eq!(f.sample_rate, Some(44_100));
+    assert_eq!(f.file_size, Some(9_876_543));
+    assert_eq!(f.track_number, Some(4));
+    assert_eq!(f.disc_number, Some(2));
+    assert_eq!(f.rating_stars, Some(4));
+    assert!(f.unresolved.is_empty());
+    for t in [a, e] {
+        assert_eq!(
+            (&t.genre, &t.label, &t.tonality, &t.comments, &t.date_added),
+            (&None, &None, &None, &None, &None)
+        );
+        assert_eq!((t.year, t.bit_rate, t.sample_rate), (None, None, None));
+        assert_eq!((t.file_size, t.track_number), (None, None));
+        assert_eq!((t.disc_number, t.rating_stars), (None, None));
+        assert!(t.unresolved.is_empty());
+    }
+    assert_eq!((&u.genre, &u.label, &u.tonality), (&None, &None, &None));
+    assert_eq!((&u.date_added, u.rating_stars), (&None, None));
+    assert_eq!(
+        u.unresolved,
+        vec!["Genre", "Label", "Tonality", "DateAdded", "Rating"]
+    );
+}

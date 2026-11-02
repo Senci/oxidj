@@ -11,7 +11,7 @@ use std::{
 use oxidj_library::{Catalog, LibraryCounts, LibraryNode, LibrarySnapshot, LibraryTrack};
 use oxidj_rekordbox::{
     LIBRARY_XML_NOT_WRITTEN_TRACK_ATTRIBUTES, LIBRARY_XML_NOT_WRITTEN_TRACK_ELEMENTS,
-    LibraryXmlNode, LibraryXmlTrack, PdbNodeId, PdbPreview,
+    LIBRARY_XML_OPTIONAL_TRACK_ATTRIBUTES, LibraryXmlNode, LibraryXmlTrack, PdbNodeId, PdbPreview,
 };
 
 /// A fail-closed import/export refusal. Messages never contain source values.
@@ -35,12 +35,22 @@ pub struct NotCarried {
     pub track_attributes: Vec<(&'static str, usize)>,
     /// (XML TRACK child element, number of tracks written without it).
     pub track_elements: Vec<(&'static str, usize)>,
-    /// Tracks whose artist/album was absent in the source (absent, not dropped).
-    pub artist_absent: usize,
-    pub album_absent: usize,
+    /// (optional XML TRACK attribute the library carries, number of tracks whose
+    /// value was absent — so the attribute was not written). Absent, not dropped.
+    pub absent: Vec<(&'static str, usize)>,
 }
 
 impl NotCarried {
+    /// Number of tracks that carry the named optional attribute.
+    pub fn carried(&self, attribute: &str, tracks: usize) -> usize {
+        tracks
+            - self
+                .absent
+                .iter()
+                .find(|(name, _)| *name == attribute)
+                .map_or(0, |(_, count)| *count)
+    }
+
     fn of(snapshot: &LibrarySnapshot) -> Self {
         let tracks = snapshot.tracks.len();
         Self {
@@ -52,12 +62,32 @@ impl NotCarried {
                 .iter()
                 .map(|name| (*name, tracks))
                 .collect(),
-            artist_absent: snapshot
-                .tracks
+            absent: LIBRARY_XML_OPTIONAL_TRACK_ATTRIBUTES
                 .iter()
-                .filter(|t| t.artist.is_none())
-                .count(),
-            album_absent: snapshot.tracks.iter().filter(|t| t.album.is_none()).count(),
+                .map(|name| {
+                    let present = |t: &LibraryTrack| match *name {
+                        "Artist" => t.artist.is_some(),
+                        "Album" => t.album.is_some(),
+                        "Genre" => t.genre.is_some(),
+                        "Size" => t.file_size.is_some(),
+                        "DiscNumber" => t.disc_number.is_some(),
+                        "TrackNumber" => t.track_number.is_some(),
+                        "Year" => t.year.is_some(),
+                        "DateAdded" => t.date_added.is_some(),
+                        "BitRate" => t.bit_rate.is_some(),
+                        "SampleRate" => t.sample_rate.is_some(),
+                        "Comments" => t.comments.is_some(),
+                        "Rating" => t.rating_stars.is_some(),
+                        "Tonality" => t.key.is_some(),
+                        "Label" => t.label.is_some(),
+                        _ => unreachable!("every optional attribute is mapped"),
+                    };
+                    (
+                        *name,
+                        snapshot.tracks.iter().filter(|t| !present(t)).count(),
+                    )
+                })
+                .collect(),
         }
     }
 }
@@ -96,6 +126,10 @@ pub fn onelibrary_cross_check(
 pub struct LibraryImportReport {
     pub counts: LibraryCounts,
     pub not_carried: NotCarried,
+    /// (XML TRACK attribute, number of tracks whose source value could not be
+    /// interpreted — unknown/ambiguous lookup id or unrecognised encoding). Those
+    /// values are not carried and never invented.
+    pub unresolved: Vec<(&'static str, usize)>,
     /// Source paths that were not URIs and were percent-encoded as `file://localhost` URIs.
     pub locations_uri_encoded: usize,
     /// Source bytes identical before and after the import.
@@ -152,6 +186,18 @@ pub fn library_from_pdb_preview(
             tempo_hundredths_bpm: track.tempo_hundredths_bpm,
             duration_seconds: u32::from(track.duration_seconds),
             location,
+            genre: track.genre.clone(),
+            label: track.label.clone(),
+            key: track.tonality.clone(),
+            comments: track.comments.clone(),
+            date_added: track.date_added.clone(),
+            year: track.year.map(u32::from),
+            bit_rate: track.bit_rate,
+            sample_rate: track.sample_rate,
+            file_size: track.file_size.map(u64::from),
+            track_number: track.track_number,
+            disc_number: track.disc_number.map(u32::from),
+            rating_stars: track.rating_stars,
         });
     }
     // (sort_order, id, node) per parent.
@@ -227,6 +273,24 @@ pub fn library_from_pdb_preview(
     Ok((LibrarySnapshot { tracks, roots }, encoded))
 }
 
+/// Per-attribute counts of source values the PDB preview could not interpret, in
+/// the order of [`LIBRARY_XML_OPTIONAL_TRACK_ATTRIBUTES`] (zero counts included).
+pub fn unresolved_counts(preview: &PdbPreview) -> Vec<(&'static str, usize)> {
+    LIBRARY_XML_OPTIONAL_TRACK_ATTRIBUTES
+        .iter()
+        .map(|name| {
+            (
+                *name,
+                preview
+                    .tracks
+                    .iter()
+                    .filter(|t| t.unresolved.contains(name))
+                    .count(),
+            )
+        })
+        .collect()
+}
+
 fn catalog_files(catalog: &Path) -> [std::path::PathBuf; 3] {
     let mut wal = catalog.as_os_str().to_owned();
     wal.push("-wal");
@@ -275,6 +339,7 @@ fn import_library_with(
     let preview = oxidj_rekordbox::parse_pdb(&before)
         .map_err(|_| fail("PDB source was rejected by the read-only preview"))?;
     let (snapshot, locations_uri_encoded) = library_from_pdb_preview(&preview)?;
+    let unresolved = unresolved_counts(&preview);
     let counts = snapshot.counts();
     let onelibrary = cross_check(&counts)?;
     let result = (|| {
@@ -296,6 +361,7 @@ fn import_library_with(
         Ok(LibraryImportReport {
             counts,
             not_carried: NotCarried::of(&snapshot),
+            unresolved,
             locations_uri_encoded,
             source_unchanged,
             catalog_matches_source,
@@ -329,6 +395,18 @@ fn xml_library(
                 average_bpm_hundredths: t.tempo_hundredths_bpm,
                 total_time_seconds: t.duration_seconds,
                 location: t.location.clone(),
+                genre: t.genre.clone(),
+                label: t.label.clone(),
+                tonality: t.key.clone(),
+                comments: t.comments.clone(),
+                date_added: t.date_added.clone(),
+                year: t.year,
+                size: t.file_size,
+                disc_number: t.disc_number,
+                track_number: t.track_number,
+                bit_rate: t.bit_rate,
+                sample_rate: t.sample_rate,
+                rating_stars: t.rating_stars,
             })
         })
         .collect::<Result<_, LibraryWorkflowError>>()?;
@@ -363,11 +441,44 @@ fn verify_export(snapshot: &LibrarySnapshot, preview: &crate::Preview) -> bool {
             .zip(&snapshot.tracks)
             .enumerate()
             .all(|(i, (x, t))| {
+                let num = |v: Option<u64>| v.map(|v| v.to_string());
                 x.id == (i + 1).to_string()
                     && x.name == t.title
                     && x.artist == t.artist
                     && x.album == t.album
                     && x.location == t.location
+                    && x.total_time == Some(t.duration_seconds.to_string())
+                    && x.average_bpm
+                        == Some(format!(
+                            "{}.{:02}",
+                            t.tempo_hundredths_bpm / 100,
+                            t.tempo_hundredths_bpm % 100
+                        ))
+                    && x.genre == t.genre
+                    && x.label == t.label
+                    && x.tonality == t.key
+                    && x.comments == t.comments
+                    && x.date_added == t.date_added
+                    && x.year == num(t.year.map(u64::from))
+                    && x.size == num(t.file_size)
+                    && x.disc_number == num(t.disc_number.map(u64::from))
+                    && x.track_number == num(t.track_number.map(u64::from))
+                    && x.bit_rate == num(t.bit_rate.map(u64::from))
+                    && x.sample_rate == num(t.sample_rate.map(u64::from))
+                    && x.rating == num(t.rating_stars.map(|s| u64::from(s) * 51))
+                    && [
+                        &x.composer,
+                        &x.grouping,
+                        &x.remixer,
+                        &x.mix,
+                        &x.kind,
+                        &x.date_modified,
+                        &x.last_played,
+                        &x.play_count,
+                        &x.colour,
+                    ]
+                    .iter()
+                    .all(|v| v.is_none())
                     && x.tempos.is_empty()
                     && x.marks.is_empty()
             });
@@ -470,6 +581,7 @@ mod tests {
             tempo_hundredths_bpm: 12_000,
             duration_seconds: 60,
             file_path: format!("/Contents/t {id}.mp3"),
+            ..PdbTrackPreview::default()
         }
     }
 

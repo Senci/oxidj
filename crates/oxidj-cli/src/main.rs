@@ -1749,15 +1749,20 @@ fn print_counts(counts: &oxidj_application::LibraryCounts) {
     println!("Memberships: {}", counts.memberships);
 }
 
-fn print_not_carried(not_carried: &oxidj_application::NotCarried) {
+fn print_not_carried(not_carried: &oxidj_application::NotCarried, tracks: usize) {
+    for (name, count) in &not_carried.absent {
+        println!(
+            "Carried\tTRACK@{name}\t{}",
+            not_carried.carried(name, tracks)
+        );
+        println!("AbsentInSource\t{name}\t{count}");
+    }
     for (name, count) in &not_carried.track_attributes {
         println!("NotCarried\tTRACK@{name}\t{count}");
     }
     for (name, count) in &not_carried.track_elements {
         println!("NotCarried\tTRACK/{name}\t{count}");
     }
-    println!("AbsentInSource\tArtist\t{}", not_carried.artist_absent);
-    println!("AbsentInSource\tAlbum\t{}", not_carried.album_absent);
 }
 
 /// `catalog import-library --pdb SRC --catalog NEW [--onelibrary-db DB --key-stdin]`.
@@ -1795,7 +1800,10 @@ fn run_import_library(args: &[String]) -> i32 {
                     check.source_unchanged
                 );
             }
-            print_not_carried(&report.not_carried);
+            print_not_carried(&report.not_carried, report.counts.tracks);
+            for (name, count) in &report.unresolved {
+                println!("UnresolvedInSource\t{name}\t{count}");
+            }
             OK
         }
         Err(error) => {
@@ -1819,7 +1827,7 @@ fn run_export_library_xml(args: &[String]) -> i32 {
         Ok(report) => {
             print_counts(&report.counts);
             println!("PreviewVerified: {}", report.preview_verified);
-            print_not_carried(&report.not_carried);
+            print_not_carried(&report.not_carried, report.counts.tracks);
             OK
         }
         Err(error) => {

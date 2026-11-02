@@ -62,20 +62,55 @@ fn add_table(bytes: &mut [u8], table_index: usize, table_type: u32, rows: &[Vec<
     bytes[page + 4092..page + 4094].copy_from_slice(&present.to_le_bytes());
 }
 
-fn track_row(
+/// Optional track-row metadata (DeviceSQL track row offsets per the pinned format
+/// reference; zero / empty = no value).
+#[derive(Default)]
+struct Meta {
+    sample_rate: u32,
+    file_size: u32,
+    key_id: u32,
+    label_id: u32,
+    bit_rate: u32,
+    track_number: u32,
+    genre_id: u32,
+    disc_number: u16,
+    year: u16,
+    rating: u8,
+    date_added: &'static str,
+    comment: &'static str,
+}
+
+fn track_row_with(
     id: u32,
     artist_id: u32,
     tempo: u32,
     duration: u16,
     title: &str,
     path: &str,
+    meta: &Meta,
 ) -> Vec<u8> {
     let mut row = vec![0u8; 0x88];
+    for (at, value) in [
+        (0x08, meta.sample_rate),
+        (0x10, meta.file_size),
+        (0x20, meta.key_id),
+        (0x28, meta.label_id),
+        (0x30, meta.bit_rate),
+        (0x34, meta.track_number),
+        (0x3c, meta.genre_id),
+    ] {
+        row[at..at + 4].copy_from_slice(&value.to_le_bytes());
+    }
+    row[0x4c..0x4e].copy_from_slice(&meta.disc_number.to_le_bytes());
+    row[0x50..0x52].copy_from_slice(&meta.year.to_le_bytes());
+    row[0x59] = meta.rating;
     row[0x48..0x4c].copy_from_slice(&id.to_le_bytes());
     row[0x44..0x48].copy_from_slice(&artist_id.to_le_bytes());
     row[0x38..0x3c].copy_from_slice(&tempo.to_le_bytes());
     row[0x54..0x56].copy_from_slice(&duration.to_le_bytes());
     let mut strings = vec![String::new(); 21];
+    strings[10] = meta.date_added.into();
+    strings[16] = meta.comment.into();
     strings[17] = title.into();
     strings[20] = path.into();
     let mut offset = 0x88u16;
@@ -87,6 +122,14 @@ fn track_row(
         data.extend_from_slice(&encoded);
     }
     row.extend(data);
+    row
+}
+
+/// Genre and label rows: id at 0, name at 4. Key rows: id at 0, name at 8.
+fn id_name_row(id: u32, name_at: usize, name: &str) -> Vec<u8> {
+    let mut row = vec![0u8; name_at];
+    row[0..4].copy_from_slice(&id.to_le_bytes());
+    row.extend(encoded_string(name));
     row
 }
 
@@ -119,27 +162,79 @@ fn entry_row(index: u32, track_id: u32, playlist_id: u32) -> Vec<u8> {
 
 /// 3 tracks / 2 folders / 4 playlists / 6 memberships. Sibling order comes from the
 /// sort keys (not ids or row order); member order from entry_index (rows shuffled).
+/// Track metadata: "Song A" carries every bounded field; "Song <B>" has an unknown
+/// genre id, an unknown key id, a malformed date and an out-of-range rating (all
+/// unresolved, none written); "Song C" has no values and a label id naming an empty
+/// label (absent, not an empty attribute).
 fn synthetic_pdb(extra_entry: Option<Vec<u8>>) -> Vec<u8> {
-    let mut bytes = vec![0u8; 5 * 4096];
+    let mut bytes = vec![0u8; 8 * 4096];
     bytes[4..8].copy_from_slice(&4096u32.to_le_bytes());
-    bytes[8..12].copy_from_slice(&4u32.to_le_bytes());
+    bytes[8..12].copy_from_slice(&7u32.to_le_bytes());
     add_table(
         &mut bytes,
         0,
         0,
         &[
-            track_row(42, 1, 12_800, 180, "Song A", "/Contents/Song A.mp3"),
-            track_row(
+            track_row_with(
+                42,
+                1,
+                12_800,
+                180,
+                "Song A",
+                "/Contents/Song A.mp3",
+                &Meta {
+                    sample_rate: 48_000,
+                    file_size: 7_340_032,
+                    key_id: 3,
+                    label_id: 4,
+                    bit_rate: 320,
+                    track_number: 7,
+                    genre_id: 2,
+                    disc_number: 1,
+                    year: 2019,
+                    rating: 5,
+                    date_added: "2025-12-31",
+                    comment: "Synth <c> & \"d\"",
+                },
+            ),
+            track_row_with(
                 7,
                 0,
                 9_050,
                 61,
                 "Song <B> & \"Q\"",
                 "file://localhost/b.wav",
+                &Meta {
+                    genre_id: 77,
+                    key_id: 78,
+                    rating: 9,
+                    date_added: "yesterday",
+                    bit_rate: 128,
+                    ..Meta::default()
+                },
             ),
-            track_row(9, 1, 0, 0, "Song C", "/Contents/C.flac"),
+            track_row_with(
+                9,
+                1,
+                0,
+                0,
+                "Song C",
+                "/Contents/C.flac",
+                &Meta {
+                    label_id: 5,
+                    ..Meta::default()
+                },
+            ),
         ],
     );
+    add_table(&mut bytes, 4, 1, &[id_name_row(2, 4, "Synth Genre")]);
+    add_table(
+        &mut bytes,
+        5,
+        4,
+        &[id_name_row(4, 4, "Synth Label"), id_name_row(5, 4, "")],
+    );
+    add_table(&mut bytes, 6, 5, &[id_name_row(3, 8, "11B")]);
     add_table(&mut bytes, 1, 2, &[artist_row(1, "Synthetic Artist")]);
     add_table(
         &mut bytes,
@@ -285,15 +380,28 @@ fn expected() -> Decoded {
                 ("TrackID", "1"),
                 ("Name", "Song A"),
                 ("Artist", "Synthetic Artist"),
+                ("Genre", "Synth Genre"),
+                ("Size", "7340032"),
                 ("TotalTime", "180"),
+                ("DiscNumber", "1"),
+                ("TrackNumber", "7"),
+                ("Year", "2019"),
                 ("AverageBpm", "128.00"),
+                ("DateAdded", "2025-12-31"),
+                ("BitRate", "320"),
+                ("SampleRate", "48000"),
+                ("Comments", "Synth <c> & \"d\""),
+                ("Rating", "255"),
                 ("Location", "file://localhost/Contents/Song%20A.mp3"),
+                ("Tonality", "11B"),
+                ("Label", "Synth Label"),
             ]),
             kv(&[
                 ("TrackID", "2"),
                 ("Name", "Song <B> & \"Q\""),
                 ("TotalTime", "61"),
                 ("AverageBpm", "90.50"),
+                ("BitRate", "128"),
                 ("Location", "file://localhost/b.wav"),
             ]),
             kv(&[
@@ -336,6 +444,10 @@ fn assert_aggregate_only(text: &str) {
     for private in [
         "Song",
         "Synthetic Artist",
+        "Synth",
+        "11B",
+        "2025-12-31",
+        "yesterday",
         "Empty Folder",
         "Empty Playlist",
         "Contents",
@@ -377,12 +489,35 @@ fn pdb_library_imports_into_new_catalog_and_exports_verified_xml_without_touchin
         "LocationsUriEncoded: 2",
         "SourceUnchanged: true",
         "CatalogMatchesSource: true",
-        "NotCarried\tTRACK@Genre\t3",
-        "NotCarried\tTRACK@DateAdded\t3",
+        "NotCarried\tTRACK@Composer\t3",
+        "NotCarried\tTRACK@PlayCount\t3",
+        "NotCarried\tTRACK@Colour\t3",
         "NotCarried\tTRACK/POSITION_MARK\t3",
         "NotCarried\tTRACK/TEMPO\t3",
+        "Carried\tTRACK@Artist\t2",
         "AbsentInSource\tArtist\t1",
+        "Carried\tTRACK@Album\t0",
         "AbsentInSource\tAlbum\t3",
+        "Carried\tTRACK@Genre\t1",
+        "AbsentInSource\tGenre\t2",
+        "UnresolvedInSource\tGenre\t1",
+        "Carried\tTRACK@Label\t1",
+        "AbsentInSource\tLabel\t2",
+        "UnresolvedInSource\tLabel\t0",
+        "Carried\tTRACK@Tonality\t1",
+        "UnresolvedInSource\tTonality\t1",
+        "Carried\tTRACK@BitRate\t2",
+        "AbsentInSource\tBitRate\t1",
+        "Carried\tTRACK@DateAdded\t1",
+        "UnresolvedInSource\tDateAdded\t1",
+        "Carried\tTRACK@Rating\t1",
+        "UnresolvedInSource\tRating\t1",
+        "Carried\tTRACK@Comments\t1",
+        "Carried\tTRACK@Size\t1",
+        "Carried\tTRACK@SampleRate\t1",
+        "Carried\tTRACK@TrackNumber\t1",
+        "Carried\tTRACK@DiscNumber\t1",
+        "Carried\tTRACK@Year\t1",
     ] {
         assert!(
             report.lines().any(|l| l == line),
@@ -410,6 +545,33 @@ fn pdb_library_imports_into_new_catalog_and_exports_verified_xml_without_touchin
         assert!(
             report.lines().any(|l| l == line),
             "missing {line:?} in {report}"
+        );
+    }
+    for carried in [
+        "Genre",
+        "Label",
+        "Tonality",
+        "Comments",
+        "DateAdded",
+        "Year",
+        "Size",
+        "BitRate",
+        "SampleRate",
+        "TrackNumber",
+        "DiscNumber",
+        "Rating",
+    ] {
+        assert!(
+            !report
+                .lines()
+                .any(|l| l.starts_with(&format!("NotCarried\tTRACK@{carried}\t"))),
+            "{carried} is carried and must not be reported as not carried"
+        );
+        assert!(
+            report
+                .lines()
+                .any(|l| l.starts_with(&format!("Carried\tTRACK@{carried}\t"))),
+            "missing carried count for {carried}"
         );
     }
     let bytes = std::fs::read(&xml).unwrap();

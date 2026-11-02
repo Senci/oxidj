@@ -6,7 +6,8 @@
 use super::{Catalog, CatalogError};
 
 /// One imported track's metadata; `location` is kept as supplied by the caller.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// Optional fields are `None` when the source supplied no value.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct LibraryTrack {
     pub title: String,
     pub artist: Option<String>,
@@ -14,6 +15,24 @@ pub struct LibraryTrack {
     pub tempo_hundredths_bpm: u32,
     pub duration_seconds: u32,
     pub location: String,
+    pub genre: Option<String>,
+    pub label: Option<String>,
+    /// Musical key as text (e.g. a key name or Camelot code), stored verbatim.
+    pub key: Option<String>,
+    pub comments: Option<String>,
+    /// `YYYY-MM-DD`.
+    pub date_added: Option<String>,
+    pub year: Option<u32>,
+    /// Kilobits per second.
+    pub bit_rate: Option<u32>,
+    /// Hertz.
+    pub sample_rate: Option<u32>,
+    /// Bytes.
+    pub file_size: Option<u64>,
+    pub track_number: Option<u32>,
+    pub disc_number: Option<u32>,
+    /// 1..=5.
+    pub rating_stars: Option<u8>,
 }
 
 /// A playlist-tree node. Children and members are ordered.
@@ -99,7 +118,9 @@ impl Catalog {
         for (position, track) in snapshot.tracks.iter().enumerate() {
             tx.execute(
                 "INSERT INTO library_tracks(position,title,artist,album,tempo_hundredths_bpm,\
-                 duration_seconds,location) VALUES(?1,?2,?3,?4,?5,?6,?7)",
+                 duration_seconds,location,genre,label,musical_key,comments,date_added,year,\
+                 bit_rate,sample_rate,file_size,track_number,disc_number,rating_stars) \
+                 VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19)",
                 rusqlite::params![
                     to_i64(position)?,
                     track.title,
@@ -107,7 +128,23 @@ impl Catalog {
                     track.album,
                     track.tempo_hundredths_bpm,
                     track.duration_seconds,
-                    track.location
+                    track.location,
+                    track.genre,
+                    track.label,
+                    track.key,
+                    track.comments,
+                    track.date_added,
+                    track.year,
+                    track.bit_rate,
+                    track.sample_rate,
+                    track
+                        .file_size
+                        .map(|size| i64::try_from(size)
+                            .map_err(|_| CatalogError::InvalidRecord("file size exceeds range")))
+                        .transpose()?,
+                    track.track_number,
+                    track.disc_number,
+                    track.rating_stars
                 ],
             )?;
         }
@@ -167,8 +204,9 @@ impl Catalog {
     /// Read the stored imported library back in stored order.
     pub fn library_snapshot(&self) -> Result<LibrarySnapshot, CatalogError> {
         let mut statement = self.connection.prepare(
-            "SELECT position,title,artist,album,tempo_hundredths_bpm,duration_seconds,location \
-             FROM library_tracks ORDER BY position",
+            "SELECT position,title,artist,album,tempo_hundredths_bpm,duration_seconds,location,\
+             genre,label,musical_key,comments,date_added,year,bit_rate,sample_rate,file_size,\
+             track_number,disc_number,rating_stars FROM library_tracks ORDER BY position",
         )?;
         let mut tracks = Vec::new();
         let rows = statement.query_map([], |row| {
@@ -181,6 +219,22 @@ impl Catalog {
                     tempo_hundredths_bpm: row.get(4)?,
                     duration_seconds: row.get(5)?,
                     location: row.get(6)?,
+                    genre: row.get(7)?,
+                    label: row.get(8)?,
+                    key: row.get(9)?,
+                    comments: row.get(10)?,
+                    date_added: row.get(11)?,
+                    year: row.get(12)?,
+                    bit_rate: row.get(13)?,
+                    sample_rate: row.get(14)?,
+                    file_size: row
+                        .get::<_, Option<i64>>(15)?
+                        .map(u64::try_from)
+                        .transpose()
+                        .map_err(|_| rusqlite::Error::InvalidQuery)?,
+                    track_number: row.get(16)?,
+                    disc_number: row.get(17)?,
+                    rating_stars: row.get(18)?,
                 },
             ))
         })?;
@@ -269,12 +323,28 @@ mod tests {
             tempo_hundredths_bpm: 12_800,
             duration_seconds: 180,
             location: format!("file://localhost/{title}.wav"),
+            ..LibraryTrack::default()
         }
     }
 
     fn snapshot() -> LibrarySnapshot {
+        let full = LibraryTrack {
+            genre: Some("Genre".into()),
+            label: Some("Label".into()),
+            key: Some("8A".into()),
+            comments: Some("".into()),
+            date_added: Some("2026-01-02".into()),
+            year: Some(1999),
+            bit_rate: Some(320),
+            sample_rate: Some(44_100),
+            file_size: Some(u64::from(u32::MAX) + 1),
+            track_number: Some(3),
+            disc_number: Some(1),
+            rating_stars: Some(5),
+            ..track("A")
+        };
         LibrarySnapshot {
-            tracks: vec![track("A"), track("B"), track("C")],
+            tracks: vec![full, track("B"), track("C")],
             roots: vec![
                 LibraryNode::Playlist {
                     name: "Zeta".into(),
