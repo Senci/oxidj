@@ -76,7 +76,7 @@ fn has_mix(n: &N, id: &str) -> bool {
         && n.attrs.iter().any(|(k, _)| k == "Mix"))
         || n.children.iter().any(|c| has_mix(c, id))
 }
-fn check(bytes: &[u8]) -> Result<(), String> {
+pub(crate) fn check(bytes: &[u8]) -> Result<(), String> {
     let actual = decode(bytes);
     let mut expected = decode(SOURCE);
     assert!(change_expected_mix(&mut expected));

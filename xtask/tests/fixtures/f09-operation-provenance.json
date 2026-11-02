@@ -472,7 +472,7 @@
       "checker": {
         "path": "xtask/tests/f02_track_mix_edit_oracle.rs",
         "version": "f09-operation-oracle-v1",
-        "sha256": "258d9cf34d404b046b180729f2caa782d032e57803a165de4c823356a2e1f94f",
+        "sha256": "603283f89b62ebfd6b0dd55ec4e21c8bc9059eaf1802c54f3fb8c032d7ff75a4",
         "tests": [
           "independently_verifies_guarded_track_mix_edit_and_rejects_mutations"
         ]
