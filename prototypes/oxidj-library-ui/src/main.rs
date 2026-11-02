@@ -258,6 +258,8 @@ struct PendingTrackAlbumEdit {
 #[derive(Debug, Clone)]
 struct PendingTrackComposerEdit { source: PathBuf, track_id: String, prepared: oxidj_application::PreparedTrackComposerExport }
 #[derive(Debug, Clone)]
+struct PendingTrackRemixerEdit { source: PathBuf, track_id: String, prepared: oxidj_application::PreparedTrackRemixerExport }
+#[derive(Debug, Clone)]
 struct PendingTrackGroupingEdit { source: PathBuf, track_id: String, prepared: oxidj_application::PreparedTrackGroupingExport }
 #[derive(Debug, Clone)]
 struct PendingTrackLabelEdit {
@@ -485,6 +487,9 @@ struct LibraryApp {
     xml_edit_label: String,
     xml_label_export_path: String,
     xml_pending_label_edit: Option<PendingTrackLabelEdit>,
+    xml_edit_remixer: String,
+    xml_remixer_export_path: String,
+    xml_pending_remixer_edit: Option<PendingTrackRemixerEdit>,
     xml_genre_export_path: String,
     xml_selected_playlist: Option<usize>,
     xml_selected_member: Option<usize>,
@@ -3149,6 +3154,102 @@ impl LibraryApp {
         }
     }
 
+    fn prepare_xml_remixer_edit(&mut self, track_id: &str, old_remixer: Option<&str>) {
+        let Some(old_remixer) = old_remixer else {
+            self.xml_pending_remixer_edit = None;
+            self.xml_edit_error = Some(
+                "Track Remixer preparation refused: selected track has no Remixer attribute"
+                    .into(),
+            );
+            return;
+        };
+        let Some(source) = self.xml_document_source.clone() else {
+            self.xml_pending_remixer_edit = None;
+            self.xml_edit_error =
+                Some("Track Remixer preparation refused: no XML document is loaded".into());
+            return;
+        };
+        let request = oxidj_application::TrackRemixerEditPreparationRequest {
+            source: source.clone(),
+            track_id: track_id.to_owned(),
+            expected_old_remixer: old_remixer.to_owned(),
+            new_remixer: self.xml_edit_remixer.clone(),
+        };
+        match oxidj_application::prepare_rekordbox_track_remixer_export(&request) {
+            Ok(prepared) => {
+                self.xml_pending_remixer_edit = Some(PendingTrackRemixerEdit {
+                    source,
+                    track_id: track_id.to_owned(),
+                    prepared,
+                });
+                self.xml_edit_error = None;
+            }
+            Err(error) => {
+                self.xml_pending_remixer_edit = None;
+                self.xml_edit_error = Some(format!("Track Remixer preparation refused: {error}"));
+            }
+        }
+    }
+
+    fn cancel_xml_remixer_edit(&mut self) {
+        self.xml_pending_remixer_edit = None;
+        self.xml_edit_error = None;
+    }
+
+    fn export_xml_remixer_edit(&mut self) {
+        self.notice.clear();
+        let Some(pending) = self.xml_pending_remixer_edit.clone() else {
+            self.xml_edit_error = Some("Track Remixer export refused: no prepared pending edit".into());
+            return;
+        };
+        let proposal = pending.prepared.change();
+        let selected_remixer = self
+            .xml_preview
+            .as_ref()
+            .and_then(|p| p.as_ref().ok())
+            .and_then(|p| p.tracks.iter().find(|t| t.id == pending.track_id))
+            .and_then(|t| t.remixer.as_deref());
+        if self.xml_document_source.as_ref() != Some(&pending.source)
+            || PathBuf::from(&self.xml_path) != pending.source
+            || self.xml_selected_track.as_deref() != Some(&pending.track_id)
+            || self.xml_edit_remixer != proposal.new_remixer
+            || selected_remixer != Some(proposal.old_remixer.as_str())
+        {
+            self.xml_pending_remixer_edit = None;
+            self.xml_edit_error = Some(
+                "Track Remixer export refused: source, selected track, or proposed value changed"
+                    .into(),
+            );
+            return;
+        }
+        let output = PathBuf::from(&self.xml_remixer_export_path);
+        if self.xml_remixer_export_path.trim().is_empty() {
+            self.xml_edit_error =
+                Some("Track Remixer export refused: choose a new XML destination".into());
+            return;
+        }
+        match oxidj_application::export_prepared_rekordbox_track_remixer_edit(
+            &pending.prepared,
+            &output,
+        ) {
+            Ok(change) => {
+                self.xml_pending_remixer_edit = None;
+                self.xml_edit_error = None;
+                self.notice = format!("Track Remixer exported to {}", output.display());
+                self.xml_remixer_export_path = output.display().to_string();
+                self.xml_path = output.display().to_string();
+                self.xml_document_source = Some(output.clone());
+                self.xml_preview = Some(
+                    oxidj_application::preview_rekordbox_xml(&output).map_err(|e| e.to_string()),
+                );
+                self.xml_edit_remixer = change.new_remixer;
+            }
+            Err(error) => {
+                self.xml_edit_error = Some(format!("Track Remixer export failed: {error}"));
+            }
+        }
+    }
+
     fn prepare_xml_grouping_edit(&mut self, track_id: &str, old_grouping: Option<&str>) {
         let Some(old_grouping) = old_grouping else {
             self.xml_pending_grouping_edit = None;
@@ -3751,6 +3852,63 @@ impl eframe::App for LibraryApp {
                             }
                         } else {
                             ui.label("Select one track above to prepare a pending Genre edit.");
+                        }
+                        SectionHeading { title: "Track Remixer edit (provisional)" }.show(ui, tokens);
+                        if let Some(track_id) = self.xml_selected_track.clone() {
+                            if let Some(track) = preview.tracks.iter().find(|t| t.id == track_id) {
+                                ui.label(format!("Selected TrackID: {track_id}"));
+                                if let Some(remixer) = track.remixer.as_deref() {
+                                    ui.label(if remixer.is_empty() {
+                                        "Current Remixer: present but empty"
+                                    } else {
+                                        "Current Remixer: present"
+                                    });
+                                    ui.horizontal(|ui| {
+                                        ui.label("Proposed Remixer");
+                                        if ui
+                                            .text_edit_singleline(&mut self.xml_edit_remixer)
+                                            .changed()
+                                        {
+                                            self.xml_pending_remixer_edit = None;
+                                        }
+                                    });
+                                    if ui.button("Prepare pending Remixer edit").clicked() {
+                                        self.prepare_xml_remixer_edit(&track.id, Some(remixer));
+                                    }
+                                    if let Some(pending) = &self.xml_pending_remixer_edit {
+                                        ui.separator();
+                                        ui.strong("Pending Remixer edit · not exported or saved");
+                                        ui.label(format!("Source: {}", pending.source.display()));
+                                        ui.label(format!("TrackID: {}", pending.track_id));
+                                        ui.label(format!(
+                                            "Original Remixer: {:?}",
+                                            pending.prepared.change().old_remixer
+                                        ));
+                                        ui.label(format!(
+                                            "Proposed Remixer: {:?}",
+                                            pending.prepared.change().new_remixer
+                                        ));
+                                        ui.horizontal(|ui| {
+                                            ui.label("New XML destination");
+                                            ui.text_edit_singleline(&mut self.xml_remixer_export_path);
+                                        });
+                                        if ui.button("Export prepared Remixer edit").clicked() {
+                                            self.export_xml_remixer_edit();
+                                        }
+                                        if ui.button("Cancel pending Remixer edit").clicked() {
+                                            self.cancel_xml_remixer_edit();
+                                        }
+                                    }
+                                } else {
+                                    self.xml_pending_remixer_edit = None;
+                                    ui.label("Selected track has no Remixer attribute; insertion is not supported.");
+                                }
+                            } else {
+                                self.xml_pending_remixer_edit = None;
+                                ui.label("Selected TrackID is no longer in the loaded preview.");
+                            }
+                        } else {
+                            ui.label("Select one track above to prepare a pending Remixer edit.");
                         }
                         SectionHeading { title: "Track Composer edit (provisional)" }.show(ui, tokens);
                         if let Some(track_id) = self.xml_selected_track.clone() {

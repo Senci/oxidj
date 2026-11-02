@@ -772,6 +772,66 @@ pub fn export_prepared_rekordbox_track_composer_edit(
     Ok(prepared.change.clone())
 }
 
+/// A source-bound prepared Track Remixer export retains the exact preview snapshot.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PreparedTrackRemixerExport {
+    source: std::path::PathBuf,
+    source_bytes: Vec<u8>,
+    bytes: Vec<u8>,
+    change: oxidj_rekordbox::TrackRemixerEditChange,
+}
+impl PreparedTrackRemixerExport {
+    pub fn source(&self) -> &Path {
+        &self.source
+    }
+    pub fn bytes(&self) -> &[u8] {
+        &self.bytes
+    }
+    pub fn change(&self) -> &oxidj_rekordbox::TrackRemixerEditChange {
+        &self.change
+    }
+}
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TrackRemixerEditPreparationRequest {
+    pub source: std::path::PathBuf,
+    pub track_id: String,
+    pub expected_old_remixer: String,
+    pub new_remixer: String,
+}
+/// Prepare one guarded Remixer edit without writing any file.
+pub fn prepare_rekordbox_track_remixer_export(
+    request: &TrackRemixerEditPreparationRequest,
+) -> Result<PreparedTrackRemixerExport, RekordboxError> {
+    let source =
+        std::fs::read(&request.source).map_err(|error| RekordboxError(error.to_string()))?;
+    let adapter_request = oxidj_rekordbox::TrackRemixerEditRequest {
+        track_id: request.track_id.clone(),
+        expected_old_remixer: request.expected_old_remixer.clone(),
+        new_remixer: request.new_remixer.clone(),
+    };
+    let prepared = oxidj_rekordbox::prepare_track_remixer_edit(&source, &adapter_request)?;
+    Ok(PreparedTrackRemixerExport {
+        source: request.source.clone(),
+        source_bytes: source,
+        bytes: prepared.bytes,
+        change: prepared.change,
+    })
+}
+/// Export a prepared Remixer edit only after source revalidation, to a new path.
+pub fn export_prepared_rekordbox_track_remixer_edit(
+    prepared: &PreparedTrackRemixerExport,
+    output: impl AsRef<Path>,
+) -> Result<oxidj_rekordbox::TrackRemixerEditChange, RekordboxError> {
+    let (current_source, output) = read_new_export_source(&prepared.source, output)?;
+    if current_source != prepared.source_bytes {
+        return Err(RekordboxError(
+            "source changed after Track Remixer edit preparation".into(),
+        ));
+    }
+    publish_new_file(&output, &prepared.bytes)?;
+    Ok(prepared.change.clone())
+}
+
 /// A source-bound prepared Track Grouping export retains the exact preview snapshot.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PreparedTrackGroupingExport {
@@ -2892,6 +2952,89 @@ mod track_label_preparation_tests {
         let prepared =
             prepare_rekordbox_track_label_export(&request(source.clone(), "", "new")).unwrap();
         assert_eq!(prepared.change().old_label, "");
+        std::fs::remove_dir_all(root).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod track_remixer_preparation_tests {
+    use super::*;
+
+    fn setup() -> (std::path::PathBuf, std::path::PathBuf) {
+        let root = std::env::temp_dir().join(format!(
+            "oxidj-app-track-remixer-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let source = root.join("source.xml");
+        std::fs::copy(
+            concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../xtask/tests/fixtures/f02-track-remixer-edit/source.xml"
+            ),
+            &source,
+        )
+        .unwrap();
+        (root, source)
+    }
+
+    fn request(
+        source: std::path::PathBuf,
+        old: &str,
+        new: &str,
+    ) -> TrackRemixerEditPreparationRequest {
+        TrackRemixerEditPreparationRequest {
+            source,
+            track_id: "100".into(),
+            expected_old_remixer: old.into(),
+            new_remixer: new.into(),
+        }
+    }
+
+    #[test]
+    fn prepared_remixer_export_is_source_bound_and_never_overwrites() {
+        let (root, source) = setup();
+        let original = std::fs::read(&source).unwrap();
+        let req = request(source.clone(), "old & mix", "new < mix");
+        let prepared = prepare_rekordbox_track_remixer_export(&req).unwrap();
+        assert_eq!(prepared.change().old_remixer, "old & mix");
+        assert_eq!(std::fs::read(&source).unwrap(), original);
+        assert!(export_prepared_rekordbox_track_remixer_edit(&prepared, &source).is_err());
+        let existing = root.join("existing.xml");
+        std::fs::write(&existing, b"preserve").unwrap();
+        assert!(export_prepared_rekordbox_track_remixer_edit(&prepared, &existing).is_err());
+        assert_eq!(std::fs::read(&existing).unwrap(), b"preserve");
+        let output = root.join("out.xml");
+        export_prepared_rekordbox_track_remixer_edit(&prepared, &output).unwrap();
+        assert_eq!(std::fs::read(&output).unwrap(), prepared.bytes());
+        assert_eq!(std::fs::read(&source).unwrap(), original);
+        let stale = prepare_rekordbox_track_remixer_export(&req).unwrap();
+        std::fs::write(&source, b"<changed/>").unwrap();
+        let stale_output = root.join("stale.xml");
+        assert!(export_prepared_rekordbox_track_remixer_edit(&stale, &stale_output).is_err());
+        assert!(!stale_output.exists());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn remixer_preparation_refuses_absent_and_stale_values_but_accepts_empty() {
+        let (root, source) = setup();
+        for (id, old) in [("200", "old & mix"), ("100", "stale")] {
+            let mut req = request(source.clone(), old, "new");
+            req.track_id = id.into();
+            assert!(prepare_rekordbox_track_remixer_export(&req).is_err());
+        }
+        let xml = std::fs::read_to_string(&source)
+            .unwrap()
+            .replace("Remixer=\"old &amp; mix\"", "Remixer=\"\"");
+        std::fs::write(&source, xml).unwrap();
+        let prepared =
+            prepare_rekordbox_track_remixer_export(&request(source.clone(), "", "new")).unwrap();
+        assert_eq!(prepared.change().old_remixer, "");
         std::fs::remove_dir_all(root).unwrap();
     }
 }
