@@ -2505,6 +2505,10 @@ impl LibraryApp {
         self.xml_pending_remixer_edit = None;
         self.xml_pending_mix_edit = None;
         self.xml_pending_tonality_edit = None;
+        self.xml_pending_kind_edit = None;
+        self.xml_pending_grouping_edit = None;
+        self.xml_pending_label_edit = None;
+        self.xml_pending_edit = None;
         self.invalidate_xml_member_delete();
         self.xml_selected_playlist = None;
         self.xml_selected_member = None;
@@ -9618,6 +9622,182 @@ mod keyboard_tests {
             "changed proposal must refuse export"
         );
         assert!(app.xml_pending_kind_edit.is_none());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn source_path_change_discards_pending_kind_grouping_label_and_name_edits() {
+        let (root, source) = temporary_xml();
+        let fixtures: [(&[u8], &str); 4] = [
+            (include_bytes!("../../../xtask/tests/fixtures/f02-track-kind-edit/source.xml"), "kind"),
+            (include_bytes!("../../../xtask/tests/fixtures/f02-track-grouping-edit/source.xml"), "grouping"),
+            (include_bytes!("../../../xtask/tests/fixtures/f02-track-label-edit/source.xml"), "label"),
+            (include_bytes!("../../../xtask/tests/fixtures/f02-track-kind-edit/source.xml"), "name"),
+        ];
+        for (fixture, field) in fixtures {
+            std::fs::write(&source, fixture).unwrap();
+            let mut app = app();
+            app.xml_path = source.display().to_string();
+            app.preview_xml();
+            app.select_xml_track("100", "A");
+            match field {
+                "kind" => {
+                    app.xml_edit_kind = "new".into();
+                    app.prepare_xml_kind_edit("100", Some("old & kind"));
+                    assert!(app.xml_pending_kind_edit.is_some());
+                }
+                "grouping" => {
+                    app.xml_edit_grouping = "new".into();
+                    app.prepare_xml_grouping_edit("100", Some("old & crate"));
+                    assert!(app.xml_pending_grouping_edit.is_some());
+                }
+                "label" => {
+                    app.xml_edit_label = "new".into();
+                    app.prepare_xml_label_edit("100", Some("old & imprint"));
+                    assert!(app.xml_pending_label_edit.is_some());
+                }
+                _ => {
+                    app.xml_edit_name = "new".into();
+                    app.prepare_xml_name_edit("100", "A");
+                    assert!(app.xml_pending_edit.is_some());
+                }
+            }
+            app.xml_path = root.join("other.xml").display().to_string();
+            app.on_xml_source_changed();
+            assert!(
+                app.xml_pending_kind_edit.is_none()
+                    && app.xml_pending_grouping_edit.is_none()
+                    && app.xml_pending_label_edit.is_none()
+                    && app.xml_pending_edit.is_none(),
+                "source path change must discard pending {field} edit"
+            );
+        }
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn track_tonality_ui_refuses_changed_path_selection_proposal_stale_source_and_overwrite() {
+        let (root, source) = temporary_xml();
+        let fixture =
+            include_bytes!("../../../xtask/tests/fixtures/f02-track-tonality-edit/source.xml");
+        std::fs::write(&source, fixture).unwrap();
+        let mut app = app();
+        let prepare = |app: &mut LibraryApp| {
+            app.xml_path = source.display().to_string();
+            app.preview_xml();
+            app.select_xml_track("100", "A");
+            app.xml_edit_tonality = "new < key".into();
+            app.prepare_xml_tonality_edit("100", Some("old & key"));
+            assert!(app.xml_pending_tonality_edit.is_some());
+        };
+
+        prepare(&mut app);
+        let path_output = root.join("changed-path.xml");
+        app.xml_tonality_export_path = path_output.display().to_string();
+        app.xml_path = root.join("other.xml").display().to_string();
+        app.export_xml_tonality_edit();
+        assert!(!path_output.exists(), "changed editable path must refuse export");
+        assert!(app.xml_pending_tonality_edit.is_none());
+
+        prepare(&mut app);
+        let selection_output = root.join("changed-selection.xml");
+        app.xml_tonality_export_path = selection_output.display().to_string();
+        app.select_xml_track("200", "B");
+        app.export_xml_tonality_edit();
+        assert!(!selection_output.exists(), "changed selection must refuse export");
+
+        prepare(&mut app);
+        let proposal_output = root.join("changed-proposal.xml");
+        app.xml_tonality_export_path = proposal_output.display().to_string();
+        app.xml_edit_tonality = "changed after preview".into();
+        app.export_xml_tonality_edit();
+        assert!(!proposal_output.exists(), "changed proposal must refuse export");
+        assert!(app.xml_pending_tonality_edit.is_none());
+
+        prepare(&mut app);
+        let stale_output = root.join("stale-source.xml");
+        app.xml_tonality_export_path = stale_output.display().to_string();
+        let mut changed = fixture.to_vec();
+        changed.extend_from_slice(b"\n<!-- changed after preparation -->\n");
+        std::fs::write(&source, &changed).unwrap();
+        app.export_xml_tonality_edit();
+        assert!(!stale_output.exists(), "changed source bytes must refuse export");
+        assert!(app.xml_edit_error.as_deref().unwrap().contains("source changed"));
+        assert_eq!(std::fs::read(&source).unwrap(), changed);
+        std::fs::write(&source, fixture).unwrap();
+
+        prepare(&mut app);
+        let existing = root.join("existing.xml");
+        std::fs::write(&existing, b"keep").unwrap();
+        app.xml_tonality_export_path = existing.display().to_string();
+        app.export_xml_tonality_edit();
+        assert_eq!(std::fs::read(&existing).unwrap(), b"keep", "export must not overwrite");
+        assert_eq!(std::fs::read(&source).unwrap(), fixture);
+
+        let output = root.join("edited.xml");
+        app.xml_tonality_export_path = output.display().to_string();
+        app.export_xml_tonality_edit();
+        let bytes = std::fs::read(&output).unwrap();
+        assert!(f02_track_tonality_edit_oracle::check(&bytes).is_ok());
+        let mutated = String::from_utf8(bytes.clone())
+            .unwrap()
+            .replacen("new &lt; key", "new &lt; KEY", 1);
+        assert_ne!(mutated.as_bytes(), bytes.as_slice());
+        assert!(f02_track_tonality_edit_oracle::check(mutated.as_bytes()).is_err());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn track_kind_ui_refuses_absent_insertion_stale_source_and_overwrite_with_oracle_mutation() {
+        let (root, source) = temporary_xml();
+        let fixture = include_bytes!("../../../xtask/tests/fixtures/f02-track-kind-edit/source.xml");
+        std::fs::write(&source, fixture).unwrap();
+        let mut app = app();
+        app.xml_path = source.display().to_string();
+        app.preview_xml();
+        app.select_xml_track("200", "B");
+        app.xml_edit_kind = "inserted".into();
+        app.prepare_xml_kind_edit("200", None);
+        assert!(app.xml_pending_kind_edit.is_none(), "absent Kind insertion must refuse");
+        assert!(app.xml_edit_error.as_deref().unwrap().contains("no Kind attribute"));
+
+        let prepare = |app: &mut LibraryApp| {
+            app.xml_path = source.display().to_string();
+            app.preview_xml();
+            app.select_xml_track("100", "A");
+            app.xml_edit_kind = "new < kind".into();
+            app.prepare_xml_kind_edit("100", Some("old & kind"));
+            assert!(app.xml_pending_kind_edit.is_some());
+        };
+        prepare(&mut app);
+        let stale_output = root.join("stale-source.xml");
+        app.xml_kind_export_path = stale_output.display().to_string();
+        let mut changed = fixture.to_vec();
+        changed.extend_from_slice(b"\n<!-- changed after preparation -->\n");
+        std::fs::write(&source, &changed).unwrap();
+        app.export_xml_kind_edit();
+        assert!(!stale_output.exists(), "changed source bytes must refuse export");
+        assert!(app.xml_edit_error.as_deref().unwrap().contains("source changed"));
+        std::fs::write(&source, fixture).unwrap();
+
+        prepare(&mut app);
+        let existing = root.join("existing.xml");
+        std::fs::write(&existing, b"keep").unwrap();
+        app.xml_kind_export_path = existing.display().to_string();
+        app.export_xml_kind_edit();
+        assert_eq!(std::fs::read(&existing).unwrap(), b"keep", "export must not overwrite");
+        assert_eq!(std::fs::read(&source).unwrap(), fixture);
+
+        let output = root.join("edited.xml");
+        app.xml_kind_export_path = output.display().to_string();
+        app.export_xml_kind_edit();
+        let bytes = std::fs::read(&output).unwrap();
+        assert!(f02_track_kind_edit_oracle::check(&bytes).is_ok());
+        let mutated = String::from_utf8(bytes.clone())
+            .unwrap()
+            .replacen("new &lt; kind", "new &lt; KIND", 1);
+        assert_ne!(mutated.as_bytes(), bytes.as_slice());
+        assert!(f02_track_kind_edit_oracle::check(mutated.as_bytes()).is_err());
         std::fs::remove_dir_all(root).unwrap();
     }
 
