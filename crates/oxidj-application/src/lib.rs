@@ -655,6 +655,27 @@ impl PreparedTrackCommentsExport {
     }
 }
 
+/// A source-bound prepared Track Album export retains the exact preview snapshot.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PreparedTrackAlbumExport {
+    source: std::path::PathBuf,
+    source_bytes: Vec<u8>,
+    bytes: Vec<u8>,
+    change: TrackAlbumEditChange,
+}
+
+impl PreparedTrackAlbumExport {
+    pub fn source(&self) -> &Path {
+        &self.source
+    }
+    pub fn bytes(&self) -> &[u8] {
+        &self.bytes
+    }
+    pub fn change(&self) -> &TrackAlbumEditChange {
+        &self.change
+    }
+}
+
 /// Source and exact-old guard for a previewable Track Name edit.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TrackNameEditPreparationRequest {
@@ -680,6 +701,15 @@ pub struct TrackCommentsEditPreparationRequest {
     pub track_id: String,
     pub expected_old_comments: String,
     pub new_comments: String,
+}
+
+/// Source and exact-old guard for a previewable Track Album edit.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TrackAlbumEditPreparationRequest {
+    pub source: std::path::PathBuf,
+    pub track_id: String,
+    pub expected_old_album: String,
+    pub new_album: String,
 }
 
 /// Prepare one guarded Comments edit without writing any file.
@@ -711,6 +741,41 @@ pub fn export_prepared_rekordbox_track_comments_edit(
     if current_source != prepared.source_bytes {
         return Err(RekordboxError(
             "source changed after Track Comments edit preparation".into(),
+        ));
+    }
+    publish_new_file(&output, &prepared.bytes)?;
+    Ok(prepared.change.clone())
+}
+
+/// Prepare one guarded Album edit without writing any file.
+pub fn prepare_rekordbox_track_album_export(
+    request: &TrackAlbumEditPreparationRequest,
+) -> Result<PreparedTrackAlbumExport, RekordboxError> {
+    let source =
+        std::fs::read(&request.source).map_err(|error| RekordboxError(error.to_string()))?;
+    let adapter_request = TrackAlbumEditRequest {
+        track_id: request.track_id.clone(),
+        expected_old_album: request.expected_old_album.clone(),
+        new_album: request.new_album.clone(),
+    };
+    let prepared = oxidj_rekordbox::prepare_track_album_edit(&source, &adapter_request)?;
+    Ok(PreparedTrackAlbumExport {
+        source: request.source.clone(),
+        source_bytes: source,
+        bytes: prepared.bytes,
+        change: prepared.change,
+    })
+}
+
+/// Export only a prepared Album edit after source revalidation, to a new path.
+pub fn export_prepared_rekordbox_track_album_edit(
+    prepared: &PreparedTrackAlbumExport,
+    output: impl AsRef<Path>,
+) -> Result<TrackAlbumEditChange, RekordboxError> {
+    let (current_source, output) = read_new_export_source(&prepared.source, output)?;
+    if current_source != prepared.source_bytes {
+        return Err(RekordboxError(
+            "source changed after Track Album edit preparation".into(),
         ));
     }
     publish_new_file(&output, &prepared.bytes)?;
@@ -2195,6 +2260,100 @@ mod track_comments_preparation_tests {
             new_comments: "restored".into(),
         };
         assert!(prepare_rekordbox_track_comments_export(&request).is_ok());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod track_album_preparation_tests {
+    use super::*;
+
+    fn setup() -> (std::path::PathBuf, std::path::PathBuf) {
+        let root = std::env::temp_dir().join(format!(
+            "oxidj-app-track-album-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let source = root.join("source.xml");
+        std::fs::copy(
+            concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../xtask/tests/fixtures/f02-track-album-edit/source.xml"
+            ),
+            &source,
+        )
+        .unwrap();
+        (root, source)
+    }
+
+    fn request(source: std::path::PathBuf, new_album: &str) -> TrackAlbumEditPreparationRequest {
+        TrackAlbumEditPreparationRequest {
+            source,
+            track_id: "100".into(),
+            expected_old_album: "old & record".into(),
+            new_album: new_album.into(),
+        }
+    }
+
+    #[test]
+    fn prepared_album_export_is_source_bound_and_never_overwrites() {
+        let (root, source) = setup();
+        let original = std::fs::read(&source).unwrap();
+        let request = request(source.clone(), "new < record");
+        let prepared = prepare_rekordbox_track_album_export(&request).unwrap();
+        assert_eq!(prepared.change().old_album, "old & record");
+        assert_eq!(prepared.change().new_album, "new < record");
+        assert_eq!(std::fs::read(&source).unwrap(), original);
+
+        assert!(export_prepared_rekordbox_track_album_edit(&prepared, &source).is_err());
+        let existing = root.join("existing.xml");
+        std::fs::write(&existing, b"preserve").unwrap();
+        assert!(export_prepared_rekordbox_track_album_edit(&prepared, &existing).is_err());
+        assert_eq!(std::fs::read(&existing).unwrap(), b"preserve");
+
+        let output = root.join("edited.xml");
+        let change = export_prepared_rekordbox_track_album_edit(&prepared, &output).unwrap();
+        assert_eq!(change.new_album, request.new_album);
+        assert_eq!(std::fs::read(&output).unwrap(), prepared.bytes());
+        assert_eq!(std::fs::read(&source).unwrap(), original);
+
+        let stale = prepare_rekordbox_track_album_export(&request).unwrap();
+        std::fs::write(&source, b"<changed/>").unwrap();
+        let stale_output = root.join("stale.xml");
+        assert!(export_prepared_rekordbox_track_album_edit(&stale, &stale_output).is_err());
+        assert!(!stale_output.exists());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn album_preparation_refuses_absent_stale_and_invalid_values_but_accepts_empty() {
+        let (root, source) = setup();
+        for (track_id, expected_old_album, new_album) in [
+            ("200", "old & record", "new"),
+            ("100", "stale", "new"),
+            ("100", "old & record", "bad\u{1}"),
+        ] {
+            let mut request = request(source.clone(), new_album);
+            request.track_id = track_id.into();
+            request.expected_old_album = expected_old_album.into();
+            assert!(prepare_rekordbox_track_album_export(&request).is_err());
+        }
+
+        let xml = std::fs::read_to_string(&source)
+            .unwrap()
+            .replace("Album=\"old &amp; record\"", "Album=\"\"");
+        std::fs::write(&source, xml).unwrap();
+        let request = TrackAlbumEditPreparationRequest {
+            source: source.clone(),
+            track_id: "100".into(),
+            expected_old_album: String::new(),
+            new_album: "restored".into(),
+        };
+        assert!(prepare_rekordbox_track_album_export(&request).is_ok());
         std::fs::remove_dir_all(root).unwrap();
     }
 }

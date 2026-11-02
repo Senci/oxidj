@@ -81,16 +81,16 @@ fn decode(bytes: &[u8]) -> N {
     }
     root.unwrap()
 }
-fn change_expected_album(n: &mut N) -> bool {
+fn change_expected_album(n: &mut N, expected_album: &str) -> bool {
     if n.name == "TRACK" && n.attrs.iter().any(|(k, v)| k == "TrackID" && v == "100") {
         let album = n.attrs.iter_mut().find(|(k, _)| k == "Album").unwrap();
         assert_eq!(album.1, "old & record");
-        album.1 = "new < record".into();
+        album.1 = expected_album.into();
         return true;
     }
     let mut found = false;
     for child in &mut n.children {
-        found |= change_expected_album(child);
+        found |= change_expected_album(child, expected_album);
     }
     found
 }
@@ -100,11 +100,14 @@ fn has_album(n: &N, track_id: &str) -> bool {
         && n.attrs.iter().any(|(k, _)| k == "Album"))
         || n.children.iter().any(|child| has_album(child, track_id))
 }
-fn check(bytes: &[u8]) -> Result<(), String> {
+pub fn check(bytes: &[u8]) -> Result<(), String> {
+    check_with_album(bytes, "new < record")
+}
+pub fn check_with_album(bytes: &[u8], expected_album: &str) -> Result<(), String> {
     let actual = decode(bytes);
     let mut expected = decode(SOURCE);
     assert!(
-        change_expected_album(&mut expected),
+        change_expected_album(&mut expected, expected_album),
         "fixture lacks TrackID 100 Album"
     );
     if actual != expected {

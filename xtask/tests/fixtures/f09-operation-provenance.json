@@ -232,7 +232,7 @@
       "checker": {
         "path": "xtask/tests/f02_track_album_edit_oracle.rs",
         "version": "f09-operation-oracle-v1",
-        "sha256": "0b78e8a539e0dfe980b02850bc94f8acbe960af9bd62b1ba6c7d53cba29bed69",
+        "sha256": "5970e211fd2790e84c6bc90ce996325485e12e49aa86118f5a0bb6dcc3191a3c",
         "tests": [
           "independently_verifies_guarded_track_album_edit_and_rejects_mutations"
         ]

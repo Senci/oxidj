@@ -204,6 +204,8 @@ mod f02_track_artist_edit_oracle;
 #[cfg(test)]
 #[path = "../../../xtask/tests/f02_track_comments_edit_oracle.rs"]
 mod f02_track_comments_edit_oracle;
+#[path = "../../../xtask/tests/f02_track_album_edit_oracle.rs"]
+mod f02_track_album_edit_oracle;
 #[cfg(test)]
 #[path = "../../../xtask/tests/common/f02_track_name_oracle_support.rs"]
 mod f02_track_name_oracle_support;
@@ -234,6 +236,12 @@ struct PendingTrackCommentsEdit {
     source: PathBuf,
     track_id: String,
     prepared: oxidj_application::PreparedTrackCommentsExport,
+}
+#[derive(Debug, Clone)]
+struct PendingTrackAlbumEdit {
+    source: PathBuf,
+    track_id: String,
+    prepared: oxidj_application::PreparedTrackAlbumExport,
 }
 #[derive(Debug, Clone)]
 struct PendingPlaylistMemberReorder {
@@ -434,6 +442,9 @@ struct LibraryApp {
     xml_edit_comments: String,
     xml_pending_comments_edit: Option<PendingTrackCommentsEdit>,
     xml_comments_export_path: String,
+    xml_edit_album: String,
+    xml_pending_album_edit: Option<PendingTrackAlbumEdit>,
+    xml_album_export_path: String,
     xml_selected_playlist: Option<usize>,
     xml_selected_member: Option<usize>,
     xml_pending_reorder: Option<PendingPlaylistMemberReorder>,
@@ -532,6 +543,9 @@ impl LibraryApp {
             xml_edit_comments: String::new(),
             xml_pending_comments_edit: None,
             xml_comments_export_path: String::new(),
+            xml_edit_album: String::new(),
+            xml_pending_album_edit: None,
+            xml_album_export_path: String::new(),
             xml_selected_playlist: None,
             xml_selected_member: None,
             xml_pending_reorder: None,
@@ -2278,9 +2292,17 @@ impl LibraryApp {
             .and_then(|preview| preview.tracks.iter().find(|track| track.id == track_id))
             .and_then(|track| track.comments.clone())
             .unwrap_or_default();
+        self.xml_edit_album = self
+            .xml_preview
+            .as_ref()
+            .and_then(|preview| preview.as_ref().ok())
+            .and_then(|preview| preview.tracks.iter().find(|track| track.id == track_id))
+            .and_then(|track| track.album.clone())
+            .unwrap_or_default();
         self.xml_pending_edit = None;
         self.xml_pending_artist_edit = None;
         self.xml_pending_comments_edit = None;
+        self.xml_pending_album_edit = None;
         self.xml_pending_insert = None;
         self.xml_pending_clear = None;
         self.xml_edit_error = None;
@@ -2299,6 +2321,7 @@ impl LibraryApp {
         self.xml_pending_clear = None;
         self.xml_pending_artist_edit = None;
         self.xml_pending_comments_edit = None;
+        self.xml_pending_album_edit = None;
         self.xml_pending_reorder = None;
         self.xml_pending_append = None;
         self.xml_pending_insert = None;
@@ -2473,6 +2496,7 @@ impl LibraryApp {
         self.xml_pending_edit = None;
         self.xml_pending_artist_edit = None;
         self.xml_pending_comments_edit = None;
+        self.xml_pending_album_edit = None;
         self.xml_pending_reorder = None;
         self.xml_pending_append = None;
         self.xml_pending_insert = None;
@@ -2757,6 +2781,107 @@ impl LibraryApp {
             }
             Err(error) => {
                 self.xml_edit_error = Some(format!("Track Comments export failed: {error}"));
+            }
+        }
+    }
+
+    fn prepare_xml_album_edit(&mut self, track_id: &str, old_album: Option<&str>) {
+        let Some(old_album) = old_album else {
+            self.xml_pending_album_edit = None;
+            self.xml_edit_error = Some(
+                "Track Album preparation refused: selected track has no Album attribute".into(),
+            );
+            return;
+        };
+        let Some(source) = self.xml_document_source.clone() else {
+            self.xml_pending_album_edit = None;
+            self.xml_edit_error =
+                Some("Track Album preparation refused: no XML document is loaded".into());
+            return;
+        };
+        let request = oxidj_application::TrackAlbumEditPreparationRequest {
+            source: source.clone(),
+            track_id: track_id.to_owned(),
+            expected_old_album: old_album.to_owned(),
+            new_album: self.xml_edit_album.clone(),
+        };
+        match oxidj_application::prepare_rekordbox_track_album_export(&request) {
+            Ok(prepared) => {
+                self.xml_pending_album_edit = Some(PendingTrackAlbumEdit {
+                    source,
+                    track_id: track_id.to_owned(),
+                    prepared,
+                });
+                self.xml_edit_error = None;
+            }
+            Err(error) => {
+                self.xml_pending_album_edit = None;
+                self.xml_edit_error = Some(format!("Track Album preparation refused: {error}"));
+            }
+        }
+    }
+
+    fn cancel_xml_album_edit(&mut self) {
+        self.xml_pending_album_edit = None;
+        self.xml_edit_error = None;
+    }
+
+    fn export_xml_album_edit(&mut self) {
+        self.notice.clear();
+        let Some(pending) = self.xml_pending_album_edit.clone() else {
+            self.xml_edit_error =
+                Some("Track Album export refused: no prepared pending edit".into());
+            return;
+        };
+        let proposal = pending.prepared.change();
+        let selected_album = self
+            .xml_preview
+            .as_ref()
+            .and_then(|preview| preview.as_ref().ok())
+            .and_then(|preview| {
+                preview
+                    .tracks
+                    .iter()
+                    .find(|track| track.id == pending.track_id)
+            })
+            .and_then(|track| track.album.as_deref());
+        if self.xml_document_source.as_ref() != Some(&pending.source)
+            || self.xml_selected_track.as_deref() != Some(&pending.track_id)
+            || self.xml_edit_album != proposal.new_album
+            || selected_album != Some(proposal.old_album.as_str())
+        {
+            self.xml_pending_album_edit = None;
+            self.xml_edit_error = Some(
+                "Track Album export refused: source, selected track, or proposed value changed"
+                    .into(),
+            );
+            return;
+        }
+        let output = PathBuf::from(&self.xml_album_export_path);
+        if self.xml_album_export_path.trim().is_empty() {
+            self.xml_edit_error =
+                Some("Track Album export refused: choose a new XML destination".into());
+            return;
+        }
+        match oxidj_application::export_prepared_rekordbox_track_album_edit(
+            &pending.prepared,
+            &output,
+        ) {
+            Ok(change) => {
+                self.xml_pending_album_edit = None;
+                self.xml_edit_error = None;
+                self.notice = format!("Track Album exported to {}", output.display());
+                self.xml_album_export_path = output.display().to_string();
+                self.xml_path = output.display().to_string();
+                self.xml_document_source = Some(output.clone());
+                self.xml_preview = Some(
+                    oxidj_application::preview_rekordbox_xml(&output)
+                        .map_err(|error| error.to_string()),
+                );
+                self.xml_edit_album = change.new_album;
+            }
+            Err(error) => {
+                self.xml_edit_error = Some(format!("Track Album export failed: {error}"));
             }
         }
     }
@@ -3067,6 +3192,54 @@ impl eframe::App for LibraryApp {
                             }
                         } else {
                             ui.label("Select one track above to prepare a pending Comments edit.");
+                        }
+                        ui.separator();
+                        ui.strong("Prepare one guarded Album edit");
+                        if let Some(track_id) = self.xml_selected_track.clone() {
+                            if let Some(track) = preview.tracks.iter().find(|track| track.id == track_id) {
+                                ui.label(format!("Selected TrackID: {track_id}"));
+                                if track.album.is_none() {
+                                    ui.label("Selected track has no Album attribute; insertion is not supported.");
+                                } else {
+                                    ui.label(if track.album.as_deref() == Some("") {
+                                        "Current Album: present but empty"
+                                    } else {
+                                        "Current Album: present"
+                                    });
+                                    ui.horizontal(|ui| {
+                                        ui.label("Proposed Album");
+                                        if ui.text_edit_singleline(&mut self.xml_edit_album).changed() {
+                                            self.xml_pending_album_edit = None;
+                                        }
+                                    });
+                                    if ui.button("Prepare pending Album edit").clicked() {
+                                        self.prepare_xml_album_edit(&track.id, track.album.as_deref());
+                                    }
+                                    if let Some(pending) = &self.xml_pending_album_edit {
+                                        ui.separator();
+                                        ui.strong("Pending Album edit · not exported or saved");
+                                        ui.label(format!("Source: {}", pending.source.display()));
+                                        ui.label(format!("TrackID: {}", pending.track_id));
+                                        ui.label(format!("Original Album: {:?}", pending.prepared.change().old_album));
+                                        ui.label(format!("Proposed Album: {:?}", pending.prepared.change().new_album));
+                                        ui.horizontal(|ui| {
+                                            ui.label("New XML destination");
+                                            ui.text_edit_singleline(&mut self.xml_album_export_path);
+                                        });
+                                        if ui.button("Export prepared Album edit").clicked() {
+                                            self.export_xml_album_edit();
+                                        }
+                                        if ui.button("Cancel pending Album edit").clicked() {
+                                            self.cancel_xml_album_edit();
+                                        }
+                                    }
+                                }
+                            } else {
+                                self.xml_pending_album_edit = None;
+                                ui.label("Selected TrackID is no longer in the loaded preview.");
+                            }
+                        } else {
+                            ui.label("Select one track above to prepare a pending Album edit.");
                         }
                         ui.separator();
                         SectionHeading { title: "Sibling playlist order (provisional)" }.show(ui, tokens);
@@ -6737,6 +6910,283 @@ mod keyboard_tests {
         );
         assert!(!output.exists());
         std::fs::write(&source, original).unwrap();
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn track_album_edit_ui_exports_previewed_bytes_through_independent_oracle() {
+        use std::time::{SystemTime, UNIX_EPOCH};
+        let root = std::env::temp_dir().join(format!(
+            "oxidj-ui-track-album-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let source = root.join("source.xml");
+        std::fs::write(
+            &source,
+            include_bytes!("../../../xtask/tests/fixtures/f02-track-album-edit/source.xml"),
+        )
+        .unwrap();
+        let original = std::fs::read(&source).unwrap();
+        let catalog = root.join("catalog.sqlite");
+        drop(Catalog::open(&catalog).unwrap());
+        let catalog_before = std::fs::read(&catalog).unwrap();
+        let mut app = LibraryApp::new(
+            catalog.clone(),
+            ThemeMode::TokyoNight,
+            ThemeMode::TokyoNight.tokens(),
+        );
+        app.xml_path = source.display().to_string();
+        app.preview_xml();
+        app.select_xml_track("100", "A");
+        assert_eq!(app.xml_edit_album, "old & record");
+        app.xml_edit_album = "new < record".into();
+        app.prepare_xml_album_edit("100", Some("old & record"));
+        let prepared_bytes = app
+            .xml_pending_album_edit
+            .as_ref()
+            .expect("prepared Album edit")
+            .prepared
+            .bytes()
+            .to_vec();
+        assert_eq!(std::fs::read(&source).unwrap(), original);
+        assert_eq!(std::fs::read(&catalog).unwrap(), catalog_before);
+
+        app.xml_album_export_path.clear();
+        app.export_xml_album_edit();
+        assert!(app
+            .xml_edit_error
+            .as_deref()
+            .unwrap()
+            .contains("choose a new XML destination"));
+        assert!(app.xml_pending_album_edit.is_some());
+
+        let cancelled = root.join("cancelled.xml");
+        app.xml_album_export_path = cancelled.display().to_string();
+        app.cancel_xml_album_edit();
+        assert!(app.xml_pending_album_edit.is_none());
+        assert!(!cancelled.exists(), "cancel must not write output");
+
+        app.prepare_xml_album_edit("100", Some("old & record"));
+        app.xml_album_export_path = source.display().to_string();
+        app.export_xml_album_edit();
+        assert!(app.xml_edit_error.is_some(), "source alias must be refused");
+        assert_eq!(std::fs::read(&source).unwrap(), original);
+
+        let existing = root.join("existing.xml");
+        std::fs::write(&existing, b"preserve").unwrap();
+        app.xml_album_export_path = existing.display().to_string();
+        app.export_xml_album_edit();
+        assert!(app.xml_edit_error.is_some(), "output refusal must be surfaced");
+        assert_eq!(std::fs::read(&existing).unwrap(), b"preserve");
+        assert_eq!(std::fs::read(&source).unwrap(), original);
+
+        app.xml_album_export_path = root.join("missing/output.xml").display().to_string();
+        app.export_xml_album_edit();
+        assert!(app.xml_edit_error.is_some(), "write failure must be surfaced");
+        assert!(app.notice.is_empty(), "failure must not claim success");
+
+        std::fs::write(&source, b"<changed/>").unwrap();
+        app.xml_album_export_path = root.join("stale-source.xml").display().to_string();
+        app.export_xml_album_edit();
+        assert!(app.xml_edit_error.as_deref().unwrap().contains("source changed"));
+        assert!(!root.join("stale-source.xml").exists());
+        std::fs::write(&source, &original).unwrap();
+        app.prepare_xml_album_edit("100", Some("old & record"));
+
+        let output = root.join("edited.xml");
+        app.xml_album_export_path = output.display().to_string();
+        app.export_xml_album_edit();
+        let bytes = std::fs::read(&output).unwrap();
+        assert_eq!(bytes, prepared_bytes);
+        f02_track_album_edit_oracle::check(&bytes)
+            .expect("independent F-02 oracle accepts only selected Album edit");
+        let mutated = String::from_utf8(bytes.clone()).unwrap().replacen(
+            "Album=\"new &lt; record\"",
+            "Album=\"altered\"",
+            1,
+        );
+        assert_ne!(mutated.as_bytes(), bytes.as_slice());
+        assert!(f02_track_album_edit_oracle::check(mutated.as_bytes()).is_err());
+        assert_eq!(std::fs::read(&source).unwrap(), original);
+        assert_eq!(std::fs::read(&catalog).unwrap(), catalog_before);
+        let reopened = app.xml_preview.as_ref().unwrap().as_ref().unwrap();
+        assert_eq!(
+            reopened
+                .tracks
+                .iter()
+                .find(|track| track.id == "100")
+                .unwrap()
+                .album
+                .as_deref(),
+            Some("new < record")
+        );
+        assert_eq!(
+            reopened
+                .tracks
+                .iter()
+                .find(|track| track.id == "200")
+                .unwrap()
+                .album,
+            None,
+            "absent Album remains absent on other tracks"
+        );
+        assert!(app.xml_pending_album_edit.is_none());
+        assert!(app.xml_edit_error.is_none());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn track_album_edit_ui_guards_absent_stale_proposal_and_invalid_xml() {
+        let (root, source) = temporary_xml();
+        std::fs::write(
+            &source,
+            include_bytes!("../../../xtask/tests/fixtures/f02-track-album-edit/source.xml"),
+        )
+        .unwrap();
+        let mut app = app();
+        app.xml_path = source.display().to_string();
+        app.preview_xml();
+
+        app.select_xml_track("200", "B");
+        app.prepare_xml_album_edit("200", None);
+        assert!(app.xml_pending_album_edit.is_none());
+        assert!(app.xml_edit_error.as_deref().unwrap().contains("no Album attribute"));
+
+        app.select_xml_track("999", "Unknown");
+        app.prepare_xml_album_edit("999", Some("old & record"));
+        assert!(app.xml_pending_album_edit.is_none());
+        app.select_xml_track("100", "A");
+        app.prepare_xml_album_edit("100", Some("stale"));
+        assert!(app.xml_pending_album_edit.is_none());
+        app.xml_edit_album = "bad\u{1}".into();
+        app.prepare_xml_album_edit("100", Some("old & record"));
+        assert!(app.xml_pending_album_edit.is_none());
+
+        app.xml_edit_album = "Changed".into();
+        app.prepare_xml_album_edit("100", Some("old & record"));
+        assert!(app.xml_pending_album_edit.is_some());
+        app.xml_edit_album.push('!');
+        app.xml_album_export_path = root.join("changed-proposal.xml").display().to_string();
+        app.export_xml_album_edit();
+        assert!(app.xml_pending_album_edit.is_none());
+        assert!(app.xml_edit_error.as_deref().unwrap().contains("proposed value changed"));
+        assert!(!root.join("changed-proposal.xml").exists());
+
+        app.xml_edit_album = "Changed".into();
+        app.prepare_xml_album_edit("100", Some("old & record"));
+        let preview = app.xml_preview.as_mut().unwrap().as_mut().unwrap();
+        preview
+            .tracks
+            .iter_mut()
+            .find(|track| track.id == "100")
+            .unwrap()
+            .album = Some("newer current value".into());
+        app.xml_album_export_path = root.join("changed-old-value.xml").display().to_string();
+        app.export_xml_album_edit();
+        assert!(app.xml_pending_album_edit.is_none());
+        assert!(app.xml_edit_error.as_deref().unwrap().contains("proposed value changed"));
+        assert!(!root.join("changed-old-value.xml").exists());
+
+        app.xml_edit_album = "Changed".into();
+        app.prepare_xml_album_edit("100", Some("old & record"));
+        assert!(app.xml_pending_album_edit.is_some());
+        app.select_xml_track("200", "B");
+        assert!(app.xml_pending_album_edit.is_none(), "track change invalidates pending edit");
+
+        app.select_xml_track("100", "A");
+        app.prepare_xml_album_edit("100", Some("old & record"));
+        assert!(app.xml_pending_album_edit.is_some());
+        app.xml_path = root.join("other.xml").display().to_string();
+        app.on_xml_source_changed();
+        assert!(app.xml_pending_album_edit.is_none(), "source path change invalidates pending edit");
+
+        std::fs::write(
+            &source,
+            String::from_utf8(
+                include_bytes!("../../../xtask/tests/fixtures/f02-track-album-edit/source.xml")
+                    .to_vec(),
+            )
+            .unwrap()
+            .replace("TrackID=\"200\"", "TrackID=\"100\""),
+        )
+        .unwrap();
+        app.xml_path = source.display().to_string();
+        app.preview_xml();
+        app.select_xml_track("100", "A");
+        app.xml_edit_album = "Changed".into();
+        app.prepare_xml_album_edit("100", Some("old & record"));
+        assert!(app.xml_pending_album_edit.is_none(), "duplicate target ID must refuse preparation");
+
+        std::fs::write(
+            &source,
+            include_bytes!("../../../xtask/tests/fixtures/f02-track-album-edit/source.xml"),
+        )
+        .unwrap();
+        let empty_fixture = std::fs::read(&source)
+            .unwrap()
+            .windows(b"Album=\"old &amp; record\"".len())
+            .position(|window| window == b"Album=\"old &amp; record\"")
+            .expect("fixture Album attribute");
+        let mut bytes = std::fs::read(&source).unwrap();
+        bytes.splice(
+            empty_fixture..empty_fixture + b"Album=\"old &amp; record\"".len(),
+            b"Album=\"\"".iter().copied(),
+        );
+        std::fs::write(&source, bytes).unwrap();
+        app.xml_path = source.display().to_string();
+        app.preview_xml();
+        app.select_xml_track("100", "A");
+        assert_eq!(app.xml_edit_album, "");
+        app.xml_edit_album = "restored".into();
+        app.prepare_xml_album_edit("100", Some(""));
+        assert!(app.xml_pending_album_edit.is_some(), "present-empty Album is editable");
+        app.cancel_xml_album_edit();
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn track_album_edit_ui_round_trips_xml_entities_and_whitespace() {
+        let (root, source) = temporary_xml();
+        std::fs::write(
+            &source,
+            include_bytes!("../../../xtask/tests/fixtures/f02-track-album-edit/source.xml"),
+        )
+        .unwrap();
+        let mut app = app();
+        app.xml_path = source.display().to_string();
+        app.preview_xml();
+        app.select_xml_track("100", "A");
+        let album = "new < record & mix\tfirst\nsecond\r";
+        app.xml_edit_album = album.into();
+        app.prepare_xml_album_edit("100", Some("old & record"));
+        assert!(app.xml_pending_album_edit.is_some());
+        app.xml_album_export_path = root.join("escaped.xml").display().to_string();
+        app.export_xml_album_edit();
+        let output = PathBuf::from(&app.xml_album_export_path);
+        let bytes = std::fs::read(&output).unwrap();
+        let text = String::from_utf8(bytes.clone()).unwrap();
+        assert!(text.contains("Album=\"new &lt; record &amp; mix&#9;first&#10;second&#13;\""));
+        f02_track_album_edit_oracle::check_with_album(&bytes, album)
+            .expect("independent F-02 oracle preserves escaped Album text");
+        assert_eq!(
+            app.xml_preview
+                .as_ref()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .tracks
+                .iter()
+                .find(|track| track.id == "100")
+                .unwrap()
+                .album
+                .as_deref(),
+            Some(album)
+        );
         std::fs::remove_dir_all(root).unwrap();
     }
 
