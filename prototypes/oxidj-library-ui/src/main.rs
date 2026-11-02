@@ -3751,6 +3751,7 @@ mod keyboard_tests {
             "/../../xtask/tests/fixtures/f02-folder-move/source.xml"
         );
         std::fs::copy(fixture, &source).unwrap();
+        let app_factory = || app();
         let mut app = app();
         app.xml_path = source.display().to_string();
         app.preview_xml();
@@ -3814,6 +3815,62 @@ mod keyboard_tests {
         app.xml_folder_move_export_path = source.display().to_string();
         app.export_xml_folder_move();
         assert_eq!(std::fs::read(&source).unwrap(), changed);
+
+        for stale_kind in ["source", "selection", "source-parent", "target-parent"] {
+            let stale_source = root.join(format!("{stale_kind}-source.xml"));
+            std::fs::copy(fixture, &stale_source).unwrap();
+            let mut candidate = app_factory();
+            candidate.xml_path = stale_source.display().to_string();
+            candidate.preview_xml();
+            let preview = candidate.xml_preview.as_ref().unwrap().as_ref().unwrap();
+            let stale_index = preview
+                .folders
+                .iter()
+                .position(|folder| folder.name == "ToMove")
+                .unwrap();
+            let stale_target = preview
+                .folders
+                .iter()
+                .find(|folder| folder.name == "Dest")
+                .unwrap()
+                .ordinal;
+            candidate.xml_folder_move_selection = Some(stale_index);
+            candidate.xml_folder_move_destination = Some(stale_target);
+            candidate.prepare_xml_folder_move(stale_index);
+            assert!(candidate.xml_pending_folder_move.is_some());
+            match stale_kind {
+                "source" => candidate.xml_document_source = Some(root.join("other.xml")),
+                "selection" => candidate.xml_folder_move_selection = Some(stale_index + 1),
+                "source-parent" | "target-parent" => {
+                    let parent_name = if stale_kind == "source-parent" {
+                        "From"
+                    } else {
+                        "Dest"
+                    };
+                    candidate
+                        .xml_preview
+                        .as_mut()
+                        .unwrap()
+                        .as_mut()
+                        .unwrap()
+                        .folders
+                        .iter_mut()
+                        .find(|folder| folder.name == parent_name)
+                        .unwrap()
+                        .name = "Changed".into();
+                }
+                _ => unreachable!(),
+            }
+            let output = root.join(format!("{stale_kind}-output.xml"));
+            candidate.xml_folder_move_export_path = output.display().to_string();
+            candidate.export_xml_folder_move();
+            assert!(candidate.xml_pending_folder_move.is_none(), "{stale_kind}");
+            assert!(!output.exists(), "{stale_kind}");
+            assert_eq!(
+                std::fs::read(stale_source).unwrap(),
+                std::fs::read(fixture).unwrap()
+            );
+        }
         std::fs::remove_dir_all(root).unwrap();
     }
 
@@ -3878,6 +3935,190 @@ mod keyboard_tests {
             ));
             assert!(!output.exists());
         }
+
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn folder_subtree_move_ui_refuses_invalid_sources_parents_and_duplicate_children() {
+        use std::time::{SystemTime, UNIX_EPOCH};
+        let root = std::env::temp_dir().join(format!(
+            "oxidj-ui-folder-move-guards-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let fixture = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../xtask/tests/fixtures/f02-folder-move/source.xml"
+        );
+        let fixture_xml = std::fs::read_to_string(fixture).unwrap();
+        let setup = |name: &str, xml: &str| {
+            let source = root.join(format!("{name}.xml"));
+            std::fs::write(&source, xml).unwrap();
+            let mut app = app();
+            app.xml_path = source.display().to_string();
+            app.preview_xml();
+            let preview = app.xml_preview.as_ref().unwrap().as_ref().unwrap();
+            let index = preview
+                .folders
+                .iter()
+                .position(|folder| folder.name == "ToMove")
+                .unwrap();
+            let source_parent = preview
+                .folders
+                .iter()
+                .find(|folder| folder.name == "From")
+                .unwrap()
+                .ordinal;
+            let target = preview
+                .folders
+                .iter()
+                .find(|folder| folder.name == "Dest")
+                .unwrap()
+                .ordinal;
+            let nested = preview
+                .folders
+                .iter()
+                .find(|folder| folder.name == "Nested")
+                .unwrap()
+                .ordinal;
+            app.xml_folder_move_selection = Some(index);
+            app.xml_folder_move_destination = Some(target);
+            (app, source, index, source_parent, target, nested)
+        };
+
+        for (name, source_index, destination) in [
+            ("root-source", Some(0), None),
+            ("out-of-range", Some(usize::MAX), None),
+            ("same-parent", None, Some("source")),
+            ("cycle", None, Some("descendant")),
+            ("root-target", None, Some("root")),
+        ] {
+            let (mut candidate, source, index, source_parent, _target, nested) =
+                setup(name, &fixture_xml);
+            if let Some(destination) = destination {
+                candidate.xml_folder_move_destination = Some(match destination {
+                    "source" => source_parent,
+                    "descendant" => nested,
+                    "root" => {
+                        candidate
+                            .xml_preview
+                            .as_ref()
+                            .unwrap()
+                            .as_ref()
+                            .unwrap()
+                            .folders
+                            .iter()
+                            .find(|folder| folder.path.len() == 1)
+                            .unwrap()
+                            .ordinal
+                    }
+                    _ => unreachable!(),
+                });
+            }
+            let selected = source_index.unwrap_or(index);
+            candidate.prepare_xml_folder_move(selected);
+            assert!(candidate.xml_pending_folder_move.is_none(), "{name}");
+            assert_eq!(std::fs::read(source).unwrap(), fixture_xml.as_bytes());
+        }
+
+        let duplicate_xml = fixture_xml.replacen(
+            "</NODE><NODE Type=\"1\" Name=\"Remain\"",
+            "</NODE><NODE Type=\"0\" Name=\"ToMove\" Count=\"0\"/><NODE Type=\"1\" Name=\"Remain\"",
+            1,
+        );
+        assert_ne!(duplicate_xml, fixture_xml);
+        let (mut duplicate, duplicate_source, index, _, _, _) =
+            setup("duplicate-child", &duplicate_xml);
+        duplicate.prepare_xml_folder_move(index);
+        assert!(duplicate.xml_pending_folder_move.is_none());
+        assert_eq!(
+            std::fs::read(duplicate_source).unwrap(),
+            duplicate_xml.as_bytes()
+        );
+
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn folder_subtree_move_ui_supports_self_closing_destination_and_protects_existing_output() {
+        use std::time::{SystemTime, UNIX_EPOCH};
+        let root = std::env::temp_dir().join(format!(
+            "oxidj-ui-folder-move-self-closing-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let fixture = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../xtask/tests/fixtures/f02-folder-move/source.xml"
+        );
+        let fixture_xml = std::fs::read_to_string(fixture).unwrap();
+        let xml = fixture_xml.replace(
+            "<NODE Type=\"0\" Name=\"Dest\" Count=\"1\"><NODE Type=\"1\" Name=\"Existing\" Entries=\"1\" KeyType=\"0\"><TRACK Key=\"3\"/></NODE></NODE>",
+            "<NODE Type=\"0\" Name=\"Dest\" Count=\"0\"/>",
+        );
+        assert_ne!(xml, fixture_xml);
+        let source = root.join("source.xml");
+        std::fs::write(&source, xml.as_bytes()).unwrap();
+        let mut app = app();
+        app.xml_path = source.display().to_string();
+        app.preview_xml();
+        let preview = app.xml_preview.as_ref().unwrap().as_ref().unwrap();
+        let index = preview
+            .folders
+            .iter()
+            .position(|folder| folder.name == "ToMove")
+            .unwrap();
+        let target = preview
+            .folders
+            .iter()
+            .find(|folder| folder.name == "Dest")
+            .unwrap();
+        let target_ordinal = target.ordinal;
+        assert_eq!(target.count.as_deref(), Some("0"));
+        app.xml_folder_move_selection = Some(index);
+        app.xml_folder_move_destination = Some(target_ordinal);
+        app.prepare_xml_folder_move(index);
+        let pending = app.xml_pending_folder_move.as_ref().unwrap();
+        assert_eq!(pending.expected_target_order, Vec::<String>::new());
+        assert_eq!(pending.target_count.as_deref(), Some("0"));
+
+        let protected = root.join("protected.xml");
+        std::fs::write(&protected, b"keep").unwrap();
+        app.xml_folder_move_export_path = protected.display().to_string();
+        app.export_xml_folder_move();
+        assert_eq!(std::fs::read(&protected).unwrap(), b"keep");
+        assert_eq!(std::fs::read(&source).unwrap(), xml.as_bytes());
+
+        let output = root.join("moved.xml");
+        app.xml_folder_move_export_path = output.display().to_string();
+        app.export_xml_folder_move();
+        let reopened = oxidj_application::preview_rekordbox_xml(&output).unwrap();
+        assert!(
+            reopened
+                .folders
+                .iter()
+                .any(|folder| folder.path == ["ROOT", "Dest", "ToMove"])
+        );
+        assert_eq!(
+            reopened
+                .folders
+                .iter()
+                .find(|folder| folder.name == "Dest")
+                .unwrap()
+                .count
+                .as_deref(),
+            Some("1")
+        );
+        assert_eq!(std::fs::read(&source).unwrap(), xml.as_bytes());
 
         std::fs::remove_dir_all(root).unwrap();
     }
