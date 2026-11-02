@@ -3098,6 +3098,7 @@ impl LibraryApp {
             .and_then(|p| p.tracks.iter().find(|t| t.id == pending.track_id))
             .and_then(|t| t.composer.as_deref());
         if self.xml_document_source.as_ref() != Some(&pending.source)
+            || PathBuf::from(&self.xml_path) != pending.source
             || self.xml_selected_track.as_deref() != Some(&pending.track_id)
             || self.xml_edit_composer != proposal.new_composer
             || selected_composer != Some(proposal.old_composer.as_str())
@@ -8185,6 +8186,31 @@ mod keyboard_tests {
         );
         assert!(app.xml_pending_album_edit.is_none());
         assert!(app.xml_edit_error.is_none());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn track_composer_edit_ui_refuses_changed_editable_path_without_output() {
+        let (root, source) = temporary_xml();
+        std::fs::write(
+            &source,
+            include_bytes!("../../../xtask/tests/fixtures/f02-track-composer-edit/source.xml"),
+        )
+        .unwrap();
+        let mut app = app();
+        app.xml_path = source.display().to_string();
+        app.preview_xml();
+        app.select_xml_track("100", "A");
+        app.xml_edit_composer = "new < composer".into();
+        app.prepare_xml_composer_edit("100", Some("old & composer"));
+        assert!(app.xml_pending_composer_edit.is_some());
+        let output = root.join("stale-path.xml");
+        app.xml_composer_export_path = output.display().to_string();
+        app.xml_path = root.join("different.xml").display().to_string();
+        app.export_xml_composer_edit();
+        assert!(app.xml_pending_composer_edit.is_none());
+        assert!(app.xml_edit_error.as_deref().unwrap().contains("source"));
+        assert!(!output.exists(), "changed editable XML path must refuse export");
         std::fs::remove_dir_all(root).unwrap();
     }
 
