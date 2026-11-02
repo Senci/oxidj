@@ -276,10 +276,7 @@ impl LibraryApp {
         if changed {
             *F::pending(self) = None;
         }
-        if ui
-            .button(format!("Prepare pending {label} edit"))
-            .clicked()
-        {
+        if ui.button(format!("Prepare pending {label} edit")).clicked() {
             self.prepare_track_edit::<F>(&track.id, current);
         }
         let Some((source, pending_track, old, new)) = F::pending(self).as_ref().map(|p| {
@@ -302,16 +299,10 @@ impl LibraryApp {
             ui.label("New XML destination");
             ui.text_edit_singleline(F::export_path(self));
         });
-        if ui
-            .button(format!("Export prepared {label} edit"))
-            .clicked()
-        {
+        if ui.button(format!("Export prepared {label} edit")).clicked() {
             self.export_track_edit::<F>();
         }
-        if ui
-            .button(format!("Cancel pending {label} edit"))
-            .clicked()
-        {
+        if ui.button(format!("Cancel pending {label} edit")).clicked() {
             self.cancel_track_edit::<F>();
         }
     }
@@ -516,4 +507,78 @@ track_edit_fields! {
         state(xml_edit_label, xml_label_export_path, xml_pending_label_edit) as PendingTrackLabelEdit,
         methods(prepare_xml_label_edit, cancel_xml_label_edit, export_xml_label_edit),
         SECTION_PRESENCE;
+}
+
+/// The original Track Name edit keeps its own contract: no selection/proposal
+/// export guard and no re-open of the output (its tests pin this behaviour).
+pub(crate) type PendingTrackNameEdit = PendingTrackEdit<oxidj_application::TrackNameEditChange>;
+
+impl LibraryApp {
+    pub(crate) fn prepare_xml_name_edit(&mut self, track_id: &str, old_name: &str) {
+        let Some(source) = self.xml_document_source.clone() else {
+            self.xml_pending_edit = None;
+            self.xml_edit_error =
+                Some("Track Name preparation refused: no XML document is loaded".into());
+            return;
+        };
+        let request = oxidj_application::TrackNameEditPreparationRequest {
+            source: source.clone(),
+            track_id: track_id.to_owned(),
+            expected_old_name: old_name.to_owned(),
+            new_name: self.xml_edit_name.clone(),
+        };
+        match oxidj_application::prepare_rekordbox_track_name_export(&request) {
+            Ok(prepared) => {
+                self.xml_pending_edit = Some(PendingTrackNameEdit {
+                    source,
+                    track_id: track_id.to_owned(),
+                    prepared,
+                });
+                self.xml_edit_error = None;
+            }
+            Err(error) => {
+                self.xml_pending_edit = None;
+                self.xml_edit_error = Some(format!("Track Name preparation refused: {error}"));
+            }
+        }
+    }
+
+    pub(crate) fn cancel_xml_name_edit(&mut self) {
+        self.xml_pending_edit = None;
+        self.xml_edit_error = None;
+    }
+
+    pub(crate) fn export_xml_name_edit(&mut self) {
+        self.notice.clear();
+        let Some(pending) = self.xml_pending_edit.as_ref() else {
+            self.xml_edit_error =
+                Some("Track Name export refused: no prepared pending edit".into());
+            return;
+        };
+        if self.xml_document_source.as_ref() != Some(&pending.source) {
+            self.xml_edit_error =
+                Some("Track Name export refused: pending edit is not for the loaded source".into());
+            return;
+        }
+        let output = PathBuf::from(&self.xml_export_path);
+        if self.xml_export_path.trim().is_empty() {
+            self.xml_edit_error =
+                Some("Track Name export refused: choose a new XML destination".into());
+            return;
+        }
+        match oxidj_application::export_prepared_rekordbox_track_name_edit(
+            &pending.prepared,
+            &output,
+        ) {
+            Ok(change) => {
+                self.xml_pending_edit = None;
+                self.xml_edit_error = None;
+                self.notice = format!("Track Name exported to {}", output.display());
+                self.xml_edit_name = change.new_name;
+            }
+            Err(error) => {
+                self.xml_edit_error = Some(format!("Track Name export failed: {error}"));
+            }
+        }
+    }
 }
