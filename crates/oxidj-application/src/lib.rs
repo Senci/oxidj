@@ -51,7 +51,7 @@ pub use oxidj_rekordbox::{
     TrackYearEditChange, TrackYearEditRequest,
 };
 /// Rekordbox XML preview hierarchy nodes, for presentation-layer navigation.
-pub use oxidj_rekordbox::{Folder, Playlist};
+pub use oxidj_rekordbox::{Folder, Playlist, Track};
 
 pub use oxidj_onelibrary::{
     Error as OneLibraryError, Playlist as OneLibraryPlaylist, Preview as OneLibraryPreview,
