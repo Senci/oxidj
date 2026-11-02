@@ -100,7 +100,7 @@ fn has_genre(n: &N, id: &str) -> bool {
         && n.attrs.iter().any(|(k, _)| k == "Genre"))
         || n.children.iter().any(|c| has_genre(c, id))
 }
-fn check(bytes: &[u8]) -> Result<(), String> {
+pub fn check(bytes: &[u8]) -> Result<(), String> {
     let actual = decode(bytes);
     let mut expected = decode(SOURCE);
     assert!(

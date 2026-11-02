@@ -397,7 +397,7 @@
       "checker": {
         "path": "xtask/tests/f02_track_genre_edit_oracle.rs",
         "version": "f09-operation-oracle-v1",
-        "sha256": "2fc2a56e463d2f7a79812082f1775b0e7b7adbc8c2a6a3d9a8cd3e7c4740016f",
+        "sha256": "1f0d98586531007064c57a88c6f36dddcc1eec3b3731ca3762df160bd3e93baf",
         "tests": [
           "independently_verifies_guarded_track_genre_edit_and_rejects_mutations"
         ]

@@ -712,6 +712,36 @@ pub struct TrackAlbumEditPreparationRequest {
     pub new_album: String,
 }
 
+/// A source-bound prepared Track Genre export retains the exact preview snapshot.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PreparedTrackGenreExport {
+    source: std::path::PathBuf,
+    source_bytes: Vec<u8>,
+    bytes: Vec<u8>,
+    change: oxidj_rekordbox::TrackGenreEditChange,
+}
+
+impl PreparedTrackGenreExport {
+    pub fn source(&self) -> &Path {
+        &self.source
+    }
+    pub fn bytes(&self) -> &[u8] {
+        &self.bytes
+    }
+    pub fn change(&self) -> &oxidj_rekordbox::TrackGenreEditChange {
+        &self.change
+    }
+}
+
+/// Source and exact-old guard for a previewable Track Genre edit.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TrackGenreEditPreparationRequest {
+    pub source: std::path::PathBuf,
+    pub track_id: String,
+    pub expected_old_genre: String,
+    pub new_genre: String,
+}
+
 /// Prepare one guarded Comments edit without writing any file.
 pub fn prepare_rekordbox_track_comments_export(
     request: &TrackCommentsEditPreparationRequest,
@@ -776,6 +806,41 @@ pub fn export_prepared_rekordbox_track_album_edit(
     if current_source != prepared.source_bytes {
         return Err(RekordboxError(
             "source changed after Track Album edit preparation".into(),
+        ));
+    }
+    publish_new_file(&output, &prepared.bytes)?;
+    Ok(prepared.change.clone())
+}
+
+/// Prepare one guarded Genre edit without writing any file.
+pub fn prepare_rekordbox_track_genre_export(
+    request: &TrackGenreEditPreparationRequest,
+) -> Result<PreparedTrackGenreExport, RekordboxError> {
+    let source =
+        std::fs::read(&request.source).map_err(|error| RekordboxError(error.to_string()))?;
+    let adapter_request = oxidj_rekordbox::TrackGenreEditRequest {
+        track_id: request.track_id.clone(),
+        expected_old_genre: request.expected_old_genre.clone(),
+        new_genre: request.new_genre.clone(),
+    };
+    let prepared = oxidj_rekordbox::prepare_track_genre_edit(&source, &adapter_request)?;
+    Ok(PreparedTrackGenreExport {
+        source: request.source.clone(),
+        source_bytes: source,
+        bytes: prepared.bytes,
+        change: prepared.change,
+    })
+}
+
+/// Export only a prepared Genre edit after source revalidation, to a new path.
+pub fn export_prepared_rekordbox_track_genre_edit(
+    prepared: &PreparedTrackGenreExport,
+    output: impl AsRef<Path>,
+) -> Result<oxidj_rekordbox::TrackGenreEditChange, RekordboxError> {
+    let (current_source, output) = read_new_export_source(&prepared.source, output)?;
+    if current_source != prepared.source_bytes {
+        return Err(RekordboxError(
+            "source changed after Track Genre edit preparation".into(),
         ));
     }
     publish_new_file(&output, &prepared.bytes)?;
@@ -2477,5 +2542,88 @@ mod playlist_create_preparation_tests {
         assert_eq!(std::fs::read(&output).unwrap(), prepared.bytes());
         let _ = std::fs::remove_file(output);
         let _ = std::fs::remove_file(existing);
+    }
+}
+
+#[cfg(test)]
+mod track_genre_preparation_tests {
+    use super::*;
+
+    fn setup() -> (std::path::PathBuf, std::path::PathBuf) {
+        let root = std::env::temp_dir().join(format!(
+            "oxidj-app-track-genre-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let source = root.join("source.xml");
+        std::fs::copy(
+            concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../xtask/tests/fixtures/f02-track-genre-edit/source.xml"
+            ),
+            &source,
+        )
+        .unwrap();
+        (root, source)
+    }
+
+    fn request(
+        source: std::path::PathBuf,
+        old: &str,
+        new: &str,
+    ) -> TrackGenreEditPreparationRequest {
+        TrackGenreEditPreparationRequest {
+            source,
+            track_id: "100".into(),
+            expected_old_genre: old.into(),
+            new_genre: new.into(),
+        }
+    }
+
+    #[test]
+    fn prepared_genre_export_is_source_bound_and_never_overwrites() {
+        let (root, source) = setup();
+        let original = std::fs::read(&source).unwrap();
+        let req = request(source.clone(), "old & style", "new < style");
+        let prepared = prepare_rekordbox_track_genre_export(&req).unwrap();
+        assert_eq!(prepared.change().old_genre, "old & style");
+        assert_eq!(std::fs::read(&source).unwrap(), original);
+        assert!(export_prepared_rekordbox_track_genre_edit(&prepared, &source).is_err());
+        let existing = root.join("existing.xml");
+        std::fs::write(&existing, b"preserve").unwrap();
+        assert!(export_prepared_rekordbox_track_genre_edit(&prepared, &existing).is_err());
+        assert_eq!(std::fs::read(&existing).unwrap(), b"preserve");
+        let output = root.join("out.xml");
+        export_prepared_rekordbox_track_genre_edit(&prepared, &output).unwrap();
+        assert_eq!(std::fs::read(&output).unwrap(), prepared.bytes());
+        assert_eq!(std::fs::read(&source).unwrap(), original);
+        let stale = prepare_rekordbox_track_genre_export(&req).unwrap();
+        std::fs::write(&source, b"<changed/>").unwrap();
+        let stale_output = root.join("stale.xml");
+        assert!(export_prepared_rekordbox_track_genre_edit(&stale, &stale_output).is_err());
+        assert!(!stale_output.exists());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn genre_preparation_refuses_absent_and_stale_values_but_accepts_empty() {
+        let (root, source) = setup();
+        for (id, old) in [("200", "old & style"), ("100", "stale")] {
+            let mut req = request(source.clone(), old, "new");
+            req.track_id = id.into();
+            assert!(prepare_rekordbox_track_genre_export(&req).is_err());
+        }
+        let xml = std::fs::read_to_string(&source)
+            .unwrap()
+            .replace("Genre=\"old &amp; style\"", "Genre=\"\"");
+        std::fs::write(&source, xml).unwrap();
+        let prepared =
+            prepare_rekordbox_track_genre_export(&request(source.clone(), "", "new")).unwrap();
+        assert_eq!(prepared.change().old_genre, "");
+        std::fs::remove_dir_all(root).unwrap();
     }
 }
