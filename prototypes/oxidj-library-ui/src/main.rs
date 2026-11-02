@@ -216,6 +216,9 @@ mod f02_track_composer_edit_oracle;
 #[path = "../../../xtask/tests/f02_track_grouping_edit_oracle.rs"]
 mod f02_track_grouping_edit_oracle;
 #[cfg(test)]
+#[path = "../../../xtask/tests/f02_track_remixer_edit_oracle.rs"]
+mod f02_track_remixer_edit_oracle;
+#[cfg(test)]
 #[path = "../../../xtask/tests/f02_track_genre_edit_oracle.rs"]
 mod f02_track_genre_edit_oracle;
 #[cfg(test)]
@@ -600,6 +603,9 @@ impl LibraryApp {
             xml_edit_grouping: String::new(),
             xml_grouping_export_path: String::new(),
             xml_pending_grouping_edit: None,
+            xml_edit_remixer: String::new(),
+            xml_remixer_export_path: String::new(),
+            xml_pending_remixer_edit: None,
             xml_edit_label: String::new(),
             xml_label_export_path: String::new(),
             xml_pending_label_edit: None,
@@ -2365,6 +2371,14 @@ impl LibraryApp {
             .and_then(|t| t.genre.clone())
             .unwrap_or_default();
         self.xml_pending_genre_edit = None;
+        self.xml_edit_remixer = self
+            .xml_preview
+            .as_ref()
+            .and_then(|p| p.as_ref().ok())
+            .and_then(|p| p.tracks.iter().find(|t| t.id == track_id))
+            .and_then(|t| t.remixer.clone())
+            .unwrap_or_default();
+        self.xml_pending_remixer_edit = None;
         self.xml_edit_label = self
             .xml_preview
             .as_ref()
@@ -3858,11 +3872,7 @@ impl eframe::App for LibraryApp {
                             if let Some(track) = preview.tracks.iter().find(|t| t.id == track_id) {
                                 ui.label(format!("Selected TrackID: {track_id}"));
                                 if let Some(remixer) = track.remixer.as_deref() {
-                                    ui.label(if remixer.is_empty() {
-                                        "Current Remixer: present but empty"
-                                    } else {
-                                        "Current Remixer: present"
-                                    });
+                                    ui.label(format!("Current Remixer: {:?}", remixer));
                                     ui.horizontal(|ui| {
                                         ui.label("Proposed Remixer");
                                         if ui
@@ -8403,6 +8413,231 @@ mod keyboard_tests {
             "absent Grouping remains absent on other tracks"
         );
         assert!(app.xml_pending_grouping_edit.is_none());
+        assert!(app.xml_edit_error.is_none());
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn track_remixer_edit_ui_refuses_invalid_xml_unknown_and_stale_old_value() {
+        let (root, source) = temporary_xml();
+        std::fs::write(
+            &source,
+            include_bytes!("../../../xtask/tests/fixtures/f02-track-remixer-edit/source.xml"),
+        )
+        .unwrap();
+        let mut app = app();
+        app.xml_path = source.display().to_string();
+        app.preview_xml();
+        app.select_xml_track("999", "Unknown");
+        app.xml_edit_remixer = "Changed".into();
+        app.prepare_xml_remixer_edit("999", Some("old & mix"));
+        assert!(app.xml_pending_remixer_edit.is_none());
+
+        app.select_xml_track("100", "A");
+        app.xml_edit_remixer = "bad\u{1}".into();
+        app.prepare_xml_remixer_edit("100", Some("old & mix"));
+        assert!(app.xml_pending_remixer_edit.is_none());
+
+        app.xml_edit_remixer = "Changed".into();
+        app.prepare_xml_remixer_edit("100", Some("stale"));
+        assert!(app.xml_pending_remixer_edit.is_none());
+
+        std::fs::write(
+            &source,
+            String::from_utf8(
+                include_bytes!("../../../xtask/tests/fixtures/f02-track-remixer-edit/source.xml")
+                    .to_vec(),
+            )
+            .unwrap()
+            .replace("TrackID=\"200\"", "TrackID=\"100\""),
+        )
+        .unwrap();
+        app.preview_xml();
+        app.select_xml_track("100", "A");
+        app.xml_edit_remixer = "Changed".into();
+        app.prepare_xml_remixer_edit("100", Some("old & mix"));
+        assert!(app.xml_pending_remixer_edit.is_none(), "duplicate target must refuse");
+
+        std::fs::write(
+            &source,
+            String::from_utf8(
+                include_bytes!("../../../xtask/tests/fixtures/f02-track-remixer-edit/source.xml")
+                    .to_vec(),
+            )
+            .unwrap()
+            .replace("Remixer=\"old &amp; mix\"", "Remixer=\"\""),
+        )
+        .unwrap();
+        app.xml_path = source.display().to_string();
+        app.preview_xml();
+        app.select_xml_track("100", "A");
+        assert_eq!(
+            app.xml_edit_remixer,
+            "",
+            "present-empty Remixer must stay editable"
+        );
+        app.xml_edit_remixer = "Restored".into();
+        app.prepare_xml_remixer_edit("100", Some(""));
+        assert!(
+            app.xml_pending_remixer_edit.is_some(),
+            "present-empty Remixer is editable"
+        );
+        app.cancel_xml_remixer_edit();
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn track_remixer_edit_ui_exports_previewed_bytes_and_reopens_output() {
+        use std::time::{SystemTime, UNIX_EPOCH};
+        let root = std::env::temp_dir().join(format!(
+            "oxidj-ui-track-remixer-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let source = root.join("source.xml");
+        std::fs::write(
+            &source,
+            include_bytes!("../../../xtask/tests/fixtures/f02-track-remixer-edit/source.xml"),
+        )
+        .unwrap();
+        let original = std::fs::read(&source).unwrap();
+        let catalog = root.join("catalog.sqlite");
+        drop(Catalog::open(&catalog).unwrap());
+        let catalog_before = std::fs::read(&catalog).unwrap();
+        let mut app = LibraryApp::new(
+            catalog.clone(),
+            ThemeMode::TokyoNight,
+            ThemeMode::TokyoNight.tokens(),
+        );
+        app.xml_path = source.display().to_string();
+        app.preview_xml();
+        app.select_xml_track("100", "A");
+        assert_eq!(app.xml_edit_remixer, "old & mix");
+        app.xml_edit_remixer = "new < mix".into();
+        app.prepare_xml_remixer_edit("100", Some("old & mix"));
+        assert_eq!(std::fs::read(&source).unwrap(), original);
+        let cancelled = root.join("cancelled.xml");
+        app.xml_remixer_export_path = cancelled.display().to_string();
+        app.cancel_xml_remixer_edit();
+        assert!(app.xml_pending_remixer_edit.is_none());
+        assert!(!cancelled.exists());
+        app.prepare_xml_remixer_edit("100", Some("old & mix"));
+        app.xml_remixer_export_path.clear();
+        app.export_xml_remixer_edit();
+        assert!(app.xml_pending_remixer_edit.is_some());
+        assert!(app.xml_edit_error
+            .as_deref()
+            .unwrap()
+            .contains("choose a new XML destination"));
+        app.xml_remixer_export_path = source.display().to_string();
+        app.export_xml_remixer_edit();
+        assert!(app.xml_edit_error.is_some(), "source alias must be refused");
+        assert_eq!(std::fs::read(&source).unwrap(), original);
+        let existing = root.join("existing.xml");
+        std::fs::write(&existing, b"preserve").unwrap();
+        app.xml_remixer_export_path = existing.display().to_string();
+        app.export_xml_remixer_edit();
+        assert!(app.xml_edit_error.is_some(), "existing output must be refused");
+        assert_eq!(std::fs::read(&existing).unwrap(), b"preserve");
+        app.xml_remixer_export_path = root.join("missing/output.xml").display().to_string();
+        app.export_xml_remixer_edit();
+        assert!(app.xml_edit_error.is_some(), "write failure must be surfaced");
+        assert!(app.notice.is_empty(), "failure must not claim success");
+        app.xml_remixer_export_path = root.join("stale-source.xml").display().to_string();
+        std::fs::write(&source, b"<changed/>").unwrap();
+        app.export_xml_remixer_edit();
+        assert!(app.xml_edit_error
+            .as_deref()
+            .unwrap()
+            .contains("source changed"));
+        assert!(!root.join("stale-source.xml").exists());
+        std::fs::write(&source, &original).unwrap();
+        app.prepare_xml_remixer_edit("100", Some("old & mix"));
+        app.xml_edit_remixer = "changed after preview".into();
+        let stale_proposal = root.join("stale-proposal.xml");
+        app.xml_remixer_export_path = stale_proposal.display().to_string();
+        app.export_xml_remixer_edit();
+        assert!(!stale_proposal.exists());
+        assert!(app.xml_pending_remixer_edit.is_none());
+        app.xml_edit_remixer = "new < crate".into();
+        app.prepare_xml_remixer_edit("100", Some("stale old value"));
+        assert!(app.xml_pending_remixer_edit.is_none());
+        app.prepare_xml_remixer_edit("200", Some("old & mix"));
+        assert!(
+            app.xml_pending_remixer_edit.is_none(),
+            "absent Remixer insertion is refused"
+        );
+        app.prepare_xml_remixer_edit("100", Some("old & mix"));
+        let changed_selection = root.join("changed-selection.xml");
+        app.xml_remixer_export_path = changed_selection.display().to_string();
+        app.select_xml_track("200", "B");
+        app.export_xml_remixer_edit();
+        assert!(!changed_selection.exists());
+        app.prepare_xml_remixer_edit("100", Some("old & mix"));
+        let changed_source = root.join("different.xml");
+        app.xml_document_source = Some(changed_source);
+        let stale_source = root.join("stale-source.xml");
+        app.xml_remixer_export_path = stale_source.display().to_string();
+        app.export_xml_remixer_edit();
+        assert!(!stale_source.exists());
+        app.xml_document_source = Some(source.clone());
+        app.select_xml_track("100", "A");
+        app.xml_edit_remixer = "new < mix".into();
+        app.prepare_xml_remixer_edit("100", Some("old & mix"));
+        let prepared = app
+            .xml_pending_remixer_edit
+            .as_ref()
+            .unwrap()
+            .prepared
+            .bytes()
+            .to_vec();
+        let output = root.join("edited.xml");
+        app.xml_remixer_export_path = output.display().to_string();
+        app.export_xml_remixer_edit();
+        let bytes = std::fs::read(&output).unwrap();
+        assert_eq!(bytes, prepared);
+        f02_track_remixer_edit_oracle::check(&bytes)
+            .expect("independent F-02 remixer oracle accepts UI-exported Remixer bytes");
+        assert!(String::from_utf8_lossy(&bytes).contains("Remixer=\"new &lt; mix\""));
+        let mutated = String::from_utf8(bytes.clone())
+            .unwrap()
+            .replacen("Remixer=\"new &lt; mix\"", "Remixer=\"altered\"", 1);
+        assert!(f02_track_remixer_edit_oracle::check(mutated.as_bytes()).is_err());
+        assert_eq!(std::fs::read(&source).unwrap(), original);
+        assert_eq!(std::fs::read(&catalog).unwrap(), catalog_before);
+        assert_eq!(
+            app.xml_preview
+                .as_ref()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .tracks
+                .iter()
+                .find(|t| t.id == "100")
+                .unwrap()
+                .remixer
+                .as_deref(),
+            Some("new < mix")
+        );
+        assert_eq!(
+            app.xml_preview
+                .as_ref()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .tracks
+                .iter()
+                .find(|t| t.id == "200")
+                .unwrap()
+                .remixer,
+            None,
+            "absent Remixer remains absent on other tracks"
+        );
+        assert!(app.xml_pending_remixer_edit.is_none());
         assert!(app.xml_edit_error.is_none());
         let _ = std::fs::remove_dir_all(root);
     }

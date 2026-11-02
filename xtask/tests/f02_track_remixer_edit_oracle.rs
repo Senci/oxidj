@@ -76,7 +76,7 @@ fn has_remixer(n: &N, id: &str) -> bool {
         && n.attrs.iter().any(|(k, _)| k == "Remixer"))
         || n.children.iter().any(|c| has_remixer(c, id))
 }
-fn check(bytes: &[u8]) -> Result<(), String> {
+pub(crate) fn check(bytes: &[u8]) -> Result<(), String> {
     let actual = decode(bytes);
     let mut expected = decode(SOURCE);
     assert!(change_expected_remixer(&mut expected));
