@@ -1022,10 +1022,26 @@ impl LibraryApp {
             return;
         };
         let order = |parent: &oxidj_rekordbox::Folder| {
-            direct_xml_typed_child_order(&source, &parent.path[1..]).unwrap_or_default()
+            direct_xml_typed_child_order(&source, &parent.path[1..])
         };
-        let source_order = order(source_parent);
-        let target_order = order(target);
+        let source_order = match order(source_parent) {
+            Ok(order) => order,
+            Err(error) => {
+                self.xml_edit_error = Some(format!(
+                    "Folder move refused: cannot read source child order: {error}"
+                ));
+                return;
+            }
+        };
+        let target_order = match order(target) {
+            Ok(order) => order,
+            Err(error) => {
+                self.xml_edit_error = Some(format!(
+                    "Folder move refused: cannot read target child order: {error}"
+                ));
+                return;
+            }
+        };
         let request = oxidj_application::FolderMoveRequest {
             folder_index: folder.ordinal.saturating_sub(1),
             expected_folder_name: folder.name.clone(),
@@ -1084,10 +1100,35 @@ impl LibraryApp {
             .iter()
             .find(|f| f.ordinal == pending.target_parent_index + 1);
         let folder = preview.folders.get(pending.folder_index);
-        let live_order = |parent: Option<&oxidj_rekordbox::Folder>| {
-            parent
-                .and_then(|p| direct_xml_typed_child_order(&pending.source, &p.path[1..]).ok())
-                .unwrap_or_default()
+        let live_source_order = match source_parent {
+            Some(parent) => {
+                match direct_xml_typed_child_order(&pending.source, &parent.path[1..]) {
+                    Ok(order) => order,
+                    Err(error) => {
+                        self.xml_pending_folder_move = None;
+                        self.xml_edit_error = Some(format!(
+                            "Folder move export refused: cannot read source child order: {error}"
+                        ));
+                        return;
+                    }
+                }
+            }
+            None => Vec::new(),
+        };
+        let live_target_order = match target {
+            Some(parent) => {
+                match direct_xml_typed_child_order(&pending.source, &parent.path[1..]) {
+                    Ok(order) => order,
+                    Err(error) => {
+                        self.xml_pending_folder_move = None;
+                        self.xml_edit_error = Some(format!(
+                            "Folder move export refused: cannot read target child order: {error}"
+                        ));
+                        return;
+                    }
+                }
+            }
+            None => Vec::new(),
         };
         let stale = self.xml_document_source.as_ref() != Some(&pending.source)
             || self.xml_folder_move_selection != Some(pending.folder_index)
@@ -1103,8 +1144,8 @@ impl LibraryApp {
                     || p.path != pending.target_parent_path
                     || p.count != pending.target_count
             })
-            || live_order(source_parent) != pending.expected_source_order
-            || live_order(target) != pending.expected_target_order;
+            || live_source_order != pending.expected_source_order
+            || live_target_order != pending.expected_target_order;
         if stale {
             self.xml_pending_folder_move = None;
             self.xml_edit_error = Some(
@@ -3773,6 +3814,71 @@ mod keyboard_tests {
         app.xml_folder_move_export_path = source.display().to_string();
         app.export_xml_folder_move();
         assert_eq!(std::fs::read(&source).unwrap(), changed);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn folder_subtree_move_ui_refuses_typed_child_order_read_errors() {
+        use std::time::{SystemTime, UNIX_EPOCH};
+        let root = std::env::temp_dir().join(format!(
+            "oxidj-ui-folder-move-read-error-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let fixture = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../xtask/tests/fixtures/f02-folder-move/source.xml"
+        );
+
+        for fail_during_export in [false, true] {
+            let source = root.join(if fail_during_export {
+                "export-source.xml"
+            } else {
+                "prepare-source.xml"
+            });
+            std::fs::copy(fixture, &source).unwrap();
+            let mut app = app();
+            app.xml_path = source.display().to_string();
+            app.preview_xml();
+            let preview = app.xml_preview.as_ref().unwrap().as_ref().unwrap();
+            let index = preview
+                .folders
+                .iter()
+                .position(|folder| folder.name == "ToMove")
+                .unwrap();
+            let target = preview
+                .folders
+                .iter()
+                .find(|folder| folder.name == "Dest")
+                .unwrap()
+                .ordinal;
+            app.xml_folder_move_selection = Some(index);
+            app.xml_folder_move_destination = Some(target);
+
+            if fail_during_export {
+                app.prepare_xml_folder_move(index);
+                assert!(app.xml_pending_folder_move.is_some());
+            }
+            std::fs::write(&source, b"<NODE Type='0' Name=\"broken>").unwrap();
+            let output = root.join(format!("output-{fail_during_export}.xml"));
+            app.xml_folder_move_export_path = output.display().to_string();
+            if fail_during_export {
+                app.export_xml_folder_move();
+                assert!(app.xml_pending_folder_move.is_none());
+            } else {
+                app.prepare_xml_folder_move(index);
+                assert!(app.xml_pending_folder_move.is_none());
+            }
+            assert!(app.xml_edit_error.as_deref().is_some_and(
+                |error| error.contains("cannot read") && error.contains("child order")
+            ));
+            assert!(!output.exists());
+        }
+
         std::fs::remove_dir_all(root).unwrap();
     }
 
