@@ -2,8 +2,87 @@ use eframe::egui;
 use oxidj_library::{Catalog, TrackAvailability, TrackDetails};
 use std::path::PathBuf;
 
-fn direct_xml_node_order(source: &std::path::Path, wanted: &[String]) -> Result<Vec<String>, String> {
-    use quick_xml::{events::Event, Reader};
+fn direct_xml_typed_child_order(
+    source: &std::path::Path,
+    wanted: &[String],
+) -> Result<Vec<String>, String> {
+    use quick_xml::{Reader, events::Event};
+    let bytes = std::fs::read(source).map_err(|e| e.to_string())?;
+    let mut reader = Reader::from_reader(bytes.as_slice());
+    let mut buf = Vec::new();
+    let mut folders = Vec::<String>::new();
+    let mut frames = Vec::<bool>::new();
+    let mut result = Vec::new();
+    loop {
+        match reader
+            .read_event_into(&mut buf)
+            .map_err(|e| e.to_string())?
+        {
+            Event::Start(e) if e.name().as_ref() == b"NODE" => {
+                let (mut kind, mut name) = (String::new(), String::new());
+                for attr in e.attributes().with_checks(false) {
+                    let attr = attr.map_err(|e| e.to_string())?;
+                    let value = attr
+                        .decoded_and_normalized_value(
+                            quick_xml::XmlVersion::Implicit1_0,
+                            reader.decoder(),
+                        )
+                        .map_err(|e| e.to_string())?
+                        .into_owned();
+                    match attr.key.as_ref() {
+                        b"Type" => kind = value,
+                        b"Name" => name = value,
+                        _ => {}
+                    }
+                }
+                if folders == wanted {
+                    result.push(format!("{kind}:{name}"));
+                }
+                let nested = kind == "0" && !frames.is_empty();
+                if nested {
+                    folders.push(name);
+                }
+                frames.push(nested);
+            }
+            Event::Empty(e) if e.name().as_ref() == b"NODE" => {
+                let (mut kind, mut name) = (String::new(), String::new());
+                for attr in e.attributes().with_checks(false) {
+                    let attr = attr.map_err(|e| e.to_string())?;
+                    let value = attr
+                        .decoded_and_normalized_value(
+                            quick_xml::XmlVersion::Implicit1_0,
+                            reader.decoder(),
+                        )
+                        .map_err(|e| e.to_string())?
+                        .into_owned();
+                    match attr.key.as_ref() {
+                        b"Type" => kind = value,
+                        b"Name" => name = value,
+                        _ => {}
+                    }
+                }
+                if folders == wanted {
+                    result.push(format!("{kind}:{name}"));
+                }
+            }
+            Event::End(e) if e.name().as_ref() == b"NODE" => {
+                if frames.pop().unwrap_or(false) {
+                    folders.pop();
+                }
+            }
+            Event::Eof => break,
+            _ => {}
+        }
+        buf.clear();
+    }
+    Ok(result)
+}
+
+fn direct_xml_node_order(
+    source: &std::path::Path,
+    wanted: &[String],
+) -> Result<Vec<String>, String> {
+    use quick_xml::{Reader, events::Event};
     let bytes = std::fs::read(source).map_err(|e| e.to_string())?;
     let mut reader = Reader::from_reader(bytes.as_slice());
     let mut buf = Vec::new();
@@ -11,20 +90,37 @@ fn direct_xml_node_order(source: &std::path::Path, wanted: &[String]) -> Result<
     let mut folder_frames: Vec<bool> = Vec::new();
     let mut result = Vec::new();
     loop {
-        match reader.read_event_into(&mut buf).map_err(|e| e.to_string())? {
+        match reader
+            .read_event_into(&mut buf)
+            .map_err(|e| e.to_string())?
+        {
             Event::Start(e) if e.name().as_ref() == b"NODE" => {
                 let mut kind = None;
                 let mut name = None;
                 for attr in e.attributes().with_checks(false) {
                     let attr = attr.map_err(|e| e.to_string())?;
-                    let value = attr.decoded_and_normalized_value(quick_xml::XmlVersion::Implicit1_0, reader.decoder()).map_err(|e| e.to_string())?.into_owned();
-                    match attr.key.as_ref() { b"Type" => kind = Some(value), b"Name" => name = Some(value), _ => {} }
+                    let value = attr
+                        .decoded_and_normalized_value(
+                            quick_xml::XmlVersion::Implicit1_0,
+                            reader.decoder(),
+                        )
+                        .map_err(|e| e.to_string())?
+                        .into_owned();
+                    match attr.key.as_ref() {
+                        b"Type" => kind = Some(value),
+                        b"Name" => name = Some(value),
+                        _ => {}
+                    }
                 }
                 let kind = kind.ok_or("NODE missing Type")?;
                 let name = name.ok_or("NODE missing Name")?;
-                if folders == wanted { result.push(name.clone()); }
+                if folders == wanted {
+                    result.push(name.clone());
+                }
                 let is_folder = kind == "0";
-                if is_folder && !folder_frames.is_empty() { folders.push(name); }
+                if is_folder && !folder_frames.is_empty() {
+                    folders.push(name);
+                }
                 folder_frames.push(is_folder && !folder_frames.is_empty());
             }
             Event::Empty(e) if e.name().as_ref() == b"NODE" => {
@@ -32,15 +128,29 @@ fn direct_xml_node_order(source: &std::path::Path, wanted: &[String]) -> Result<
                 let mut name = None;
                 for attr in e.attributes().with_checks(false) {
                     let attr = attr.map_err(|e| e.to_string())?;
-                    let value = attr.decoded_and_normalized_value(quick_xml::XmlVersion::Implicit1_0, reader.decoder()).map_err(|e| e.to_string())?.into_owned();
-                    match attr.key.as_ref() { b"Type" => kind = Some(value), b"Name" => name = Some(value), _ => {} }
+                    let value = attr
+                        .decoded_and_normalized_value(
+                            quick_xml::XmlVersion::Implicit1_0,
+                            reader.decoder(),
+                        )
+                        .map_err(|e| e.to_string())?
+                        .into_owned();
+                    match attr.key.as_ref() {
+                        b"Type" => kind = Some(value),
+                        b"Name" => name = Some(value),
+                        _ => {}
+                    }
                 }
                 let name = name.ok_or("NODE missing Name")?;
-                if folders == wanted { result.push(name); }
+                if folders == wanted {
+                    result.push(name);
+                }
                 let _ = kind;
             }
             Event::End(e) if e.name().as_ref() == b"NODE" => {
-                if folder_frames.pop().unwrap_or(false) { folders.pop(); }
+                if folder_frames.pop().unwrap_or(false) {
+                    folders.pop();
+                }
             }
             Event::Eof => break,
             _ => {}
@@ -62,6 +172,9 @@ mod f02_empty_folder_delete_oracle;
 #[path = "../../../xtask/tests/f02_empty_playlist_create_oracle.rs"]
 mod f02_empty_playlist_create_oracle;
 #[cfg(test)]
+#[path = "../../../xtask/tests/f02_folder_move_oracle.rs"]
+mod f02_folder_move_oracle;
+#[cfg(test)]
 #[path = "../../../xtask/tests/f02_folder_rename_oracle.rs"]
 mod f02_folder_rename_oracle;
 #[cfg(test)]
@@ -74,11 +187,11 @@ mod f02_playlist_delete_oracle;
 #[path = "../../../xtask/tests/f02_playlist_member_delete_oracle.rs"]
 mod f02_playlist_member_delete_oracle;
 #[cfg(test)]
-#[path = "../../../xtask/tests/f02_playlist_rename_oracle.rs"]
-mod f02_playlist_rename_oracle;
-#[cfg(test)]
 #[path = "../../../xtask/tests/f02_playlist_move_oracle.rs"]
 mod f02_playlist_move_oracle;
+#[cfg(test)]
+#[path = "../../../xtask/tests/f02_playlist_rename_oracle.rs"]
+mod f02_playlist_rename_oracle;
 #[cfg(test)]
 #[path = "../../../xtask/tests/f02_sibling_folder_reorder_oracle.rs"]
 mod f02_sibling_folder_reorder_oracle;
@@ -128,6 +241,25 @@ struct PendingSiblingFolderReorder {
     expected_order: Vec<String>,
     new_order: Vec<String>,
     prepared: oxidj_application::PreparedSiblingFolderReorderExport,
+}
+#[derive(Debug, Clone)]
+struct PendingFolderMove {
+    source: PathBuf,
+    folder_index: usize,
+    folder_name: String,
+    old_path: Vec<String>,
+    new_path: Vec<String>,
+    source_parent_index: usize,
+    source_parent_name: String,
+    source_parent_path: Vec<String>,
+    target_parent_index: usize,
+    target_parent_name: String,
+    target_parent_path: Vec<String>,
+    expected_source_order: Vec<String>,
+    expected_target_order: Vec<String>,
+    source_count: Option<String>,
+    target_count: Option<String>,
+    prepared: oxidj_application::PreparedFolderMoveExport,
 }
 #[derive(Debug, Clone)]
 struct PendingPlaylistMove {
@@ -291,6 +423,10 @@ struct LibraryApp {
     xml_folder_sibling_pending: Option<PendingSiblingFolderReorder>,
     xml_folder_sibling_export_path: String,
     xml_move_destination: Option<usize>,
+    xml_pending_folder_move: Option<PendingFolderMove>,
+    xml_folder_move_selection: Option<usize>,
+    xml_folder_move_destination: Option<usize>,
+    xml_folder_move_export_path: String,
     xml_pending_move: Option<PendingPlaylistMove>,
     xml_move_export_path: String,
     xml_pending_append: Option<PendingPlaylistMemberAppend>,
@@ -379,6 +515,10 @@ impl LibraryApp {
             xml_folder_sibling_pending: None,
             xml_folder_sibling_export_path: String::new(),
             xml_move_destination: None,
+            xml_pending_folder_move: None,
+            xml_folder_move_selection: None,
+            xml_folder_move_destination: None,
+            xml_folder_move_export_path: String::new(),
             xml_pending_move: None,
             xml_move_export_path: String::new(),
             xml_pending_append: None,
@@ -848,17 +988,166 @@ impl LibraryApp {
         }
     }
 
+    fn prepare_xml_folder_move(&mut self, folder_index: usize) {
+        self.xml_pending_folder_move = None;
+        let (Some(source), Some(Ok(preview)), Some(target_ordinal)) = (
+            self.xml_document_source.clone(),
+            self.xml_preview.as_ref(),
+            self.xml_folder_move_destination,
+        ) else {
+            return;
+        };
+        let Some(folder) = preview
+            .folders
+            .get(folder_index)
+            .filter(|f| f.path.len() > 2)
+        else {
+            self.xml_edit_error = Some("Folder move refused: select a non-root folder".into());
+            return;
+        };
+        let Some(source_parent) = preview
+            .folders
+            .iter()
+            .find(|p| p.path == folder.path[..folder.path.len() - 1])
+        else {
+            self.xml_edit_error = Some("Folder move refused: source parent unavailable".into());
+            return;
+        };
+        let Some(target) = preview
+            .folders
+            .iter()
+            .find(|p| p.ordinal == target_ordinal && p.path.len() > 1)
+        else {
+            self.xml_edit_error = Some("Folder move refused: destination must be non-root".into());
+            return;
+        };
+        let order = |parent: &oxidj_rekordbox::Folder| {
+            direct_xml_typed_child_order(&source, &parent.path[1..]).unwrap_or_default()
+        };
+        let source_order = order(source_parent);
+        let target_order = order(target);
+        let request = oxidj_application::FolderMoveRequest {
+            folder_index: folder.ordinal.saturating_sub(1),
+            expected_folder_name: folder.name.clone(),
+            source_parent_index: source_parent.ordinal.saturating_sub(1),
+            expected_source_parent_name: source_parent.name.clone(),
+            expected_source_order: source_order.clone(),
+            target_parent_index: target.ordinal.saturating_sub(1),
+            expected_target_parent_name: target.name.clone(),
+            expected_target_order: target_order.clone(),
+        };
+        match oxidj_application::prepare_rekordbox_folder_move_export(&source, &request) {
+            Ok(prepared) => {
+                let mut new_path = target.path.iter().skip(1).cloned().collect::<Vec<_>>();
+                new_path.push(folder.name.clone());
+                self.xml_pending_folder_move = Some(PendingFolderMove {
+                    source,
+                    folder_index,
+                    folder_name: folder.name.clone(),
+                    old_path: folder.path.clone(),
+                    new_path,
+                    source_parent_index: source_parent.ordinal.saturating_sub(1),
+                    source_parent_name: source_parent.name.clone(),
+                    source_parent_path: source_parent.path.clone(),
+                    target_parent_index: target.ordinal.saturating_sub(1),
+                    target_parent_name: target.name.clone(),
+                    target_parent_path: target.path.clone(),
+                    expected_source_order: source_order,
+                    expected_target_order: target_order,
+                    source_count: source_parent.count.clone(),
+                    target_count: target.count.clone(),
+                    prepared,
+                });
+            }
+            Err(error) => self.xml_edit_error = Some(format!("Folder move refused: {error}")),
+        }
+    }
+
+    fn cancel_xml_folder_move(&mut self) {
+        self.xml_pending_folder_move = None;
+    }
+
+    fn export_xml_folder_move(&mut self) {
+        let Some(pending) = self.xml_pending_folder_move.as_ref() else {
+            return;
+        };
+        let Some(Ok(preview)) = self.xml_preview.as_ref() else {
+            self.xml_pending_folder_move = None;
+            return;
+        };
+        let source_parent = preview
+            .folders
+            .iter()
+            .find(|f| f.ordinal == pending.source_parent_index + 1);
+        let target = preview
+            .folders
+            .iter()
+            .find(|f| f.ordinal == pending.target_parent_index + 1);
+        let folder = preview.folders.get(pending.folder_index);
+        let live_order = |parent: Option<&oxidj_rekordbox::Folder>| {
+            parent
+                .and_then(|p| direct_xml_typed_child_order(&pending.source, &p.path[1..]).ok())
+                .unwrap_or_default()
+        };
+        let stale = self.xml_document_source.as_ref() != Some(&pending.source)
+            || self.xml_folder_move_selection != Some(pending.folder_index)
+            || self.xml_folder_move_destination != Some(pending.target_parent_index + 1)
+            || folder.is_none_or(|f| f.name != pending.folder_name || f.path != pending.old_path)
+            || source_parent.is_none_or(|p| {
+                p.name != pending.source_parent_name
+                    || p.path != pending.source_parent_path
+                    || p.count != pending.source_count
+            })
+            || target.is_none_or(|p| {
+                p.name != pending.target_parent_name
+                    || p.path != pending.target_parent_path
+                    || p.count != pending.target_count
+            })
+            || live_order(source_parent) != pending.expected_source_order
+            || live_order(target) != pending.expected_target_order;
+        if stale {
+            self.xml_pending_folder_move = None;
+            self.xml_edit_error = Some(
+                "Folder move invalidated by source, selection, parent or typed child order change"
+                    .into(),
+            );
+            return;
+        }
+        let output = PathBuf::from(&self.xml_folder_move_export_path);
+        match oxidj_application::export_prepared_rekordbox_folder_move(&pending.prepared, &output) {
+            Ok(()) => {
+                self.xml_pending_folder_move = None;
+                self.xml_path = output.display().to_string();
+                self.preview_xml();
+            }
+            Err(error) => self.xml_edit_error = Some(format!("Folder move export failed: {error}")),
+        }
+    }
+
     fn prepare_xml_playlist_move(&mut self, playlist_index: usize) {
         self.xml_pending_move = None;
         let (Some(source), Some(Ok(preview)), Some(destination_ordinal)) = (
-            self.xml_document_source.clone(), self.xml_preview.as_ref(), self.xml_move_destination,
-        ) else { return; };
-        let Some(playlist) = preview.playlists.get(playlist_index) else { return; };
-        let Some(source_parent) = immediate_parent_folder(preview, playlist) else {
-            self.xml_edit_error = Some("Playlist move refused: source parent unavailable".into()); return;
+            self.xml_document_source.clone(),
+            self.xml_preview.as_ref(),
+            self.xml_move_destination,
+        ) else {
+            return;
         };
-        let Some(destination) = preview.folders.iter().find(|f| f.ordinal == destination_ordinal && f.path.len() > 1) else {
-            self.xml_edit_error = Some("Playlist move refused: destination must be a non-root folder".into()); return;
+        let Some(playlist) = preview.playlists.get(playlist_index) else {
+            return;
+        };
+        let Some(source_parent) = immediate_parent_folder(preview, playlist) else {
+            self.xml_edit_error = Some("Playlist move refused: source parent unavailable".into());
+            return;
+        };
+        let Some(destination) = preview
+            .folders
+            .iter()
+            .find(|f| f.ordinal == destination_ordinal && f.path.len() > 1)
+        else {
+            self.xml_edit_error =
+                Some("Playlist move refused: destination must be a non-root folder".into());
+            return;
         };
         let old_path = playlist.path.clone();
         let new_path = [
@@ -882,45 +1171,98 @@ impl LibraryApp {
             expected_target_order: destination_order.clone(),
         };
         match oxidj_application::prepare_rekordbox_playlist_move_export(&source, &request) {
-            Ok(prepared) => self.xml_pending_move = Some(PendingPlaylistMove {
-                source, playlist_index, source_parent_index: source_parent.ordinal.saturating_sub(1),
-                source_parent_name: source_parent.name.clone(), source_parent_path: source_parent.path.clone(),
-                destination_parent_index: destination.ordinal.saturating_sub(1), destination_parent_name: destination.name.clone(),
-                destination_parent_path: destination.path.clone(), expected_members: playlist.tracks.clone(),
-                expected_source_order: source_order, expected_destination_order: destination_order,
-                old_path, new_path, source_count: source_parent.count.clone(), destination_count: destination.count.clone(), prepared,
-            }),
+            Ok(prepared) => {
+                self.xml_pending_move = Some(PendingPlaylistMove {
+                    source,
+                    playlist_index,
+                    source_parent_index: source_parent.ordinal.saturating_sub(1),
+                    source_parent_name: source_parent.name.clone(),
+                    source_parent_path: source_parent.path.clone(),
+                    destination_parent_index: destination.ordinal.saturating_sub(1),
+                    destination_parent_name: destination.name.clone(),
+                    destination_parent_path: destination.path.clone(),
+                    expected_members: playlist.tracks.clone(),
+                    expected_source_order: source_order,
+                    expected_destination_order: destination_order,
+                    old_path,
+                    new_path,
+                    source_count: source_parent.count.clone(),
+                    destination_count: destination.count.clone(),
+                    prepared,
+                })
+            }
             Err(error) => self.xml_edit_error = Some(format!("Playlist move refused: {error}")),
         }
     }
 
-    fn cancel_xml_playlist_move(&mut self) { self.xml_pending_move = None; }
+    fn cancel_xml_playlist_move(&mut self) {
+        self.xml_pending_move = None;
+    }
 
     fn export_xml_playlist_move(&mut self) {
-        let Some(pending) = self.xml_pending_move.as_ref() else { return; };
-        let Some(Ok(preview)) = self.xml_preview.as_ref() else { self.xml_pending_move = None; return; };
-        let source_parent = preview.folders.iter().find(|f| f.ordinal == pending.source_parent_index + 1);
-        let destination = preview.folders.iter().find(|f| f.ordinal == pending.destination_parent_index + 1);
+        let Some(pending) = self.xml_pending_move.as_ref() else {
+            return;
+        };
+        let Some(Ok(preview)) = self.xml_preview.as_ref() else {
+            self.xml_pending_move = None;
+            return;
+        };
+        let source_parent = preview
+            .folders
+            .iter()
+            .find(|f| f.ordinal == pending.source_parent_index + 1);
+        let destination = preview
+            .folders
+            .iter()
+            .find(|f| f.ordinal == pending.destination_parent_index + 1);
         let playlist = preview.playlists.get(pending.playlist_index);
         let order_under = |parent: Option<&oxidj_rekordbox::Folder>| -> Vec<String> {
-            parent.and_then(|parent| direct_xml_node_order(&pending.source, &parent.path[1..]).ok()).unwrap_or_default()
+            parent
+                .and_then(|parent| direct_xml_node_order(&pending.source, &parent.path[1..]).ok())
+                .unwrap_or_default()
         };
-        let live_source_order = source_parent.and_then(|p| direct_xml_node_order(&pending.source, &p.path[1..]).ok()).unwrap_or_default();
-        let live_destination_order = destination.and_then(|p| direct_xml_node_order(&pending.source, &p.path[1..]).ok()).unwrap_or_default();
+        let live_source_order = source_parent
+            .and_then(|p| direct_xml_node_order(&pending.source, &p.path[1..]).ok())
+            .unwrap_or_default();
+        let live_destination_order = destination
+            .and_then(|p| direct_xml_node_order(&pending.source, &p.path[1..]).ok())
+            .unwrap_or_default();
         let stale = self.xml_document_source.as_ref() != Some(&pending.source)
             || self.xml_selected_playlist != Some(pending.playlist_index)
             || self.xml_move_destination != Some(pending.destination_parent_index + 1)
-            || playlist.is_none_or(|p| p.name != *pending.old_path.last().unwrap_or(&String::new()) || p.tracks != pending.expected_members)
-            || source_parent.is_none_or(|p| p.name != pending.source_parent_name || p.path != pending.source_parent_path || p.count != pending.source_count)
-            || destination.is_none_or(|p| p.name != pending.destination_parent_name || p.path != pending.destination_parent_path || p.count != pending.destination_count)
+            || playlist.is_none_or(|p| {
+                p.name != *pending.old_path.last().unwrap_or(&String::new())
+                    || p.tracks != pending.expected_members
+            })
+            || source_parent.is_none_or(|p| {
+                p.name != pending.source_parent_name
+                    || p.path != pending.source_parent_path
+                    || p.count != pending.source_count
+            })
+            || destination.is_none_or(|p| {
+                p.name != pending.destination_parent_name
+                    || p.path != pending.destination_parent_path
+                    || p.count != pending.destination_count
+            })
             || order_under(source_parent) != pending.expected_source_order
             || order_under(destination) != pending.expected_destination_order
             || live_source_order != pending.expected_source_order
             || live_destination_order != pending.expected_destination_order;
-        if stale { self.xml_pending_move = None; self.xml_edit_error = Some("Playlist move invalidated by source, selection, parent or order change".into()); return; }
+        if stale {
+            self.xml_pending_move = None;
+            self.xml_edit_error = Some(
+                "Playlist move invalidated by source, selection, parent or order change".into(),
+            );
+            return;
+        }
         let output = PathBuf::from(&self.xml_move_export_path);
-        match oxidj_application::export_prepared_rekordbox_playlist_move(&pending.prepared, &output) {
-            Ok(()) => { self.xml_pending_move = None; self.xml_path = output.display().to_string(); self.preview_xml(); }
+        match oxidj_application::export_prepared_rekordbox_playlist_move(&pending.prepared, &output)
+        {
+            Ok(()) => {
+                self.xml_pending_move = None;
+                self.xml_path = output.display().to_string();
+                self.preview_xml();
+            }
             Err(error) => {
                 self.xml_pending_move = None;
                 self.xml_edit_error = Some(format!("Playlist move export failed: {error}"));
@@ -2372,6 +2714,30 @@ impl eframe::App for LibraryApp {
                             if ui.button("Export prepared sibling folders").clicked() { self.export_xml_sibling_folder_reorder(); }
                             if ui.button("Cancel sibling folder reorder").clicked() { self.cancel_xml_sibling_folder_reorder(); }
                         }
+                        SectionHeading { title: "Guarded cross-parent folder-subtree move (provisional)" }.show(ui, tokens);
+                        for (index, folder) in preview.folders.iter().enumerate().filter(|(_, f)| f.path.len() > 2) {
+                            if ui.selectable_label(self.xml_folder_move_selection == Some(index), format!("Source #{} · {}", folder.ordinal, folder.path.join(" / "))).clicked() {
+                                self.xml_folder_move_selection = Some(index);
+                                self.xml_pending_folder_move = None;
+                            }
+                        }
+                        for folder in preview.folders.iter().filter(|f| f.path.len() > 1) {
+                            if ui.selectable_label(self.xml_folder_move_destination == Some(folder.ordinal), format!("Destination #{} · {}", folder.ordinal, folder.path.join(" / "))).clicked() {
+                                self.xml_folder_move_destination = Some(folder.ordinal);
+                                self.xml_pending_folder_move = None;
+                            }
+                        }
+                        if let Some(index) = self.xml_folder_move_selection {
+                            if ui.button("Prepare folder-subtree move preview").clicked() { self.prepare_xml_folder_move(index); }
+                        }
+                        if let Some(pending) = &self.xml_pending_folder_move {
+                            let count = |value: &Option<String>, delta: isize| value.as_deref().and_then(|v| v.parse::<usize>().ok()).map(|n| if delta < 0 { n.saturating_sub(delta.unsigned_abs()) } else { n + delta as usize }.to_string()).unwrap_or_else(|| if delta < 0 { "N-1".into() } else { "N+1".into() });
+                            ui.label(format!("Preview · {} → {} · source Count {} → {}; destination Count {} → {}", pending.old_path.join(" / "), pending.new_path.join(" / "), pending.source_count.as_deref().unwrap_or("?"), count(&pending.source_count, -1), pending.target_count.as_deref().unwrap_or("?"), count(&pending.target_count, 1)));
+                            ui.label("Subtree, nested playlists, memberships and unrelated Counts remain unchanged.");
+                            ui.horizontal(|ui| { ui.label("New XML destination"); ui.text_edit_singleline(&mut self.xml_folder_move_export_path); });
+                            if ui.button("Export prepared folder move").clicked() { self.export_xml_folder_move(); }
+                            if ui.button("Cancel folder move").clicked() { self.cancel_xml_folder_move(); }
+                        }
                         SectionHeading { title: "Guarded cross-folder playlist move (provisional)" }.show(ui, tokens);
                         for folder in preview.folders.iter().filter(|f| f.path.len() > 1) {
                             if ui.selectable_label(self.xml_move_destination == Some(folder.ordinal), format!("Destination #{} · {}", folder.ordinal, folder.path.join(" / "))).clicked() {
@@ -3039,7 +3405,11 @@ mod keyboard_tests {
         app.xml_folder_sibling_parent = Some(parent.ordinal);
         app.xml_folder_sibling_order = "Beta, Alpha".into();
         app.prepare_xml_sibling_folder_reorder();
-        assert!(app.xml_folder_sibling_pending.is_some(), "{:?}", app.xml_edit_error);
+        assert!(
+            app.xml_folder_sibling_pending.is_some(),
+            "{:?}",
+            app.xml_edit_error
+        );
         let pending = app.xml_folder_sibling_pending.as_ref().unwrap();
         assert_eq!(pending.expected_order, ["Alpha", "Beta"]);
         assert_eq!(pending.new_order, ["Beta", "Alpha"]);
@@ -3106,18 +3476,52 @@ mod keyboard_tests {
         let setup = |label: &str, order: &str| {
             let path = root.join(format!("{label}.xml"));
             std::fs::copy(fixture, &path).unwrap();
-            let mut candidate = LibraryApp::new(PathBuf::from("/definitely/missing/oxidj-test.sqlite"), ThemeMode::TokyoNight, ThemeMode::TokyoNight.tokens());
-            candidate.xml_path = path.display().to_string(); candidate.preview_xml();
-            candidate.xml_folder_sibling_parent = Some(candidate.xml_preview.as_ref().unwrap().as_ref().unwrap().folders.iter().find(|f| f.name == "Sets").unwrap().ordinal);
-            candidate.xml_folder_sibling_order = order.into(); candidate.prepare_xml_sibling_folder_reorder();
+            let mut candidate = LibraryApp::new(
+                PathBuf::from("/definitely/missing/oxidj-test.sqlite"),
+                ThemeMode::TokyoNight,
+                ThemeMode::TokyoNight.tokens(),
+            );
+            candidate.xml_path = path.display().to_string();
+            candidate.preview_xml();
+            candidate.xml_folder_sibling_parent = Some(
+                candidate
+                    .xml_preview
+                    .as_ref()
+                    .unwrap()
+                    .as_ref()
+                    .unwrap()
+                    .folders
+                    .iter()
+                    .find(|f| f.name == "Sets")
+                    .unwrap()
+                    .ordinal,
+            );
+            candidate.xml_folder_sibling_order = order.into();
+            candidate.prepare_xml_sibling_folder_reorder();
             (candidate, path)
         };
         for stale_kind in ["parent", "order"] {
             let (mut candidate, source) = setup("changed", "Beta, Alpha");
             if stale_kind == "parent" {
-                candidate.xml_preview.as_mut().unwrap().as_mut().unwrap().folders.iter_mut().find(|f| f.name == "Sets").unwrap().name = "Changed".into();
+                candidate
+                    .xml_preview
+                    .as_mut()
+                    .unwrap()
+                    .as_mut()
+                    .unwrap()
+                    .folders
+                    .iter_mut()
+                    .find(|f| f.name == "Sets")
+                    .unwrap()
+                    .name = "Changed".into();
             } else {
-                let folders = &mut candidate.xml_preview.as_mut().unwrap().as_mut().unwrap().folders;
+                let folders = &mut candidate
+                    .xml_preview
+                    .as_mut()
+                    .unwrap()
+                    .as_mut()
+                    .unwrap()
+                    .folders;
                 let alpha = folders.iter().position(|f| f.name == "Alpha").unwrap();
                 let beta = folders.iter().position(|f| f.name == "Beta").unwrap();
                 folders.swap(alpha, beta);
@@ -3127,17 +3531,29 @@ mod keyboard_tests {
             candidate.export_xml_sibling_folder_reorder();
             assert!(candidate.xml_folder_sibling_pending.is_none());
             assert!(!output.exists());
-            assert_eq!(std::fs::read(source).unwrap(), std::fs::read(fixture).unwrap());
+            assert_eq!(
+                std::fs::read(source).unwrap(),
+                std::fs::read(fixture).unwrap()
+            );
         }
         let (mut root_parent, root_source) = setup("root-parent", "Beta, Alpha");
         root_parent.xml_folder_sibling_parent = Some(0);
         root_parent.prepare_xml_sibling_folder_reorder();
         assert!(root_parent.xml_folder_sibling_pending.is_none());
-        assert_eq!(std::fs::read(root_source).unwrap(), std::fs::read(fixture).unwrap());
+        assert_eq!(
+            std::fs::read(root_source).unwrap(),
+            std::fs::read(fixture).unwrap()
+        );
         for invalid in ["Beta, Beta", "Beta, Missing", "Beta"] {
             let (candidate, path) = setup("invalid", invalid);
-            assert!(candidate.xml_folder_sibling_pending.is_none(), "accepted {invalid}");
-            assert_eq!(std::fs::read(path).unwrap(), std::fs::read(fixture).unwrap());
+            assert!(
+                candidate.xml_folder_sibling_pending.is_none(),
+                "accepted {invalid}"
+            );
+            assert_eq!(
+                std::fs::read(path).unwrap(),
+                std::fs::read(fixture).unwrap()
+            );
         }
         let (mut cancelled, cancel_source) = setup("cancel", "Beta, Alpha");
         cancelled.cancel_xml_sibling_folder_reorder();
@@ -3145,37 +3561,282 @@ mod keyboard_tests {
         cancelled.xml_folder_sibling_export_path = cancelled_output.display().to_string();
         cancelled.export_xml_sibling_folder_reorder();
         assert!(!cancelled_output.exists());
-        assert_eq!(std::fs::read(cancel_source).unwrap(), std::fs::read(fixture).unwrap());
+        assert_eq!(
+            std::fs::read(cancel_source).unwrap(),
+            std::fs::read(fixture).unwrap()
+        );
         let (mut alias, alias_source) = setup("alias", "Beta, Alpha");
         alias.xml_folder_sibling_export_path = alias_source.display().to_string();
         alias.export_xml_sibling_folder_reorder();
-        assert_eq!(std::fs::read(alias_source).unwrap(), std::fs::read(fixture).unwrap());
+        assert_eq!(
+            std::fs::read(alias_source).unwrap(),
+            std::fs::read(fixture).unwrap()
+        );
         let (mut existing, existing_source) = setup("existing", "Beta, Alpha");
-        let protected = root.join("protected.xml"); std::fs::write(&protected, b"keep").unwrap();
-        existing.xml_folder_sibling_export_path = protected.display().to_string(); existing.export_xml_sibling_folder_reorder();
+        let protected = root.join("protected.xml");
+        std::fs::write(&protected, b"keep").unwrap();
+        existing.xml_folder_sibling_export_path = protected.display().to_string();
+        existing.export_xml_sibling_folder_reorder();
         assert_eq!(std::fs::read(protected).unwrap(), b"keep");
-        assert_eq!(std::fs::read(existing_source).unwrap(), std::fs::read(fixture).unwrap());
+        assert_eq!(
+            std::fs::read(existing_source).unwrap(),
+            std::fs::read(fixture).unwrap()
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn folder_subtree_move_ui_prepares_cancels_exports_and_reopens_oracle_checked_bytes() {
+        use std::time::{SystemTime, UNIX_EPOCH};
+        let root = std::env::temp_dir().join(format!(
+            "oxidj-ui-folder-move-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let source = root.join("source.xml");
+        std::fs::copy(
+            concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../xtask/tests/fixtures/f02-folder-move/source.xml"
+            ),
+            &source,
+        )
+        .unwrap();
+        let original = std::fs::read(&source).unwrap();
+        let mut app = app();
+        app.xml_path = source.display().to_string();
+        app.preview_xml();
+        let preview = app.xml_preview.as_ref().unwrap().as_ref().unwrap();
+        let index = preview
+            .folders
+            .iter()
+            .position(|f| f.name == "ToMove")
+            .unwrap();
+        let target = preview
+            .folders
+            .iter()
+            .find(|f| f.name == "Dest")
+            .unwrap()
+            .ordinal;
+        app.xml_folder_move_selection = Some(index);
+        app.xml_folder_move_destination = Some(target);
+        app.prepare_xml_folder_move(index);
+        let pending = app.xml_pending_folder_move.as_ref().unwrap();
+        assert_eq!(pending.old_path, ["ROOT", "From", "ToMove"]);
+        assert_eq!(pending.new_path, ["Dest", "ToMove"]);
+        assert_eq!(
+            app.xml_pending_folder_move
+                .as_ref()
+                .unwrap()
+                .expected_source_order,
+            ["0:ToMove", "1:Remain"]
+        );
+        assert_eq!(
+            app.xml_pending_folder_move
+                .as_ref()
+                .unwrap()
+                .expected_target_order,
+            ["1:Existing"]
+        );
+        let prepared = pending.prepared.bytes().to_vec();
+        app.cancel_xml_folder_move();
+        assert!(app.xml_pending_folder_move.is_none());
+        assert_eq!(std::fs::read(&source).unwrap(), original);
+        app.prepare_xml_folder_move(index);
+        let output = root.join("moved.xml");
+        app.xml_folder_move_export_path = output.display().to_string();
+        app.export_xml_folder_move();
+        let bytes = std::fs::read(&output).unwrap();
+        assert_eq!(bytes, prepared);
+        f02_folder_move_oracle::check(&bytes).unwrap();
+        let reopened = oxidj_application::preview_rekordbox_xml(&output).unwrap();
+        assert!(
+            reopened
+                .folders
+                .iter()
+                .any(|f| f.path == ["ROOT", "Dest", "ToMove", "Nested"])
+        );
+        assert!(
+            reopened
+                .playlists
+                .iter()
+                .any(|p| p.path == ["Dest", "ToMove", "Nested", "Inside"]
+                    && p.name == "Inside"
+                    && p.tracks == ["1", "3"])
+        );
+        assert_eq!(
+            reopened
+                .folders
+                .iter()
+                .find(|f| f.name == "From")
+                .unwrap()
+                .count
+                .as_deref(),
+            Some("1")
+        );
+        assert_eq!(
+            reopened
+                .folders
+                .iter()
+                .find(|f| f.name == "Dest")
+                .unwrap()
+                .count
+                .as_deref(),
+            Some("2")
+        );
+        assert_eq!(std::fs::read(&source).unwrap(), original);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn folder_subtree_move_ui_rejects_stale_typed_child_order_and_preserves_aliases() {
+        use std::time::{SystemTime, UNIX_EPOCH};
+        let root = std::env::temp_dir().join(format!(
+            "oxidj-ui-folder-move-stale-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let source = root.join("source.xml");
+        let fixture = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../xtask/tests/fixtures/f02-folder-move/source.xml"
+        );
+        std::fs::copy(fixture, &source).unwrap();
+        let mut app = app();
+        app.xml_path = source.display().to_string();
+        app.preview_xml();
+        let preview = app.xml_preview.as_ref().unwrap().as_ref().unwrap();
+        let index = preview
+            .folders
+            .iter()
+            .position(|f| f.name == "ToMove")
+            .unwrap();
+        let target = preview
+            .folders
+            .iter()
+            .find(|f| f.name == "Dest")
+            .unwrap()
+            .ordinal;
+        app.xml_folder_move_selection = Some(index);
+        app.xml_folder_move_destination = Some(target);
+        app.prepare_xml_folder_move(index);
+        let original = std::fs::read_to_string(&source).unwrap();
+        let left = "<NODE Type=\"0\" Name=\"ToMove\" Count=\"1\"><NODE Type=\"0\" Name=\"Nested\" Count=\"1\"><NODE Type=\"1\" Name=\"Inside\" Entries=\"2\" KeyType=\"0\"><TRACK Key=\"1\"/><TRACK Key=\"3\"/></NODE></NODE></NODE>";
+        let right = "<NODE Type=\"1\" Name=\"Remain\" Entries=\"1\" KeyType=\"0\"><TRACK Key=\"2\"/></NODE>";
+        assert!(original.contains(&format!("{left}{right}")));
+        std::fs::write(
+            &source,
+            original.replacen(&format!("{left}{right}"), &format!("{right}{left}"), 1),
+        )
+        .unwrap();
+        let changed = std::fs::read(&source).unwrap();
+        app.xml_folder_move_export_path = root.join("stale.xml").display().to_string();
+        app.export_xml_folder_move();
+        assert!(app.xml_pending_folder_move.is_none());
+        assert!(!root.join("stale.xml").exists());
+        assert_eq!(std::fs::read(&source).unwrap(), changed);
+        app.xml_document_source = Some(source.clone());
+        app.xml_path = source.display().to_string();
+        app.preview_xml();
+        let alias_index = app
+            .xml_preview
+            .as_ref()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .folders
+            .iter()
+            .position(|f| f.name == "ToMove")
+            .unwrap();
+        let dest = app
+            .xml_preview
+            .as_ref()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .folders
+            .iter()
+            .find(|f| f.name == "Dest")
+            .unwrap()
+            .ordinal;
+        app.xml_folder_move_selection = Some(alias_index);
+        app.xml_folder_move_destination = Some(dest);
+        app.prepare_xml_folder_move(alias_index);
+        app.xml_folder_move_export_path = source.display().to_string();
+        app.export_xml_folder_move();
+        assert_eq!(std::fs::read(&source).unwrap(), changed);
         std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
     fn playlist_move_ui_exports_prepared_bytes_and_runs_independent_oracle() {
         use std::time::{SystemTime, UNIX_EPOCH};
-        let root = std::env::temp_dir().join(format!("oxidj-ui-playlist-move-{}-{}", std::process::id(), SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()));
+        let root = std::env::temp_dir().join(format!(
+            "oxidj-ui-playlist-move-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
         std::fs::create_dir_all(&root).unwrap();
         let source = root.join("source.xml");
-        std::fs::copy(concat!(env!("CARGO_MANIFEST_DIR"), "/../../xtask/tests/fixtures/f02-playlist-move/source.xml"), &source).unwrap();
+        std::fs::copy(
+            concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../xtask/tests/fixtures/f02-playlist-move/source.xml"
+            ),
+            &source,
+        )
+        .unwrap();
         let original = std::fs::read(&source).unwrap();
         let catalog = root.join("catalog.sqlite");
-        let mut app = LibraryApp::new(catalog.clone(), ThemeMode::TokyoNight, ThemeMode::TokyoNight.tokens());
+        let mut app = LibraryApp::new(
+            catalog.clone(),
+            ThemeMode::TokyoNight,
+            ThemeMode::TokyoNight.tokens(),
+        );
         app.xml_path = source.display().to_string();
         app.preview_xml();
-        let source_tracks: Vec<_> = app.xml_preview.as_ref().unwrap().as_ref().unwrap().tracks.iter().map(|track| (track.id.clone(), track.name.clone(), track.location.clone())).collect();
-        let target = app.xml_preview.as_ref().unwrap().as_ref().unwrap().folders.iter().find(|f| f.name == "Target").unwrap().ordinal;
+        let source_tracks: Vec<_> = app
+            .xml_preview
+            .as_ref()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .tracks
+            .iter()
+            .map(|track| (track.id.clone(), track.name.clone(), track.location.clone()))
+            .collect();
+        let target = app
+            .xml_preview
+            .as_ref()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .folders
+            .iter()
+            .find(|f| f.name == "Target")
+            .unwrap()
+            .ordinal;
         app.xml_selected_playlist = Some(0);
         app.xml_move_destination = Some(target);
         app.prepare_xml_playlist_move(0);
-        let prepared = app.xml_pending_move.as_ref().unwrap().prepared.bytes().to_vec();
+        let prepared = app
+            .xml_pending_move
+            .as_ref()
+            .unwrap()
+            .prepared
+            .bytes()
+            .to_vec();
         assert_eq!(
             app.xml_pending_move.as_ref().unwrap().old_path,
             ["Sets", "House"]
@@ -3190,7 +3851,11 @@ mod keyboard_tests {
         app.prepare_xml_playlist_move(0);
         app.xml_move_export_path = source.display().to_string();
         app.export_xml_playlist_move();
-        assert_eq!(std::fs::read(&source).unwrap(), original, "source alias cannot overwrite");
+        assert_eq!(
+            std::fs::read(&source).unwrap(),
+            original,
+            "source alias cannot overwrite"
+        );
         assert!(app.xml_pending_move.is_none());
         let existing = root.join("existing.xml");
         std::fs::write(&existing, b"preserve").unwrap();
@@ -3207,11 +3872,42 @@ mod keyboard_tests {
         assert_eq!(bytes, prepared);
         f02_playlist_move_oracle::check(&bytes).unwrap();
         let reopened = oxidj_application::preview_rekordbox_xml(&out).unwrap();
-        assert!(reopened.playlists.iter().any(|p| p.path == ["Target", "House"] && p.name == "House" && p.tracks == ["100", "200", "300"]), "reopened: {:?}", reopened.playlists);
-        assert_eq!(reopened.folders.iter().find(|f| f.name == "Sets").unwrap().count.as_deref(), Some("1"));
-        assert_eq!(reopened.folders.iter().find(|f| f.name == "Target").unwrap().count.as_deref(), Some("2"));
+        assert!(
+            reopened
+                .playlists
+                .iter()
+                .any(|p| p.path == ["Target", "House"]
+                    && p.name == "House"
+                    && p.tracks == ["100", "200", "300"]),
+            "reopened: {:?}",
+            reopened.playlists
+        );
         assert_eq!(
-            reopened.tracks.iter().map(|track| (track.id.clone(), track.name.clone(), track.location.clone())).collect::<Vec<_>>(),
+            reopened
+                .folders
+                .iter()
+                .find(|f| f.name == "Sets")
+                .unwrap()
+                .count
+                .as_deref(),
+            Some("1")
+        );
+        assert_eq!(
+            reopened
+                .folders
+                .iter()
+                .find(|f| f.name == "Target")
+                .unwrap()
+                .count
+                .as_deref(),
+            Some("2")
+        );
+        assert_eq!(
+            reopened
+                .tracks
+                .iter()
+                .map(|track| (track.id.clone(), track.name.clone(), track.location.clone()))
+                .collect::<Vec<_>>(),
             source_tracks,
             "collection tracks must be unchanged"
         );
@@ -3226,20 +3922,57 @@ mod keyboard_tests {
     #[test]
     fn playlist_move_ui_invalidates_source_selection_and_destination_changes() {
         use std::time::{SystemTime, UNIX_EPOCH};
-        let root = std::env::temp_dir().join(format!("oxidj-ui-playlist-move-stale-{}-{}", std::process::id(), SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()));
+        let root = std::env::temp_dir().join(format!(
+            "oxidj-ui-playlist-move-stale-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
         std::fs::create_dir_all(&root).unwrap();
         let source = root.join("source.xml");
-        std::fs::copy(concat!(env!("CARGO_MANIFEST_DIR"), "/../../xtask/tests/fixtures/f02-playlist-move/source.xml"), &source).unwrap();
+        std::fs::copy(
+            concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../xtask/tests/fixtures/f02-playlist-move/source.xml"
+            ),
+            &source,
+        )
+        .unwrap();
         let mut app = app();
         app.xml_path = source.display().to_string();
         app.preview_xml();
-        let target = app.xml_preview.as_ref().unwrap().as_ref().unwrap().folders.iter().find(|f| f.name == "Target").unwrap().ordinal;
-        let sets = app.xml_preview.as_ref().unwrap().as_ref().unwrap().folders.iter().find(|f| f.name == "Sets").unwrap().ordinal;
+        let target = app
+            .xml_preview
+            .as_ref()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .folders
+            .iter()
+            .find(|f| f.name == "Target")
+            .unwrap()
+            .ordinal;
+        let sets = app
+            .xml_preview
+            .as_ref()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .folders
+            .iter()
+            .find(|f| f.name == "Sets")
+            .unwrap()
+            .ordinal;
         app.xml_selected_playlist = Some(0);
         app.xml_move_destination = Some(target);
         app.prepare_xml_playlist_move(0);
         app.select_xml_playlist(1);
-        assert!(app.xml_pending_move.is_none(), "selection change cancels pending move");
+        assert!(
+            app.xml_pending_move.is_none(),
+            "selection change cancels pending move"
+        );
         app.xml_selected_playlist = Some(0);
         app.xml_move_destination = Some(target);
         app.prepare_xml_playlist_move(0);
@@ -3264,16 +3997,32 @@ mod keyboard_tests {
     #[test]
     fn playlist_move_ui_refuses_invalid_destinations_without_mutation() {
         use std::time::{SystemTime, UNIX_EPOCH};
-        let root = std::env::temp_dir().join(format!("oxidj-ui-playlist-move-refuse-{}-{}", std::process::id(), SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()));
+        let root = std::env::temp_dir().join(format!(
+            "oxidj-ui-playlist-move-refuse-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
         std::fs::create_dir_all(&root).unwrap();
-        let fixture = concat!(env!("CARGO_MANIFEST_DIR"), "/../../xtask/tests/fixtures/f02-playlist-move/source.xml");
+        let fixture = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../xtask/tests/fixtures/f02-playlist-move/source.xml"
+        );
         let source = root.join("source.xml");
         std::fs::copy(fixture, &source).unwrap();
         let original = std::fs::read(&source).unwrap();
         let mut candidate = app();
         candidate.xml_path = source.display().to_string();
         candidate.preview_xml();
-        let folders = &candidate.xml_preview.as_ref().unwrap().as_ref().unwrap().folders;
+        let folders = &candidate
+            .xml_preview
+            .as_ref()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .folders;
         let sets = folders.iter().find(|f| f.name == "Sets").unwrap().ordinal;
         let root_ordinal = folders.iter().find(|f| f.path.len() == 1).unwrap().ordinal;
         candidate.xml_move_destination = Some(sets);
@@ -3291,13 +4040,32 @@ mod keyboard_tests {
         let duplicate = root.join("duplicate.xml");
         let mut bytes = original.clone();
         let marker = b"<NODE Type=\"1\" Name=\"Other\" Entries=\"1\" KeyType=\"0\"><TRACK Key=\"400\"/></NODE>";
-        let marker_at = bytes.windows(marker.len()).position(|w| w == marker).unwrap();
+        let marker_at = bytes
+            .windows(marker.len())
+            .position(|w| w == marker)
+            .unwrap();
         bytes.splice(marker_at..marker_at, marker.iter().copied());
         std::fs::write(&duplicate, &bytes).unwrap();
-        let mut ambiguous = app(); ambiguous.xml_path = duplicate.display().to_string(); ambiguous.preview_xml();
-        let target = ambiguous.xml_preview.as_ref().unwrap().as_ref().unwrap().folders.iter().find(|f| f.name == "Target").unwrap().ordinal;
-        ambiguous.xml_move_destination = Some(target); ambiguous.prepare_xml_playlist_move(0);
-        assert!(ambiguous.xml_pending_move.is_none(), "ambiguous duplicate child path refused");
+        let mut ambiguous = app();
+        ambiguous.xml_path = duplicate.display().to_string();
+        ambiguous.preview_xml();
+        let target = ambiguous
+            .xml_preview
+            .as_ref()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .folders
+            .iter()
+            .find(|f| f.name == "Target")
+            .unwrap()
+            .ordinal;
+        ambiguous.xml_move_destination = Some(target);
+        ambiguous.prepare_xml_playlist_move(0);
+        assert!(
+            ambiguous.xml_pending_move.is_none(),
+            "ambiguous duplicate child path refused"
+        );
         assert_eq!(std::fs::read(&duplicate).unwrap(), bytes);
         std::fs::remove_dir_all(root).unwrap();
     }
@@ -3305,29 +4073,75 @@ mod keyboard_tests {
     #[test]
     fn playlist_move_ui_refuses_source_and_destination_order_changes() {
         use std::time::{SystemTime, UNIX_EPOCH};
-        let root = std::env::temp_dir().join(format!("oxidj-ui-playlist-move-order-{}-{}", std::process::id(), SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()));
+        let root = std::env::temp_dir().join(format!(
+            "oxidj-ui-playlist-move-order-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
         std::fs::create_dir_all(&root).unwrap();
         let source = root.join("source.xml");
-        let fixture = std::fs::read(concat!(env!("CARGO_MANIFEST_DIR"), "/../../xtask/tests/fixtures/f02-playlist-move/source.xml")).unwrap();
+        let fixture = std::fs::read(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../xtask/tests/fixtures/f02-playlist-move/source.xml"
+        ))
+        .unwrap();
         let house = "<NODE Type=\"1\" Name=\"House\" Entries=\"3\" KeyType=\"0\"><TRACK Key=\"100\"/><TRACK Key=\"200\"/><TRACK Key=\"300\"/></NODE>";
         let techno = "<NODE Type=\"1\" Name=\"Techno\" Entries=\"2\" KeyType=\"0\"><TRACK Key=\"200\"/><TRACK Key=\"400\"/></NODE>";
         let other = "<NODE Type=\"1\" Name=\"Other\" Entries=\"1\" KeyType=\"0\"><TRACK Key=\"400\"/></NODE>";
         let extra = "<NODE Type=\"1\" Name=\"Extra\" Entries=\"1\" KeyType=\"0\"><TRACK Key=\"300\"/></NODE>";
         for (label, initial, before, after) in [
-            ("source", String::from_utf8(fixture.clone()).unwrap(), format!("{house}{techno}"), format!("{techno}{house}")),
-            ("destination", String::from_utf8(fixture.clone()).unwrap().replace("Name=\"Target\" Count=\"1\"><NODE", &format!("Name=\"Target\" Count=\"2\">{extra}<NODE")), format!("{extra}{other}"), format!("{other}{extra}")),
+            (
+                "source",
+                String::from_utf8(fixture.clone()).unwrap(),
+                format!("{house}{techno}"),
+                format!("{techno}{house}"),
+            ),
+            (
+                "destination",
+                String::from_utf8(fixture.clone()).unwrap().replace(
+                    "Name=\"Target\" Count=\"1\"><NODE",
+                    &format!("Name=\"Target\" Count=\"2\">{extra}<NODE"),
+                ),
+                format!("{extra}{other}"),
+                format!("{other}{extra}"),
+            ),
         ] {
             std::fs::write(&source, initial).unwrap();
-            let mut app = app(); app.xml_path = source.display().to_string(); app.preview_xml();
-            let target = app.xml_preview.as_ref().unwrap().as_ref().unwrap().folders.iter().find(|f| f.name == "Target").unwrap().ordinal;
-            app.xml_move_destination = Some(target); app.prepare_xml_playlist_move(0);
-            assert!(app.xml_pending_move.is_some(), "valid initial preparation for {label}");
+            let mut app = app();
+            app.xml_path = source.display().to_string();
+            app.preview_xml();
+            let target = app
+                .xml_preview
+                .as_ref()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .folders
+                .iter()
+                .find(|f| f.name == "Target")
+                .unwrap()
+                .ordinal;
+            app.xml_move_destination = Some(target);
+            app.prepare_xml_playlist_move(0);
+            assert!(
+                app.xml_pending_move.is_some(),
+                "valid initial preparation for {label}"
+            );
             let mut xml = std::fs::read_to_string(&source).unwrap();
-            assert!(xml.contains(&before), "expected original direct-child block order for {label}");
+            assert!(
+                xml.contains(&before),
+                "expected original direct-child block order for {label}"
+            );
             xml = xml.replacen(&before, &after, 1);
             std::fs::write(&source, xml.as_bytes()).unwrap();
             let changed = std::fs::read(&source).unwrap();
-            app.xml_move_export_path = root.join(format!("{label}-order.xml")).display().to_string();
+            app.xml_move_export_path = root
+                .join(format!("{label}-order.xml"))
+                .display()
+                .to_string();
             app.export_xml_playlist_move();
             assert!(app.xml_pending_move.is_none());
             assert!(!root.join(format!("{label}-order.xml")).exists());
@@ -3339,21 +4153,51 @@ mod keyboard_tests {
     #[test]
     fn playlist_move_ui_accepts_mixed_folder_and_playlist_children() {
         use std::time::{SystemTime, UNIX_EPOCH};
-        let root = std::env::temp_dir().join(format!("oxidj-ui-playlist-move-mixed-{}-{}", std::process::id(), SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()));
+        let root = std::env::temp_dir().join(format!(
+            "oxidj-ui-playlist-move-mixed-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
         std::fs::create_dir_all(&root).unwrap();
         let source = root.join("source.xml");
-        let fixture = std::fs::read(concat!(env!("CARGO_MANIFEST_DIR"), "/../../xtask/tests/fixtures/f02-playlist-move/source.xml")).unwrap();
-        let xml = String::from_utf8(fixture).unwrap().replace("Name=\"Target\" Count=\"1\"><NODE", "Name=\"Target\" Count=\"2\"><NODE Type=\"0\" Name=\"Sub\" Count=\"0\"/><NODE");
+        let fixture = std::fs::read(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../xtask/tests/fixtures/f02-playlist-move/source.xml"
+        ))
+        .unwrap();
+        let xml = String::from_utf8(fixture).unwrap().replace(
+            "Name=\"Target\" Count=\"1\"><NODE",
+            "Name=\"Target\" Count=\"2\"><NODE Type=\"0\" Name=\"Sub\" Count=\"0\"/><NODE",
+        );
         std::fs::write(&source, xml).unwrap();
         let mut app = app();
         app.xml_path = source.display().to_string();
         app.preview_xml();
-        let target = app.xml_preview.as_ref().unwrap().as_ref().unwrap().folders.iter().find(|f| f.name == "Target").unwrap().ordinal;
-        assert_eq!(direct_xml_node_order(&source, &["Target".into()]).unwrap(), ["Sub", "Other"]);
+        let target = app
+            .xml_preview
+            .as_ref()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .folders
+            .iter()
+            .find(|f| f.name == "Target")
+            .unwrap()
+            .ordinal;
+        assert_eq!(
+            direct_xml_node_order(&source, &["Target".into()]).unwrap(),
+            ["Sub", "Other"]
+        );
         app.xml_selected_playlist = Some(0);
         app.xml_move_destination = Some(target);
         app.prepare_xml_playlist_move(0);
-        assert!(app.xml_pending_move.is_some(), "mixed direct child order should prepare successfully");
+        assert!(
+            app.xml_pending_move.is_some(),
+            "mixed direct child order should prepare successfully"
+        );
         std::fs::remove_dir_all(root).unwrap();
     }
 

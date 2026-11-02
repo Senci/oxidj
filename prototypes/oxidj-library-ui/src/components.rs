@@ -16,7 +16,9 @@ impl PrimaryActionButton<'_> {
                 .stroke(Stroke::new(1.0_f32, tokens.primary)),
         );
         let active = response.hovered() || response.has_focus();
-        let progress = ui.ctx().animate_bool(response.id.with("cyan-underline"), active);
+        let progress = ui
+            .ctx()
+            .animate_bool(response.id.with("cyan-underline"), active);
         if progress > 0.0 {
             let rect = response.rect;
             let width = rect.width() * progress;
@@ -167,14 +169,18 @@ mod tests {
             },
         );
 
-        let underline = output.shapes.iter().find_map(|clipped| match &clipped.shape {
-            egui::epaint::Shape::Rect(rect)
-                if rect.fill == tokens.secondary && rect.rect.bottom() == button_rect.bottom() - 1.0 =>
-            {
-                Some(rect.rect)
-            }
-            _ => None,
-        });
+        let underline = output
+            .shapes
+            .iter()
+            .find_map(|clipped| match &clipped.shape {
+                egui::epaint::Shape::Rect(rect)
+                    if rect.fill == tokens.secondary
+                        && rect.rect.bottom() == button_rect.bottom() - 1.0 =>
+                {
+                    Some(rect.rect)
+                }
+                _ => None,
+            });
         let underline = underline.expect("hovered action paints Tokyo cyan underline");
         assert!((underline.width() - button_rect.width()).abs() < 0.01);
         assert_eq!(underline.center().x, button_rect.center().x);

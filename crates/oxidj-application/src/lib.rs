@@ -450,6 +450,52 @@ pub fn export_prepared_rekordbox_folder_rename(
     publish_new_file(&output, &prepared.bytes)
 }
 
+/// A source-bound prepared folder-subtree move retains its exact preview snapshot.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PreparedFolderMoveExport {
+    source: std::path::PathBuf,
+    source_bytes: Vec<u8>,
+    bytes: Vec<u8>,
+}
+
+impl PreparedFolderMoveExport {
+    pub fn source(&self) -> &Path {
+        &self.source
+    }
+    pub fn bytes(&self) -> &[u8] {
+        &self.bytes
+    }
+}
+
+/// Prepare a guarded folder-subtree move for preview and source-bound export.
+pub fn prepare_rekordbox_folder_move_export(
+    source: impl AsRef<Path>,
+    request: &FolderMoveRequest,
+) -> Result<PreparedFolderMoveExport, RekordboxError> {
+    let source = source.as_ref().to_path_buf();
+    let source_bytes = std::fs::read(&source).map_err(|error| RekordboxError(error.to_string()))?;
+    let prepared = oxidj_rekordbox::prepare_folder_move(&source_bytes, request)?;
+    Ok(PreparedFolderMoveExport {
+        source,
+        source_bytes,
+        bytes: prepared.bytes,
+    })
+}
+
+/// Revalidate source bytes and publish prepared subtree-move bytes to a new file.
+pub fn export_prepared_rekordbox_folder_move(
+    prepared: &PreparedFolderMoveExport,
+    output: impl AsRef<Path>,
+) -> Result<(), RekordboxError> {
+    let (current_source, output) = read_new_export_source(&prepared.source, output)?;
+    if current_source != prepared.source_bytes {
+        return Err(RekordboxError(
+            "source changed after folder move preparation".into(),
+        ));
+    }
+    publish_new_file(&output, &prepared.bytes)
+}
+
 /// A source-bound prepared empty-folder creation retains its exact preview snapshot.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PreparedFolderCreateExport {

@@ -52,7 +52,7 @@
       "checker": {
         "path": "xtask/tests/f02_folder_move_oracle.rs",
         "version": "f09-operation-oracle-v1",
-        "sha256": "5d023a4b551e66a25e10766e866f76b1a45573b7b0edb52e37398f7c64911024",
+        "sha256": "b1b2d609c8e19a32411f700161856628e5e2fbcb58ed1c9049ff89130c8b5954",
         "tests": [
           "independently_decodes_folder_subtree_move_and_rejects_order_count_subtree_mutations"
         ]

@@ -126,7 +126,7 @@ fn observed(b: &[u8]) -> (Vec<Folder>, Vec<Playlist>, Vec<String>) {
         .collect();
     (f, p, tracks)
 }
-fn check(b: &[u8]) -> Result<(), String> {
+pub(crate) fn check(b: &[u8]) -> Result<(), String> {
     let (f, p, t) = observed(b);
     let ef = vec![
         (vec!["ROOT".into()], "ROOT".into(), "2".into()),
