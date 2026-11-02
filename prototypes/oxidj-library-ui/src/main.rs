@@ -2419,6 +2419,7 @@ impl LibraryApp {
         self.xml_pending_reorder = None;
         self.xml_pending_append = None;
         self.xml_pending_insert = None;
+        self.xml_pending_remixer_edit = None;
         self.invalidate_xml_member_delete();
         self.xml_selected_playlist = None;
         self.xml_selected_member = None;
@@ -2441,6 +2442,7 @@ impl LibraryApp {
         self.xml_pending_reorder = None;
         self.xml_pending_append = None;
         self.xml_pending_insert = None;
+        self.xml_pending_remixer_edit = None;
         self.invalidate_xml_member_delete();
         self.xml_edit_error = None;
     }
@@ -2600,6 +2602,7 @@ impl LibraryApp {
         self.xml_selected_playlist = None;
         self.xml_selected_member = None;
         self.xml_selected_track = None;
+        self.xml_pending_remixer_edit = None;
         self.xml_edit_error = None;
         let source = PathBuf::from(&self.xml_path);
         self.xml_document_source = Some(source.clone());
@@ -8566,6 +8569,7 @@ mod keyboard_tests {
         app.xml_edit_remixer = "new < crate".into();
         app.prepare_xml_remixer_edit("100", Some("stale old value"));
         assert!(app.xml_pending_remixer_edit.is_none());
+        app.select_xml_track("200", "B");
         app.prepare_xml_remixer_edit("200", Some("old & mix"));
         assert!(
             app.xml_pending_remixer_edit.is_none(),
@@ -8640,6 +8644,142 @@ mod keyboard_tests {
         assert!(app.xml_pending_remixer_edit.is_none());
         assert!(app.xml_edit_error.is_none());
         let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn track_remixer_edit_ui_round_trips_entities_and_whitespace() {
+        let (root, source) = temporary_xml();
+        std::fs::write(
+            &source,
+            include_bytes!("../../../xtask/tests/fixtures/f02-track-remixer-edit/source.xml"),
+        )
+        .unwrap();
+        let mut app = app();
+        app.xml_path = source.display().to_string();
+        app.preview_xml();
+        app.select_xml_track("100", "A");
+        let remixer = "new < style & mix\tfirst\nsecond\r";
+        app.xml_edit_remixer = remixer.into();
+        app.prepare_xml_remixer_edit("100", Some("old & mix"));
+        assert!(app.xml_pending_remixer_edit.is_some());
+        app.xml_remixer_export_path = root.join("escaped.xml").display().to_string();
+        app.export_xml_remixer_edit();
+        let output = PathBuf::from(&app.xml_remixer_export_path);
+        let bytes = std::fs::read(&output).unwrap();
+        let text = String::from_utf8(bytes).unwrap();
+        assert!(text.contains("Remixer=\"new &lt; style &amp; mix&#9;first&#10;second&#13;\""));
+        assert_eq!(
+            app.xml_preview
+                .as_ref()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .tracks
+                .iter()
+                .find(|track| track.id == "100")
+                .unwrap()
+                .remixer
+                .as_deref(),
+            Some(remixer)
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn track_remixer_edit_ui_refuses_export_after_xml_path_changed() {
+        let (root, source) = temporary_xml();
+        std::fs::write(
+            &source,
+            include_bytes!("../../../xtask/tests/fixtures/f02-track-remixer-edit/source.xml"),
+        )
+        .unwrap();
+        let mut app = app();
+        app.xml_path = source.display().to_string();
+        app.preview_xml();
+        app.select_xml_track("100", "A");
+        app.xml_edit_remixer = "new < mix".into();
+        app.prepare_xml_remixer_edit("100", Some("old & mix"));
+        app.xml_path = root.join("other.xml").display().to_string();
+        app.export_xml_remixer_edit();
+        assert!(app.xml_pending_remixer_edit.is_none(), "pending Remixer edit must be refused after xml_path change");
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn track_remixer_edit_ui_refuses_export_after_preview_old_value_changed() {
+        let (root, source) = temporary_xml();
+        std::fs::write(
+            &source,
+            include_bytes!("../../../xtask/tests/fixtures/f02-track-remixer-edit/source.xml"),
+        )
+        .unwrap();
+        let mut app = app();
+        app.xml_path = source.display().to_string();
+        app.preview_xml();
+        app.select_xml_track("100", "A");
+        app.xml_edit_remixer = "new < mix".into();
+        app.prepare_xml_remixer_edit("100", Some("old & mix"));
+        // Re-point the track's Remixer in the source, then reload the preview.
+        let mut text = std::fs::read_to_string(&source).unwrap();
+        text = text.replace("Remixer=\"old &amp; mix\"", "Remixer=\"stale\"");
+        std::fs::write(&source, text).unwrap();
+        app.preview_xml();
+        app.export_xml_remixer_edit();
+        assert!(app.xml_pending_remixer_edit.is_none(), "pending Remixer export must be refused after preview old value changed");
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn track_remixer_edit_ui_exports_and_reopens_present_empty_edit() {
+        let (root, source) = temporary_xml();
+        std::fs::write(
+            &source,
+            include_bytes!("../../../xtask/tests/fixtures/f02-track-remixer-edit/source.xml"),
+        )
+        .unwrap();
+        let mut app = app();
+        app.xml_path = source.display().to_string();
+        app.preview_xml();
+        app.select_xml_track("100", "A");
+        app.xml_edit_remixer = "".into();
+        app.prepare_xml_remixer_edit("100", Some("old & mix"));
+        assert!(app.xml_pending_remixer_edit.is_some(), "present-empty Remixer must be prepareable");
+        app.xml_remixer_export_path = root.join("empty.xml").display().to_string();
+        app.export_xml_remixer_edit();
+        assert_eq!(app.xml_edit_remixer, "");
+        assert_eq!(app.xml_path, root.join("empty.xml").display().to_string());
+        app.preview_xml();
+        assert_eq!(
+            app.xml_preview
+                .as_ref()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .tracks
+                .iter()
+                .find(|track| track.id == "100")
+                .unwrap()
+                .remixer
+                .as_deref(),
+            Some("")
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn track_remixer_edit_ui_refuses_malformed_xml() {
+        let (root, source) = temporary_xml();
+        std::fs::write(&source, "<?xml version=\"1.0\" encoding=\"UTF-8\"?><DJ_PLAYLISTS><COLLECTION><TRACK").unwrap();
+        let mut app = app();
+        app.xml_path = source.display().to_string();
+        app.preview_xml();
+        assert!(app.xml_preview.as_ref().and_then(|p| p.as_ref().ok()).is_none(), "malformed XML must fail to preview");
+        app.select_xml_track("999", "X");
+        assert!(app.xml_edit_remixer.is_empty(), "no Remixer shown for malformed preview");
+        app.xml_edit_remixer = "new".into();
+        app.prepare_xml_remixer_edit("999", Some("old & mix"));
+        assert!(app.xml_pending_remixer_edit.is_none(), "prepare must refuse malformed XML");
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
