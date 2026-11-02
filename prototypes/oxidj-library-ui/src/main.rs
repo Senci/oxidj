@@ -198,6 +198,7 @@ mod f02_sibling_folder_reorder_oracle;
 #[cfg(test)]
 #[path = "../../../xtask/tests/f02_sibling_playlist_reorder_oracle.rs"]
 mod f02_sibling_playlist_reorder_oracle;
+#[cfg(test)]
 #[path = "../../../xtask/tests/f02_track_album_edit_oracle.rs"]
 mod f02_track_album_edit_oracle;
 #[cfg(test)]
@@ -475,9 +476,9 @@ struct PendingPlaylistCreate {
 }
 
 fn immediate_parent_folder<'a>(
-    preview: &'a oxidj_rekordbox::Preview,
-    playlist: &oxidj_rekordbox::Playlist,
-) -> Option<&'a oxidj_rekordbox::Folder> {
+    preview: &'a oxidj_application::Preview,
+    playlist: &oxidj_application::Playlist,
+) -> Option<&'a oxidj_application::Folder> {
     let parent_name = playlist.path.get(playlist.path.len().checked_sub(2)?)?;
     let ancestors = playlist.path.get(..playlist.path.len().checked_sub(1)?)?;
     preview.folders.iter().find(|folder| {
@@ -1188,7 +1189,7 @@ impl LibraryApp {
             self.xml_edit_error = Some("Folder move refused: destination must be non-root".into());
             return;
         };
-        let order = |parent: &oxidj_rekordbox::Folder| {
+        let order = |parent: &oxidj_application::Folder| {
             direct_xml_typed_child_order(&source, &parent.path[1..])
         };
         let source_order = match order(source_parent) {
@@ -1363,7 +1364,7 @@ impl LibraryApp {
             vec![playlist.name.clone()],
         ]
         .concat();
-        let order_under = |parent: &oxidj_rekordbox::Folder| -> Vec<String> {
+        let order_under = |parent: &oxidj_application::Folder| -> Vec<String> {
             direct_xml_node_order(&source, &parent.path[1..]).unwrap_or_default()
         };
         let source_order = order_under(source_parent);
@@ -1424,7 +1425,7 @@ impl LibraryApp {
             .iter()
             .find(|f| f.ordinal == pending.destination_parent_index + 1);
         let playlist = preview.playlists.get(pending.playlist_index);
-        let order_under = |parent: Option<&oxidj_rekordbox::Folder>| -> Vec<String> {
+        let order_under = |parent: Option<&oxidj_application::Folder>| -> Vec<String> {
             parent
                 .and_then(|parent| direct_xml_node_order(&pending.source, &parent.path[1..]).ok())
                 .unwrap_or_default()
@@ -2301,6 +2302,8 @@ impl LibraryApp {
         }
     }
 
+    // Test-only: the provisional playlist-create panel has no Cancel control yet.
+    #[cfg_attr(not(test), allow(dead_code))]
     fn cancel_xml_playlist_create(&mut self) {
         self.xml_pending_create = None;
         self.xml_edit_error = None;
@@ -5117,6 +5120,7 @@ fn parse_hex_color(value: &str) -> Option<egui::Color32> {
 #[path = "../../../xtask/tests/f02_playlist_member_insert_oracle.rs"]
 mod f02_playlist_member_insert_oracle;
 
+#[cfg(test)]
 mod keyboard_tests {
     use super::*;
 

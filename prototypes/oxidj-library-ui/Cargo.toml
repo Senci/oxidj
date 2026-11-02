@@ -10,9 +10,9 @@ publish = false
 eframe = { version = "=0.32.3", features = ["accesskit", "persistence"] }
 oxidj-library = { path = "../../crates/oxidj-library" }
 oxidj-application = { path = "../../crates/oxidj-application" }
+quick-xml = "=0.41.0"
 
 [dev-dependencies]
-quick-xml = "=0.41.0"
 serde_json = "1"
 sha2 = "=0.10.9"
 oxidj-rekordbox = { path = "../../crates/oxidj-rekordbox" }

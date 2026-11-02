@@ -35,6 +35,7 @@ jobs:
 
       # Tier 1 (per handoff, stable, fast): layers + fmt + clippy + check; no advisory scans.
       # Tier 2 (tests):            cargo test --workspace --all-features --locked
+      # Tier 2 (UI tests):        prototypes/oxidj-library-ui build + test (outside the workspace)
       # Tier 2 (licence gate):     cargo deny check licenses (ADR-009 MIT allowlist)
       #
       # CI calls the repo-owned full-gate command rather than duplicating shell steps.

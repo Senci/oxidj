@@ -551,6 +551,21 @@ fn cmd_test() -> i32 {
     )
 }
 
+/// The provisional library UI lives outside the workspace; build its binary and
+/// run its acceptance tests explicitly so they are part of the full gate.
+fn cmd_ui_test() -> i32 {
+    const UI: &str = "prototypes/oxidj-library-ui/Cargo.toml";
+    let build = run_cargo_step(
+        "ui-build",
+        &["build", "--manifest-path", UI, "--locked"],
+        &[],
+    );
+    if build != 0 {
+        return build;
+    }
+    run_cargo_step("ui-test", &["test", "--manifest-path", UI, "--locked"], &[])
+}
+
 fn cmd_deny() -> i32 {
     run_cargo_step("deny", &["deny", "check", "licenses"], &[])
 }
@@ -584,11 +599,14 @@ fn cmd_ci_full() -> i32 {
     if let Some(failed) = stop_on_fail("test", cmd_test()) {
         return failed;
     }
+    if let Some(failed) = stop_on_fail("ui-test", cmd_ui_test()) {
+        return failed;
+    }
     if let Some(failed) = stop_on_fail("deny", cmd_deny()) {
         return failed;
     }
     println!();
-    println!("=> ci-full summary: ci=ok test=ok deny=ok  [all pass]");
+    println!("=> ci-full summary: ci=ok test=ok ui-test=ok deny=ok  [all pass]");
     0
 }
 
@@ -617,7 +635,8 @@ fn show_help() -> i32 {
     println!("Tier 2 (CI/full gate):");
     println!("  test       cargo test --workspace --all-features --locked");
     println!("  deny       cargo deny check licenses (ADR-009 MIT allowlist)");
-    println!("  ci-full    ci + test + deny");
+    println!("  ui-test    build + test prototypes/oxidj-library-ui (outside the workspace)");
+    println!("  ci-full    ci + test + ui-test + deny");
     0
 }
 
@@ -627,6 +646,7 @@ fn main() {
         None => show_help(),
         Some("ci") => cmd_ci(),
         Some("ci-full") => cmd_ci_full(),
+        Some("ui-test") => cmd_ui_test(),
         Some("layers") => cmd_layers(),
         Some("fmt") => cmd_fmt(),
         Some("clippy") => cmd_clippy(),
