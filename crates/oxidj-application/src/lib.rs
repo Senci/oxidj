@@ -712,6 +712,66 @@ pub struct TrackAlbumEditPreparationRequest {
     pub new_album: String,
 }
 
+/// A source-bound prepared Track Composer export retains the exact preview snapshot.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PreparedTrackComposerExport {
+    source: std::path::PathBuf,
+    source_bytes: Vec<u8>,
+    bytes: Vec<u8>,
+    change: oxidj_rekordbox::TrackComposerEditChange,
+}
+impl PreparedTrackComposerExport {
+    pub fn source(&self) -> &Path {
+        &self.source
+    }
+    pub fn bytes(&self) -> &[u8] {
+        &self.bytes
+    }
+    pub fn change(&self) -> &oxidj_rekordbox::TrackComposerEditChange {
+        &self.change
+    }
+}
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TrackComposerEditPreparationRequest {
+    pub source: std::path::PathBuf,
+    pub track_id: String,
+    pub expected_old_composer: String,
+    pub new_composer: String,
+}
+/// Prepare one guarded Composer edit without writing any file.
+pub fn prepare_rekordbox_track_composer_export(
+    request: &TrackComposerEditPreparationRequest,
+) -> Result<PreparedTrackComposerExport, RekordboxError> {
+    let source =
+        std::fs::read(&request.source).map_err(|error| RekordboxError(error.to_string()))?;
+    let adapter_request = oxidj_rekordbox::TrackComposerEditRequest {
+        track_id: request.track_id.clone(),
+        expected_old_composer: request.expected_old_composer.clone(),
+        new_composer: request.new_composer.clone(),
+    };
+    let prepared = oxidj_rekordbox::prepare_track_composer_edit(&source, &adapter_request)?;
+    Ok(PreparedTrackComposerExport {
+        source: request.source.clone(),
+        source_bytes: source,
+        bytes: prepared.bytes,
+        change: prepared.change,
+    })
+}
+/// Export a prepared Composer edit only after source revalidation, to a new path.
+pub fn export_prepared_rekordbox_track_composer_edit(
+    prepared: &PreparedTrackComposerExport,
+    output: impl AsRef<Path>,
+) -> Result<oxidj_rekordbox::TrackComposerEditChange, RekordboxError> {
+    let (current_source, output) = read_new_export_source(&prepared.source, output)?;
+    if current_source != prepared.source_bytes {
+        return Err(RekordboxError(
+            "source changed after Track Composer edit preparation".into(),
+        ));
+    }
+    publish_new_file(&output, &prepared.bytes)?;
+    Ok(prepared.change.clone())
+}
+
 /// A source-bound prepared Track Label export retains the exact preview snapshot.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PreparedTrackLabelExport {

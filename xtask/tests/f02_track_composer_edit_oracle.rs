@@ -100,7 +100,7 @@ fn has_composer(n: &N, id: &str) -> bool {
         && n.attrs.iter().any(|(k, _)| k == "Composer"))
         || n.children.iter().any(|c| has_composer(c, id))
 }
-fn check(bytes: &[u8]) -> Result<(), String> {
+pub(crate) fn check(bytes: &[u8]) -> Result<(), String> {
     let actual = decode(bytes);
     let mut expected = decode(SOURCE);
     assert!(

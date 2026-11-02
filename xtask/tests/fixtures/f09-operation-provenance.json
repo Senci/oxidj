@@ -322,7 +322,7 @@
       "checker": {
         "path": "xtask/tests/f02_track_composer_edit_oracle.rs",
         "version": "f09-operation-oracle-v1",
-        "sha256": "1e71560bc641c7d58a44917c6ecd32f34f50d18dfdf9dd6a88510dd854b4036d",
+        "sha256": "732513e28af1f880add79465b18329381325a9a319fbb0c3d9e0cd281396aefd",
         "tests": [
           "independently_verifies_guarded_track_composer_edit_and_rejects_mutations"
         ]

@@ -210,6 +210,9 @@ mod f02_track_comments_edit_oracle;
 #[path = "../../../xtask/tests/f02_track_label_edit_oracle.rs"]
 mod f02_track_label_edit_oracle;
 #[cfg(test)]
+#[path = "../../../xtask/tests/f02_track_composer_edit_oracle.rs"]
+mod f02_track_composer_edit_oracle;
+#[cfg(test)]
 #[path = "../../../xtask/tests/f02_track_genre_edit_oracle.rs"]
 mod f02_track_genre_edit_oracle;
 #[cfg(test)]
@@ -249,6 +252,8 @@ struct PendingTrackAlbumEdit {
     track_id: String,
     prepared: oxidj_application::PreparedTrackAlbumExport,
 }
+#[derive(Debug, Clone)]
+struct PendingTrackComposerEdit { source: PathBuf, track_id: String, prepared: oxidj_application::PreparedTrackComposerExport }
 #[derive(Debug, Clone)]
 struct PendingTrackLabelEdit {
     source: PathBuf,
@@ -466,6 +471,9 @@ struct LibraryApp {
     xml_album_export_path: String,
     xml_edit_genre: String,
     xml_pending_genre_edit: Option<PendingTrackGenreEdit>,
+    xml_edit_composer: String,
+    xml_composer_export_path: String,
+    xml_pending_composer_edit: Option<PendingTrackComposerEdit>,
     xml_edit_label: String,
     xml_label_export_path: String,
     xml_pending_label_edit: Option<PendingTrackLabelEdit>,
@@ -573,6 +581,9 @@ impl LibraryApp {
             xml_album_export_path: String::new(),
             xml_edit_genre: String::new(),
             xml_pending_genre_edit: None,
+            xml_edit_composer: String::new(),
+            xml_composer_export_path: String::new(),
+            xml_pending_composer_edit: None,
             xml_edit_label: String::new(),
             xml_label_export_path: String::new(),
             xml_pending_label_edit: None,
@@ -2345,6 +2356,8 @@ impl LibraryApp {
             .and_then(|p| p.tracks.iter().find(|t| t.id == track_id))
             .and_then(|t| t.label.clone())
             .unwrap_or_default();
+        self.xml_edit_composer = self.xml_preview.as_ref().and_then(|p| p.as_ref().ok()).and_then(|p| p.tracks.iter().find(|t| t.id == track_id)).and_then(|t| t.composer.clone()).unwrap_or_default();
+        self.xml_pending_composer_edit = None;
         self.xml_pending_label_edit = None;
         self.xml_pending_edit = None;
         self.xml_pending_artist_edit = None;
@@ -2370,6 +2383,7 @@ impl LibraryApp {
         self.xml_pending_comments_edit = None;
         self.xml_pending_album_edit = None;
         self.xml_pending_genre_edit = None;
+        self.xml_pending_composer_edit = None;
         self.xml_pending_reorder = None;
         self.xml_pending_append = None;
         self.xml_pending_insert = None;
@@ -3028,6 +3042,99 @@ impl LibraryApp {
         }
     }
 
+    fn prepare_xml_composer_edit(&mut self, track_id: &str, old_composer: Option<&str>) {
+        let Some(old_composer) = old_composer else {
+            self.xml_pending_composer_edit = None;
+            self.xml_edit_error = Some(
+                "Track Composer preparation refused: selected track has no Composer attribute".into(),
+            );
+            return;
+        };
+        let Some(source) = self.xml_document_source.clone() else {
+            self.xml_pending_composer_edit = None;
+            self.xml_edit_error =
+                Some("Track Composer preparation refused: no XML document is loaded".into());
+            return;
+        };
+        let request = oxidj_application::TrackComposerEditPreparationRequest {
+            source: source.clone(),
+            track_id: track_id.to_owned(),
+            expected_old_composer: old_composer.to_owned(),
+            new_composer: self.xml_edit_composer.clone(),
+        };
+        match oxidj_application::prepare_rekordbox_track_composer_export(&request) {
+            Ok(prepared) => {
+                self.xml_pending_composer_edit = Some(PendingTrackComposerEdit {
+                    source,
+                    track_id: track_id.to_owned(),
+                    prepared,
+                });
+                self.xml_edit_error = None;
+            }
+            Err(error) => {
+                self.xml_pending_composer_edit = None;
+                self.xml_edit_error = Some(format!("Track Composer preparation refused: {error}"));
+            }
+        }
+    }
+
+    fn cancel_xml_composer_edit(&mut self) {
+        self.xml_pending_composer_edit = None;
+        self.xml_edit_error = None;
+    }
+
+    fn export_xml_composer_edit(&mut self) {
+        self.notice.clear();
+        let Some(pending) = self.xml_pending_composer_edit.clone() else {
+            self.xml_edit_error =
+                Some("Track Composer export refused: no prepared pending edit".into());
+            return;
+        };
+        let proposal = pending.prepared.change();
+        let selected_composer = self
+            .xml_preview
+            .as_ref()
+            .and_then(|p| p.as_ref().ok())
+            .and_then(|p| p.tracks.iter().find(|t| t.id == pending.track_id))
+            .and_then(|t| t.composer.as_deref());
+        if self.xml_document_source.as_ref() != Some(&pending.source)
+            || self.xml_selected_track.as_deref() != Some(&pending.track_id)
+            || self.xml_edit_composer != proposal.new_composer
+            || selected_composer != Some(proposal.old_composer.as_str())
+        {
+            self.xml_pending_composer_edit = None;
+            self.xml_edit_error = Some(
+                "Track Composer export refused: source, selected track, or proposed value changed"
+                    .into(),
+            );
+            return;
+        }
+        let output = PathBuf::from(&self.xml_composer_export_path);
+        if self.xml_composer_export_path.trim().is_empty() {
+            self.xml_edit_error =
+                Some("Track Composer export refused: choose a new XML destination".into());
+            return;
+        }
+        match oxidj_application::export_prepared_rekordbox_track_composer_edit(
+            &pending.prepared,
+            &output,
+        ) {
+            Ok(change) => {
+                self.xml_pending_composer_edit = None;
+                self.xml_edit_error = None;
+                self.notice = format!("Track Composer exported to {}", output.display());
+                self.xml_composer_export_path = output.display().to_string();
+                self.xml_path = output.display().to_string();
+                self.xml_document_source = Some(output.clone());
+                self.xml_preview = Some(
+                    oxidj_application::preview_rekordbox_xml(&output).map_err(|e| e.to_string()),
+                );
+                self.xml_edit_composer = change.new_composer;
+            }
+            Err(error) => self.xml_edit_error = Some(format!("Track Composer export failed: {error}")),
+        }
+    }
+
     fn prepare_xml_label_edit(&mut self, track_id: &str, old_label: Option<&str>) {
         let Some(old_label) = old_label else {
             self.xml_pending_label_edit = None;
@@ -3537,6 +3644,26 @@ impl eframe::App for LibraryApp {
                         } else {
                             ui.label("Select one track above to prepare a pending Genre edit.");
                         }
+                        SectionHeading { title: "Track Composer edit (provisional)" }.show(ui, tokens);
+                        if let Some(track_id) = self.xml_selected_track.clone() {
+                            if let Some(track) = preview.tracks.iter().find(|t| t.id == track_id) {
+                                ui.label(format!("Selected TrackID: {track_id}"));
+                                if let Some(composer) = track.composer.as_deref() {
+                                    ui.label(if composer.is_empty() { "Current Composer: present but empty" } else { "Current Composer: present" });
+                                    ui.horizontal(|ui| { ui.label("Proposed Composer"); if ui.text_edit_singleline(&mut self.xml_edit_composer).changed() { self.xml_pending_composer_edit = None; } });
+                                    if ui.button("Prepare pending Composer edit").clicked() { self.prepare_xml_composer_edit(&track.id, Some(composer)); }
+                                    if let Some(pending) = &self.xml_pending_composer_edit {
+                                        ui.separator(); ui.strong("Pending Composer edit · not exported or saved");
+                                        ui.label(format!("Source: {}", pending.source.display())); ui.label(format!("TrackID: {}", pending.track_id));
+                                        ui.label(format!("Original Composer: {:?}", pending.prepared.change().old_composer));
+                                        ui.label(format!("Proposed Composer: {:?}", pending.prepared.change().new_composer));
+                                        ui.horizontal(|ui| { ui.label("New XML destination"); ui.text_edit_singleline(&mut self.xml_composer_export_path); });
+                                        if ui.button("Export prepared Composer edit").clicked() { self.export_xml_composer_edit(); }
+                                        if ui.button("Cancel pending Composer edit").clicked() { self.cancel_xml_composer_edit(); }
+                                    }
+                                } else { self.xml_pending_composer_edit = None; ui.label("Selected track has no Composer attribute; insertion is not supported."); }
+                            } else { self.xml_pending_composer_edit = None; ui.label("Selected TrackID is no longer in the loaded preview."); }
+                        } else { ui.label("Select one track above to prepare a pending Composer edit."); }
                         SectionHeading {
                             title: "Track Label edit (provisional)",
                         }
@@ -7633,6 +7760,156 @@ mod keyboard_tests {
     }
 
     #[test]
+    fn track_composer_edit_ui_exports_previewed_bytes_and_reopens_output() {
+        use std::time::{SystemTime, UNIX_EPOCH};
+        let root = std::env::temp_dir().join(format!(
+            "oxidj-ui-track-composer-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let source = root.join("source.xml");
+        std::fs::write(
+            &source,
+            include_bytes!("../../../xtask/tests/fixtures/f02-track-composer-edit/source.xml"),
+        )
+        .unwrap();
+        let original = std::fs::read(&source).unwrap();
+        let catalog = root.join("catalog.sqlite");
+        drop(Catalog::open(&catalog).unwrap());
+        let catalog_before = std::fs::read(&catalog).unwrap();
+        let mut app = LibraryApp::new(
+            catalog.clone(),
+            ThemeMode::TokyoNight,
+            ThemeMode::TokyoNight.tokens(),
+        );
+        app.xml_path = source.display().to_string();
+        app.preview_xml();
+        app.select_xml_track("100", "A");
+        assert_eq!(app.xml_edit_composer, "old & composer");
+        app.xml_edit_composer = "new < composer".into();
+        app.prepare_xml_composer_edit("100", Some("old & composer"));
+        let prepared = app
+            .xml_pending_composer_edit
+            .as_ref()
+            .unwrap()
+            .prepared
+            .bytes()
+            .to_vec();
+        assert_eq!(std::fs::read(&source).unwrap(), original);
+        let cancelled = root.join("cancelled.xml");
+        app.xml_composer_export_path = cancelled.display().to_string();
+        app.cancel_xml_composer_edit();
+        assert!(app.xml_pending_composer_edit.is_none());
+        assert!(!cancelled.exists());
+        app.prepare_xml_composer_edit("100", Some("old & composer"));
+        app.xml_composer_export_path.clear();
+        app.export_xml_composer_edit();
+        assert!(app.xml_pending_composer_edit.is_some());
+        assert!(app.xml_edit_error.as_deref().unwrap().contains("choose a new XML destination"));
+        app.xml_composer_export_path = source.display().to_string();
+        app.export_xml_composer_edit();
+        assert!(app.xml_edit_error.is_some(), "source alias must be refused");
+        assert_eq!(std::fs::read(&source).unwrap(), original);
+        let existing = root.join("existing.xml");
+        std::fs::write(&existing, b"preserve").unwrap();
+        app.xml_composer_export_path = existing.display().to_string();
+        app.export_xml_composer_edit();
+        assert!(app.xml_edit_error.is_some(), "existing output must be refused");
+        assert_eq!(std::fs::read(&existing).unwrap(), b"preserve");
+        app.xml_composer_export_path = root.join("missing/output.xml").display().to_string();
+        app.export_xml_composer_edit();
+        assert!(app.xml_edit_error.is_some(), "write failure must be surfaced");
+        assert!(app.notice.is_empty(), "failure must not claim success");
+        app.xml_composer_export_path = root.join("stale-source.xml").display().to_string();
+        std::fs::write(&source, b"<changed/>").unwrap();
+        app.export_xml_composer_edit();
+        assert!(app.xml_edit_error.as_deref().unwrap().contains("source changed"));
+        assert!(!root.join("stale-source.xml").exists());
+        std::fs::write(&source, &original).unwrap();
+        app.prepare_xml_composer_edit("100", Some("old & composer"));
+        app.xml_edit_composer = "changed after preview".into();
+        let stale_proposal = root.join("stale-proposal.xml");
+        app.xml_composer_export_path = stale_proposal.display().to_string();
+        app.export_xml_composer_edit();
+        assert!(!stale_proposal.exists());
+        assert!(app.xml_pending_composer_edit.is_none());
+        app.xml_edit_composer = "new < composer".into();
+        app.prepare_xml_composer_edit("100", Some("stale old value"));
+        assert!(app.xml_pending_composer_edit.is_none());
+        app.prepare_xml_composer_edit("200", Some("old & composer"));
+        assert!(
+            app.xml_pending_composer_edit.is_none(),
+            "absent Composer insertion is refused"
+        );
+        app.prepare_xml_composer_edit("100", Some("old & composer"));
+        let changed_selection = root.join("changed-selection.xml");
+        app.xml_composer_export_path = changed_selection.display().to_string();
+        app.select_xml_track("200", "B");
+        app.export_xml_composer_edit();
+        assert!(!changed_selection.exists());
+        app.prepare_xml_composer_edit("100", Some("old & composer"));
+        let changed_source = root.join("different.xml");
+        app.xml_document_source = Some(changed_source);
+        let stale_source = root.join("stale-source.xml");
+        app.xml_composer_export_path = stale_source.display().to_string();
+        app.export_xml_composer_edit();
+        assert!(!stale_source.exists());
+        app.xml_document_source = Some(source.clone());
+        app.select_xml_track("100", "A");
+        app.xml_edit_composer = "new < composer".into();
+        app.prepare_xml_composer_edit("100", Some("old & composer"));
+        let output = root.join("edited.xml");
+        app.xml_composer_export_path = output.display().to_string();
+        app.export_xml_composer_edit();
+        let bytes = std::fs::read(&output).unwrap();
+        assert_eq!(bytes, prepared);
+        f02_track_composer_edit_oracle::check(&bytes)
+            .expect("independent F-02 oracle accepts UI-exported Composer bytes");
+        assert!(String::from_utf8_lossy(&bytes).contains("Composer=\"new &lt; composer\""));
+        let mutated = String::from_utf8(bytes.clone())
+            .unwrap()
+            .replacen("Composer=\"new &lt; composer\"", "Composer=\"altered\"", 1);
+        assert!(f02_track_composer_edit_oracle::check(mutated.as_bytes()).is_err());
+        assert_eq!(std::fs::read(&source).unwrap(), original);
+        assert_eq!(std::fs::read(&catalog).unwrap(), catalog_before);
+        assert_eq!(
+            app.xml_preview
+                .as_ref()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .tracks
+                .iter()
+                .find(|t| t.id == "100")
+                .unwrap()
+                .composer
+                .as_deref(),
+            Some("new < composer")
+        );
+        assert_eq!(
+            app.xml_preview
+                .as_ref()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .tracks
+                .iter()
+                .find(|t| t.id == "200")
+                .unwrap()
+                .composer,
+            None,
+            "absent Composer remains absent on other tracks"
+        );
+        assert!(app.xml_pending_composer_edit.is_none());
+        assert!(app.xml_edit_error.is_none());
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
     fn track_label_edit_ui_refuses_invalid_xml_unknown_and_stale_old_value() {
         let (root, source) = temporary_xml();
         std::fs::write(
@@ -7908,6 +8185,60 @@ mod keyboard_tests {
         );
         assert!(app.xml_pending_album_edit.is_none());
         assert!(app.xml_edit_error.is_none());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn track_composer_edit_ui_allows_present_empty_but_not_absent_insertion() {
+        let (root, source) = temporary_xml();
+        let fixture = include_bytes!("../../../xtask/tests/fixtures/f02-track-composer-edit/source.xml");
+        let xml = String::from_utf8(fixture.to_vec()).unwrap().replace("Composer=\"old &amp; composer\"", "Composer=\"\"");
+        std::fs::write(&source, xml).unwrap();
+        let mut app = app(); app.xml_path = source.display().to_string(); app.preview_xml(); app.select_xml_track("100", "A");
+        assert_eq!(app.xml_edit_composer, ""); app.xml_edit_composer = "Composed".into();
+        app.prepare_xml_composer_edit("100", Some("")); assert!(app.xml_pending_composer_edit.is_some());
+        app.xml_composer_export_path = root.join("empty-edited.xml").display().to_string(); app.export_xml_composer_edit();
+        assert_eq!(app.xml_preview.as_ref().unwrap().as_ref().unwrap().tracks.iter().find(|t| t.id == "100").unwrap().composer.as_deref(), Some("Composed"));
+        app.prepare_xml_composer_edit("200", None); assert!(app.xml_pending_composer_edit.is_none(), "absent Composer insertion is refused");
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn track_composer_edit_ui_round_trips_entities_and_whitespace() {
+        let (root, source) = temporary_xml();
+        std::fs::write(
+            &source,
+            include_bytes!("../../../xtask/tests/fixtures/f02-track-composer-edit/source.xml"),
+        )
+        .unwrap();
+        let mut app = app();
+        app.xml_path = source.display().to_string();
+        app.preview_xml();
+        app.select_xml_track("100", "A");
+        let composer = "new < composer & mix\tfirst\nsecond\r";
+        app.xml_edit_composer = composer.into();
+        app.prepare_xml_composer_edit("100", Some("old & composer"));
+        assert!(app.xml_pending_composer_edit.is_some());
+        app.xml_composer_export_path = root.join("escaped.xml").display().to_string();
+        app.export_xml_composer_edit();
+        let output = PathBuf::from(&app.xml_composer_export_path);
+        let bytes = std::fs::read(&output).unwrap();
+        let text = String::from_utf8(bytes).unwrap();
+        assert!(text.contains("Composer=\"new &lt; composer &amp; mix&#9;first&#10;second&#13;\""));
+        assert_eq!(
+            app.xml_preview
+                .as_ref()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .tracks
+                .iter()
+                .find(|track| track.id == "100")
+                .unwrap()
+                .composer
+                .as_deref(),
+            Some(composer)
+        );
         std::fs::remove_dir_all(root).unwrap();
     }
 
