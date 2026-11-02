@@ -225,6 +225,10 @@ mod f02_track_mix_edit_oracle;
 #[path = "../../../xtask/tests/f02_track_tonality_edit_oracle.rs"]
 mod f02_track_tonality_edit_oracle;
 #[cfg(test)]
+#[path = "../../../xtask/tests/f02_track_kind_edit_oracle.rs"]
+mod f02_track_kind_edit_oracle;
+
+#[cfg(test)]
 #[path = "../../../xtask/tests/common/f02_track_name_oracle_support.rs"]
 mod f02_track_name_oracle_support;
 #[cfg(test)]
@@ -299,6 +303,13 @@ struct PendingTrackLabelEdit {
     source: PathBuf,
     track_id: String,
     prepared: oxidj_application::PreparedTrackLabelExport,
+}
+
+#[derive(Debug, Clone)]
+struct PendingTrackKindEdit {
+    source: PathBuf,
+    track_id: String,
+    prepared: oxidj_application::PreparedTrackKindExport,
 }
 
 #[derive(Debug, Clone)]
@@ -528,6 +539,9 @@ struct LibraryApp {
     xml_edit_tonality: String,
     xml_tonality_export_path: String,
     xml_pending_tonality_edit: Option<PendingTrackTonalityEdit>,
+    xml_edit_kind: String,
+    xml_kind_export_path: String,
+    xml_pending_kind_edit: Option<PendingTrackKindEdit>,
     xml_pending_mix_edit: Option<PendingTrackMixEdit>,
     xml_genre_export_path: String,
     xml_selected_playlist: Option<usize>,
@@ -647,6 +661,9 @@ impl LibraryApp {
             xml_edit_tonality: String::new(),
             xml_tonality_export_path: String::new(),
             xml_pending_tonality_edit: None,
+            xml_edit_kind: String::new(),
+            xml_kind_export_path: String::new(),
+            xml_pending_kind_edit: None,
             xml_pending_mix_edit: None,
             xml_edit_label: String::new(),
             xml_label_export_path: String::new(),
@@ -2431,6 +2448,8 @@ impl LibraryApp {
         self.xml_pending_mix_edit = None;
         self.xml_edit_tonality = self.xml_preview.as_ref().and_then(|p| p.as_ref().ok()).and_then(|p| p.tracks.iter().find(|t| t.id == track_id)).and_then(|t| t.tonality.clone()).unwrap_or_default();
         self.xml_pending_tonality_edit = None;
+        self.xml_edit_kind = self.xml_preview.as_ref().and_then(|p| p.as_ref().ok()).and_then(|p| p.tracks.iter().find(|t| t.id == track_id)).and_then(|t| t.kind.clone()).unwrap_or_default();
+        self.xml_pending_kind_edit = None;
         self.xml_edit_label = self
             .xml_preview
             .as_ref()
@@ -2671,6 +2690,7 @@ impl LibraryApp {
         self.xml_pending_remixer_edit = None;
         self.xml_pending_mix_edit = None;
         self.xml_pending_tonality_edit = None;
+        self.xml_pending_kind_edit = None;
         self.xml_edit_error = None;
         let source = PathBuf::from(&self.xml_path);
         self.xml_document_source = Some(source.clone());
@@ -3424,6 +3444,92 @@ impl LibraryApp {
         }
     }
 
+    fn prepare_xml_kind_edit(&mut self, track_id: &str, old_kind: Option<&str>) {
+        let Some(old_kind) = old_kind else {
+            self.xml_pending_kind_edit = None;
+            self.xml_edit_error = Some("Track Kind preparation refused: selected track has no Kind attribute".into());
+            return;
+        };
+        let Some(source) = self.xml_document_source.clone() else {
+            self.xml_pending_kind_edit = None;
+            self.xml_edit_error = Some("Track Kind preparation refused: no XML document is loaded".into());
+            return;
+        };
+        let request = oxidj_application::TrackKindEditPreparationRequest {
+            source: source.clone(),
+            track_id: track_id.to_owned(),
+            expected_old_kind: old_kind.to_owned(),
+            new_kind: self.xml_edit_kind.clone(),
+        };
+        match oxidj_application::prepare_rekordbox_track_kind_export(&request) {
+            Ok(prepared) => {
+                self.xml_pending_kind_edit = Some(PendingTrackKindEdit {
+                    source,
+                    track_id: track_id.to_owned(),
+                    prepared,
+                });
+                self.xml_edit_error = None;
+            }
+            Err(error) => {
+                self.xml_pending_kind_edit = None;
+                self.xml_edit_error = Some(format!("Track Kind preparation refused: {error}"));
+            }
+        }
+    }
+
+    fn cancel_xml_kind_edit(&mut self) {
+        self.xml_pending_kind_edit = None;
+        self.xml_edit_error = None;
+    }
+
+    fn export_xml_kind_edit(&mut self) {
+        self.notice.clear();
+        let Some(pending) = self.xml_pending_kind_edit.clone() else {
+            self.xml_edit_error = Some("Track Kind export refused: no prepared pending edit".into());
+            return;
+        };
+        let change = pending.prepared.change();
+        let selected = self
+            .xml_preview
+            .as_ref()
+            .and_then(|p| p.as_ref().ok())
+            .and_then(|p| p.tracks.iter().find(|t| t.id == pending.track_id))
+            .and_then(|t| t.kind.as_deref());
+        if self.xml_document_source.as_ref() != Some(&pending.source)
+            || PathBuf::from(&self.xml_path) != pending.source
+            || self.xml_selected_track.as_deref() != Some(&pending.track_id)
+            || self.xml_edit_kind != change.new_kind
+            || selected != Some(change.old_kind.as_str())
+        {
+            self.xml_pending_kind_edit = None;
+            self.xml_edit_error = Some(
+                "Track Kind export refused: source, selected track, or proposed value changed"
+                    .into(),
+            );
+            return;
+        }
+        let output = PathBuf::from(&self.xml_kind_export_path);
+        if self.xml_kind_export_path.trim().is_empty() {
+            self.xml_edit_error = Some("Track Kind export refused: choose a new XML destination".into());
+            return;
+        }
+        match oxidj_application::export_prepared_rekordbox_track_kind_edit(&pending.prepared, &output) {
+            Ok(change) => {
+                self.xml_pending_kind_edit = None;
+                self.xml_edit_error = None;
+                self.notice = format!("Track Kind exported to {}", output.display());
+                self.xml_kind_export_path = output.display().to_string();
+                self.xml_path = output.display().to_string();
+                self.xml_document_source = Some(output.clone());
+                self.xml_preview = Some(
+                    oxidj_application::preview_rekordbox_xml(&output).map_err(|e| e.to_string()),
+                );
+                self.xml_edit_kind = change.new_kind;
+            }
+            Err(error) => self.xml_edit_error = Some(format!("Track Kind export failed: {error}")),
+        }
+    }
+
     fn export_xml_mix_edit(&mut self) {
         self.notice.clear();
         let Some(pending) = self.xml_pending_mix_edit.clone() else {
@@ -4153,6 +4259,25 @@ impl eframe::App for LibraryApp {
                                 } else { self.xml_pending_tonality_edit = None; ui.label("Selected track has no Tonality attribute; insertion is not supported."); }
                             } else { self.xml_pending_tonality_edit = None; ui.label("Selected TrackID is no longer in the loaded preview."); }
                         } else { ui.label("Select one track above to prepare a pending Tonality edit."); }
+                        SectionHeading { title: "Track Kind edit (provisional)" }.show(ui, tokens);
+                        if let Some(track_id) = self.xml_selected_track.clone() {
+                            if let Some(track) = preview.tracks.iter().find(|t| t.id == track_id) {
+                                ui.label(format!("Selected TrackID: {track_id}"));
+                                if let Some(kind) = track.kind.as_deref() {
+                                    ui.label(format!("Current Kind: {kind:?}{}", if kind.is_empty() { " (present but empty)" } else { "" }));
+                                    ui.horizontal(|ui| { ui.label("Proposed Kind"); if ui.text_edit_singleline(&mut self.xml_edit_kind).changed() { self.xml_pending_kind_edit = None; } });
+                                    if ui.button("Prepare pending Kind edit").clicked() { self.prepare_xml_kind_edit(&track.id, Some(kind)); }
+                                    if let Some(pending) = &self.xml_pending_kind_edit {
+                                        ui.separator(); ui.strong("Pending Kind edit · not exported or saved");
+                                        ui.label(format!("Source: {}", pending.source.display())); ui.label(format!("TrackID: {}", pending.track_id));
+                                        ui.label(format!("Original Kind: {:?}", pending.prepared.change().old_kind)); ui.label(format!("Proposed Kind: {:?}", pending.prepared.change().new_kind));
+                                        ui.horizontal(|ui| { ui.label("New XML destination"); ui.text_edit_singleline(&mut self.xml_kind_export_path); });
+                                        if ui.button("Export prepared Kind edit").clicked() { self.export_xml_kind_edit(); }
+                                        if ui.button("Cancel pending Kind edit").clicked() { self.cancel_xml_kind_edit(); }
+                                    }
+                                } else { self.xml_pending_kind_edit = None; ui.label("Selected track has no Kind attribute; insertion is not supported."); }
+                            } else { self.xml_pending_kind_edit = None; ui.label("Selected TrackID is no longer in the loaded preview."); }
+                        } else { ui.label("Select one track above to prepare a pending Kind edit."); }
                         SectionHeading { title: "Track Mix edit (provisional)" }.show(ui, tokens);
                         if let Some(track_id) = self.xml_selected_track.clone() {
                             if let Some(track) = preview.tracks.iter().find(|t| t.id == track_id) {
@@ -9335,6 +9460,164 @@ mod keyboard_tests {
         std::fs::write(&source, "<broken>").unwrap();
         app.preview_xml();
         assert!(app.xml_preview.as_ref().unwrap().is_err());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn track_kind_edit_ui_exports_actual_bytes_through_independent_oracle() {
+        let (root, source) = temporary_xml();
+        std::fs::write(&source, include_bytes!("../../../xtask/tests/fixtures/f02-track-kind-edit/source.xml")).unwrap();
+        let mut app = app();
+        app.xml_path = source.display().to_string();
+        app.preview_xml();
+        app.select_xml_track("100", "A");
+        assert_eq!(app.xml_edit_kind, "old & kind");
+        app.xml_edit_kind = "new < kind".into();
+        app.prepare_xml_kind_edit("100", Some("old & kind"));
+        assert!(app.xml_pending_kind_edit.is_some());
+        let output = root.join("edited.xml");
+        app.xml_kind_export_path = output.display().to_string();
+        app.cancel_xml_kind_edit();
+        assert!(app.xml_pending_kind_edit.is_none());
+        assert!(!output.exists());
+        app.prepare_xml_kind_edit("100", Some("old & kind"));
+        app.export_xml_kind_edit();
+        assert_eq!(app.xml_edit_kind, "new < kind");
+        assert!(f02_track_kind_edit_oracle::check(&std::fs::read(&output).unwrap()).is_ok());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn track_kind_edit_ui_refuses_invalid_unknown_stale_duplicate_and_invalidates_pending() {
+        let (root, source) = temporary_xml();
+        let fixture = include_bytes!("../../../xtask/tests/fixtures/f02-track-kind-edit/source.xml");
+        std::fs::write(&source, fixture).unwrap();
+        let mut app = app();
+        app.xml_path = source.display().to_string();
+        app.preview_xml();
+        app.select_xml_track("999", "Unknown");
+        app.xml_edit_kind = "Changed".into();
+        app.prepare_xml_kind_edit("999", Some("old & kind"));
+        assert!(app.xml_pending_kind_edit.is_none());
+
+        app.select_xml_track("100", "A");
+        app.xml_edit_kind = "bad\u{1}".into();
+        app.prepare_xml_kind_edit("100", Some("old & kind"));
+        assert!(app.xml_pending_kind_edit.is_none());
+        app.xml_edit_kind = "Changed".into();
+        app.prepare_xml_kind_edit("100", Some("stale"));
+        assert!(app.xml_pending_kind_edit.is_none());
+
+        let duplicate = String::from_utf8(fixture.to_vec())
+            .unwrap()
+            .replace("TrackID=\"200\"", "TrackID=\"100\"");
+        std::fs::write(&source, duplicate).unwrap();
+        app.preview_xml();
+        app.select_xml_track("100", "A");
+        app.xml_edit_kind = "Changed".into();
+        app.prepare_xml_kind_edit("100", Some("old & kind"));
+        assert!(app.xml_pending_kind_edit.is_none(), "duplicate target must refuse");
+
+        std::fs::write(&source, fixture).unwrap();
+        app.xml_path = source.display().to_string();
+        app.preview_xml();
+        app.select_xml_track("100", "A");
+        app.xml_edit_kind = "Changed".into();
+        app.prepare_xml_kind_edit("100", Some("old & kind"));
+        assert!(app.xml_pending_kind_edit.is_some());
+        app.preview_xml();
+        assert!(app.xml_pending_kind_edit.is_none(), "reload must invalidate pending edit");
+
+        let empty = String::from_utf8(fixture.to_vec())
+            .unwrap()
+            .replace("Kind=\"old &amp; kind\"", "Kind=\"\"");
+        std::fs::write(&source, empty).unwrap();
+        app.preview_xml();
+        app.select_xml_track("100", "A");
+        assert_eq!(app.xml_edit_kind, "", "present-empty Kind must stay distinct from absent");
+        app.xml_edit_kind = "new raw value".into();
+        app.prepare_xml_kind_edit("100", Some(""));
+        assert!(app.xml_pending_kind_edit.is_some(), "present-empty Kind is editable");
+        app.cancel_xml_kind_edit();
+        assert!(app.xml_pending_kind_edit.is_none());
+
+        std::fs::write(&source, "<broken>").unwrap();
+        app.preview_xml();
+        assert!(app.xml_preview.as_ref().unwrap().is_err());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn track_kind_edit_ui_exports_and_reopens_present_empty_value() {
+        let (root, source) = temporary_xml();
+        let mut xml = String::from_utf8(
+            include_bytes!("../../../xtask/tests/fixtures/f02-track-kind-edit/source.xml").to_vec(),
+        )
+        .unwrap();
+        xml = xml.replace("Kind=\"old &amp; kind\"", "Kind=\"\"");
+        std::fs::write(&source, xml).unwrap();
+        let mut app = app();
+        app.xml_path = source.display().to_string();
+        app.preview_xml();
+        app.select_xml_track("100", "A");
+        assert_eq!(app.xml_edit_kind, "", "present-empty Kind must stay distinct from absent");
+        app.xml_edit_kind = "new < kind".into();
+        app.prepare_xml_kind_edit("100", Some(""));
+        assert!(app.xml_pending_kind_edit.is_some(), "present-empty Kind is editable");
+        let output = root.join("edited.xml");
+        app.xml_kind_export_path = output.display().to_string();
+        app.export_xml_kind_edit();
+        let text = String::from_utf8(std::fs::read(&output).unwrap()).unwrap();
+        assert!(text.contains("Kind=\"new &lt; kind\""));
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn track_kind_edit_ui_refuses_changed_path_selection_and_proposal() {
+        let (root, source) = temporary_xml();
+        std::fs::write(&source, include_bytes!("../../../xtask/tests/fixtures/f02-track-kind-edit/source.xml")).unwrap();
+        let mut app = app();
+        app.xml_path = source.display().to_string();
+        app.preview_xml();
+        app.select_xml_track("100", "A");
+        app.xml_edit_kind = "new < kind".into();
+        app.prepare_xml_kind_edit("100", Some("old & kind"));
+        let path_output = root.join("changed-path.xml");
+        app.xml_kind_export_path = path_output.display().to_string();
+        app.xml_path = root.join("other.xml").display().to_string();
+        app.export_xml_kind_edit();
+        assert!(
+            !path_output.exists(),
+            "changed editable path must refuse export"
+        );
+        assert!(app.xml_pending_kind_edit.is_none());
+
+        app.xml_path = source.display().to_string();
+        app.preview_xml();
+        app.select_xml_track("100", "A");
+        app.xml_edit_kind = "new < kind".into();
+        app.prepare_xml_kind_edit("100", Some("old & kind"));
+        let selection_output = root.join("changed-selection.xml");
+        app.xml_kind_export_path = selection_output.display().to_string();
+        app.select_xml_track("200", "B");
+        app.export_xml_kind_edit();
+        assert!(
+            !selection_output.exists(),
+            "changed selection must refuse export"
+        );
+
+        app.select_xml_track("100", "A");
+        app.xml_edit_kind = "new < kind".into();
+        app.prepare_xml_kind_edit("100", Some("old & kind"));
+        let proposal_output = root.join("changed-proposal.xml");
+        app.xml_kind_export_path = proposal_output.display().to_string();
+        app.xml_edit_kind = "changed after preview".into();
+        app.export_xml_kind_edit();
+        assert!(
+            !proposal_output.exists(),
+            "changed proposal must refuse export"
+        );
+        assert!(app.xml_pending_kind_edit.is_none());
         std::fs::remove_dir_all(root).unwrap();
     }
 

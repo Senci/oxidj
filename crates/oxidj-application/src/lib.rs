@@ -1611,6 +1611,72 @@ pub fn export_rekordbox_track_kind_edit(
     Ok(prepared.change)
 }
 
+/// A source-bound prepared Track Kind export retains its exact preview snapshot.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PreparedTrackKindExport {
+    source: std::path::PathBuf,
+    source_bytes: Vec<u8>,
+    bytes: Vec<u8>,
+    change: oxidj_rekordbox::TrackKindEditChange,
+}
+
+impl PreparedTrackKindExport {
+    pub fn source(&self) -> &Path {
+        &self.source
+    }
+
+    pub fn bytes(&self) -> &[u8] {
+        &self.bytes
+    }
+
+    pub fn change(&self) -> &oxidj_rekordbox::TrackKindEditChange {
+        &self.change
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TrackKindEditPreparationRequest {
+    pub source: std::path::PathBuf,
+    pub track_id: String,
+    pub expected_old_kind: String,
+    pub new_kind: String,
+}
+
+/// Prepare one guarded raw Track Kind edit without writing any file.
+pub fn prepare_rekordbox_track_kind_export(
+    request: &TrackKindEditPreparationRequest,
+) -> Result<PreparedTrackKindExport, RekordboxError> {
+    let source =
+        std::fs::read(&request.source).map_err(|error| RekordboxError(error.to_string()))?;
+    let adapter_request = oxidj_rekordbox::TrackKindEditRequest {
+        track_id: request.track_id.clone(),
+        expected_old_kind: request.expected_old_kind.clone(),
+        new_kind: request.new_kind.clone(),
+    };
+    let prepared = oxidj_rekordbox::prepare_track_kind_edit(&source, &adapter_request)?;
+    Ok(PreparedTrackKindExport {
+        source: request.source.clone(),
+        source_bytes: source,
+        bytes: prepared.bytes,
+        change: prepared.change,
+    })
+}
+
+/// Export a prepared Track Kind edit only after source revalidation, to a new path.
+pub fn export_prepared_rekordbox_track_kind_edit(
+    prepared: &PreparedTrackKindExport,
+    output: impl AsRef<Path>,
+) -> Result<oxidj_rekordbox::TrackKindEditChange, RekordboxError> {
+    let (current_source, output) = read_new_export_source(&prepared.source, output)?;
+    if current_source != prepared.source_bytes {
+        return Err(RekordboxError(
+            "source changed after Track Kind edit preparation".into(),
+        ));
+    }
+    publish_new_file(&output, &prepared.bytes)?;
+    Ok(prepared.change.clone())
+}
+
 /// Export one guarded track Artist edit to a new, non-overwriting file.
 pub fn export_rekordbox_track_artist_edit(
     input: impl AsRef<Path>,
@@ -3268,6 +3334,37 @@ mod track_mix_preparation_tests {
         let mut absent = request.clone();
         absent.track_id = "200".into();
         assert!(prepare_rekordbox_track_tonality_export(&absent).is_err());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn kind_preparation_is_source_bound_and_refuses_absent_values() {
+        let root = std::env::temp_dir().join(format!("oxidj-app-kind-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let source = root.join("source.xml");
+        std::fs::copy(
+            concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../xtask/tests/fixtures/f02-track-kind-edit/source.xml"
+            ),
+            &source,
+        )
+        .unwrap();
+        let request = TrackKindEditPreparationRequest {
+            source: source.clone(),
+            track_id: "100".into(),
+            expected_old_kind: "old & kind".into(),
+            new_kind: "new < kind".into(),
+        };
+        let original = std::fs::read(&source).unwrap();
+        let prepared = prepare_rekordbox_track_kind_export(&request).unwrap();
+        assert_eq!(std::fs::read(&source).unwrap(), original);
+        let output = root.join("out.xml");
+        export_prepared_rekordbox_track_kind_edit(&prepared, &output).unwrap();
+        assert_eq!(std::fs::read(&output).unwrap(), prepared.bytes());
+        let mut absent = request.clone();
+        absent.track_id = "200".into();
+        assert!(prepare_rekordbox_track_kind_export(&absent).is_err());
         std::fs::remove_dir_all(root).unwrap();
     }
 }

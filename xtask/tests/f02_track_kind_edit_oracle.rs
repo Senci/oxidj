@@ -76,7 +76,7 @@ fn has_kind(n: &N, id: &str) -> bool {
         && n.attrs.iter().any(|(k, _)| k == "Kind"))
         || n.children.iter().any(|c| has_kind(c, id))
 }
-fn check(bytes: &[u8]) -> Result<(), String> {
+pub fn check(bytes: &[u8]) -> Result<(), String> {
     let actual = decode(bytes);
     let mut expected = decode(SOURCE);
     assert!(change_expected_kind(&mut expected));
