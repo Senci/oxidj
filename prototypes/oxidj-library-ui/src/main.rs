@@ -212,6 +212,7 @@ mod f02_track_label_edit_oracle;
 #[cfg(test)]
 #[path = "../../../xtask/tests/f02_track_composer_edit_oracle.rs"]
 mod f02_track_composer_edit_oracle;
+#[cfg(test)]
 #[path = "../../../xtask/tests/f02_track_grouping_edit_oracle.rs"]
 mod f02_track_grouping_edit_oracle;
 #[cfg(test)]
