@@ -2329,12 +2329,14 @@ fn publish_new_file(output: &Path, bytes: &[u8]) -> Result<(), RekordboxError> {
         .ok_or_else(|| RekordboxError("output must name a file".into()))?
         .to_string_lossy();
     let temp = parent.join(format!(".{name}.oxidj-tmp-{}", std::process::id()));
+    // Only a temp file this call created may be removed on failure; a
+    // pre-existing file at the temp name belongs to someone else.
+    let mut file = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&temp)
+        .map_err(|e| RekordboxError(e.to_string()))?;
     let result = (|| {
-        let mut file = fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&temp)
-            .map_err(|e| RekordboxError(e.to_string()))?;
         file.write_all(bytes)
             .map_err(|e| RekordboxError(e.to_string()))?;
         file.sync_all().map_err(|e| RekordboxError(e.to_string()))?;
@@ -3365,6 +3367,33 @@ mod track_mix_preparation_tests {
         let mut absent = request.clone();
         absent.track_id = "200".into();
         assert!(prepare_rekordbox_track_kind_export(&absent).is_err());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod publish_new_file_tests {
+    use super::*;
+
+    #[test]
+    fn publish_refusal_never_removes_a_preexisting_temp_name_file() {
+        let root = std::env::temp_dir().join(format!("oxidj-app-publish-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let output = root.join("out.xml");
+        let foreign = root.join(format!(".out.xml.oxidj-tmp-{}", std::process::id()));
+        std::fs::write(&foreign, b"not ours").unwrap();
+        assert!(publish_new_file(&output, b"new").is_err());
+        assert_eq!(std::fs::read(&foreign).unwrap(), b"not ours");
+        assert!(!output.exists());
+        std::fs::remove_file(&foreign).unwrap();
+        publish_new_file(&output, b"new").unwrap();
+        assert_eq!(std::fs::read(&output).unwrap(), b"new");
+        assert!(
+            !foreign.exists(),
+            "own temp file is cleaned up after publish"
+        );
+        assert!(publish_new_file(&output, b"other").is_err());
+        assert_eq!(std::fs::read(&output).unwrap(), b"new", "never overwrite");
         std::fs::remove_dir_all(root).unwrap();
     }
 }
