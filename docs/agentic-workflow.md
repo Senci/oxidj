@@ -55,6 +55,7 @@ Then follow this order, cheapest-first, stop at the first failure:
 cargo xtask layers        # boundary gate (see docs/layers-policy.md)
 cargo xtask ci            # Tier 1: layers + fmt + clippy(-D warnings) + check
 cargo xtask test          # Tier 2: tests
+cargo xtask ui-test       # Tier 2: build + test prototypes/oxidj-library-ui (outside the workspace)
 cargo xtask ci-full       # Tier 2 + licence gate (cargo deny check licenses)
 ```
 
@@ -209,7 +210,7 @@ Tier policy (stable Rust/Cargo 1.99.0; Tier 1 is stable-only and fast, with no a
 | Tier | Runs at | Toolset | Evidence format |
 |------|---------|---------|-----------------|
 | 1 | every handoff | `cargo xtask ci` (`fmt`, `clippy`, `cargo check`, layers guard) | per-step `PASS (exit 0)` |
-| 2 | CI / pre-merge | Required: `cargo xtask ci-full` (native tests + mandatory `cargo deny check licenses`); optional: `cargo audit`, `cargo machete --json`, `typos` (`continue-on-error`) | required run link/summary; optional results if available |
+| 2 | CI / pre-merge | Required: `cargo xtask ci-full` (native tests + library UI tests + mandatory `cargo deny check licenses`); optional: `cargo audit`, `cargo machete --json`, `typos` (`continue-on-error`) | required run link/summary; optional results if available |
 | 3 | deferred / if scheduled | `cargo +nightly miri`, `udeps`, `semver-checks`, `cargo mutants` | pin + job link when configured; no current in-repo job |
 
 Tier 1 must be stable-only and fast (target < ~2 min warm). Tier 3 remains

@@ -48,7 +48,7 @@ when the local cache is cold.
 
 ## Tier 2 — required CI / pre-merge gate
 
-- [ ] `cargo xtask ci-full` → green CI run including workspace tests and the mandatory `cargo deny check licenses` gate. Paste the run link and final summary.
+- [ ] `cargo xtask ci-full` → green CI run including workspace tests, the out-of-workspace library UI build + tests (`cargo xtask ui-test`), and the mandatory `cargo deny check licenses` gate. Paste the run link and final summary.
 - [ ] Optional advisory jobs (`cargo audit`, `cargo machete --json`, `typos --format json`) → if run, paste their output. These CI steps use `continue-on-error`; missing local binaries are `SKIPPED`, not a failing handoff.
 - `cargo-nextest` is not part of the current gate; CI uses native `cargo test`.
 
