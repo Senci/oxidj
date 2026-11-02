@@ -6,6 +6,7 @@
 //! This binary is deliberately thin. Each user-facing verb maps to a domain
 //! operation in `oxidj-core` or `oxidj-library`; orchestration lives there.
 
+use oxidj_application::TrackAttribute;
 use oxidj_core::TrackId;
 use oxidj_library::Catalog;
 #[cfg(test)]
@@ -123,6 +124,181 @@ fn run_onelibrary(args: &[String]) -> i32 {
         }
     }
 }
+
+/// `rekordbox edit-track-<action>` rows: action, value flag, attribute, success prefix,
+/// rejection label.
+const TRACK_ATTRIBUTE_EDITS: &[(&str, &str, TrackAttribute, &str, &str)] = &[
+    ("name", "name", TrackAttribute::Name, "Renamed ", "name"),
+    (
+        "album",
+        "album",
+        TrackAttribute::Album,
+        "Changed Album for ",
+        "Album",
+    ),
+    (
+        "comments",
+        "comments",
+        TrackAttribute::Comments,
+        "Changed Comments for ",
+        "Comments",
+    ),
+    (
+        "genre",
+        "genre",
+        TrackAttribute::Genre,
+        "Changed Genre for ",
+        "Genre",
+    ),
+    (
+        "remixer",
+        "remixer",
+        TrackAttribute::Remixer,
+        "Changed Remixer for ",
+        "Remixer",
+    ),
+    ("mix", "mix", TrackAttribute::Mix, "Changed Mix for ", "Mix"),
+    (
+        "grouping",
+        "grouping",
+        TrackAttribute::Grouping,
+        "Changed Grouping for ",
+        "Grouping",
+    ),
+    (
+        "rating",
+        "rating",
+        TrackAttribute::Rating,
+        "Changed raw Rating for ",
+        "Rating",
+    ),
+    (
+        "colour",
+        "colour",
+        TrackAttribute::Colour,
+        "Changed raw Colour for ",
+        "Colour",
+    ),
+    (
+        "composer",
+        "composer",
+        TrackAttribute::Composer,
+        "Changed Composer for ",
+        "Composer",
+    ),
+    (
+        "tonality",
+        "tonality",
+        TrackAttribute::Tonality,
+        "Changed Tonality for ",
+        "Tonality",
+    ),
+    (
+        "label",
+        "label",
+        TrackAttribute::Label,
+        "Changed Label for ",
+        "Label",
+    ),
+    (
+        "artist",
+        "artist",
+        TrackAttribute::Artist,
+        "Changed Artist for ",
+        "Artist",
+    ),
+    (
+        "date-added",
+        "date-added",
+        TrackAttribute::DateAdded,
+        "Changed raw DateAdded for ",
+        "DateAdded",
+    ),
+    (
+        "date-modified",
+        "date-modified",
+        TrackAttribute::DateModified,
+        "Changed raw DateModified for ",
+        "DateModified",
+    ),
+    (
+        "play-count",
+        "play-count",
+        TrackAttribute::PlayCount,
+        "Changed raw PlayCount for ",
+        "PlayCount",
+    ),
+    (
+        "average-bpm",
+        "average-bpm",
+        TrackAttribute::AverageBpm,
+        "Changed raw AverageBpm for ",
+        "AverageBpm",
+    ),
+    (
+        "disc-number",
+        "disc-number",
+        TrackAttribute::DiscNumber,
+        "Changed raw DiscNumber for ",
+        "DiscNumber",
+    ),
+    (
+        "number",
+        "track-number",
+        TrackAttribute::TrackNumber,
+        "Changed raw TrackNumber for ",
+        "TrackNumber",
+    ),
+    (
+        "size",
+        "size",
+        TrackAttribute::Size,
+        "Changed raw Size for ",
+        "Size",
+    ),
+    (
+        "total-time",
+        "total-time",
+        TrackAttribute::TotalTime,
+        "Changed raw TotalTime for ",
+        "TotalTime",
+    ),
+    (
+        "bit-rate",
+        "bit-rate",
+        TrackAttribute::BitRate,
+        "Changed raw BitRate for ",
+        "BitRate",
+    ),
+    (
+        "sample-rate",
+        "sample-rate",
+        TrackAttribute::SampleRate,
+        "Changed raw SampleRate for ",
+        "SampleRate",
+    ),
+    (
+        "last-played",
+        "last-played",
+        TrackAttribute::LastPlayed,
+        "Changed raw LastPlayed for ",
+        "LastPlayed",
+    ),
+    (
+        "year",
+        "year",
+        TrackAttribute::Year,
+        "Changed Year for ",
+        "Year",
+    ),
+    (
+        "kind",
+        "kind",
+        TrackAttribute::Kind,
+        "Changed Kind for ",
+        "Kind",
+    ),
+];
 
 fn run_rekordbox(args: &[String]) -> i32 {
     if args.first().is_some_and(|action| action == "pdb-preview") {
@@ -531,964 +707,44 @@ fn run_rekordbox(args: &[String]) -> i32 {
             }
         };
     }
-    if args
+    if let Some((_, flag, attribute, changed, label)) = args
         .first()
-        .is_some_and(|action| action == "edit-track-name")
+        .and_then(|action| action.strip_prefix("edit-track-"))
+        .and_then(|flag| TRACK_ATTRIBUTE_EDITS.iter().find(|row| row.0 == flag))
     {
+        let expected_flag = format!("--expected-{flag}");
+        let new_flag = format!("--{flag}");
         if args.len() != 11
             || args[1] != "--xml"
             || args[3] != "--output"
             || args[5] != "--track-id"
-            || args[7] != "--expected-name"
-            || args[9] != "--name"
+            || args[7] != expected_flag
+            || args[9] != new_flag
         {
             eprintln!(
-                "error: expected rekordbox edit-track-name --xml IN --output NEW --track-id ID --expected-name OLD --name NEW"
+                "error: expected rekordbox {} --xml IN --output NEW --track-id ID {expected_flag} OLD {new_flag} NEW",
+                args[0]
             );
             return USAGE;
         }
-        let request = oxidj_application::TrackNameEditRequest {
+        let request = oxidj_application::TrackAttributeEditRequest {
             track_id: args[6].clone(),
-            expected_old_name: args[8].clone(),
-            new_name: args[10].clone(),
+            attribute: *attribute,
+            expected_old: args[8].clone(),
+            new: args[10].clone(),
         };
-        return match oxidj_application::export_rekordbox_track_name_edit(
+        return match oxidj_application::export_rekordbox_track_attribute_edit(
             &args[2], &args[4], &request,
         ) {
             Ok(change) => {
                 println!(
-                    "Renamed track[{}]: {:?} to {:?}",
-                    change.track_id, change.old_name, change.new_name
+                    "{changed}track[{}]: {:?} to {:?}",
+                    change.track_id, change.old, change.new
                 );
                 OK
             }
             Err(error) => {
-                eprintln!("error: track name edit rejected: {error}");
-                DOMAIN
-            }
-        };
-    }
-    if args
-        .first()
-        .is_some_and(|action| action == "edit-track-album")
-    {
-        if args.len() != 11
-            || args[1] != "--xml"
-            || args[3] != "--output"
-            || args[5] != "--track-id"
-            || args[7] != "--expected-album"
-            || args[9] != "--album"
-        {
-            eprintln!(
-                "error: expected rekordbox edit-track-album --xml IN --output NEW --track-id ID --expected-album OLD --album NEW"
-            );
-            return USAGE;
-        }
-        let request = oxidj_application::TrackAlbumEditRequest {
-            track_id: args[6].clone(),
-            expected_old_album: args[8].clone(),
-            new_album: args[10].clone(),
-        };
-        return match oxidj_application::export_rekordbox_track_album_edit(
-            &args[2], &args[4], &request,
-        ) {
-            Ok(change) => {
-                println!(
-                    "Changed Album for track[{}]: {:?} to {:?}",
-                    change.track_id, change.old_album, change.new_album
-                );
-                OK
-            }
-            Err(error) => {
-                eprintln!("error: track Album edit rejected: {error}");
-                DOMAIN
-            }
-        };
-    }
-    if args
-        .first()
-        .is_some_and(|action| action == "edit-track-comments")
-    {
-        if args.len() != 11
-            || args[1] != "--xml"
-            || args[3] != "--output"
-            || args[5] != "--track-id"
-            || args[7] != "--expected-comments"
-            || args[9] != "--comments"
-        {
-            eprintln!(
-                "error: expected rekordbox edit-track-comments --xml IN --output NEW --track-id ID --expected-comments OLD --comments NEW"
-            );
-            return USAGE;
-        }
-        let request = oxidj_application::TrackCommentsEditRequest {
-            track_id: args[6].clone(),
-            expected_old_comments: args[8].clone(),
-            new_comments: args[10].clone(),
-        };
-        return match oxidj_application::export_rekordbox_track_comments_edit(
-            &args[2], &args[4], &request,
-        ) {
-            Ok(change) => {
-                println!(
-                    "Changed Comments for track[{}]: {:?} to {:?}",
-                    change.track_id, change.old_comments, change.new_comments
-                );
-                OK
-            }
-            Err(error) => {
-                eprintln!("error: track Comments edit rejected: {error}");
-                DOMAIN
-            }
-        };
-    }
-    if args
-        .first()
-        .is_some_and(|action| action == "edit-track-genre")
-    {
-        if args.len() != 11
-            || args[1] != "--xml"
-            || args[3] != "--output"
-            || args[5] != "--track-id"
-            || args[7] != "--expected-genre"
-            || args[9] != "--genre"
-        {
-            eprintln!(
-                "error: expected rekordbox edit-track-genre --xml IN --output NEW --track-id ID --expected-genre OLD --genre NEW"
-            );
-            return USAGE;
-        }
-        let request = oxidj_application::TrackGenreEditRequest {
-            track_id: args[6].clone(),
-            expected_old_genre: args[8].clone(),
-            new_genre: args[10].clone(),
-        };
-        return match oxidj_application::export_rekordbox_track_genre_edit(
-            &args[2], &args[4], &request,
-        ) {
-            Ok(change) => {
-                println!(
-                    "Changed Genre for track[{}]: {:?} to {:?}",
-                    change.track_id, change.old_genre, change.new_genre
-                );
-                OK
-            }
-            Err(error) => {
-                eprintln!("error: track Genre edit rejected: {error}");
-                DOMAIN
-            }
-        };
-    }
-    if args
-        .first()
-        .is_some_and(|action| action == "edit-track-remixer")
-    {
-        if args.len() != 11
-            || args[1] != "--xml"
-            || args[3] != "--output"
-            || args[5] != "--track-id"
-            || args[7] != "--expected-remixer"
-            || args[9] != "--remixer"
-        {
-            eprintln!(
-                "error: expected rekordbox edit-track-remixer --xml IN --output NEW --track-id ID --expected-remixer OLD --remixer NEW"
-            );
-            return USAGE;
-        }
-        let request = oxidj_application::TrackRemixerEditRequest {
-            track_id: args[6].clone(),
-            expected_old_remixer: args[8].clone(),
-            new_remixer: args[10].clone(),
-        };
-        return match oxidj_application::export_rekordbox_track_remixer_edit(
-            &args[2], &args[4], &request,
-        ) {
-            Ok(change) => {
-                println!(
-                    "Changed Remixer for track[{}]: {:?} to {:?}",
-                    change.track_id, change.old_remixer, change.new_remixer
-                );
-                OK
-            }
-            Err(error) => {
-                eprintln!("error: track Remixer edit rejected: {error}");
-                DOMAIN
-            }
-        };
-    }
-    if args
-        .first()
-        .is_some_and(|action| action == "edit-track-mix")
-    {
-        if args.len() != 11
-            || args[1] != "--xml"
-            || args[3] != "--output"
-            || args[5] != "--track-id"
-            || args[7] != "--expected-mix"
-            || args[9] != "--mix"
-        {
-            eprintln!(
-                "error: expected rekordbox edit-track-mix --xml IN --output NEW --track-id ID --expected-mix OLD --mix NEW"
-            );
-            return USAGE;
-        }
-        let request = oxidj_application::TrackMixEditRequest {
-            track_id: args[6].clone(),
-            expected_old_mix: args[8].clone(),
-            new_mix: args[10].clone(),
-        };
-        return match oxidj_application::export_rekordbox_track_mix_edit(
-            &args[2], &args[4], &request,
-        ) {
-            Ok(change) => {
-                println!(
-                    "Changed Mix for track[{}]: {:?} to {:?}",
-                    change.track_id, change.old_mix, change.new_mix
-                );
-                OK
-            }
-            Err(error) => {
-                eprintln!("error: track Mix edit rejected: {error}");
-                DOMAIN
-            }
-        };
-    }
-    if args
-        .first()
-        .is_some_and(|action| action == "edit-track-grouping")
-    {
-        if args.len() != 11
-            || args[1] != "--xml"
-            || args[3] != "--output"
-            || args[5] != "--track-id"
-            || args[7] != "--expected-grouping"
-            || args[9] != "--grouping"
-        {
-            eprintln!(
-                "error: expected rekordbox edit-track-grouping --xml IN --output NEW --track-id ID --expected-grouping OLD --grouping NEW"
-            );
-            return USAGE;
-        }
-        let request = oxidj_application::TrackGroupingEditRequest {
-            track_id: args[6].clone(),
-            expected_old_grouping: args[8].clone(),
-            new_grouping: args[10].clone(),
-        };
-        return match oxidj_application::export_rekordbox_track_grouping_edit(
-            &args[2], &args[4], &request,
-        ) {
-            Ok(change) => {
-                println!(
-                    "Changed Grouping for track[{}]: {:?} to {:?}",
-                    change.track_id, change.old_grouping, change.new_grouping
-                );
-                OK
-            }
-            Err(error) => {
-                eprintln!("error: track Grouping edit rejected: {error}");
-                DOMAIN
-            }
-        };
-    }
-    if args
-        .first()
-        .is_some_and(|action| action == "edit-track-rating")
-    {
-        if args.len() != 11
-            || args[1] != "--xml"
-            || args[3] != "--output"
-            || args[5] != "--track-id"
-            || args[7] != "--expected-rating"
-            || args[9] != "--rating"
-        {
-            eprintln!(
-                "error: expected rekordbox edit-track-rating --xml IN --output NEW --track-id ID --expected-rating OLD --rating NEW"
-            );
-            return USAGE;
-        }
-        let request = oxidj_application::TrackRatingEditRequest {
-            track_id: args[6].clone(),
-            expected_old_rating: args[8].clone(),
-            new_rating: args[10].clone(),
-        };
-        return match oxidj_application::export_rekordbox_track_rating_edit(
-            &args[2], &args[4], &request,
-        ) {
-            Ok(change) => {
-                println!(
-                    "Changed raw Rating for track[{}]: {:?} to {:?}",
-                    change.track_id, change.old_rating, change.new_rating
-                );
-                OK
-            }
-            Err(error) => {
-                eprintln!("error: track Rating edit rejected: {error}");
-                DOMAIN
-            }
-        };
-    }
-    if args
-        .first()
-        .is_some_and(|action| action == "edit-track-colour")
-    {
-        if args.len() != 11
-            || args[1] != "--xml"
-            || args[3] != "--output"
-            || args[5] != "--track-id"
-            || args[7] != "--expected-colour"
-            || args[9] != "--colour"
-        {
-            eprintln!(
-                "error: expected rekordbox edit-track-colour --xml IN --output NEW --track-id ID --expected-colour OLD --colour NEW"
-            );
-            return USAGE;
-        }
-        let request = oxidj_application::TrackColourEditRequest {
-            track_id: args[6].clone(),
-            expected_old_colour: args[8].clone(),
-            new_colour: args[10].clone(),
-        };
-        return match oxidj_application::export_rekordbox_track_colour_edit(
-            &args[2], &args[4], &request,
-        ) {
-            Ok(change) => {
-                println!(
-                    "Changed raw Colour for track[{}]: {:?} to {:?}",
-                    change.track_id, change.old_colour, change.new_colour
-                );
-                OK
-            }
-            Err(error) => {
-                eprintln!("error: track Colour edit rejected: {error}");
-                DOMAIN
-            }
-        };
-    }
-    if args
-        .first()
-        .is_some_and(|action| action == "edit-track-composer")
-    {
-        if args.len() != 11
-            || args[1] != "--xml"
-            || args[3] != "--output"
-            || args[5] != "--track-id"
-            || args[7] != "--expected-composer"
-            || args[9] != "--composer"
-        {
-            eprintln!(
-                "error: expected rekordbox edit-track-composer --xml IN --output NEW --track-id ID --expected-composer OLD --composer NEW"
-            );
-            return USAGE;
-        }
-        let request = oxidj_application::TrackComposerEditRequest {
-            track_id: args[6].clone(),
-            expected_old_composer: args[8].clone(),
-            new_composer: args[10].clone(),
-        };
-        return match oxidj_application::export_rekordbox_track_composer_edit(
-            &args[2], &args[4], &request,
-        ) {
-            Ok(change) => {
-                println!(
-                    "Changed Composer for track[{}]: {:?} to {:?}",
-                    change.track_id, change.old_composer, change.new_composer
-                );
-                OK
-            }
-            Err(error) => {
-                eprintln!("error: track Composer edit rejected: {error}");
-                DOMAIN
-            }
-        };
-    }
-    if args
-        .first()
-        .is_some_and(|action| action == "edit-track-tonality")
-    {
-        if args.len() != 11
-            || args[1] != "--xml"
-            || args[3] != "--output"
-            || args[5] != "--track-id"
-            || args[7] != "--expected-tonality"
-            || args[9] != "--tonality"
-        {
-            eprintln!(
-                "error: expected rekordbox edit-track-tonality --xml IN --output NEW --track-id ID --expected-tonality OLD --tonality NEW"
-            );
-            return USAGE;
-        }
-        let request = oxidj_application::TrackTonalityEditRequest {
-            track_id: args[6].clone(),
-            expected_old_tonality: args[8].clone(),
-            new_tonality: args[10].clone(),
-        };
-        return match oxidj_application::export_rekordbox_track_tonality_edit(
-            &args[2], &args[4], &request,
-        ) {
-            Ok(change) => {
-                println!(
-                    "Changed Tonality for track[{}]: {:?} to {:?}",
-                    change.track_id, change.old_tonality, change.new_tonality
-                );
-                OK
-            }
-            Err(error) => {
-                eprintln!("error: track Tonality edit rejected: {error}");
-                DOMAIN
-            }
-        };
-    }
-    if args
-        .first()
-        .is_some_and(|action| action == "edit-track-label")
-    {
-        if args.len() != 11
-            || args[1] != "--xml"
-            || args[3] != "--output"
-            || args[5] != "--track-id"
-            || args[7] != "--expected-label"
-            || args[9] != "--label"
-        {
-            eprintln!(
-                "error: expected rekordbox edit-track-label --xml IN --output NEW --track-id ID --expected-label OLD --label NEW"
-            );
-            return USAGE;
-        }
-        let request = oxidj_application::TrackLabelEditRequest {
-            track_id: args[6].clone(),
-            expected_old_label: args[8].clone(),
-            new_label: args[10].clone(),
-        };
-        return match oxidj_application::export_rekordbox_track_label_edit(
-            &args[2], &args[4], &request,
-        ) {
-            Ok(change) => {
-                println!(
-                    "Changed Label for track[{}]: {:?} to {:?}",
-                    change.track_id, change.old_label, change.new_label
-                );
-                OK
-            }
-            Err(error) => {
-                eprintln!("error: track Label edit rejected: {error}");
-                DOMAIN
-            }
-        };
-    }
-    if args
-        .first()
-        .is_some_and(|action| action == "edit-track-artist")
-    {
-        if args.len() != 11
-            || args[1] != "--xml"
-            || args[3] != "--output"
-            || args[5] != "--track-id"
-            || args[7] != "--expected-artist"
-            || args[9] != "--artist"
-        {
-            eprintln!(
-                "error: expected rekordbox edit-track-artist --xml IN --output NEW --track-id ID --expected-artist OLD --artist NEW"
-            );
-            return USAGE;
-        }
-        let request = oxidj_application::TrackArtistEditRequest {
-            track_id: args[6].clone(),
-            expected_old_artist: args[8].clone(),
-            new_artist: args[10].clone(),
-        };
-        return match oxidj_application::export_rekordbox_track_artist_edit(
-            &args[2], &args[4], &request,
-        ) {
-            Ok(change) => {
-                println!(
-                    "Changed Artist for track[{}]: {:?} to {:?}",
-                    change.track_id, change.old_artist, change.new_artist
-                );
-                OK
-            }
-            Err(error) => {
-                eprintln!("error: track Artist edit rejected: {error}");
-                DOMAIN
-            }
-        };
-    }
-    if args
-        .first()
-        .is_some_and(|action| action == "edit-track-date-added")
-    {
-        if args.len() != 11
-            || args[1] != "--xml"
-            || args[3] != "--output"
-            || args[5] != "--track-id"
-            || args[7] != "--expected-date-added"
-            || args[9] != "--date-added"
-        {
-            eprintln!(
-                "error: expected rekordbox edit-track-date-added --xml IN --output NEW --track-id ID --expected-date-added OLD --date-added NEW"
-            );
-            return USAGE;
-        }
-        let request = oxidj_application::TrackDateAddedEditRequest {
-            track_id: args[6].clone(),
-            expected_old_date_added: args[8].clone(),
-            new_date_added: args[10].clone(),
-        };
-        return match oxidj_application::export_rekordbox_track_date_added_edit(
-            &args[2], &args[4], &request,
-        ) {
-            Ok(change) => {
-                println!(
-                    "Changed raw DateAdded for track[{}]: {:?} to {:?}",
-                    change.track_id, change.old_date_added, change.new_date_added
-                );
-                OK
-            }
-            Err(error) => {
-                eprintln!("error: track DateAdded edit rejected: {error}");
-                DOMAIN
-            }
-        };
-    }
-    if args
-        .first()
-        .is_some_and(|action| action == "edit-track-date-modified")
-    {
-        if args.len() != 11
-            || args[1] != "--xml"
-            || args[3] != "--output"
-            || args[5] != "--track-id"
-            || args[7] != "--expected-date-modified"
-            || args[9] != "--date-modified"
-        {
-            eprintln!(
-                "error: expected rekordbox edit-track-date-modified --xml IN --output NEW --track-id ID --expected-date-modified OLD --date-modified NEW"
-            );
-            return USAGE;
-        }
-        let request = oxidj_application::TrackDateModifiedEditRequest {
-            track_id: args[6].clone(),
-            expected_old_date_modified: args[8].clone(),
-            new_date_modified: args[10].clone(),
-        };
-        return match oxidj_application::export_rekordbox_track_date_modified_edit(
-            &args[2], &args[4], &request,
-        ) {
-            Ok(change) => {
-                println!(
-                    "Changed raw DateModified for track[{}]: {:?} to {:?}",
-                    change.track_id, change.old_date_modified, change.new_date_modified
-                );
-                OK
-            }
-            Err(error) => {
-                eprintln!("error: track DateModified edit rejected: {error}");
-                DOMAIN
-            }
-        };
-    }
-    if args
-        .first()
-        .is_some_and(|action| action == "edit-track-play-count")
-    {
-        if args.len() != 11
-            || args[1] != "--xml"
-            || args[3] != "--output"
-            || args[5] != "--track-id"
-            || args[7] != "--expected-play-count"
-            || args[9] != "--play-count"
-        {
-            eprintln!(
-                "error: expected rekordbox edit-track-play-count --xml IN --output NEW --track-id ID --expected-play-count OLD --play-count NEW"
-            );
-            return USAGE;
-        }
-        let request = oxidj_application::TrackPlayCountEditRequest {
-            track_id: args[6].clone(),
-            expected_old_play_count: args[8].clone(),
-            new_play_count: args[10].clone(),
-        };
-        return match oxidj_application::export_rekordbox_track_play_count_edit(
-            &args[2], &args[4], &request,
-        ) {
-            Ok(change) => {
-                println!(
-                    "Changed raw PlayCount for track[{}]: {:?} to {:?}",
-                    change.track_id, change.old_play_count, change.new_play_count
-                );
-                OK
-            }
-            Err(error) => {
-                eprintln!("error: track PlayCount edit rejected: {error}");
-                DOMAIN
-            }
-        };
-    }
-    if args
-        .first()
-        .is_some_and(|action| action == "edit-track-average-bpm")
-    {
-        if args.len() != 11
-            || args[1] != "--xml"
-            || args[3] != "--output"
-            || args[5] != "--track-id"
-            || args[7] != "--expected-average-bpm"
-            || args[9] != "--average-bpm"
-        {
-            eprintln!(
-                "error: expected rekordbox edit-track-average-bpm --xml IN --output NEW --track-id ID --expected-average-bpm OLD --average-bpm NEW"
-            );
-            return USAGE;
-        }
-        let request = oxidj_application::TrackAverageBpmEditRequest {
-            track_id: args[6].clone(),
-            expected_old_average_bpm: args[8].clone(),
-            new_average_bpm: args[10].clone(),
-        };
-        return match oxidj_application::export_rekordbox_track_average_bpm_edit(
-            &args[2], &args[4], &request,
-        ) {
-            Ok(change) => {
-                println!(
-                    "Changed raw AverageBpm for track[{}]: {:?} to {:?}",
-                    change.track_id, change.old_average_bpm, change.new_average_bpm
-                );
-                OK
-            }
-            Err(error) => {
-                eprintln!("error: track AverageBpm edit rejected: {error}");
-                DOMAIN
-            }
-        };
-    }
-    if args
-        .first()
-        .is_some_and(|action| action == "edit-track-disc-number")
-    {
-        if args.len() != 11
-            || args[1] != "--xml"
-            || args[3] != "--output"
-            || args[5] != "--track-id"
-            || args[7] != "--expected-disc-number"
-            || args[9] != "--disc-number"
-        {
-            eprintln!(
-                "error: expected rekordbox edit-track-disc-number --xml IN --output NEW --track-id ID --expected-disc-number OLD --disc-number NEW"
-            );
-            return USAGE;
-        }
-        let request = oxidj_application::TrackDiscNumberEditRequest {
-            track_id: args[6].clone(),
-            expected_old_disc_number: args[8].clone(),
-            new_disc_number: args[10].clone(),
-        };
-        return match oxidj_application::export_rekordbox_track_disc_number_edit(
-            &args[2], &args[4], &request,
-        ) {
-            Ok(change) => {
-                println!(
-                    "Changed raw DiscNumber for track[{}]: {:?} to {:?}",
-                    change.track_id, change.old_disc_number, change.new_disc_number
-                );
-                OK
-            }
-            Err(error) => {
-                eprintln!("error: track DiscNumber edit rejected: {error}");
-                DOMAIN
-            }
-        };
-    }
-    if args
-        .first()
-        .is_some_and(|action| action == "edit-track-number")
-    {
-        if args.len() != 11
-            || args[1] != "--xml"
-            || args[3] != "--output"
-            || args[5] != "--track-id"
-            || args[7] != "--expected-track-number"
-            || args[9] != "--track-number"
-        {
-            eprintln!(
-                "error: expected rekordbox edit-track-number --xml IN --output NEW --track-id ID --expected-track-number OLD --track-number NEW"
-            );
-            return USAGE;
-        }
-        let request = oxidj_application::TrackNumberEditRequest {
-            track_id: args[6].clone(),
-            expected_old_track_number: args[8].clone(),
-            new_track_number: args[10].clone(),
-        };
-        return match oxidj_application::export_rekordbox_track_number_edit(
-            &args[2], &args[4], &request,
-        ) {
-            Ok(change) => {
-                println!(
-                    "Changed raw TrackNumber for track[{}]: {:?} to {:?}",
-                    change.track_id, change.old_track_number, change.new_track_number
-                );
-                OK
-            }
-            Err(error) => {
-                eprintln!("error: track TrackNumber edit rejected: {error}");
-                DOMAIN
-            }
-        };
-    }
-    if args
-        .first()
-        .is_some_and(|action| action == "edit-track-size")
-    {
-        if args.len() != 11
-            || args[1] != "--xml"
-            || args[3] != "--output"
-            || args[5] != "--track-id"
-            || args[7] != "--expected-size"
-            || args[9] != "--size"
-        {
-            eprintln!(
-                "error: expected rekordbox edit-track-size --xml IN --output NEW --track-id ID --expected-size OLD --size NEW"
-            );
-            return USAGE;
-        }
-        let request = oxidj_application::TrackSizeEditRequest {
-            track_id: args[6].clone(),
-            expected_old_size: args[8].clone(),
-            new_size: args[10].clone(),
-        };
-        return match oxidj_application::export_rekordbox_track_size_edit(
-            &args[2], &args[4], &request,
-        ) {
-            Ok(change) => {
-                println!(
-                    "Changed raw Size for track[{}]: {:?} to {:?}",
-                    change.track_id, change.old_size, change.new_size
-                );
-                OK
-            }
-            Err(error) => {
-                eprintln!("error: track Size edit rejected: {error}");
-                DOMAIN
-            }
-        };
-    }
-    if args
-        .first()
-        .is_some_and(|action| action == "edit-track-total-time")
-    {
-        if args.len() != 11
-            || args[1] != "--xml"
-            || args[3] != "--output"
-            || args[5] != "--track-id"
-            || args[7] != "--expected-total-time"
-            || args[9] != "--total-time"
-        {
-            eprintln!(
-                "error: expected rekordbox edit-track-total-time --xml IN --output NEW --track-id ID --expected-total-time OLD --total-time NEW"
-            );
-            return USAGE;
-        }
-        let request = oxidj_application::TrackTotalTimeEditRequest {
-            track_id: args[6].clone(),
-            expected_old_total_time: args[8].clone(),
-            new_total_time: args[10].clone(),
-        };
-        return match oxidj_application::export_rekordbox_track_total_time_edit(
-            &args[2], &args[4], &request,
-        ) {
-            Ok(change) => {
-                println!(
-                    "Changed raw TotalTime for track[{}]: {:?} to {:?}",
-                    change.track_id, change.old_total_time, change.new_total_time
-                );
-                OK
-            }
-            Err(error) => {
-                eprintln!("error: track TotalTime edit rejected: {error}");
-                DOMAIN
-            }
-        };
-    }
-    if args
-        .first()
-        .is_some_and(|action| action == "edit-track-bit-rate")
-    {
-        if args.len() != 11
-            || args[1] != "--xml"
-            || args[3] != "--output"
-            || args[5] != "--track-id"
-            || args[7] != "--expected-bit-rate"
-            || args[9] != "--bit-rate"
-        {
-            eprintln!(
-                "error: expected rekordbox edit-track-bit-rate --xml IN --output NEW --track-id ID --expected-bit-rate OLD --bit-rate NEW"
-            );
-            return USAGE;
-        }
-        let request = oxidj_application::TrackBitRateEditRequest {
-            track_id: args[6].clone(),
-            expected_old_bit_rate: args[8].clone(),
-            new_bit_rate: args[10].clone(),
-        };
-        return match oxidj_application::export_rekordbox_track_bit_rate_edit(
-            &args[2], &args[4], &request,
-        ) {
-            Ok(change) => {
-                println!(
-                    "Changed raw BitRate for track[{}]: {:?} to {:?}",
-                    change.track_id, change.old_bit_rate, change.new_bit_rate
-                );
-                OK
-            }
-            Err(error) => {
-                eprintln!("error: track BitRate edit rejected: {error}");
-                DOMAIN
-            }
-        };
-    }
-    if args
-        .first()
-        .is_some_and(|action| action == "edit-track-sample-rate")
-    {
-        if args.len() != 11
-            || args[1] != "--xml"
-            || args[3] != "--output"
-            || args[5] != "--track-id"
-            || args[7] != "--expected-sample-rate"
-            || args[9] != "--sample-rate"
-        {
-            eprintln!(
-                "error: expected rekordbox edit-track-sample-rate --xml IN --output NEW --track-id ID --expected-sample-rate OLD --sample-rate NEW"
-            );
-            return USAGE;
-        }
-        let request = oxidj_application::TrackSampleRateEditRequest {
-            track_id: args[6].clone(),
-            expected_old_sample_rate: args[8].clone(),
-            new_sample_rate: args[10].clone(),
-        };
-        return match oxidj_application::export_rekordbox_track_sample_rate_edit(
-            &args[2], &args[4], &request,
-        ) {
-            Ok(change) => {
-                println!(
-                    "Changed raw SampleRate for track[{}]: {:?} to {:?}",
-                    change.track_id, change.old_sample_rate, change.new_sample_rate
-                );
-                OK
-            }
-            Err(error) => {
-                eprintln!("error: track SampleRate edit rejected: {error}");
-                DOMAIN
-            }
-        };
-    }
-    if args
-        .first()
-        .is_some_and(|action| action == "edit-track-last-played")
-    {
-        if args.len() != 11
-            || args[1] != "--xml"
-            || args[3] != "--output"
-            || args[5] != "--track-id"
-            || args[7] != "--expected-last-played"
-            || args[9] != "--last-played"
-        {
-            eprintln!(
-                "error: expected rekordbox edit-track-last-played --xml IN --output NEW --track-id ID --expected-last-played OLD --last-played NEW"
-            );
-            return USAGE;
-        }
-        let request = oxidj_application::TrackLastPlayedEditRequest {
-            track_id: args[6].clone(),
-            expected_old_last_played: args[8].clone(),
-            new_last_played: args[10].clone(),
-        };
-        return match oxidj_application::export_rekordbox_track_last_played_edit(
-            &args[2], &args[4], &request,
-        ) {
-            Ok(change) => {
-                println!(
-                    "Changed raw LastPlayed for track[{}]: {:?} to {:?}",
-                    change.track_id, change.old_last_played, change.new_last_played
-                );
-                OK
-            }
-            Err(error) => {
-                eprintln!("error: track LastPlayed edit rejected: {error}");
-                DOMAIN
-            }
-        };
-    }
-    if args
-        .first()
-        .is_some_and(|action| action == "edit-track-year")
-    {
-        if args.len() != 11
-            || args[1] != "--xml"
-            || args[3] != "--output"
-            || args[5] != "--track-id"
-            || args[7] != "--expected-year"
-            || args[9] != "--year"
-        {
-            eprintln!(
-                "error: expected rekordbox edit-track-year --xml IN --output NEW --track-id ID --expected-year OLD --year NEW"
-            );
-            return USAGE;
-        }
-        let request = oxidj_application::TrackYearEditRequest {
-            track_id: args[6].clone(),
-            expected_old_year: args[8].clone(),
-            new_year: args[10].clone(),
-        };
-        return match oxidj_application::export_rekordbox_track_year_edit(
-            &args[2], &args[4], &request,
-        ) {
-            Ok(change) => {
-                println!(
-                    "Changed Year for track[{}]: {:?} to {:?}",
-                    change.track_id, change.old_year, change.new_year
-                );
-                OK
-            }
-            Err(error) => {
-                eprintln!("error: track Year edit rejected: {error}");
-                DOMAIN
-            }
-        };
-    }
-    if args
-        .first()
-        .is_some_and(|action| action == "edit-track-kind")
-    {
-        if args.len() != 11
-            || args[1] != "--xml"
-            || args[3] != "--output"
-            || args[5] != "--track-id"
-            || args[7] != "--expected-kind"
-            || args[9] != "--kind"
-        {
-            eprintln!(
-                "error: expected rekordbox edit-track-kind --xml IN --output NEW --track-id ID --expected-kind OLD --kind NEW"
-            );
-            return USAGE;
-        }
-        let request = oxidj_application::TrackKindEditRequest {
-            track_id: args[6].clone(),
-            expected_old_kind: args[8].clone(),
-            new_kind: args[10].clone(),
-        };
-        return match oxidj_application::export_rekordbox_track_kind_edit(
-            &args[2], &args[4], &request,
-        ) {
-            Ok(change) => {
-                println!(
-                    "Changed Kind for track[{}]: {:?} to {:?}",
-                    change.track_id, change.old_kind, change.new_kind
-                );
-                OK
-            }
-            Err(error) => {
-                eprintln!("error: track Kind edit rejected: {error}");
+                eprintln!("error: track {label} edit rejected: {error}");
                 DOMAIN
             }
         };

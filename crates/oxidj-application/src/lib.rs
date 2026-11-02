@@ -21,18 +21,19 @@ pub use oxidj_rekordbox::{
     PreparedPositionMarkEdit, PreparedPositionMarkEndEdit, PreparedPositionMarkNameEdit,
     PreparedSiblingFolderReorder, PreparedSiblingPlaylistReorder, PreparedTempoBeatEdit,
     PreparedTempoEdit, PreparedTempoMeterEdit, PreparedTempoStartEdit, PreparedTrackAlbumEdit,
-    PreparedTrackArtistEdit, PreparedTrackAverageBpmEdit, PreparedTrackBitRateEdit,
-    PreparedTrackColourEdit, PreparedTrackCommentsEdit, PreparedTrackComposerEdit,
-    PreparedTrackDateAddedEdit, PreparedTrackDateModifiedEdit, PreparedTrackDelete,
-    PreparedTrackDiscNumberEdit, PreparedTrackGenreEdit, PreparedTrackGroupingEdit,
-    PreparedTrackKindEdit, PreparedTrackLabelEdit, PreparedTrackLastPlayedEdit,
-    PreparedTrackMixEdit, PreparedTrackNameEdit, PreparedTrackNumberEdit,
-    PreparedTrackPlayCountEdit, PreparedTrackRatingEdit, PreparedTrackRemixerEdit,
-    PreparedTrackSampleRateEdit, PreparedTrackSizeEdit, PreparedTrackTotalTimeEdit,
-    PreparedTrackYearEdit, Preview, SiblingFolderReorderRequest, SiblingPlaylistReorderRequest,
-    TempoBeatEditChange, TempoBeatEditRequest, TempoEditChange, TempoEditRequest,
-    TempoMeterEditChange, TempoMeterEditRequest, TempoStartEditChange, TempoStartEditRequest,
-    TrackAlbumEditChange, TrackAlbumEditRequest, TrackArtistEditChange, TrackArtistEditRequest,
+    PreparedTrackArtistEdit, PreparedTrackAttributeEdit, PreparedTrackAverageBpmEdit,
+    PreparedTrackBitRateEdit, PreparedTrackColourEdit, PreparedTrackCommentsEdit,
+    PreparedTrackComposerEdit, PreparedTrackDateAddedEdit, PreparedTrackDateModifiedEdit,
+    PreparedTrackDelete, PreparedTrackDiscNumberEdit, PreparedTrackGenreEdit,
+    PreparedTrackGroupingEdit, PreparedTrackKindEdit, PreparedTrackLabelEdit,
+    PreparedTrackLastPlayedEdit, PreparedTrackMixEdit, PreparedTrackNameEdit,
+    PreparedTrackNumberEdit, PreparedTrackPlayCountEdit, PreparedTrackRatingEdit,
+    PreparedTrackRemixerEdit, PreparedTrackSampleRateEdit, PreparedTrackSizeEdit,
+    PreparedTrackTotalTimeEdit, PreparedTrackYearEdit, Preview, SiblingFolderReorderRequest,
+    SiblingPlaylistReorderRequest, TempoBeatEditChange, TempoBeatEditRequest, TempoEditChange,
+    TempoEditRequest, TempoMeterEditChange, TempoMeterEditRequest, TempoStartEditChange,
+    TempoStartEditRequest, TrackAlbumEditChange, TrackAlbumEditRequest, TrackArtistEditChange,
+    TrackArtistEditRequest, TrackAttribute, TrackAttributeEditChange, TrackAttributeEditRequest,
     TrackAverageBpmEditChange, TrackAverageBpmEditRequest, TrackBitRateEditChange,
     TrackBitRateEditRequest, TrackColourEditChange, TrackColourEditRequest,
     TrackCommentsEditChange, TrackCommentsEditRequest, TrackComposerEditChange,
@@ -588,631 +589,91 @@ pub fn export_prepared_rekordbox_playlist_member_insert(
     publish_new_file(&output, &prepared.bytes)
 }
 
-/// A source-bound prepared Track Name export retains the exact preview snapshot.
+/// A source-bound prepared Track edit export retains the exact preview snapshot.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PreparedTrackNameExport {
+pub struct PreparedTrackEditExport<C> {
     source: std::path::PathBuf,
     source_bytes: Vec<u8>,
     bytes: Vec<u8>,
-    change: TrackNameEditChange,
+    change: C,
 }
 
-impl PreparedTrackNameExport {
-    pub fn source(&self) -> &Path {
-        &self.source
-    }
-
-    pub fn bytes(&self) -> &[u8] {
-        &self.bytes
-    }
-
-    pub fn change(&self) -> &TrackNameEditChange {
-        &self.change
-    }
-}
-
-/// A source-bound prepared Track Artist export retains the exact preview snapshot.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PreparedTrackArtistExport {
-    source: std::path::PathBuf,
-    source_bytes: Vec<u8>,
-    bytes: Vec<u8>,
-    change: TrackArtistEditChange,
-}
-
-impl PreparedTrackArtistExport {
-    pub fn source(&self) -> &Path {
-        &self.source
-    }
-
-    pub fn bytes(&self) -> &[u8] {
-        &self.bytes
-    }
-
-    pub fn change(&self) -> &TrackArtistEditChange {
-        &self.change
-    }
-}
-
-/// A source-bound prepared Track Comments export retains its exact preview snapshot.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PreparedTrackCommentsExport {
-    source: std::path::PathBuf,
-    source_bytes: Vec<u8>,
-    bytes: Vec<u8>,
-    change: TrackCommentsEditChange,
-}
-
-impl PreparedTrackCommentsExport {
+impl<C: Clone> PreparedTrackEditExport<C> {
     pub fn source(&self) -> &Path {
         &self.source
     }
     pub fn bytes(&self) -> &[u8] {
         &self.bytes
     }
-    pub fn change(&self) -> &TrackCommentsEditChange {
+    pub fn change(&self) -> &C {
         &self.change
     }
-}
 
-/// A source-bound prepared Track Album export retains the exact preview snapshot.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PreparedTrackAlbumExport {
-    source: std::path::PathBuf,
-    source_bytes: Vec<u8>,
-    bytes: Vec<u8>,
-    change: TrackAlbumEditChange,
-}
-
-impl PreparedTrackAlbumExport {
-    pub fn source(&self) -> &Path {
-        &self.source
-    }
-    pub fn bytes(&self) -> &[u8] {
-        &self.bytes
-    }
-    pub fn change(&self) -> &TrackAlbumEditChange {
-        &self.change
+    /// Publish to a new path only if the source still matches the preview snapshot.
+    fn export(&self, output: impl AsRef<Path>, attribute: &str) -> Result<C, RekordboxError> {
+        let (current_source, output) = read_new_export_source(&self.source, output)?;
+        if current_source != self.source_bytes {
+            return Err(RekordboxError(format!(
+                "source changed after Track {attribute} edit preparation"
+            )));
+        }
+        publish_new_file(&output, &self.bytes)?;
+        Ok(self.change.clone())
     }
 }
 
-/// Source and exact-old guard for a previewable Track Name edit.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TrackNameEditPreparationRequest {
-    pub source: std::path::PathBuf,
-    pub track_id: String,
-    pub expected_old_name: String,
-    pub new_name: String,
+/// Per-attribute source-bound preparation API: one row per UI-editable Track attribute.
+macro_rules! track_edit_exports {
+    ($($label:literal => $PrepRequest:ident { $expected:ident, $new:ident } => $Request:ident, $Change:ident, $Export:ident, $adapter:ident, $prepare:ident, $export:ident;)*) => {$(
+        #[doc = concat!("Source and exact-old guard for a previewable Track ", $label, " edit.")]
+        #[derive(Debug, Clone, PartialEq, Eq)]
+        pub struct $PrepRequest {
+            pub source: std::path::PathBuf,
+            pub track_id: String,
+            pub $expected: String,
+            pub $new: String,
+        }
+        pub type $Export = PreparedTrackEditExport<$Change>;
+        #[doc = concat!("Prepare one guarded ", $label, " edit without writing any file.")]
+        pub fn $prepare(request: &$PrepRequest) -> Result<$Export, RekordboxError> {
+            let source =
+                std::fs::read(&request.source).map_err(|error| RekordboxError(error.to_string()))?;
+            let prepared = oxidj_rekordbox::$adapter(
+                &source,
+                &$Request {
+                    track_id: request.track_id.clone(),
+                    $expected: request.$expected.clone(),
+                    $new: request.$new.clone(),
+                },
+            )?;
+            Ok(PreparedTrackEditExport {
+                source: request.source.clone(),
+                source_bytes: source,
+                bytes: prepared.bytes,
+                change: prepared.change,
+            })
+        }
+        #[doc = concat!("Export a prepared ", $label, " edit only after source revalidation, to a new path.")]
+        pub fn $export(prepared: &$Export, output: impl AsRef<Path>) -> Result<$Change, RekordboxError> {
+            prepared.export(output, $label)
+        }
+    )*};
 }
 
-/// Source and exact-old guard for a previewable Track Artist edit.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TrackArtistEditPreparationRequest {
-    pub source: std::path::PathBuf,
-    pub track_id: String,
-    pub expected_old_artist: String,
-    pub new_artist: String,
-}
-
-/// Source and exact-old guard for a previewable Track Comments edit.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TrackCommentsEditPreparationRequest {
-    pub source: std::path::PathBuf,
-    pub track_id: String,
-    pub expected_old_comments: String,
-    pub new_comments: String,
-}
-
-/// Source and exact-old guard for a previewable Track Album edit.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TrackAlbumEditPreparationRequest {
-    pub source: std::path::PathBuf,
-    pub track_id: String,
-    pub expected_old_album: String,
-    pub new_album: String,
-}
-
-/// A source-bound prepared Track Composer export retains the exact preview snapshot.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PreparedTrackComposerExport {
-    source: std::path::PathBuf,
-    source_bytes: Vec<u8>,
-    bytes: Vec<u8>,
-    change: oxidj_rekordbox::TrackComposerEditChange,
-}
-impl PreparedTrackComposerExport {
-    pub fn source(&self) -> &Path {
-        &self.source
-    }
-    pub fn bytes(&self) -> &[u8] {
-        &self.bytes
-    }
-    pub fn change(&self) -> &oxidj_rekordbox::TrackComposerEditChange {
-        &self.change
-    }
-}
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TrackComposerEditPreparationRequest {
-    pub source: std::path::PathBuf,
-    pub track_id: String,
-    pub expected_old_composer: String,
-    pub new_composer: String,
-}
-/// Prepare one guarded Composer edit without writing any file.
-pub fn prepare_rekordbox_track_composer_export(
-    request: &TrackComposerEditPreparationRequest,
-) -> Result<PreparedTrackComposerExport, RekordboxError> {
-    let source =
-        std::fs::read(&request.source).map_err(|error| RekordboxError(error.to_string()))?;
-    let adapter_request = oxidj_rekordbox::TrackComposerEditRequest {
-        track_id: request.track_id.clone(),
-        expected_old_composer: request.expected_old_composer.clone(),
-        new_composer: request.new_composer.clone(),
-    };
-    let prepared = oxidj_rekordbox::prepare_track_composer_edit(&source, &adapter_request)?;
-    Ok(PreparedTrackComposerExport {
-        source: request.source.clone(),
-        source_bytes: source,
-        bytes: prepared.bytes,
-        change: prepared.change,
-    })
-}
-/// Export a prepared Composer edit only after source revalidation, to a new path.
-pub fn export_prepared_rekordbox_track_composer_edit(
-    prepared: &PreparedTrackComposerExport,
-    output: impl AsRef<Path>,
-) -> Result<oxidj_rekordbox::TrackComposerEditChange, RekordboxError> {
-    let (current_source, output) = read_new_export_source(&prepared.source, output)?;
-    if current_source != prepared.source_bytes {
-        return Err(RekordboxError(
-            "source changed after Track Composer edit preparation".into(),
-        ));
-    }
-    publish_new_file(&output, &prepared.bytes)?;
-    Ok(prepared.change.clone())
-}
-
-/// A source-bound prepared Track Remixer export retains the exact preview snapshot.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PreparedTrackRemixerExport {
-    source: std::path::PathBuf,
-    source_bytes: Vec<u8>,
-    bytes: Vec<u8>,
-    change: oxidj_rekordbox::TrackRemixerEditChange,
-}
-impl PreparedTrackRemixerExport {
-    pub fn source(&self) -> &Path {
-        &self.source
-    }
-    pub fn bytes(&self) -> &[u8] {
-        &self.bytes
-    }
-    pub fn change(&self) -> &oxidj_rekordbox::TrackRemixerEditChange {
-        &self.change
-    }
-}
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TrackRemixerEditPreparationRequest {
-    pub source: std::path::PathBuf,
-    pub track_id: String,
-    pub expected_old_remixer: String,
-    pub new_remixer: String,
-}
-/// Prepare one guarded Remixer edit without writing any file.
-pub fn prepare_rekordbox_track_remixer_export(
-    request: &TrackRemixerEditPreparationRequest,
-) -> Result<PreparedTrackRemixerExport, RekordboxError> {
-    let source =
-        std::fs::read(&request.source).map_err(|error| RekordboxError(error.to_string()))?;
-    let adapter_request = oxidj_rekordbox::TrackRemixerEditRequest {
-        track_id: request.track_id.clone(),
-        expected_old_remixer: request.expected_old_remixer.clone(),
-        new_remixer: request.new_remixer.clone(),
-    };
-    let prepared = oxidj_rekordbox::prepare_track_remixer_edit(&source, &adapter_request)?;
-    Ok(PreparedTrackRemixerExport {
-        source: request.source.clone(),
-        source_bytes: source,
-        bytes: prepared.bytes,
-        change: prepared.change,
-    })
-}
-/// Export a prepared Remixer edit only after source revalidation, to a new path.
-pub fn export_prepared_rekordbox_track_remixer_edit(
-    prepared: &PreparedTrackRemixerExport,
-    output: impl AsRef<Path>,
-) -> Result<oxidj_rekordbox::TrackRemixerEditChange, RekordboxError> {
-    let (current_source, output) = read_new_export_source(&prepared.source, output)?;
-    if current_source != prepared.source_bytes {
-        return Err(RekordboxError(
-            "source changed after Track Remixer edit preparation".into(),
-        ));
-    }
-    publish_new_file(&output, &prepared.bytes)?;
-    Ok(prepared.change.clone())
-}
-
-/// A source-bound prepared Track Mix export retains the exact preview snapshot.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PreparedTrackMixExport {
-    source: std::path::PathBuf,
-    source_bytes: Vec<u8>,
-    bytes: Vec<u8>,
-    change: oxidj_rekordbox::TrackMixEditChange,
-}
-impl PreparedTrackMixExport {
-    pub fn source(&self) -> &Path {
-        &self.source
-    }
-    pub fn bytes(&self) -> &[u8] {
-        &self.bytes
-    }
-    pub fn change(&self) -> &oxidj_rekordbox::TrackMixEditChange {
-        &self.change
-    }
-}
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TrackMixEditPreparationRequest {
-    pub source: std::path::PathBuf,
-    pub track_id: String,
-    pub expected_old_mix: String,
-    pub new_mix: String,
-}
-/// Prepare one guarded Mix edit without writing any file.
-pub fn prepare_rekordbox_track_mix_export(
-    request: &TrackMixEditPreparationRequest,
-) -> Result<PreparedTrackMixExport, RekordboxError> {
-    let source =
-        std::fs::read(&request.source).map_err(|error| RekordboxError(error.to_string()))?;
-    let adapter_request = oxidj_rekordbox::TrackMixEditRequest {
-        track_id: request.track_id.clone(),
-        expected_old_mix: request.expected_old_mix.clone(),
-        new_mix: request.new_mix.clone(),
-    };
-    let prepared = oxidj_rekordbox::prepare_track_mix_edit(&source, &adapter_request)?;
-    Ok(PreparedTrackMixExport {
-        source: request.source.clone(),
-        source_bytes: source,
-        bytes: prepared.bytes,
-        change: prepared.change,
-    })
-}
-/// Export a prepared Mix edit only after source revalidation, to a new path.
-pub fn export_prepared_rekordbox_track_mix_edit(
-    prepared: &PreparedTrackMixExport,
-    output: impl AsRef<Path>,
-) -> Result<oxidj_rekordbox::TrackMixEditChange, RekordboxError> {
-    let (current_source, output) = read_new_export_source(&prepared.source, output)?;
-    if current_source != prepared.source_bytes {
-        return Err(RekordboxError(
-            "source changed after Track Mix edit preparation".into(),
-        ));
-    }
-    publish_new_file(&output, &prepared.bytes)?;
-    Ok(prepared.change.clone())
-}
-
-/// A source-bound prepared Tonality edit retains the exact preview snapshot.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PreparedTrackTonalityExport {
-    source: std::path::PathBuf,
-    source_bytes: Vec<u8>,
-    bytes: Vec<u8>,
-    change: oxidj_rekordbox::TrackTonalityEditChange,
-}
-
-impl PreparedTrackTonalityExport {
-    pub fn source(&self) -> &Path {
-        &self.source
-    }
-    pub fn bytes(&self) -> &[u8] {
-        &self.bytes
-    }
-    pub fn change(&self) -> &oxidj_rekordbox::TrackTonalityEditChange {
-        &self.change
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TrackTonalityEditPreparationRequest {
-    pub source: std::path::PathBuf,
-    pub track_id: String,
-    pub expected_old_tonality: String,
-    pub new_tonality: String,
-}
-
-/// Prepare one guarded Tonality edit without writing any file.
-pub fn prepare_rekordbox_track_tonality_export(
-    request: &TrackTonalityEditPreparationRequest,
-) -> Result<PreparedTrackTonalityExport, RekordboxError> {
-    let source =
-        std::fs::read(&request.source).map_err(|error| RekordboxError(error.to_string()))?;
-    let adapter_request = oxidj_rekordbox::TrackTonalityEditRequest {
-        track_id: request.track_id.clone(),
-        expected_old_tonality: request.expected_old_tonality.clone(),
-        new_tonality: request.new_tonality.clone(),
-    };
-    let prepared = oxidj_rekordbox::prepare_track_tonality_edit(&source, &adapter_request)?;
-    Ok(PreparedTrackTonalityExport {
-        source: request.source.clone(),
-        source_bytes: source,
-        bytes: prepared.bytes,
-        change: prepared.change,
-    })
-}
-/// Export a prepared Tonality edit only after source revalidation, to a new path.
-pub fn export_prepared_rekordbox_track_tonality_edit(
-    prepared: &PreparedTrackTonalityExport,
-    output: impl AsRef<Path>,
-) -> Result<oxidj_rekordbox::TrackTonalityEditChange, RekordboxError> {
-    let (current_source, output) = read_new_export_source(&prepared.source, output)?;
-    if current_source != prepared.source_bytes {
-        return Err(RekordboxError(
-            "source changed after Track Tonality edit preparation".into(),
-        ));
-    }
-    publish_new_file(&output, &prepared.bytes)?;
-    Ok(prepared.change.clone())
-}
-
-/// A source-bound prepared Track Grouping export retains the exact preview snapshot.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PreparedTrackGroupingExport {
-    source: std::path::PathBuf,
-    source_bytes: Vec<u8>,
-    bytes: Vec<u8>,
-    change: oxidj_rekordbox::TrackGroupingEditChange,
-}
-impl PreparedTrackGroupingExport {
-    pub fn source(&self) -> &Path {
-        &self.source
-    }
-    pub fn bytes(&self) -> &[u8] {
-        &self.bytes
-    }
-    pub fn change(&self) -> &oxidj_rekordbox::TrackGroupingEditChange {
-        &self.change
-    }
-}
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TrackGroupingEditPreparationRequest {
-    pub source: std::path::PathBuf,
-    pub track_id: String,
-    pub expected_old_grouping: String,
-    pub new_grouping: String,
-}
-/// Prepare one guarded Grouping edit without writing any file.
-pub fn prepare_rekordbox_track_grouping_export(
-    request: &TrackGroupingEditPreparationRequest,
-) -> Result<PreparedTrackGroupingExport, RekordboxError> {
-    let source =
-        std::fs::read(&request.source).map_err(|error| RekordboxError(error.to_string()))?;
-    let adapter_request = oxidj_rekordbox::TrackGroupingEditRequest {
-        track_id: request.track_id.clone(),
-        expected_old_grouping: request.expected_old_grouping.clone(),
-        new_grouping: request.new_grouping.clone(),
-    };
-    let prepared = oxidj_rekordbox::prepare_track_grouping_edit(&source, &adapter_request)?;
-    Ok(PreparedTrackGroupingExport {
-        source: request.source.clone(),
-        source_bytes: source,
-        bytes: prepared.bytes,
-        change: prepared.change,
-    })
-}
-/// Export a prepared Grouping edit only after source revalidation, to a new path.
-pub fn export_prepared_rekordbox_track_grouping_edit(
-    prepared: &PreparedTrackGroupingExport,
-    output: impl AsRef<Path>,
-) -> Result<oxidj_rekordbox::TrackGroupingEditChange, RekordboxError> {
-    let (current_source, output) = read_new_export_source(&prepared.source, output)?;
-    if current_source != prepared.source_bytes {
-        return Err(RekordboxError(
-            "source changed after Track Grouping edit preparation".into(),
-        ));
-    }
-    publish_new_file(&output, &prepared.bytes)?;
-    Ok(prepared.change.clone())
-}
-
-/// A source-bound prepared Track Label export retains the exact preview snapshot.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PreparedTrackLabelExport {
-    source: std::path::PathBuf,
-    source_bytes: Vec<u8>,
-    bytes: Vec<u8>,
-    change: oxidj_rekordbox::TrackLabelEditChange,
-}
-
-impl PreparedTrackLabelExport {
-    pub fn source(&self) -> &Path {
-        &self.source
-    }
-    pub fn bytes(&self) -> &[u8] {
-        &self.bytes
-    }
-    pub fn change(&self) -> &oxidj_rekordbox::TrackLabelEditChange {
-        &self.change
-    }
-}
-
-/// Source and exact-old guard for a previewable Track Label edit.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TrackLabelEditPreparationRequest {
-    pub source: std::path::PathBuf,
-    pub track_id: String,
-    pub expected_old_label: String,
-    pub new_label: String,
-}
-
-/// Prepare one guarded Label edit without writing any file.
-pub fn prepare_rekordbox_track_label_export(
-    request: &TrackLabelEditPreparationRequest,
-) -> Result<PreparedTrackLabelExport, RekordboxError> {
-    let source =
-        std::fs::read(&request.source).map_err(|error| RekordboxError(error.to_string()))?;
-    let adapter_request = oxidj_rekordbox::TrackLabelEditRequest {
-        track_id: request.track_id.clone(),
-        expected_old_label: request.expected_old_label.clone(),
-        new_label: request.new_label.clone(),
-    };
-    let prepared = oxidj_rekordbox::prepare_track_label_edit(&source, &adapter_request)?;
-    Ok(PreparedTrackLabelExport {
-        source: request.source.clone(),
-        source_bytes: source,
-        bytes: prepared.bytes,
-        change: prepared.change,
-    })
-}
-
-/// Export a prepared Label edit only after source revalidation, to a new path.
-pub fn export_prepared_rekordbox_track_label_edit(
-    prepared: &PreparedTrackLabelExport,
-    output: impl AsRef<Path>,
-) -> Result<oxidj_rekordbox::TrackLabelEditChange, RekordboxError> {
-    let (current_source, output) = read_new_export_source(&prepared.source, output)?;
-    if current_source != prepared.source_bytes {
-        return Err(RekordboxError(
-            "source changed after Track Label edit preparation".into(),
-        ));
-    }
-    publish_new_file(&output, &prepared.bytes)?;
-    Ok(prepared.change.clone())
-}
-
-/// A source-bound prepared Track Genre export retains the exact preview snapshot.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PreparedTrackGenreExport {
-    source: std::path::PathBuf,
-    source_bytes: Vec<u8>,
-    bytes: Vec<u8>,
-    change: oxidj_rekordbox::TrackGenreEditChange,
-}
-
-impl PreparedTrackGenreExport {
-    pub fn source(&self) -> &Path {
-        &self.source
-    }
-    pub fn bytes(&self) -> &[u8] {
-        &self.bytes
-    }
-    pub fn change(&self) -> &oxidj_rekordbox::TrackGenreEditChange {
-        &self.change
-    }
-}
-
-/// Source and exact-old guard for a previewable Track Genre edit.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TrackGenreEditPreparationRequest {
-    pub source: std::path::PathBuf,
-    pub track_id: String,
-    pub expected_old_genre: String,
-    pub new_genre: String,
-}
-
-/// Prepare one guarded Comments edit without writing any file.
-pub fn prepare_rekordbox_track_comments_export(
-    request: &TrackCommentsEditPreparationRequest,
-) -> Result<PreparedTrackCommentsExport, RekordboxError> {
-    let source =
-        std::fs::read(&request.source).map_err(|error| RekordboxError(error.to_string()))?;
-    let adapter_request = TrackCommentsEditRequest {
-        track_id: request.track_id.clone(),
-        expected_old_comments: request.expected_old_comments.clone(),
-        new_comments: request.new_comments.clone(),
-    };
-    let prepared = oxidj_rekordbox::prepare_track_comments_edit(&source, &adapter_request)?;
-    Ok(PreparedTrackCommentsExport {
-        source: request.source.clone(),
-        source_bytes: source,
-        bytes: prepared.bytes,
-        change: prepared.change,
-    })
-}
-
-/// Export only a prepared Comments edit after source revalidation, to a new path.
-pub fn export_prepared_rekordbox_track_comments_edit(
-    prepared: &PreparedTrackCommentsExport,
-    output: impl AsRef<Path>,
-) -> Result<TrackCommentsEditChange, RekordboxError> {
-    let (current_source, output) = read_new_export_source(&prepared.source, output)?;
-    if current_source != prepared.source_bytes {
-        return Err(RekordboxError(
-            "source changed after Track Comments edit preparation".into(),
-        ));
-    }
-    publish_new_file(&output, &prepared.bytes)?;
-    Ok(prepared.change.clone())
-}
-
-/// Prepare one guarded Album edit without writing any file.
-pub fn prepare_rekordbox_track_album_export(
-    request: &TrackAlbumEditPreparationRequest,
-) -> Result<PreparedTrackAlbumExport, RekordboxError> {
-    let source =
-        std::fs::read(&request.source).map_err(|error| RekordboxError(error.to_string()))?;
-    let adapter_request = TrackAlbumEditRequest {
-        track_id: request.track_id.clone(),
-        expected_old_album: request.expected_old_album.clone(),
-        new_album: request.new_album.clone(),
-    };
-    let prepared = oxidj_rekordbox::prepare_track_album_edit(&source, &adapter_request)?;
-    Ok(PreparedTrackAlbumExport {
-        source: request.source.clone(),
-        source_bytes: source,
-        bytes: prepared.bytes,
-        change: prepared.change,
-    })
-}
-
-/// Export only a prepared Album edit after source revalidation, to a new path.
-pub fn export_prepared_rekordbox_track_album_edit(
-    prepared: &PreparedTrackAlbumExport,
-    output: impl AsRef<Path>,
-) -> Result<TrackAlbumEditChange, RekordboxError> {
-    let (current_source, output) = read_new_export_source(&prepared.source, output)?;
-    if current_source != prepared.source_bytes {
-        return Err(RekordboxError(
-            "source changed after Track Album edit preparation".into(),
-        ));
-    }
-    publish_new_file(&output, &prepared.bytes)?;
-    Ok(prepared.change.clone())
-}
-
-/// Prepare one guarded Genre edit without writing any file.
-pub fn prepare_rekordbox_track_genre_export(
-    request: &TrackGenreEditPreparationRequest,
-) -> Result<PreparedTrackGenreExport, RekordboxError> {
-    let source =
-        std::fs::read(&request.source).map_err(|error| RekordboxError(error.to_string()))?;
-    let adapter_request = oxidj_rekordbox::TrackGenreEditRequest {
-        track_id: request.track_id.clone(),
-        expected_old_genre: request.expected_old_genre.clone(),
-        new_genre: request.new_genre.clone(),
-    };
-    let prepared = oxidj_rekordbox::prepare_track_genre_edit(&source, &adapter_request)?;
-    Ok(PreparedTrackGenreExport {
-        source: request.source.clone(),
-        source_bytes: source,
-        bytes: prepared.bytes,
-        change: prepared.change,
-    })
-}
-
-/// Export only a prepared Genre edit after source revalidation, to a new path.
-pub fn export_prepared_rekordbox_track_genre_edit(
-    prepared: &PreparedTrackGenreExport,
-    output: impl AsRef<Path>,
-) -> Result<oxidj_rekordbox::TrackGenreEditChange, RekordboxError> {
-    let (current_source, output) = read_new_export_source(&prepared.source, output)?;
-    if current_source != prepared.source_bytes {
-        return Err(RekordboxError(
-            "source changed after Track Genre edit preparation".into(),
-        ));
-    }
-    publish_new_file(&output, &prepared.bytes)?;
-    Ok(prepared.change.clone())
+#[rustfmt::skip]
+track_edit_exports! {
+    "Name" => TrackNameEditPreparationRequest { expected_old_name, new_name } => TrackNameEditRequest, TrackNameEditChange, PreparedTrackNameExport, prepare_track_name_edit, prepare_rekordbox_track_name_export, export_prepared_rekordbox_track_name_edit;
+    "Artist" => TrackArtistEditPreparationRequest { expected_old_artist, new_artist } => TrackArtistEditRequest, TrackArtistEditChange, PreparedTrackArtistExport, prepare_track_artist_edit, prepare_rekordbox_track_artist_export, export_prepared_rekordbox_track_artist_edit;
+    "Comments" => TrackCommentsEditPreparationRequest { expected_old_comments, new_comments } => TrackCommentsEditRequest, TrackCommentsEditChange, PreparedTrackCommentsExport, prepare_track_comments_edit, prepare_rekordbox_track_comments_export, export_prepared_rekordbox_track_comments_edit;
+    "Album" => TrackAlbumEditPreparationRequest { expected_old_album, new_album } => TrackAlbumEditRequest, TrackAlbumEditChange, PreparedTrackAlbumExport, prepare_track_album_edit, prepare_rekordbox_track_album_export, export_prepared_rekordbox_track_album_edit;
+    "Genre" => TrackGenreEditPreparationRequest { expected_old_genre, new_genre } => TrackGenreEditRequest, TrackGenreEditChange, PreparedTrackGenreExport, prepare_track_genre_edit, prepare_rekordbox_track_genre_export, export_prepared_rekordbox_track_genre_edit;
+    "Label" => TrackLabelEditPreparationRequest { expected_old_label, new_label } => TrackLabelEditRequest, TrackLabelEditChange, PreparedTrackLabelExport, prepare_track_label_edit, prepare_rekordbox_track_label_export, export_prepared_rekordbox_track_label_edit;
+    "Composer" => TrackComposerEditPreparationRequest { expected_old_composer, new_composer } => TrackComposerEditRequest, TrackComposerEditChange, PreparedTrackComposerExport, prepare_track_composer_edit, prepare_rekordbox_track_composer_export, export_prepared_rekordbox_track_composer_edit;
+    "Grouping" => TrackGroupingEditPreparationRequest { expected_old_grouping, new_grouping } => TrackGroupingEditRequest, TrackGroupingEditChange, PreparedTrackGroupingExport, prepare_track_grouping_edit, prepare_rekordbox_track_grouping_export, export_prepared_rekordbox_track_grouping_edit;
+    "Remixer" => TrackRemixerEditPreparationRequest { expected_old_remixer, new_remixer } => TrackRemixerEditRequest, TrackRemixerEditChange, PreparedTrackRemixerExport, prepare_track_remixer_edit, prepare_rekordbox_track_remixer_export, export_prepared_rekordbox_track_remixer_edit;
+    "Mix" => TrackMixEditPreparationRequest { expected_old_mix, new_mix } => TrackMixEditRequest, TrackMixEditChange, PreparedTrackMixExport, prepare_track_mix_edit, prepare_rekordbox_track_mix_export, export_prepared_rekordbox_track_mix_edit;
+    "Tonality" => TrackTonalityEditPreparationRequest { expected_old_tonality, new_tonality } => TrackTonalityEditRequest, TrackTonalityEditChange, PreparedTrackTonalityExport, prepare_track_tonality_edit, prepare_rekordbox_track_tonality_export, export_prepared_rekordbox_track_tonality_edit;
+    "Kind" => TrackKindEditPreparationRequest { expected_old_kind, new_kind } => TrackKindEditRequest, TrackKindEditChange, PreparedTrackKindExport, prepare_track_kind_edit, prepare_rekordbox_track_kind_export, export_prepared_rekordbox_track_kind_edit;
 }
 
 /// Read-only application handler: prepare one guarded Track Name edit for preview.
@@ -1226,42 +687,7 @@ pub fn prepare_rekordbox_track_name_edit(
         expected_old_name: request.expected_old_name.clone(),
         new_name: request.new_name.clone(),
     };
-    prepare_rekordbox_track_name_edit_bytes(&source, &adapter_request)
-}
-
-/// Prepare a guarded Track Name edit for a source-bound, revalidated new-file export.
-pub fn prepare_rekordbox_track_name_export(
-    request: &TrackNameEditPreparationRequest,
-) -> Result<PreparedTrackNameExport, RekordboxError> {
-    let source =
-        std::fs::read(&request.source).map_err(|error| RekordboxError(error.to_string()))?;
-    let adapter_request = TrackNameEditRequest {
-        track_id: request.track_id.clone(),
-        expected_old_name: request.expected_old_name.clone(),
-        new_name: request.new_name.clone(),
-    };
-    let prepared = prepare_rekordbox_track_name_edit_bytes(&source, &adapter_request)?;
-    Ok(PreparedTrackNameExport {
-        source: request.source.clone(),
-        source_bytes: source,
-        bytes: prepared.bytes,
-        change: prepared.change,
-    })
-}
-
-/// Export only a source-bound prepared Track Name edit after confirming its source is unchanged.
-pub fn export_prepared_rekordbox_track_name_edit(
-    prepared: &PreparedTrackNameExport,
-    output: impl AsRef<Path>,
-) -> Result<TrackNameEditChange, RekordboxError> {
-    let (current_source, output) = read_new_export_source(&prepared.source, output)?;
-    if current_source != prepared.source_bytes {
-        return Err(RekordboxError(
-            "source changed after Track Name edit preparation".into(),
-        ));
-    }
-    publish_new_file(&output, &prepared.bytes)?;
-    Ok(prepared.change.clone())
+    oxidj_rekordbox::prepare_track_name_edit(&source, &adapter_request)
 }
 
 /// Read-only application handler: prepare one guarded Track Artist edit for preview.
@@ -1278,413 +704,14 @@ pub fn prepare_rekordbox_track_artist_edit(
     oxidj_rekordbox::prepare_track_artist_edit(&source, &adapter_request)
 }
 
-/// Prepare a guarded Track Artist edit for source-bound, revalidated new-file export.
-pub fn prepare_rekordbox_track_artist_export(
-    request: &TrackArtistEditPreparationRequest,
-) -> Result<PreparedTrackArtistExport, RekordboxError> {
-    let source_bytes =
-        std::fs::read(&request.source).map_err(|error| RekordboxError(error.to_string()))?;
-    let adapter_request = TrackArtistEditRequest {
-        track_id: request.track_id.clone(),
-        expected_old_artist: request.expected_old_artist.clone(),
-        new_artist: request.new_artist.clone(),
-    };
-    let prepared = oxidj_rekordbox::prepare_track_artist_edit(&source_bytes, &adapter_request)?;
-    Ok(PreparedTrackArtistExport {
-        source: request.source.clone(),
-        source_bytes,
-        bytes: prepared.bytes,
-        change: prepared.change,
-    })
-}
-
-/// Export only a source-bound prepared Track Artist edit after confirming its source is unchanged.
-pub fn export_prepared_rekordbox_track_artist_edit(
-    prepared: &PreparedTrackArtistExport,
-    output: impl AsRef<Path>,
-) -> Result<TrackArtistEditChange, RekordboxError> {
-    let (current_source, output) = read_new_export_source(&prepared.source, output)?;
-    if current_source != prepared.source_bytes {
-        return Err(RekordboxError(
-            "source changed after Track Artist edit preparation".into(),
-        ));
-    }
-    publish_new_file(&output, &prepared.bytes)?;
-    Ok(prepared.change.clone())
-}
-
-fn prepare_rekordbox_track_name_edit_bytes(
-    source: &[u8],
-    request: &TrackNameEditRequest,
-) -> Result<oxidj_rekordbox::PreparedTrackNameEdit, RekordboxError> {
-    oxidj_rekordbox::prepare_track_name_edit(source, request)
-}
-
-/// Export one guarded track Name edit to a new, non-overwriting file.
-pub fn export_rekordbox_track_name_edit(
+/// Export one guarded single-attribute Track edit to a new, non-overwriting file.
+pub fn export_rekordbox_track_attribute_edit(
     input: impl AsRef<Path>,
     output: impl AsRef<Path>,
-    request: &TrackNameEditRequest,
-) -> Result<TrackNameEditChange, RekordboxError> {
+    request: &TrackAttributeEditRequest,
+) -> Result<TrackAttributeEditChange, RekordboxError> {
     let (source, output) = read_new_export_source(input, output)?;
-    let prepared = prepare_rekordbox_track_name_edit_bytes(&source, request)?;
-    publish_new_file(&output, &prepared.bytes)?;
-    Ok(prepared.change)
-}
-
-/// Export one guarded track Comments edit to a new, non-overwriting file.
-pub fn export_rekordbox_track_comments_edit(
-    input: impl AsRef<Path>,
-    output: impl AsRef<Path>,
-    request: &TrackCommentsEditRequest,
-) -> Result<TrackCommentsEditChange, RekordboxError> {
-    let (source, output) = read_new_export_source(input, output)?;
-    let prepared = oxidj_rekordbox::prepare_track_comments_edit(&source, request)?;
-    publish_new_file(&output, &prepared.bytes)?;
-    Ok(prepared.change)
-}
-
-/// Export one guarded track Album edit to a new, non-overwriting file.
-pub fn export_rekordbox_track_album_edit(
-    input: impl AsRef<Path>,
-    output: impl AsRef<Path>,
-    request: &TrackAlbumEditRequest,
-) -> Result<TrackAlbumEditChange, RekordboxError> {
-    let (source, output) = read_new_export_source(input, output)?;
-    let prepared = oxidj_rekordbox::prepare_track_album_edit(&source, request)?;
-    publish_new_file(&output, &prepared.bytes)?;
-    Ok(prepared.change)
-}
-
-/// Export one guarded track Genre edit to a new, non-overwriting file.
-pub fn export_rekordbox_track_genre_edit(
-    input: impl AsRef<Path>,
-    output: impl AsRef<Path>,
-    request: &TrackGenreEditRequest,
-) -> Result<TrackGenreEditChange, RekordboxError> {
-    let (source, output) = read_new_export_source(input, output)?;
-    let prepared = oxidj_rekordbox::prepare_track_genre_edit(&source, request)?;
-    publish_new_file(&output, &prepared.bytes)?;
-    Ok(prepared.change)
-}
-
-/// Export one guarded track Label edit to a new, non-overwriting file.
-pub fn export_rekordbox_track_label_edit(
-    input: impl AsRef<Path>,
-    output: impl AsRef<Path>,
-    request: &TrackLabelEditRequest,
-) -> Result<TrackLabelEditChange, RekordboxError> {
-    let (source, output) = read_new_export_source(input, output)?;
-    let prepared = oxidj_rekordbox::prepare_track_label_edit(&source, request)?;
-    publish_new_file(&output, &prepared.bytes)?;
-    Ok(prepared.change)
-}
-
-/// Export one guarded track Rating edit to a new, non-overwriting file.
-pub fn export_rekordbox_track_rating_edit(
-    input: impl AsRef<Path>,
-    output: impl AsRef<Path>,
-    request: &TrackRatingEditRequest,
-) -> Result<TrackRatingEditChange, RekordboxError> {
-    let (source, output) = read_new_export_source(input, output)?;
-    let prepared = oxidj_rekordbox::prepare_track_rating_edit(&source, request)?;
-    publish_new_file(&output, &prepared.bytes)?;
-    Ok(prepared.change)
-}
-
-/// Export one guarded raw Track Colour edit to a new, non-overwriting file.
-pub fn export_rekordbox_track_colour_edit(
-    input: impl AsRef<Path>,
-    output: impl AsRef<Path>,
-    request: &TrackColourEditRequest,
-) -> Result<TrackColourEditChange, RekordboxError> {
-    let (source, output) = read_new_export_source(input, output)?;
-    let prepared = oxidj_rekordbox::prepare_track_colour_edit(&source, request)?;
-    publish_new_file(&output, &prepared.bytes)?;
-    Ok(prepared.change)
-}
-
-/// Export one guarded track Composer edit to a new, non-overwriting file.
-pub fn export_rekordbox_track_composer_edit(
-    input: impl AsRef<Path>,
-    output: impl AsRef<Path>,
-    request: &TrackComposerEditRequest,
-) -> Result<TrackComposerEditChange, RekordboxError> {
-    let (source, output) = read_new_export_source(input, output)?;
-    let prepared = oxidj_rekordbox::prepare_track_composer_edit(&source, request)?;
-    publish_new_file(&output, &prepared.bytes)?;
-    Ok(prepared.change)
-}
-
-/// Export one guarded track Grouping edit to a new, non-overwriting file.
-pub fn export_rekordbox_track_grouping_edit(
-    input: impl AsRef<Path>,
-    output: impl AsRef<Path>,
-    request: &TrackGroupingEditRequest,
-) -> Result<TrackGroupingEditChange, RekordboxError> {
-    let (source, output) = read_new_export_source(input, output)?;
-    let prepared = oxidj_rekordbox::prepare_track_grouping_edit(&source, request)?;
-    publish_new_file(&output, &prepared.bytes)?;
-    Ok(prepared.change)
-}
-
-/// Export one guarded track Remixer edit to a new, non-overwriting file.
-pub fn export_rekordbox_track_remixer_edit(
-    input: impl AsRef<Path>,
-    output: impl AsRef<Path>,
-    request: &TrackRemixerEditRequest,
-) -> Result<TrackRemixerEditChange, RekordboxError> {
-    let (source, output) = read_new_export_source(input, output)?;
-    let prepared = oxidj_rekordbox::prepare_track_remixer_edit(&source, request)?;
-    publish_new_file(&output, &prepared.bytes)?;
-    Ok(prepared.change)
-}
-
-/// Export one guarded track Mix edit to a new, non-overwriting file.
-pub fn export_rekordbox_track_mix_edit(
-    input: impl AsRef<Path>,
-    output: impl AsRef<Path>,
-    request: &TrackMixEditRequest,
-) -> Result<TrackMixEditChange, RekordboxError> {
-    let (source, output) = read_new_export_source(input, output)?;
-    let prepared = oxidj_rekordbox::prepare_track_mix_edit(&source, request)?;
-    publish_new_file(&output, &prepared.bytes)?;
-    Ok(prepared.change)
-}
-
-/// Export one guarded track Tonality edit to a new, non-overwriting file.
-pub fn export_rekordbox_track_tonality_edit(
-    input: impl AsRef<Path>,
-    output: impl AsRef<Path>,
-    request: &TrackTonalityEditRequest,
-) -> Result<TrackTonalityEditChange, RekordboxError> {
-    let (source, output) = read_new_export_source(input, output)?;
-    let prepared = oxidj_rekordbox::prepare_track_tonality_edit(&source, request)?;
-    publish_new_file(&output, &prepared.bytes)?;
-    Ok(prepared.change)
-}
-
-/// Export one guarded raw Track DateAdded edit to a new, non-overwriting file.
-pub fn export_rekordbox_track_date_added_edit(
-    input: impl AsRef<Path>,
-    output: impl AsRef<Path>,
-    request: &TrackDateAddedEditRequest,
-) -> Result<TrackDateAddedEditChange, RekordboxError> {
-    let (source, output) = read_new_export_source(input, output)?;
-    let prepared = oxidj_rekordbox::prepare_track_date_added_edit(&source, request)?;
-    publish_new_file(&output, &prepared.bytes)?;
-    Ok(prepared.change)
-}
-
-/// Export one guarded raw Track DateModified edit to a new, non-overwriting file.
-pub fn export_rekordbox_track_date_modified_edit(
-    input: impl AsRef<Path>,
-    output: impl AsRef<Path>,
-    request: &TrackDateModifiedEditRequest,
-) -> Result<TrackDateModifiedEditChange, RekordboxError> {
-    let (source, output) = read_new_export_source(input, output)?;
-    let prepared = oxidj_rekordbox::prepare_track_date_modified_edit(&source, request)?;
-    publish_new_file(&output, &prepared.bytes)?;
-    Ok(prepared.change)
-}
-
-pub fn export_rekordbox_track_play_count_edit(
-    input: impl AsRef<Path>,
-    output: impl AsRef<Path>,
-    request: &TrackPlayCountEditRequest,
-) -> Result<TrackPlayCountEditChange, RekordboxError> {
-    let (source, output) = read_new_export_source(input, output)?;
-    let prepared = oxidj_rekordbox::prepare_track_play_count_edit(&source, request)?;
-    publish_new_file(&output, &prepared.bytes)?;
-    Ok(prepared.change)
-}
-
-pub fn export_rekordbox_track_average_bpm_edit(
-    input: impl AsRef<Path>,
-    output: impl AsRef<Path>,
-    request: &TrackAverageBpmEditRequest,
-) -> Result<TrackAverageBpmEditChange, RekordboxError> {
-    let (source, output) = read_new_export_source(input, output)?;
-    let prepared = oxidj_rekordbox::prepare_track_average_bpm_edit(&source, request)?;
-    publish_new_file(&output, &prepared.bytes)?;
-    Ok(prepared.change)
-}
-
-pub fn export_rekordbox_track_disc_number_edit(
-    input: impl AsRef<Path>,
-    output: impl AsRef<Path>,
-    request: &TrackDiscNumberEditRequest,
-) -> Result<TrackDiscNumberEditChange, RekordboxError> {
-    let (source, output) = read_new_export_source(input, output)?;
-    let prepared = oxidj_rekordbox::prepare_track_disc_number_edit(&source, request)?;
-    publish_new_file(&output, &prepared.bytes)?;
-    Ok(prepared.change)
-}
-
-pub fn export_rekordbox_track_number_edit(
-    input: impl AsRef<Path>,
-    output: impl AsRef<Path>,
-    request: &TrackNumberEditRequest,
-) -> Result<TrackNumberEditChange, RekordboxError> {
-    let (source, output) = read_new_export_source(input, output)?;
-    let prepared = oxidj_rekordbox::prepare_track_number_edit(&source, request)?;
-    publish_new_file(&output, &prepared.bytes)?;
-    Ok(prepared.change)
-}
-
-pub fn export_rekordbox_track_size_edit(
-    input: impl AsRef<Path>,
-    output: impl AsRef<Path>,
-    request: &TrackSizeEditRequest,
-) -> Result<TrackSizeEditChange, RekordboxError> {
-    let (source, output) = read_new_export_source(input, output)?;
-    let prepared = oxidj_rekordbox::prepare_track_size_edit(&source, request)?;
-    publish_new_file(&output, &prepared.bytes)?;
-    Ok(prepared.change)
-}
-
-pub fn export_rekordbox_track_total_time_edit(
-    input: impl AsRef<Path>,
-    output: impl AsRef<Path>,
-    request: &TrackTotalTimeEditRequest,
-) -> Result<TrackTotalTimeEditChange, RekordboxError> {
-    let (source, output) = read_new_export_source(input, output)?;
-    let prepared = oxidj_rekordbox::prepare_track_total_time_edit(&source, request)?;
-    publish_new_file(&output, &prepared.bytes)?;
-    Ok(prepared.change)
-}
-
-pub fn export_rekordbox_track_bit_rate_edit(
-    input: impl AsRef<Path>,
-    output: impl AsRef<Path>,
-    request: &TrackBitRateEditRequest,
-) -> Result<TrackBitRateEditChange, RekordboxError> {
-    let (source, output) = read_new_export_source(input, output)?;
-    let prepared = oxidj_rekordbox::prepare_track_bit_rate_edit(&source, request)?;
-    publish_new_file(&output, &prepared.bytes)?;
-    Ok(prepared.change)
-}
-
-pub fn export_rekordbox_track_sample_rate_edit(
-    input: impl AsRef<Path>,
-    output: impl AsRef<Path>,
-    request: &TrackSampleRateEditRequest,
-) -> Result<TrackSampleRateEditChange, RekordboxError> {
-    let (source, output) = read_new_export_source(input, output)?;
-    let prepared = oxidj_rekordbox::prepare_track_sample_rate_edit(&source, request)?;
-    publish_new_file(&output, &prepared.bytes)?;
-    Ok(prepared.change)
-}
-
-pub fn export_rekordbox_track_last_played_edit(
-    input: impl AsRef<Path>,
-    output: impl AsRef<Path>,
-    request: &TrackLastPlayedEditRequest,
-) -> Result<TrackLastPlayedEditChange, RekordboxError> {
-    let (source, output) = read_new_export_source(input, output)?;
-    let prepared = oxidj_rekordbox::prepare_track_last_played_edit(&source, request)?;
-    publish_new_file(&output, &prepared.bytes)?;
-    Ok(prepared.change)
-}
-
-/// Export one guarded raw track Year edit to a new, non-overwriting file.
-pub fn export_rekordbox_track_year_edit(
-    input: impl AsRef<Path>,
-    output: impl AsRef<Path>,
-    request: &TrackYearEditRequest,
-) -> Result<TrackYearEditChange, RekordboxError> {
-    let (source, output) = read_new_export_source(input, output)?;
-    let prepared = oxidj_rekordbox::prepare_track_year_edit(&source, request)?;
-    publish_new_file(&output, &prepared.bytes)?;
-    Ok(prepared.change)
-}
-
-/// Export one guarded raw track Kind edit to a new, non-overwriting file.
-pub fn export_rekordbox_track_kind_edit(
-    input: impl AsRef<Path>,
-    output: impl AsRef<Path>,
-    request: &TrackKindEditRequest,
-) -> Result<TrackKindEditChange, RekordboxError> {
-    let (source, output) = read_new_export_source(input, output)?;
-    let prepared = oxidj_rekordbox::prepare_track_kind_edit(&source, request)?;
-    publish_new_file(&output, &prepared.bytes)?;
-    Ok(prepared.change)
-}
-
-/// A source-bound prepared Track Kind export retains its exact preview snapshot.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PreparedTrackKindExport {
-    source: std::path::PathBuf,
-    source_bytes: Vec<u8>,
-    bytes: Vec<u8>,
-    change: oxidj_rekordbox::TrackKindEditChange,
-}
-
-impl PreparedTrackKindExport {
-    pub fn source(&self) -> &Path {
-        &self.source
-    }
-
-    pub fn bytes(&self) -> &[u8] {
-        &self.bytes
-    }
-
-    pub fn change(&self) -> &oxidj_rekordbox::TrackKindEditChange {
-        &self.change
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TrackKindEditPreparationRequest {
-    pub source: std::path::PathBuf,
-    pub track_id: String,
-    pub expected_old_kind: String,
-    pub new_kind: String,
-}
-
-/// Prepare one guarded raw Track Kind edit without writing any file.
-pub fn prepare_rekordbox_track_kind_export(
-    request: &TrackKindEditPreparationRequest,
-) -> Result<PreparedTrackKindExport, RekordboxError> {
-    let source =
-        std::fs::read(&request.source).map_err(|error| RekordboxError(error.to_string()))?;
-    let adapter_request = oxidj_rekordbox::TrackKindEditRequest {
-        track_id: request.track_id.clone(),
-        expected_old_kind: request.expected_old_kind.clone(),
-        new_kind: request.new_kind.clone(),
-    };
-    let prepared = oxidj_rekordbox::prepare_track_kind_edit(&source, &adapter_request)?;
-    Ok(PreparedTrackKindExport {
-        source: request.source.clone(),
-        source_bytes: source,
-        bytes: prepared.bytes,
-        change: prepared.change,
-    })
-}
-
-/// Export a prepared Track Kind edit only after source revalidation, to a new path.
-pub fn export_prepared_rekordbox_track_kind_edit(
-    prepared: &PreparedTrackKindExport,
-    output: impl AsRef<Path>,
-) -> Result<oxidj_rekordbox::TrackKindEditChange, RekordboxError> {
-    let (current_source, output) = read_new_export_source(&prepared.source, output)?;
-    if current_source != prepared.source_bytes {
-        return Err(RekordboxError(
-            "source changed after Track Kind edit preparation".into(),
-        ));
-    }
-    publish_new_file(&output, &prepared.bytes)?;
-    Ok(prepared.change.clone())
-}
-
-/// Export one guarded track Artist edit to a new, non-overwriting file.
-pub fn export_rekordbox_track_artist_edit(
-    input: impl AsRef<Path>,
-    output: impl AsRef<Path>,
-    request: &TrackArtistEditRequest,
-) -> Result<TrackArtistEditChange, RekordboxError> {
-    let (source, output) = read_new_export_source(input, output)?;
-    let prepared = oxidj_rekordbox::prepare_track_artist_edit(&source, request)?;
+    let prepared = oxidj_rekordbox::prepare_track_attribute_edit(&source, request)?;
     publish_new_file(&output, &prepared.bytes)?;
     Ok(prepared.change)
 }

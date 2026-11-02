@@ -601,450 +601,6 @@ pub struct PreparedPositionMarkDelete {
     pub change: PositionMarkDeleteChange,
 }
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TrackNameEditRequest {
-    pub track_id: String,
-    pub expected_old_name: String,
-    pub new_name: String,
-}
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TrackNameEditChange {
-    pub track_id: String,
-    pub old_name: String,
-    pub new_name: String,
-}
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TrackArtistEditRequest {
-    pub track_id: String,
-    pub expected_old_artist: String,
-    pub new_artist: String,
-}
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TrackArtistEditChange {
-    pub track_id: String,
-    pub old_artist: String,
-    pub new_artist: String,
-}
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PreparedTrackArtistEdit {
-    pub bytes: Vec<u8>,
-    pub change: TrackArtistEditChange,
-}
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TrackCommentsEditRequest {
-    pub track_id: String,
-    pub expected_old_comments: String,
-    pub new_comments: String,
-}
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TrackCommentsEditChange {
-    pub track_id: String,
-    pub old_comments: String,
-    pub new_comments: String,
-}
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PreparedTrackCommentsEdit {
-    pub bytes: Vec<u8>,
-    pub change: TrackCommentsEditChange,
-}
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TrackAlbumEditRequest {
-    pub track_id: String,
-    pub expected_old_album: String,
-    pub new_album: String,
-}
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TrackAlbumEditChange {
-    pub track_id: String,
-    pub old_album: String,
-    pub new_album: String,
-}
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TrackGenreEditRequest {
-    pub track_id: String,
-    pub expected_old_genre: String,
-    pub new_genre: String,
-}
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TrackGenreEditChange {
-    pub track_id: String,
-    pub old_genre: String,
-    pub new_genre: String,
-}
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PreparedTrackGenreEdit {
-    pub bytes: Vec<u8>,
-    pub change: TrackGenreEditChange,
-}
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TrackLabelEditRequest {
-    pub track_id: String,
-    pub expected_old_label: String,
-    pub new_label: String,
-}
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TrackLabelEditChange {
-    pub track_id: String,
-    pub old_label: String,
-    pub new_label: String,
-}
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PreparedTrackLabelEdit {
-    pub bytes: Vec<u8>,
-    pub change: TrackLabelEditChange,
-}
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TrackComposerEditRequest {
-    pub track_id: String,
-    pub expected_old_composer: String,
-    pub new_composer: String,
-}
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TrackRatingEditRequest {
-    pub track_id: String,
-    pub expected_old_rating: String,
-    pub new_rating: String,
-}
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TrackRatingEditChange {
-    pub track_id: String,
-    pub old_rating: String,
-    pub new_rating: String,
-}
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PreparedTrackRatingEdit {
-    pub bytes: Vec<u8>,
-    pub change: TrackRatingEditChange,
-}
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TrackColourEditRequest {
-    pub track_id: String,
-    pub expected_old_colour: String,
-    pub new_colour: String,
-}
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TrackColourEditChange {
-    pub track_id: String,
-    pub old_colour: String,
-    pub new_colour: String,
-}
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PreparedTrackColourEdit {
-    pub bytes: Vec<u8>,
-    pub change: TrackColourEditChange,
-}
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TrackDateAddedEditRequest {
-    pub track_id: String,
-    pub expected_old_date_added: String,
-    pub new_date_added: String,
-}
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TrackDateModifiedEditRequest {
-    pub track_id: String,
-    pub expected_old_date_modified: String,
-    pub new_date_modified: String,
-}
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TrackDateModifiedEditChange {
-    pub track_id: String,
-    pub old_date_modified: String,
-    pub new_date_modified: String,
-}
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PreparedTrackDateModifiedEdit {
-    pub bytes: Vec<u8>,
-    pub change: TrackDateModifiedEditChange,
-}
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TrackLastPlayedEditRequest {
-    pub track_id: String,
-    pub expected_old_last_played: String,
-    pub new_last_played: String,
-}
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TrackLastPlayedEditChange {
-    pub track_id: String,
-    pub old_last_played: String,
-    pub new_last_played: String,
-}
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PreparedTrackLastPlayedEdit {
-    pub bytes: Vec<u8>,
-    pub change: TrackLastPlayedEditChange,
-}
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TrackPlayCountEditRequest {
-    pub track_id: String,
-    pub expected_old_play_count: String,
-    pub new_play_count: String,
-}
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TrackPlayCountEditChange {
-    pub track_id: String,
-    pub old_play_count: String,
-    pub new_play_count: String,
-}
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PreparedTrackPlayCountEdit {
-    pub bytes: Vec<u8>,
-    pub change: TrackPlayCountEditChange,
-}
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TrackAverageBpmEditRequest {
-    pub track_id: String,
-    pub expected_old_average_bpm: String,
-    pub new_average_bpm: String,
-}
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TrackDiscNumberEditRequest {
-    pub track_id: String,
-    pub expected_old_disc_number: String,
-    pub new_disc_number: String,
-}
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TrackDiscNumberEditChange {
-    pub track_id: String,
-    pub old_disc_number: String,
-    pub new_disc_number: String,
-}
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PreparedTrackDiscNumberEdit {
-    pub bytes: Vec<u8>,
-    pub change: TrackDiscNumberEditChange,
-}
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TrackNumberEditRequest {
-    pub track_id: String,
-    pub expected_old_track_number: String,
-    pub new_track_number: String,
-}
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TrackNumberEditChange {
-    pub track_id: String,
-    pub old_track_number: String,
-    pub new_track_number: String,
-}
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PreparedTrackNumberEdit {
-    pub bytes: Vec<u8>,
-    pub change: TrackNumberEditChange,
-}
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TrackSizeEditRequest {
-    pub track_id: String,
-    pub expected_old_size: String,
-    pub new_size: String,
-}
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TrackSizeEditChange {
-    pub track_id: String,
-    pub old_size: String,
-    pub new_size: String,
-}
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PreparedTrackSizeEdit {
-    pub bytes: Vec<u8>,
-    pub change: TrackSizeEditChange,
-}
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TrackTotalTimeEditRequest {
-    pub track_id: String,
-    pub expected_old_total_time: String,
-    pub new_total_time: String,
-}
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TrackTotalTimeEditChange {
-    pub track_id: String,
-    pub old_total_time: String,
-    pub new_total_time: String,
-}
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PreparedTrackTotalTimeEdit {
-    pub bytes: Vec<u8>,
-    pub change: TrackTotalTimeEditChange,
-}
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TrackBitRateEditRequest {
-    pub track_id: String,
-    pub expected_old_bit_rate: String,
-    pub new_bit_rate: String,
-}
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TrackBitRateEditChange {
-    pub track_id: String,
-    pub old_bit_rate: String,
-    pub new_bit_rate: String,
-}
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PreparedTrackBitRateEdit {
-    pub bytes: Vec<u8>,
-    pub change: TrackBitRateEditChange,
-}
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TrackSampleRateEditRequest {
-    pub track_id: String,
-    pub expected_old_sample_rate: String,
-    pub new_sample_rate: String,
-}
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TrackSampleRateEditChange {
-    pub track_id: String,
-    pub old_sample_rate: String,
-    pub new_sample_rate: String,
-}
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PreparedTrackSampleRateEdit {
-    pub bytes: Vec<u8>,
-    pub change: TrackSampleRateEditChange,
-}
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TrackAverageBpmEditChange {
-    pub track_id: String,
-    pub old_average_bpm: String,
-    pub new_average_bpm: String,
-}
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PreparedTrackAverageBpmEdit {
-    pub bytes: Vec<u8>,
-    pub change: TrackAverageBpmEditChange,
-}
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TrackDateAddedEditChange {
-    pub track_id: String,
-    pub old_date_added: String,
-    pub new_date_added: String,
-}
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PreparedTrackDateAddedEdit {
-    pub bytes: Vec<u8>,
-    pub change: TrackDateAddedEditChange,
-}
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TrackComposerEditChange {
-    pub track_id: String,
-    pub old_composer: String,
-    pub new_composer: String,
-}
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PreparedTrackComposerEdit {
-    pub bytes: Vec<u8>,
-    pub change: TrackComposerEditChange,
-}
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TrackGroupingEditRequest {
-    pub track_id: String,
-    pub expected_old_grouping: String,
-    pub new_grouping: String,
-}
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TrackGroupingEditChange {
-    pub track_id: String,
-    pub old_grouping: String,
-    pub new_grouping: String,
-}
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PreparedTrackGroupingEdit {
-    pub bytes: Vec<u8>,
-    pub change: TrackGroupingEditChange,
-}
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TrackRemixerEditRequest {
-    pub track_id: String,
-    pub expected_old_remixer: String,
-    pub new_remixer: String,
-}
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TrackRemixerEditChange {
-    pub track_id: String,
-    pub old_remixer: String,
-    pub new_remixer: String,
-}
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PreparedTrackRemixerEdit {
-    pub bytes: Vec<u8>,
-    pub change: TrackRemixerEditChange,
-}
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TrackMixEditRequest {
-    pub track_id: String,
-    pub expected_old_mix: String,
-    pub new_mix: String,
-}
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TrackMixEditChange {
-    pub track_id: String,
-    pub old_mix: String,
-    pub new_mix: String,
-}
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PreparedTrackMixEdit {
-    pub bytes: Vec<u8>,
-    pub change: TrackMixEditChange,
-}
-/// Raw Tonality is preserved as supplied; no key notation is inferred.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TrackTonalityEditRequest {
-    pub track_id: String,
-    pub expected_old_tonality: String,
-    pub new_tonality: String,
-}
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TrackTonalityEditChange {
-    pub track_id: String,
-    pub old_tonality: String,
-    pub new_tonality: String,
-}
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PreparedTrackTonalityEdit {
-    pub bytes: Vec<u8>,
-    pub change: TrackTonalityEditChange,
-}
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TrackYearEditRequest {
-    pub track_id: String,
-    pub expected_old_year: String,
-    pub new_year: String,
-}
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TrackYearEditChange {
-    pub track_id: String,
-    pub old_year: String,
-    pub new_year: String,
-}
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PreparedTrackYearEdit {
-    pub bytes: Vec<u8>,
-    pub change: TrackYearEditChange,
-}
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TrackKindEditRequest {
-    pub track_id: String,
-    pub expected_old_kind: String,
-    pub new_kind: String,
-}
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TrackKindEditChange {
-    pub track_id: String,
-    pub old_kind: String,
-    pub new_kind: String,
-}
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PreparedTrackKindEdit {
-    pub bytes: Vec<u8>,
-    pub change: TrackKindEditChange,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PreparedTrackAlbumEdit {
-    pub bytes: Vec<u8>,
-    pub change: TrackAlbumEditChange,
-}
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PreparedTrackNameEdit {
-    pub bytes: Vec<u8>,
-    pub change: TrackNameEditChange,
-}
-#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PositionMarkEndEditRequest {
     pub track_id: String,
     pub mark_index: usize,
@@ -1796,13 +1352,7 @@ pub fn prepare_playlist_rename(
     if matching_siblings > usize::from(request.expected_old_name == request.new_name) {
         return Err(Error("duplicate sibling playlist/folder Name".into()));
     }
-    let escaped = request
-        .new_name
-        .replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
-        .replace('\'', "&apos;");
+    let escaped = escape_attribute(&request.new_name, false);
     let mut output = bytes.to_vec();
     output.splice(range, escaped.bytes());
     let after = preflight_export(&output)?;
@@ -3549,13 +3099,7 @@ pub fn prepare_folder_rename(
     if matches > usize::from(request.expected_old_name == request.new_name) {
         return Err(Error("duplicate sibling playlist/folder Name".into()));
     }
-    let escaped = request
-        .new_name
-        .replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
-        .replace('\'', "&apos;");
+    let escaped = escape_attribute(&request.new_name, false);
     let mut output = bytes.to_vec();
     output.splice(range, escaped.bytes());
     let after = preflight_export(&output)?;
@@ -3717,10 +3261,7 @@ pub fn prepare_folder_create(
     bytes: &[u8],
     request: &FolderCreateRequest,
 ) -> Result<PreparedFolderCreate, Error> {
-    let valid_xml_text = |value: &str| {
-        !value.is_empty() && value.chars().all(|c| matches!(c as u32, 9 | 10 | 13 | 0x20..=0xD7FF | 0xE000..=0xFFFD | 0x10000..=0x10FFFF))
-    };
-    if !valid_xml_text(&request.name) {
+    if request.name.is_empty() || !valid_xml_text(&request.name) {
         return Err(Error("invalid folder Name XML text".into()));
     }
     let before = preflight_export(bytes)?;
@@ -3815,13 +3356,7 @@ pub fn prepare_folder_create(
         return Err(Error("duplicate sibling playlist/folder Name".into()));
     }
     let insert_at = closing_pos.ok_or_else(|| Error("malformed selected parent folder".into()))?;
-    let escaped = request
-        .name
-        .replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
-        .replace('\'', "&apos;");
+    let escaped = escape_attribute(&request.name, false);
     let node = format!("<NODE Type=\"0\" Name=\"{escaped}\" Count=\"0\"/>\n");
     let mut output = bytes.to_vec();
     let mut changes = vec![
@@ -3847,10 +3382,7 @@ pub fn prepare_playlist_create(
     bytes: &[u8],
     request: &PlaylistCreateRequest,
 ) -> Result<PreparedPlaylistCreate, Error> {
-    let valid_xml_text = |value: &str| {
-        !value.is_empty() && value.chars().all(|c| matches!(c as u32, 9 | 10 | 13 | 0x20..=0xD7FF | 0xE000..=0xFFFD | 0x10000..=0x10FFFF))
-    };
-    if !valid_xml_text(&request.name) {
+    if request.name.is_empty() || !valid_xml_text(&request.name) {
         return Err(Error("invalid playlist Name XML text".into()));
     }
     let before = preflight_export(bytes)?;
@@ -3945,13 +3477,7 @@ pub fn prepare_playlist_create(
         return Err(Error("duplicate sibling playlist/folder Name".into()));
     }
     let insert_at = closing_pos.ok_or_else(|| Error("malformed selected parent folder".into()))?;
-    let escaped = request
-        .name
-        .replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
-        .replace('\'', "&apos;");
+    let escaped = escape_attribute(&request.name, false);
     let node = format!("<NODE Type=\"1\" Name=\"{escaped}\" KeyType=\"0\" Entries=\"0\"/>\n");
     let mut output = bytes.to_vec();
     let mut changes = vec![
@@ -4356,1679 +3882,227 @@ fn track_attribute_range(
     result.ok_or_else(|| Error(format!("Track {attribute} location missing")))
 }
 
-/// Prepare one exact-old-name guarded TrackID edit with byte-preserving XML output.
-pub fn prepare_track_name_edit(
+/// Value access for a TRACK field: `Name` is always present, the rest are optional.
+trait TrackFieldValue {
+    fn value(&self) -> Option<&str>;
+    fn put(&mut self, value: String);
+}
+impl TrackFieldValue for String {
+    fn value(&self) -> Option<&str> {
+        Some(self)
+    }
+    fn put(&mut self, value: String) {
+        *self = value;
+    }
+}
+impl TrackFieldValue for Option<String> {
+    fn value(&self) -> Option<&str> {
+        self.as_deref()
+    }
+    fn put(&mut self, value: String) {
+        *self = Some(value);
+    }
+}
+
+/// Table of guarded single-attribute TRACK edits. Each row is one field descriptor
+/// (variant, XML attribute name, `Track` field) plus its per-field public API names,
+/// which are thin wrappers over [`prepare_track_attribute_edit`].
+macro_rules! track_attribute_table {
+    ($($variant:ident => $xml:literal, $field:ident: $prepare:ident, $Request:ident { $expected:ident, $new:ident }, $Change:ident { $old:ident }, $Prepared:ident;)*) => {
+        /// A single-valued TRACK attribute editable with an exact-old-value guard.
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+        pub enum TrackAttribute {
+            $($variant,)*
+        }
+        impl TrackAttribute {
+            /// The Rekordbox XML attribute name.
+            pub fn xml_name(self) -> &'static str {
+                match self {
+                    $(Self::$variant => $xml,)*
+                }
+            }
+            fn value(self, track: &Track) -> Option<&str> {
+                match self {
+                    $(Self::$variant => track.$field.value(),)*
+                }
+            }
+            fn put(self, track: &mut Track, value: String) {
+                match self {
+                    $(Self::$variant => track.$field.put(value),)*
+                }
+            }
+        }
+        $(
+            #[derive(Debug, Clone, PartialEq, Eq)]
+            pub struct $Request {
+                pub track_id: String,
+                pub $expected: String,
+                pub $new: String,
+            }
+            #[derive(Debug, Clone, PartialEq, Eq)]
+            pub struct $Change {
+                pub track_id: String,
+                pub $old: String,
+                pub $new: String,
+            }
+            #[derive(Debug, Clone, PartialEq, Eq)]
+            pub struct $Prepared {
+                pub bytes: Vec<u8>,
+                pub change: $Change,
+            }
+            #[doc = concat!("Prepare one exact-old-value guarded raw Track ", $xml, " edit.")]
+            pub fn $prepare(bytes: &[u8], request: &$Request) -> Result<$Prepared, Error> {
+                let prepared = prepare_track_attribute_edit(
+                    bytes,
+                    &TrackAttributeEditRequest {
+                        track_id: request.track_id.clone(),
+                        attribute: TrackAttribute::$variant,
+                        expected_old: request.$expected.clone(),
+                        new: request.$new.clone(),
+                    },
+                )?;
+                Ok($Prepared {
+                    bytes: prepared.bytes,
+                    change: $Change {
+                        track_id: prepared.change.track_id,
+                        $old: prepared.change.old,
+                        $new: prepared.change.new,
+                    },
+                })
+            }
+        )*
+    };
+}
+
+#[rustfmt::skip]
+track_attribute_table! {
+    Name => "Name", name: prepare_track_name_edit, TrackNameEditRequest { expected_old_name, new_name }, TrackNameEditChange { old_name }, PreparedTrackNameEdit;
+    Comments => "Comments", comments: prepare_track_comments_edit, TrackCommentsEditRequest { expected_old_comments, new_comments }, TrackCommentsEditChange { old_comments }, PreparedTrackCommentsEdit;
+    Album => "Album", album: prepare_track_album_edit, TrackAlbumEditRequest { expected_old_album, new_album }, TrackAlbumEditChange { old_album }, PreparedTrackAlbumEdit;
+    Genre => "Genre", genre: prepare_track_genre_edit, TrackGenreEditRequest { expected_old_genre, new_genre }, TrackGenreEditChange { old_genre }, PreparedTrackGenreEdit;
+    Label => "Label", label: prepare_track_label_edit, TrackLabelEditRequest { expected_old_label, new_label }, TrackLabelEditChange { old_label }, PreparedTrackLabelEdit;
+    Rating => "Rating", rating: prepare_track_rating_edit, TrackRatingEditRequest { expected_old_rating, new_rating }, TrackRatingEditChange { old_rating }, PreparedTrackRatingEdit;
+    Colour => "Colour", colour: prepare_track_colour_edit, TrackColourEditRequest { expected_old_colour, new_colour }, TrackColourEditChange { old_colour }, PreparedTrackColourEdit;
+    Composer => "Composer", composer: prepare_track_composer_edit, TrackComposerEditRequest { expected_old_composer, new_composer }, TrackComposerEditChange { old_composer }, PreparedTrackComposerEdit;
+    Grouping => "Grouping", grouping: prepare_track_grouping_edit, TrackGroupingEditRequest { expected_old_grouping, new_grouping }, TrackGroupingEditChange { old_grouping }, PreparedTrackGroupingEdit;
+    Remixer => "Remixer", remixer: prepare_track_remixer_edit, TrackRemixerEditRequest { expected_old_remixer, new_remixer }, TrackRemixerEditChange { old_remixer }, PreparedTrackRemixerEdit;
+    Mix => "Mix", mix: prepare_track_mix_edit, TrackMixEditRequest { expected_old_mix, new_mix }, TrackMixEditChange { old_mix }, PreparedTrackMixEdit;
+    Tonality => "Tonality", tonality: prepare_track_tonality_edit, TrackTonalityEditRequest { expected_old_tonality, new_tonality }, TrackTonalityEditChange { old_tonality }, PreparedTrackTonalityEdit;
+    Year => "Year", year: prepare_track_year_edit, TrackYearEditRequest { expected_old_year, new_year }, TrackYearEditChange { old_year }, PreparedTrackYearEdit;
+    DateAdded => "DateAdded", date_added: prepare_track_date_added_edit, TrackDateAddedEditRequest { expected_old_date_added, new_date_added }, TrackDateAddedEditChange { old_date_added }, PreparedTrackDateAddedEdit;
+    DateModified => "DateModified", date_modified: prepare_track_date_modified_edit, TrackDateModifiedEditRequest { expected_old_date_modified, new_date_modified }, TrackDateModifiedEditChange { old_date_modified }, PreparedTrackDateModifiedEdit;
+    LastPlayed => "LastPlayed", last_played: prepare_track_last_played_edit, TrackLastPlayedEditRequest { expected_old_last_played, new_last_played }, TrackLastPlayedEditChange { old_last_played }, PreparedTrackLastPlayedEdit;
+    PlayCount => "PlayCount", play_count: prepare_track_play_count_edit, TrackPlayCountEditRequest { expected_old_play_count, new_play_count }, TrackPlayCountEditChange { old_play_count }, PreparedTrackPlayCountEdit;
+    AverageBpm => "AverageBpm", average_bpm: prepare_track_average_bpm_edit, TrackAverageBpmEditRequest { expected_old_average_bpm, new_average_bpm }, TrackAverageBpmEditChange { old_average_bpm }, PreparedTrackAverageBpmEdit;
+    DiscNumber => "DiscNumber", disc_number: prepare_track_disc_number_edit, TrackDiscNumberEditRequest { expected_old_disc_number, new_disc_number }, TrackDiscNumberEditChange { old_disc_number }, PreparedTrackDiscNumberEdit;
+    TrackNumber => "TrackNumber", track_number: prepare_track_number_edit, TrackNumberEditRequest { expected_old_track_number, new_track_number }, TrackNumberEditChange { old_track_number }, PreparedTrackNumberEdit;
+    Size => "Size", size: prepare_track_size_edit, TrackSizeEditRequest { expected_old_size, new_size }, TrackSizeEditChange { old_size }, PreparedTrackSizeEdit;
+    TotalTime => "TotalTime", total_time: prepare_track_total_time_edit, TrackTotalTimeEditRequest { expected_old_total_time, new_total_time }, TrackTotalTimeEditChange { old_total_time }, PreparedTrackTotalTimeEdit;
+    BitRate => "BitRate", bit_rate: prepare_track_bit_rate_edit, TrackBitRateEditRequest { expected_old_bit_rate, new_bit_rate }, TrackBitRateEditChange { old_bit_rate }, PreparedTrackBitRateEdit;
+    SampleRate => "SampleRate", sample_rate: prepare_track_sample_rate_edit, TrackSampleRateEditRequest { expected_old_sample_rate, new_sample_rate }, TrackSampleRateEditChange { old_sample_rate }, PreparedTrackSampleRateEdit;
+    Kind => "Kind", kind: prepare_track_kind_edit, TrackKindEditRequest { expected_old_kind, new_kind }, TrackKindEditChange { old_kind }, PreparedTrackKindEdit;
+    Artist => "Artist", artist: prepare_track_artist_edit, TrackArtistEditRequest { expected_old_artist, new_artist }, TrackArtistEditChange { old_artist }, PreparedTrackArtistEdit;
+}
+
+/// Exact-old guarded request to replace one TRACK attribute value.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TrackAttributeEditRequest {
+    pub track_id: String,
+    pub attribute: TrackAttribute,
+    pub expected_old: String,
+    pub new: String,
+}
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TrackAttributeEditChange {
+    pub track_id: String,
+    pub attribute: TrackAttribute,
+    pub old: String,
+    pub new: String,
+}
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PreparedTrackAttributeEdit {
+    pub bytes: Vec<u8>,
+    pub change: TrackAttributeEditChange,
+}
+
+/// Prepare one exact-old-value guarded TRACK attribute edit with byte-preserving output.
+///
+/// The attribute must be present (absent attributes are refused, never inserted), the new
+/// value must be XML 1.0 text, and the re-parsed output must differ from the source only in
+/// that attribute. `Name` keeps its historical escaping (TAB/LF/CR are not character-encoded).
+pub fn prepare_track_attribute_edit(
     bytes: &[u8],
-    request: &TrackNameEditRequest,
-) -> Result<PreparedTrackNameEdit, Error> {
+    request: &TrackAttributeEditRequest,
+) -> Result<PreparedTrackAttributeEdit, Error> {
+    let attribute = request.attribute;
+    let xml = attribute.xml_name();
     let before = preflight_export(bytes)?;
-    let track = before
+    let mut matches = before
         .selected_tracks
         .iter()
+        .filter(|t| t.id == request.track_id);
+    let track = match (matches.next(), matches.next()) {
+        (None, _) => return Err(Error(format!("unknown TrackID {}", request.track_id))),
+        (Some(track), None) => track,
+        _ => return Err(Error(format!("duplicate TrackID {}", request.track_id))),
+    };
+    let old = attribute
+        .value(track)
+        .ok_or_else(|| Error(format!("track {xml} missing")))?;
+    if old != request.expected_old {
+        return Err(Error(format!("track {xml} changed")));
+    }
+    if !valid_xml_text(&request.new) {
+        return Err(Error(format!("new {xml} contains invalid XML 1.0 text")));
+    }
+    let range = track_attribute_range(bytes, &request.track_id, xml, &request.expected_old)?;
+    let escaped = escape_attribute(&request.new, attribute != TrackAttribute::Name);
+    let mut output = bytes.to_vec();
+    output.splice(range, escaped.bytes());
+    let after = preflight_export(&output)?;
+    let mut expected = before.selected_tracks.clone();
+    let target = expected
+        .iter_mut()
         .find(|t| t.id == request.track_id)
-        .ok_or_else(|| Error(format!("unknown TrackID {}", request.track_id)))?;
-    if track.name != request.expected_old_name {
-        return Err(Error("track Name changed".into()));
+        .unwrap();
+    attribute.put(target, request.new.clone());
+    if after.selected_tracks != expected {
+        return Err(Error(format!("track {xml} edit verification failed")));
     }
-    if !request.new_name.chars().all(
+    Ok(PreparedTrackAttributeEdit {
+        bytes: output,
+        change: TrackAttributeEditChange {
+            track_id: request.track_id.clone(),
+            attribute,
+            old: old.to_owned(),
+            new: request.new.clone(),
+        },
+    })
+}
+
+/// True when every character is allowed in XML 1.0 text.
+fn valid_xml_text(value: &str) -> bool {
+    value.chars().all(
         |c| matches!(c as u32, 9 | 10 | 13 | 0x20..=0xD7FF | 0xE000..=0xFFFD | 0x10000..=0x10FFFF),
-    ) {
-        return Err(Error("new Name contains invalid XML 1.0 text".into()));
-    }
-    let range =
-        track_attribute_range(bytes, &request.track_id, "Name", &request.expected_old_name)?;
-    let escaped = request
-        .new_name
+    )
+}
+
+/// Escape an XML attribute value; `whitespace` also character-encodes TAB/LF/CR.
+fn escape_attribute(value: &str, whitespace: bool) -> String {
+    let escaped = value
         .replace('&', "&amp;")
         .replace('<', "&lt;")
         .replace('>', "&gt;")
         .replace('"', "&quot;")
         .replace('\'', "&apos;");
-    let mut output = bytes.to_vec();
-    output.splice(range, escaped.bytes());
-    let after = preflight_export(&output)?;
-    let mut expected = before.selected_tracks.clone();
-    expected
-        .iter_mut()
-        .find(|t| t.id == request.track_id)
-        .unwrap()
-        .name = request.new_name.clone();
-    if after.selected_tracks != expected {
-        return Err(Error("track Name edit verification failed".into()));
+    if whitespace {
+        escaped
+            .replace('\t', "&#9;")
+            .replace('\n', "&#10;")
+            .replace('\r', "&#13;")
+    } else {
+        escaped
     }
-    Ok(PreparedTrackNameEdit {
-        bytes: output,
-        change: TrackNameEditChange {
-            track_id: request.track_id.clone(),
-            old_name: request.expected_old_name.clone(),
-            new_name: request.new_name.clone(),
-        },
-    })
-}
-
-/// Prepare one exact-old-value guarded Track Comments edit.
-pub fn prepare_track_comments_edit(
-    bytes: &[u8],
-    request: &TrackCommentsEditRequest,
-) -> Result<PreparedTrackCommentsEdit, Error> {
-    let before = preflight_export(bytes)?;
-    let matches: Vec<_> = before
-        .selected_tracks
-        .iter()
-        .filter(|t| t.id == request.track_id)
-        .collect();
-    let track = match matches.as_slice() {
-        [] => return Err(Error(format!("unknown TrackID {}", request.track_id))),
-        [track] => *track,
-        _ => return Err(Error(format!("duplicate TrackID {}", request.track_id))),
-    };
-    let old_comments = track
-        .comments
-        .as_deref()
-        .ok_or_else(|| Error("track Comments missing".into()))?;
-    if old_comments != request.expected_old_comments {
-        return Err(Error("track Comments changed".into()));
-    }
-    if !request.new_comments.chars().all(
-        |c| matches!(c as u32, 9 | 10 | 13 | 0x20..=0xD7FF | 0xE000..=0xFFFD | 0x10000..=0x10FFFF),
-    ) {
-        return Err(Error("new Comments contains invalid XML 1.0 text".into()));
-    }
-    let range = track_attribute_range(
-        bytes,
-        &request.track_id,
-        "Comments",
-        &request.expected_old_comments,
-    )?;
-    let escaped = request
-        .new_comments
-        .replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
-        .replace('\'', "&apos;")
-        .replace('\t', "&#9;")
-        .replace('\n', "&#10;")
-        .replace('\r', "&#13;");
-    let mut output = bytes.to_vec();
-    output.splice(range, escaped.bytes());
-    let after = preflight_export(&output)?;
-    let mut expected = before.selected_tracks.clone();
-    expected
-        .iter_mut()
-        .find(|t| t.id == request.track_id)
-        .unwrap()
-        .comments = Some(request.new_comments.clone());
-    if after.selected_tracks != expected {
-        return Err(Error("track Comments edit verification failed".into()));
-    }
-    Ok(PreparedTrackCommentsEdit {
-        bytes: output,
-        change: TrackCommentsEditChange {
-            track_id: request.track_id.clone(),
-            old_comments: old_comments.to_owned(),
-            new_comments: request.new_comments.clone(),
-        },
-    })
-}
-
-/// Prepare one exact-old-value guarded Track Album edit.
-pub fn prepare_track_album_edit(
-    bytes: &[u8],
-    request: &TrackAlbumEditRequest,
-) -> Result<PreparedTrackAlbumEdit, Error> {
-    let before = preflight_export(bytes)?;
-    let matches: Vec<_> = before
-        .selected_tracks
-        .iter()
-        .filter(|t| t.id == request.track_id)
-        .collect();
-    let track = match matches.as_slice() {
-        [] => return Err(Error(format!("unknown TrackID {}", request.track_id))),
-        [track] => *track,
-        _ => return Err(Error(format!("duplicate TrackID {}", request.track_id))),
-    };
-    let old_album = track
-        .album
-        .as_deref()
-        .ok_or_else(|| Error("track Album missing".into()))?;
-    if old_album != request.expected_old_album {
-        return Err(Error("track Album changed".into()));
-    }
-    if !request.new_album.chars().all(
-        |c| matches!(c as u32, 9 | 10 | 13 | 0x20..=0xD7FF | 0xE000..=0xFFFD | 0x10000..=0x10FFFF),
-    ) {
-        return Err(Error("new Album contains invalid XML 1.0 text".into()));
-    }
-    let range = track_attribute_range(
-        bytes,
-        &request.track_id,
-        "Album",
-        &request.expected_old_album,
-    )?;
-    let escaped = request
-        .new_album
-        .replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
-        .replace('\'', "&apos;")
-        .replace('\t', "&#9;")
-        .replace('\n', "&#10;")
-        .replace('\r', "&#13;");
-    let mut output = bytes.to_vec();
-    output.splice(range, escaped.bytes());
-    let after = preflight_export(&output)?;
-    let mut expected = before.selected_tracks.clone();
-    expected
-        .iter_mut()
-        .find(|t| t.id == request.track_id)
-        .unwrap()
-        .album = Some(request.new_album.clone());
-    if after.selected_tracks != expected {
-        return Err(Error("track Album edit verification failed".into()));
-    }
-    Ok(PreparedTrackAlbumEdit {
-        bytes: output,
-        change: TrackAlbumEditChange {
-            track_id: request.track_id.clone(),
-            old_album: old_album.to_owned(),
-            new_album: request.new_album.clone(),
-        },
-    })
-}
-
-/// Prepare one exact-old-value guarded Track Genre edit.
-pub fn prepare_track_genre_edit(
-    bytes: &[u8],
-    request: &TrackGenreEditRequest,
-) -> Result<PreparedTrackGenreEdit, Error> {
-    let before = preflight_export(bytes)?;
-    let matches: Vec<_> = before
-        .selected_tracks
-        .iter()
-        .filter(|t| t.id == request.track_id)
-        .collect();
-    let track = match matches.as_slice() {
-        [] => return Err(Error(format!("unknown TrackID {}", request.track_id))),
-        [track] => *track,
-        _ => return Err(Error(format!("duplicate TrackID {}", request.track_id))),
-    };
-    let old_genre = track
-        .genre
-        .as_deref()
-        .ok_or_else(|| Error("track Genre missing".into()))?;
-    if old_genre != request.expected_old_genre {
-        return Err(Error("track Genre changed".into()));
-    }
-    if !request.new_genre.chars().all(
-        |c| matches!(c as u32, 9 | 10 | 13 | 0x20..=0xD7FF | 0xE000..=0xFFFD | 0x10000..=0x10FFFF),
-    ) {
-        return Err(Error("new Genre contains invalid XML 1.0 text".into()));
-    }
-    let range = track_attribute_range(
-        bytes,
-        &request.track_id,
-        "Genre",
-        &request.expected_old_genre,
-    )?;
-    let escaped = request
-        .new_genre
-        .replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
-        .replace('\'', "&apos;")
-        .replace('\t', "&#9;")
-        .replace('\n', "&#10;")
-        .replace('\r', "&#13;");
-    let mut output = bytes.to_vec();
-    output.splice(range, escaped.bytes());
-    let after = preflight_export(&output)?;
-    let mut expected = before.selected_tracks.clone();
-    expected
-        .iter_mut()
-        .find(|t| t.id == request.track_id)
-        .unwrap()
-        .genre = Some(request.new_genre.clone());
-    if after.selected_tracks != expected {
-        return Err(Error("track Genre edit verification failed".into()));
-    }
-    Ok(PreparedTrackGenreEdit {
-        bytes: output,
-        change: TrackGenreEditChange {
-            track_id: request.track_id.clone(),
-            old_genre: old_genre.to_owned(),
-            new_genre: request.new_genre.clone(),
-        },
-    })
-}
-
-/// Prepare one exact-old-value guarded Track Label edit.
-pub fn prepare_track_label_edit(
-    bytes: &[u8],
-    request: &TrackLabelEditRequest,
-) -> Result<PreparedTrackLabelEdit, Error> {
-    let before = preflight_export(bytes)?;
-    let matches: Vec<_> = before
-        .selected_tracks
-        .iter()
-        .filter(|t| t.id == request.track_id)
-        .collect();
-    let track = match matches.as_slice() {
-        [] => return Err(Error(format!("unknown TrackID {}", request.track_id))),
-        [track] => *track,
-        _ => return Err(Error(format!("duplicate TrackID {}", request.track_id))),
-    };
-    let old_label = track
-        .label
-        .as_deref()
-        .ok_or_else(|| Error("track Label missing".into()))?;
-    if old_label != request.expected_old_label {
-        return Err(Error("track Label changed".into()));
-    }
-    if !request.new_label.chars().all(
-        |c| matches!(c as u32, 9 | 10 | 13 | 0x20..=0xD7FF | 0xE000..=0xFFFD | 0x10000..=0x10FFFF),
-    ) {
-        return Err(Error("new Label contains invalid XML 1.0 text".into()));
-    }
-    let range = track_attribute_range(
-        bytes,
-        &request.track_id,
-        "Label",
-        &request.expected_old_label,
-    )?;
-    let escaped = request
-        .new_label
-        .replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
-        .replace('\'', "&apos;")
-        .replace('\t', "&#9;")
-        .replace('\n', "&#10;")
-        .replace('\r', "&#13;");
-    let mut output = bytes.to_vec();
-    output.splice(range, escaped.bytes());
-    let after = preflight_export(&output)?;
-    let mut expected = before.selected_tracks.clone();
-    expected
-        .iter_mut()
-        .find(|t| t.id == request.track_id)
-        .unwrap()
-        .label = Some(request.new_label.clone());
-    if after.selected_tracks != expected {
-        return Err(Error("track Label edit verification failed".into()));
-    }
-    Ok(PreparedTrackLabelEdit {
-        bytes: output,
-        change: TrackLabelEditChange {
-            track_id: request.track_id.clone(),
-            old_label: old_label.to_owned(),
-            new_label: request.new_label.clone(),
-        },
-    })
-}
-
-/// Prepare one exact-old-value guarded raw Track Rating edit.
-pub fn prepare_track_rating_edit(
-    bytes: &[u8],
-    request: &TrackRatingEditRequest,
-) -> Result<PreparedTrackRatingEdit, Error> {
-    let before = preflight_export(bytes)?;
-    let track = before
-        .selected_tracks
-        .iter()
-        .find(|t| t.id == request.track_id)
-        .ok_or_else(|| Error(format!("unknown TrackID {}", request.track_id)))?;
-    let old = track
-        .rating
-        .as_deref()
-        .ok_or_else(|| Error("track Rating missing".into()))?;
-    if old != request.expected_old_rating {
-        return Err(Error("track Rating changed".into()));
-    }
-    if !request.new_rating.chars().all(
-        |c| matches!(c as u32, 9 | 10 | 13 | 0x20..=0xD7FF | 0xE000..=0xFFFD | 0x10000..=0x10FFFF),
-    ) {
-        return Err(Error("new Rating contains invalid XML 1.0 text".into()));
-    }
-    let range = track_attribute_range(
-        bytes,
-        &request.track_id,
-        "Rating",
-        &request.expected_old_rating,
-    )?;
-    let escaped = request
-        .new_rating
-        .replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
-        .replace('\'', "&apos;")
-        .replace('\t', "&#9;")
-        .replace('\n', "&#10;")
-        .replace('\r', "&#13;");
-    let mut output = bytes.to_vec();
-    output.splice(range, escaped.bytes());
-    let after = preflight_export(&output)?;
-    let mut expected = before.selected_tracks.clone();
-    expected
-        .iter_mut()
-        .find(|t| t.id == request.track_id)
-        .unwrap()
-        .rating = Some(request.new_rating.clone());
-    if after.selected_tracks != expected {
-        return Err(Error("track Rating edit verification failed".into()));
-    }
-    Ok(PreparedTrackRatingEdit {
-        bytes: output,
-        change: TrackRatingEditChange {
-            track_id: request.track_id.clone(),
-            old_rating: old.to_owned(),
-            new_rating: request.new_rating.clone(),
-        },
-    })
-}
-
-/// Prepare one exact-old-value guarded raw Track Colour edit.
-pub fn prepare_track_colour_edit(
-    bytes: &[u8],
-    request: &TrackColourEditRequest,
-) -> Result<PreparedTrackColourEdit, Error> {
-    let before = preflight_export(bytes)?;
-    let track = before
-        .selected_tracks
-        .iter()
-        .find(|t| t.id == request.track_id)
-        .ok_or_else(|| Error(format!("unknown TrackID {}", request.track_id)))?;
-    let old = track
-        .colour
-        .as_deref()
-        .ok_or_else(|| Error("track Colour missing".into()))?;
-    if old != request.expected_old_colour {
-        return Err(Error("track Colour changed".into()));
-    }
-    if !request.new_colour.chars().all(
-        |c| matches!(c as u32, 9 | 10 | 13 | 0x20..=0xD7FF | 0xE000..=0xFFFD | 0x10000..=0x10FFFF),
-    ) {
-        return Err(Error("new Colour contains invalid XML 1.0 text".into()));
-    }
-    let range = track_attribute_range(
-        bytes,
-        &request.track_id,
-        "Colour",
-        &request.expected_old_colour,
-    )?;
-    let escaped = request
-        .new_colour
-        .replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
-        .replace('\'', "&apos;")
-        .replace('\t', "&#9;")
-        .replace('\n', "&#10;")
-        .replace('\r', "&#13;");
-    let mut output = bytes.to_vec();
-    output.splice(range, escaped.bytes());
-    let after = preflight_export(&output)?;
-    let mut expected = before.selected_tracks.clone();
-    expected
-        .iter_mut()
-        .find(|t| t.id == request.track_id)
-        .unwrap()
-        .colour = Some(request.new_colour.clone());
-    if after.selected_tracks != expected {
-        return Err(Error("track Colour edit verification failed".into()));
-    }
-    Ok(PreparedTrackColourEdit {
-        bytes: output,
-        change: TrackColourEditChange {
-            track_id: request.track_id.clone(),
-            old_colour: old.to_owned(),
-            new_colour: request.new_colour.clone(),
-        },
-    })
-}
-
-/// Prepare one exact-old-value guarded Track Composer edit.
-pub fn prepare_track_composer_edit(
-    bytes: &[u8],
-    request: &TrackComposerEditRequest,
-) -> Result<PreparedTrackComposerEdit, Error> {
-    let before = preflight_export(bytes)?;
-    let matches: Vec<_> = before
-        .selected_tracks
-        .iter()
-        .filter(|t| t.id == request.track_id)
-        .collect();
-    let track = match matches.as_slice() {
-        [] => return Err(Error(format!("unknown TrackID {}", request.track_id))),
-        [track] => *track,
-        _ => return Err(Error(format!("duplicate TrackID {}", request.track_id))),
-    };
-    let old_composer = track
-        .composer
-        .as_deref()
-        .ok_or_else(|| Error("track Composer missing".into()))?;
-    if old_composer != request.expected_old_composer {
-        return Err(Error("track Composer changed".into()));
-    }
-    if !request.new_composer.chars().all(
-        |c| matches!(c as u32, 9 | 10 | 13 | 0x20..=0xD7FF | 0xE000..=0xFFFD | 0x10000..=0x10FFFF),
-    ) {
-        return Err(Error("new Composer contains invalid XML 1.0 text".into()));
-    }
-    let range = track_attribute_range(
-        bytes,
-        &request.track_id,
-        "Composer",
-        &request.expected_old_composer,
-    )?;
-    let escaped = request
-        .new_composer
-        .replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
-        .replace('\'', "&apos;")
-        .replace('\t', "&#9;")
-        .replace('\n', "&#10;")
-        .replace('\r', "&#13;");
-    let mut output = bytes.to_vec();
-    output.splice(range, escaped.bytes());
-    let after = preflight_export(&output)?;
-    let mut expected = before.selected_tracks.clone();
-    expected
-        .iter_mut()
-        .find(|t| t.id == request.track_id)
-        .unwrap()
-        .composer = Some(request.new_composer.clone());
-    if after.selected_tracks != expected {
-        return Err(Error("track Composer edit verification failed".into()));
-    }
-    Ok(PreparedTrackComposerEdit {
-        bytes: output,
-        change: TrackComposerEditChange {
-            track_id: request.track_id.clone(),
-            old_composer: old_composer.to_owned(),
-            new_composer: request.new_composer.clone(),
-        },
-    })
-}
-
-/// Prepare one exact-old-value guarded Track Grouping edit.
-pub fn prepare_track_grouping_edit(
-    bytes: &[u8],
-    request: &TrackGroupingEditRequest,
-) -> Result<PreparedTrackGroupingEdit, Error> {
-    let before = preflight_export(bytes)?;
-    let matches: Vec<_> = before
-        .selected_tracks
-        .iter()
-        .filter(|t| t.id == request.track_id)
-        .collect();
-    let track = match matches.as_slice() {
-        [] => return Err(Error(format!("unknown TrackID {}", request.track_id))),
-        [track] => *track,
-        _ => return Err(Error(format!("duplicate TrackID {}", request.track_id))),
-    };
-    let old_grouping = track
-        .grouping
-        .as_deref()
-        .ok_or_else(|| Error("track Grouping missing".into()))?;
-    if old_grouping != request.expected_old_grouping {
-        return Err(Error("track Grouping changed".into()));
-    }
-    if !request.new_grouping.chars().all(
-        |c| matches!(c as u32, 9 | 10 | 13 | 0x20..=0xD7FF | 0xE000..=0xFFFD | 0x10000..=0x10FFFF),
-    ) {
-        return Err(Error("new Grouping contains invalid XML 1.0 text".into()));
-    }
-    let range = track_attribute_range(
-        bytes,
-        &request.track_id,
-        "Grouping",
-        &request.expected_old_grouping,
-    )?;
-    let escaped = request
-        .new_grouping
-        .replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
-        .replace('\'', "&apos;")
-        .replace('\t', "&#9;")
-        .replace('\n', "&#10;")
-        .replace('\r', "&#13;");
-    let mut output = bytes.to_vec();
-    output.splice(range, escaped.bytes());
-    let after = preflight_export(&output)?;
-    let mut expected = before.selected_tracks.clone();
-    expected
-        .iter_mut()
-        .find(|t| t.id == request.track_id)
-        .unwrap()
-        .grouping = Some(request.new_grouping.clone());
-    if after.selected_tracks != expected {
-        return Err(Error("track Grouping edit verification failed".into()));
-    }
-    Ok(PreparedTrackGroupingEdit {
-        bytes: output,
-        change: TrackGroupingEditChange {
-            track_id: request.track_id.clone(),
-            old_grouping: old_grouping.to_owned(),
-            new_grouping: request.new_grouping.clone(),
-        },
-    })
-}
-
-/// Prepare one exact-old-value guarded Track Remixer edit.
-pub fn prepare_track_remixer_edit(
-    bytes: &[u8],
-    request: &TrackRemixerEditRequest,
-) -> Result<PreparedTrackRemixerEdit, Error> {
-    let before = preflight_export(bytes)?;
-    let matches: Vec<_> = before
-        .selected_tracks
-        .iter()
-        .filter(|t| t.id == request.track_id)
-        .collect();
-    let track = match matches.as_slice() {
-        [] => return Err(Error(format!("unknown TrackID {}", request.track_id))),
-        [track] => *track,
-        _ => return Err(Error(format!("duplicate TrackID {}", request.track_id))),
-    };
-    let old_remixer = track
-        .remixer
-        .as_deref()
-        .ok_or_else(|| Error("track Remixer missing".into()))?;
-    if old_remixer != request.expected_old_remixer {
-        return Err(Error("track Remixer changed".into()));
-    }
-    if !request.new_remixer.chars().all(
-        |c| matches!(c as u32, 9 | 10 | 13 | 0x20..=0xD7FF | 0xE000..=0xFFFD | 0x10000..=0x10FFFF),
-    ) {
-        return Err(Error("new Remixer contains invalid XML 1.0 text".into()));
-    }
-    let range = track_attribute_range(
-        bytes,
-        &request.track_id,
-        "Remixer",
-        &request.expected_old_remixer,
-    )?;
-    let escaped = request
-        .new_remixer
-        .replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
-        .replace('\'', "&apos;")
-        .replace('\t', "&#9;")
-        .replace('\n', "&#10;")
-        .replace('\r', "&#13;");
-    let mut output = bytes.to_vec();
-    output.splice(range, escaped.bytes());
-    let after = preflight_export(&output)?;
-    let mut expected = before.selected_tracks.clone();
-    expected
-        .iter_mut()
-        .find(|t| t.id == request.track_id)
-        .unwrap()
-        .remixer = Some(request.new_remixer.clone());
-    if after.selected_tracks != expected {
-        return Err(Error("track Remixer edit verification failed".into()));
-    }
-    Ok(PreparedTrackRemixerEdit {
-        bytes: output,
-        change: TrackRemixerEditChange {
-            track_id: request.track_id.clone(),
-            old_remixer: old_remixer.to_owned(),
-            new_remixer: request.new_remixer.clone(),
-        },
-    })
-}
-
-/// Prepare one exact-old-value guarded Track Mix edit.
-pub fn prepare_track_mix_edit(
-    bytes: &[u8],
-    request: &TrackMixEditRequest,
-) -> Result<PreparedTrackMixEdit, Error> {
-    let before = preflight_export(bytes)?;
-    let matches: Vec<_> = before
-        .selected_tracks
-        .iter()
-        .filter(|t| t.id == request.track_id)
-        .collect();
-    let track = match matches.as_slice() {
-        [] => return Err(Error(format!("unknown TrackID {}", request.track_id))),
-        [track] => *track,
-        _ => return Err(Error(format!("duplicate TrackID {}", request.track_id))),
-    };
-    let old_mix = track
-        .mix
-        .as_deref()
-        .ok_or_else(|| Error("track Mix missing".into()))?;
-    if old_mix != request.expected_old_mix {
-        return Err(Error("track Mix changed".into()));
-    }
-    if !request.new_mix.chars().all(
-        |c| matches!(c as u32, 9 | 10 | 13 | 0x20..=0xD7FF | 0xE000..=0xFFFD | 0x10000..=0x10FFFF),
-    ) {
-        return Err(Error("new Mix contains invalid XML 1.0 text".into()));
-    }
-    let range = track_attribute_range(bytes, &request.track_id, "Mix", &request.expected_old_mix)?;
-    let escaped = request
-        .new_mix
-        .replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
-        .replace('\'', "&apos;")
-        .replace('\t', "&#9;")
-        .replace('\n', "&#10;")
-        .replace('\r', "&#13;");
-    let mut output = bytes.to_vec();
-    output.splice(range, escaped.bytes());
-    let after = preflight_export(&output)?;
-    let mut expected = before.selected_tracks.clone();
-    expected
-        .iter_mut()
-        .find(|t| t.id == request.track_id)
-        .unwrap()
-        .mix = Some(request.new_mix.clone());
-    if after.selected_tracks != expected {
-        return Err(Error("track Mix edit verification failed".into()));
-    }
-    Ok(PreparedTrackMixEdit {
-        bytes: output,
-        change: TrackMixEditChange {
-            track_id: request.track_id.clone(),
-            old_mix: old_mix.to_owned(),
-            new_mix: request.new_mix.clone(),
-        },
-    })
-}
-
-/// Prepare one exact-old-value guarded Track Tonality edit.
-pub fn prepare_track_tonality_edit(
-    bytes: &[u8],
-    request: &TrackTonalityEditRequest,
-) -> Result<PreparedTrackTonalityEdit, Error> {
-    let before = preflight_export(bytes)?;
-    let matches: Vec<_> = before
-        .selected_tracks
-        .iter()
-        .filter(|t| t.id == request.track_id)
-        .collect();
-    let track = match matches.as_slice() {
-        [] => return Err(Error(format!("unknown TrackID {}", request.track_id))),
-        [track] => *track,
-        _ => return Err(Error(format!("duplicate TrackID {}", request.track_id))),
-    };
-    let old_tonality = track
-        .tonality
-        .as_deref()
-        .ok_or_else(|| Error("track Tonality missing".into()))?;
-    if old_tonality != request.expected_old_tonality {
-        return Err(Error("track Tonality changed".into()));
-    }
-    if !request.new_tonality.chars().all(
-        |c| matches!(c as u32, 9 | 10 | 13 | 0x20..=0xD7FF | 0xE000..=0xFFFD | 0x10000..=0x10FFFF),
-    ) {
-        return Err(Error("new Tonality contains invalid XML 1.0 text".into()));
-    }
-    let range = track_attribute_range(
-        bytes,
-        &request.track_id,
-        "Tonality",
-        &request.expected_old_tonality,
-    )?;
-    let escaped = request
-        .new_tonality
-        .replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
-        .replace('\'', "&apos;")
-        .replace('\t', "&#9;")
-        .replace('\n', "&#10;")
-        .replace('\r', "&#13;");
-    let mut output = bytes.to_vec();
-    output.splice(range, escaped.bytes());
-    let after = preflight_export(&output)?;
-    let mut expected = before.selected_tracks.clone();
-    expected
-        .iter_mut()
-        .find(|t| t.id == request.track_id)
-        .unwrap()
-        .tonality = Some(request.new_tonality.clone());
-    if after.selected_tracks != expected {
-        return Err(Error("track Tonality edit verification failed".into()));
-    }
-    Ok(PreparedTrackTonalityEdit {
-        bytes: output,
-        change: TrackTonalityEditChange {
-            track_id: request.track_id.clone(),
-            old_tonality: old_tonality.to_owned(),
-            new_tonality: request.new_tonality.clone(),
-        },
-    })
-}
-
-/// Prepare one exact-old-value guarded raw Track Year edit (no numeric conversion).
-pub fn prepare_track_year_edit(
-    bytes: &[u8],
-    request: &TrackYearEditRequest,
-) -> Result<PreparedTrackYearEdit, Error> {
-    let before = preflight_export(bytes)?;
-    let matches: Vec<_> = before
-        .selected_tracks
-        .iter()
-        .filter(|t| t.id == request.track_id)
-        .collect();
-    let track = match matches.as_slice() {
-        [] => return Err(Error(format!("unknown TrackID {}", request.track_id))),
-        [track] => *track,
-        _ => return Err(Error(format!("duplicate TrackID {}", request.track_id))),
-    };
-    let old_year = track
-        .year
-        .as_deref()
-        .ok_or_else(|| Error("track Year missing".into()))?;
-    if old_year != request.expected_old_year {
-        return Err(Error("track Year changed".into()));
-    }
-    if !request.new_year.chars().all(
-        |c| matches!(c as u32, 9 | 10 | 13 | 0x20..=0xD7FF | 0xE000..=0xFFFD | 0x10000..=0x10FFFF),
-    ) {
-        return Err(Error("new Year contains invalid XML 1.0 text".into()));
-    }
-    let range =
-        track_attribute_range(bytes, &request.track_id, "Year", &request.expected_old_year)?;
-    let escaped = request
-        .new_year
-        .replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
-        .replace('\'', "&apos;")
-        .replace('\t', "&#9;")
-        .replace('\n', "&#10;")
-        .replace('\r', "&#13;");
-    let mut output = bytes.to_vec();
-    output.splice(range, escaped.bytes());
-    let after = preflight_export(&output)?;
-    let mut expected = before.selected_tracks.clone();
-    expected
-        .iter_mut()
-        .find(|t| t.id == request.track_id)
-        .unwrap()
-        .year = Some(request.new_year.clone());
-    if after.selected_tracks != expected {
-        return Err(Error("track Year edit verification failed".into()));
-    }
-    Ok(PreparedTrackYearEdit {
-        bytes: output,
-        change: TrackYearEditChange {
-            track_id: request.track_id.clone(),
-            old_year: old_year.to_owned(),
-            new_year: request.new_year.clone(),
-        },
-    })
-}
-
-/// Prepare one exact-old-value guarded raw Track DateAdded edit (no numeric conversion).
-pub fn prepare_track_date_added_edit(
-    bytes: &[u8],
-    request: &TrackDateAddedEditRequest,
-) -> Result<PreparedTrackDateAddedEdit, Error> {
-    let before = preflight_export(bytes)?;
-    let matches: Vec<_> = before
-        .selected_tracks
-        .iter()
-        .filter(|t| t.id == request.track_id)
-        .collect();
-    let track = match matches.as_slice() {
-        [] => return Err(Error(format!("unknown TrackID {}", request.track_id))),
-        [track] => *track,
-        _ => return Err(Error(format!("duplicate TrackID {}", request.track_id))),
-    };
-    let old_date_added = track
-        .date_added
-        .as_deref()
-        .ok_or_else(|| Error("track DateAdded missing".into()))?;
-    if old_date_added != request.expected_old_date_added {
-        return Err(Error("track DateAdded changed".into()));
-    }
-    if !request.new_date_added.chars().all(
-        |c| matches!(c as u32, 9 | 10 | 13 | 0x20..=0xD7FF | 0xE000..=0xFFFD | 0x10000..=0x10FFFF),
-    ) {
-        return Err(Error("new DateAdded contains invalid XML 1.0 text".into()));
-    }
-    let range = track_attribute_range(
-        bytes,
-        &request.track_id,
-        "DateAdded",
-        &request.expected_old_date_added,
-    )?;
-    let escaped = request
-        .new_date_added
-        .replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
-        .replace('\'', "&apos;")
-        .replace('\t', "&#9;")
-        .replace('\n', "&#10;")
-        .replace('\r', "&#13;");
-    let mut output = bytes.to_vec();
-    output.splice(range, escaped.bytes());
-    let after = preflight_export(&output)?;
-    let mut expected = before.selected_tracks.clone();
-    expected
-        .iter_mut()
-        .find(|t| t.id == request.track_id)
-        .unwrap()
-        .date_added = Some(request.new_date_added.clone());
-    if after.selected_tracks != expected {
-        return Err(Error("track DateAdded edit verification failed".into()));
-    }
-    Ok(PreparedTrackDateAddedEdit {
-        bytes: output,
-        change: TrackDateAddedEditChange {
-            track_id: request.track_id.clone(),
-            old_date_added: old_date_added.to_owned(),
-            new_date_added: request.new_date_added.clone(),
-        },
-    })
-}
-
-/// Prepare one exact-old-value guarded raw Track DateModified edit (no numeric conversion).
-pub fn prepare_track_date_modified_edit(
-    bytes: &[u8],
-    request: &TrackDateModifiedEditRequest,
-) -> Result<PreparedTrackDateModifiedEdit, Error> {
-    let before = preflight_export(bytes)?;
-    let matches: Vec<_> = before
-        .selected_tracks
-        .iter()
-        .filter(|t| t.id == request.track_id)
-        .collect();
-    let track = match matches.as_slice() {
-        [] => return Err(Error(format!("unknown TrackID {}", request.track_id))),
-        [track] => *track,
-        _ => return Err(Error(format!("duplicate TrackID {}", request.track_id))),
-    };
-    let old_date_modified = track
-        .date_modified
-        .as_deref()
-        .ok_or_else(|| Error("track DateModified missing".into()))?;
-    if old_date_modified != request.expected_old_date_modified {
-        return Err(Error("track DateModified changed".into()));
-    }
-    if !request.new_date_modified.chars().all(
-        |c| matches!(c as u32, 9 | 10 | 13 | 0x20..=0xD7FF | 0xE000..=0xFFFD | 0x10000..=0x10FFFF),
-    ) {
-        return Err(Error(
-            "new DateModified contains invalid XML 1.0 text".into(),
-        ));
-    }
-    let range = track_attribute_range(
-        bytes,
-        &request.track_id,
-        "DateModified",
-        &request.expected_old_date_modified,
-    )?;
-    let escaped = request
-        .new_date_modified
-        .replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
-        .replace('\'', "&apos;")
-        .replace('\t', "&#9;")
-        .replace('\n', "&#10;")
-        .replace('\r', "&#13;");
-    let mut output = bytes.to_vec();
-    output.splice(range, escaped.bytes());
-    let after = preflight_export(&output)?;
-    let mut expected = before.selected_tracks.clone();
-    expected
-        .iter_mut()
-        .find(|t| t.id == request.track_id)
-        .unwrap()
-        .date_modified = Some(request.new_date_modified.clone());
-    if after.selected_tracks != expected {
-        return Err(Error("track DateModified edit verification failed".into()));
-    }
-    Ok(PreparedTrackDateModifiedEdit {
-        bytes: output,
-        change: TrackDateModifiedEditChange {
-            track_id: request.track_id.clone(),
-            old_date_modified: old_date_modified.to_owned(),
-            new_date_modified: request.new_date_modified.clone(),
-        },
-    })
-}
-
-/// Prepare one exact-old-value guarded raw Track LastPlayed edit (no numeric conversion).
-pub fn prepare_track_last_played_edit(
-    bytes: &[u8],
-    request: &TrackLastPlayedEditRequest,
-) -> Result<PreparedTrackLastPlayedEdit, Error> {
-    let before = preflight_export(bytes)?;
-    let matches: Vec<_> = before
-        .selected_tracks
-        .iter()
-        .filter(|t| t.id == request.track_id)
-        .collect();
-    let track = match matches.as_slice() {
-        [] => return Err(Error(format!("unknown TrackID {}", request.track_id))),
-        [track] => *track,
-        _ => return Err(Error(format!("duplicate TrackID {}", request.track_id))),
-    };
-    let old_last_played = track
-        .last_played
-        .as_deref()
-        .ok_or_else(|| Error("track LastPlayed missing".into()))?;
-    if old_last_played != request.expected_old_last_played {
-        return Err(Error("track LastPlayed changed".into()));
-    }
-    if !request.new_last_played.chars().all(
-        |c| matches!(c as u32, 9 | 10 | 13 | 0x20..=0xD7FF | 0xE000..=0xFFFD | 0x10000..=0x10FFFF),
-    ) {
-        return Err(Error("new LastPlayed contains invalid XML 1.0 text".into()));
-    }
-    let range = track_attribute_range(
-        bytes,
-        &request.track_id,
-        "LastPlayed",
-        &request.expected_old_last_played,
-    )?;
-    let escaped = request
-        .new_last_played
-        .replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
-        .replace('\'', "&apos;")
-        .replace('\t', "&#9;")
-        .replace('\n', "&#10;")
-        .replace('\r', "&#13;");
-    let mut output = bytes.to_vec();
-    output.splice(range, escaped.bytes());
-    let after = preflight_export(&output)?;
-    let mut expected = before.selected_tracks.clone();
-    expected
-        .iter_mut()
-        .find(|t| t.id == request.track_id)
-        .unwrap()
-        .last_played = Some(request.new_last_played.clone());
-    if after.selected_tracks != expected {
-        return Err(Error("track LastPlayed edit verification failed".into()));
-    }
-    Ok(PreparedTrackLastPlayedEdit {
-        bytes: output,
-        change: TrackLastPlayedEditChange {
-            track_id: request.track_id.clone(),
-            old_last_played: old_last_played.to_owned(),
-            new_last_played: request.new_last_played.clone(),
-        },
-    })
-}
-
-/// Prepare one exact-old-value guarded raw Track PlayCount edit (no numeric conversion).
-pub fn prepare_track_play_count_edit(
-    bytes: &[u8],
-    request: &TrackPlayCountEditRequest,
-) -> Result<PreparedTrackPlayCountEdit, Error> {
-    let before = preflight_export(bytes)?;
-    let matches: Vec<_> = before
-        .selected_tracks
-        .iter()
-        .filter(|t| t.id == request.track_id)
-        .collect();
-    let track = match matches.as_slice() {
-        [] => return Err(Error(format!("unknown TrackID {}", request.track_id))),
-        [track] => *track,
-        _ => return Err(Error(format!("duplicate TrackID {}", request.track_id))),
-    };
-    let old = track
-        .play_count
-        .as_deref()
-        .ok_or_else(|| Error("track PlayCount missing".into()))?;
-    if old != request.expected_old_play_count {
-        return Err(Error("track PlayCount changed".into()));
-    }
-    if !request.new_play_count.chars().all(
-        |c| matches!(c as u32, 9 | 10 | 13 | 0x20..=0xD7FF | 0xE000..=0xFFFD | 0x10000..=0x10FFFF),
-    ) {
-        return Err(Error("new PlayCount contains invalid XML 1.0 text".into()));
-    }
-    let range = track_attribute_range(
-        bytes,
-        &request.track_id,
-        "PlayCount",
-        &request.expected_old_play_count,
-    )?;
-    let escaped = request
-        .new_play_count
-        .replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
-        .replace('\'', "&apos;")
-        .replace('\t', "&#9;")
-        .replace('\n', "&#10;")
-        .replace('\r', "&#13;");
-    let mut output = bytes.to_vec();
-    output.splice(range, escaped.bytes());
-    let after = preflight_export(&output)?;
-    let mut expected = before.selected_tracks.clone();
-    expected
-        .iter_mut()
-        .find(|t| t.id == request.track_id)
-        .unwrap()
-        .play_count = Some(request.new_play_count.clone());
-    if after.selected_tracks != expected {
-        return Err(Error("track PlayCount edit verification failed".into()));
-    }
-    Ok(PreparedTrackPlayCountEdit {
-        bytes: output,
-        change: TrackPlayCountEditChange {
-            track_id: request.track_id.clone(),
-            old_play_count: old.to_owned(),
-            new_play_count: request.new_play_count.clone(),
-        },
-    })
-}
-
-/// Prepare one exact-old-value guarded raw Track AverageBpm edit (no numeric conversion).
-pub fn prepare_track_average_bpm_edit(
-    bytes: &[u8],
-    request: &TrackAverageBpmEditRequest,
-) -> Result<PreparedTrackAverageBpmEdit, Error> {
-    let before = preflight_export(bytes)?;
-    let matches: Vec<_> = before
-        .selected_tracks
-        .iter()
-        .filter(|t| t.id == request.track_id)
-        .collect();
-    let track = match matches.as_slice() {
-        [] => return Err(Error(format!("unknown TrackID {}", request.track_id))),
-        [track] => *track,
-        _ => return Err(Error(format!("duplicate TrackID {}", request.track_id))),
-    };
-    let old = track
-        .average_bpm
-        .as_deref()
-        .ok_or_else(|| Error("track AverageBpm missing".into()))?;
-    if old != request.expected_old_average_bpm {
-        return Err(Error("track AverageBpm changed".into()));
-    }
-    if !request.new_average_bpm.chars().all(
-        |c| matches!(c as u32, 9 | 10 | 13 | 0x20..=0xD7FF | 0xE000..=0xFFFD | 0x10000..=0x10FFFF),
-    ) {
-        return Err(Error("new AverageBpm contains invalid XML 1.0 text".into()));
-    }
-    let range = track_attribute_range(
-        bytes,
-        &request.track_id,
-        "AverageBpm",
-        &request.expected_old_average_bpm,
-    )?;
-    let escaped = request
-        .new_average_bpm
-        .replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
-        .replace('\'', "&apos;")
-        .replace('\t', "&#9;")
-        .replace('\n', "&#10;")
-        .replace('\r', "&#13;");
-    let mut output = bytes.to_vec();
-    output.splice(range, escaped.bytes());
-    let after = preflight_export(&output)?;
-    let mut expected = before.selected_tracks.clone();
-    expected
-        .iter_mut()
-        .find(|t| t.id == request.track_id)
-        .unwrap()
-        .average_bpm = Some(request.new_average_bpm.clone());
-    if after.selected_tracks != expected {
-        return Err(Error("track AverageBpm edit verification failed".into()));
-    }
-    Ok(PreparedTrackAverageBpmEdit {
-        bytes: output,
-        change: TrackAverageBpmEditChange {
-            track_id: request.track_id.clone(),
-            old_average_bpm: old.to_owned(),
-            new_average_bpm: request.new_average_bpm.clone(),
-        },
-    })
-}
-
-pub fn prepare_track_disc_number_edit(
-    bytes: &[u8],
-    request: &TrackDiscNumberEditRequest,
-) -> Result<PreparedTrackDiscNumberEdit, Error> {
-    let before = preflight_export(bytes)?;
-    let matches: Vec<_> = before
-        .selected_tracks
-        .iter()
-        .filter(|t| t.id == request.track_id)
-        .collect();
-    let track = match matches.as_slice() {
-        [] => return Err(Error(format!("unknown TrackID {}", request.track_id))),
-        [track] => *track,
-        _ => return Err(Error(format!("duplicate TrackID {}", request.track_id))),
-    };
-    let old = track
-        .disc_number
-        .as_deref()
-        .ok_or_else(|| Error("track DiscNumber missing".into()))?;
-    if old != request.expected_old_disc_number {
-        return Err(Error("track DiscNumber changed".into()));
-    }
-    if !request.new_disc_number.chars().all(
-        |c| matches!(c as u32, 9 | 10 | 13 | 0x20..=0xD7FF | 0xE000..=0xFFFD | 0x10000..=0x10FFFF),
-    ) {
-        return Err(Error("new DiscNumber contains invalid XML 1.0 text".into()));
-    }
-    let range = track_attribute_range(
-        bytes,
-        &request.track_id,
-        "DiscNumber",
-        &request.expected_old_disc_number,
-    )?;
-    let escaped = request
-        .new_disc_number
-        .replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
-        .replace('\'', "&apos;")
-        .replace('\t', "&#9;")
-        .replace('\n', "&#10;")
-        .replace('\r', "&#13;");
-    let mut output = bytes.to_vec();
-    output.splice(range, escaped.bytes());
-    let after = preflight_export(&output)?;
-    let mut expected = before.selected_tracks.clone();
-    expected
-        .iter_mut()
-        .find(|t| t.id == request.track_id)
-        .unwrap()
-        .disc_number = Some(request.new_disc_number.clone());
-    if after.selected_tracks != expected {
-        return Err(Error("track DiscNumber edit verification failed".into()));
-    }
-    Ok(PreparedTrackDiscNumberEdit {
-        bytes: output,
-        change: TrackDiscNumberEditChange {
-            track_id: request.track_id.clone(),
-            old_disc_number: old.to_owned(),
-            new_disc_number: request.new_disc_number.clone(),
-        },
-    })
-}
-
-pub fn prepare_track_number_edit(
-    bytes: &[u8],
-    request: &TrackNumberEditRequest,
-) -> Result<PreparedTrackNumberEdit, Error> {
-    let before = preflight_export(bytes)?;
-    let matches: Vec<_> = before
-        .selected_tracks
-        .iter()
-        .filter(|t| t.id == request.track_id)
-        .collect();
-    let track = match matches.as_slice() {
-        [] => return Err(Error(format!("unknown TrackID {}", request.track_id))),
-        [track] => *track,
-        _ => return Err(Error(format!("duplicate TrackID {}", request.track_id))),
-    };
-    let old = track
-        .track_number
-        .as_deref()
-        .ok_or_else(|| Error("track TrackNumber missing".into()))?;
-    if old != request.expected_old_track_number {
-        return Err(Error("track TrackNumber changed".into()));
-    }
-    if !request.new_track_number.chars().all(
-        |c| matches!(c as u32, 9 | 10 | 13 | 0x20..=0xD7FF | 0xE000..=0xFFFD | 0x10000..=0x10FFFF),
-    ) {
-        return Err(Error(
-            "new TrackNumber contains invalid XML 1.0 text".into(),
-        ));
-    }
-    let range = track_attribute_range(
-        bytes,
-        &request.track_id,
-        "TrackNumber",
-        &request.expected_old_track_number,
-    )?;
-    let escaped = request
-        .new_track_number
-        .replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
-        .replace('\'', "&apos;")
-        .replace('\t', "&#9;")
-        .replace('\n', "&#10;")
-        .replace('\r', "&#13;");
-    let mut output = bytes.to_vec();
-    output.splice(range, escaped.bytes());
-    let after = preflight_export(&output)?;
-    let mut expected = before.selected_tracks.clone();
-    expected
-        .iter_mut()
-        .find(|t| t.id == request.track_id)
-        .unwrap()
-        .track_number = Some(request.new_track_number.clone());
-    if after.selected_tracks != expected {
-        return Err(Error("track TrackNumber edit verification failed".into()));
-    }
-    Ok(PreparedTrackNumberEdit {
-        bytes: output,
-        change: TrackNumberEditChange {
-            track_id: request.track_id.clone(),
-            old_track_number: old.to_owned(),
-            new_track_number: request.new_track_number.clone(),
-        },
-    })
-}
-
-/// Prepare one exact-old-value guarded raw Track Size edit (no numeric conversion).
-pub fn prepare_track_size_edit(
-    bytes: &[u8],
-    request: &TrackSizeEditRequest,
-) -> Result<PreparedTrackSizeEdit, Error> {
-    let before = preflight_export(bytes)?;
-    let matches: Vec<_> = before
-        .selected_tracks
-        .iter()
-        .filter(|t| t.id == request.track_id)
-        .collect();
-    let track = match matches.as_slice() {
-        [] => return Err(Error(format!("unknown TrackID {}", request.track_id))),
-        [track] => *track,
-        _ => return Err(Error(format!("duplicate TrackID {}", request.track_id))),
-    };
-    let old = track
-        .size
-        .as_deref()
-        .ok_or_else(|| Error("track Size missing".into()))?;
-    if old != request.expected_old_size {
-        return Err(Error("track Size changed".into()));
-    }
-    if !request.new_size.chars().all(
-        |c| matches!(c as u32, 9 | 10 | 13 | 0x20..=0xD7FF | 0xE000..=0xFFFD | 0x10000..=0x10FFFF),
-    ) {
-        return Err(Error("new Size contains invalid XML 1.0 text".into()));
-    }
-    let range =
-        track_attribute_range(bytes, &request.track_id, "Size", &request.expected_old_size)?;
-    let escaped = request
-        .new_size
-        .replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
-        .replace('\'', "&apos;")
-        .replace('\t', "&#9;")
-        .replace('\n', "&#10;")
-        .replace('\r', "&#13;");
-    let mut output = bytes.to_vec();
-    output.splice(range, escaped.bytes());
-    let after = preflight_export(&output)?;
-    let mut expected = before.selected_tracks.clone();
-    expected
-        .iter_mut()
-        .find(|t| t.id == request.track_id)
-        .unwrap()
-        .size = Some(request.new_size.clone());
-    if after.selected_tracks != expected {
-        return Err(Error("track Size edit verification failed".into()));
-    }
-    Ok(PreparedTrackSizeEdit {
-        bytes: output,
-        change: TrackSizeEditChange {
-            track_id: request.track_id.clone(),
-            old_size: old.to_owned(),
-            new_size: request.new_size.clone(),
-        },
-    })
-}
-
-/// Prepare one exact-old-value guarded raw Track TotalTime edit (no numeric conversion).
-pub fn prepare_track_total_time_edit(
-    bytes: &[u8],
-    request: &TrackTotalTimeEditRequest,
-) -> Result<PreparedTrackTotalTimeEdit, Error> {
-    let before = preflight_export(bytes)?;
-    let matches: Vec<_> = before
-        .selected_tracks
-        .iter()
-        .filter(|t| t.id == request.track_id)
-        .collect();
-    let track = match matches.as_slice() {
-        [] => return Err(Error(format!("unknown TrackID {}", request.track_id))),
-        [track] => *track,
-        _ => return Err(Error(format!("duplicate TrackID {}", request.track_id))),
-    };
-    let old = track
-        .total_time
-        .as_deref()
-        .ok_or_else(|| Error("track TotalTime missing".into()))?;
-    if old != request.expected_old_total_time {
-        return Err(Error("track TotalTime changed".into()));
-    }
-    if !request.new_total_time.chars().all(
-        |c| matches!(c as u32, 9 | 10 | 13 | 0x20..=0xD7FF | 0xE000..=0xFFFD | 0x10000..=0x10FFFF),
-    ) {
-        return Err(Error("new TotalTime contains invalid XML 1.0 text".into()));
-    }
-    let range = track_attribute_range(
-        bytes,
-        &request.track_id,
-        "TotalTime",
-        &request.expected_old_total_time,
-    )?;
-    let escaped = request
-        .new_total_time
-        .replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
-        .replace('\'', "&apos;")
-        .replace('\t', "&#9;")
-        .replace('\n', "&#10;")
-        .replace('\r', "&#13;");
-    let mut output = bytes.to_vec();
-    output.splice(range, escaped.bytes());
-    let after = preflight_export(&output)?;
-    let mut expected = before.selected_tracks.clone();
-    expected
-        .iter_mut()
-        .find(|t| t.id == request.track_id)
-        .unwrap()
-        .total_time = Some(request.new_total_time.clone());
-    if after.selected_tracks != expected {
-        return Err(Error("track TotalTime edit verification failed".into()));
-    }
-    Ok(PreparedTrackTotalTimeEdit {
-        bytes: output,
-        change: TrackTotalTimeEditChange {
-            track_id: request.track_id.clone(),
-            old_total_time: old.to_owned(),
-            new_total_time: request.new_total_time.clone(),
-        },
-    })
-}
-
-/// Prepare one exact-old-value guarded raw Track BitRate edit (no numeric conversion).
-pub fn prepare_track_bit_rate_edit(
-    bytes: &[u8],
-    request: &TrackBitRateEditRequest,
-) -> Result<PreparedTrackBitRateEdit, Error> {
-    let before = preflight_export(bytes)?;
-    let matches: Vec<_> = before
-        .selected_tracks
-        .iter()
-        .filter(|t| t.id == request.track_id)
-        .collect();
-    let track = match matches.as_slice() {
-        [] => return Err(Error(format!("unknown TrackID {}", request.track_id))),
-        [track] => *track,
-        _ => return Err(Error(format!("duplicate TrackID {}", request.track_id))),
-    };
-    let old = track
-        .bit_rate
-        .as_deref()
-        .ok_or_else(|| Error("track BitRate missing".into()))?;
-    if old != request.expected_old_bit_rate {
-        return Err(Error("track BitRate changed".into()));
-    }
-    if !request.new_bit_rate.chars().all(
-        |c| matches!(c as u32, 9 | 10 | 13 | 0x20..=0xD7FF | 0xE000..=0xFFFD | 0x10000..=0x10FFFF),
-    ) {
-        return Err(Error("new BitRate contains invalid XML 1.0 text".into()));
-    }
-    let range = track_attribute_range(
-        bytes,
-        &request.track_id,
-        "BitRate",
-        &request.expected_old_bit_rate,
-    )?;
-    let escaped = request
-        .new_bit_rate
-        .replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
-        .replace('\'', "&apos;")
-        .replace('\t', "&#9;")
-        .replace('\n', "&#10;")
-        .replace('\r', "&#13;");
-    let mut output = bytes.to_vec();
-    output.splice(range, escaped.bytes());
-    let after = preflight_export(&output)?;
-    let mut expected = before.selected_tracks.clone();
-    expected
-        .iter_mut()
-        .find(|t| t.id == request.track_id)
-        .unwrap()
-        .bit_rate = Some(request.new_bit_rate.clone());
-    if after.selected_tracks != expected {
-        return Err(Error("track BitRate edit verification failed".into()));
-    }
-    Ok(PreparedTrackBitRateEdit {
-        bytes: output,
-        change: TrackBitRateEditChange {
-            track_id: request.track_id.clone(),
-            old_bit_rate: old.to_owned(),
-            new_bit_rate: request.new_bit_rate.clone(),
-        },
-    })
-}
-
-/// Prepare one exact-old-value guarded raw Track SampleRate edit (no numeric conversion).
-pub fn prepare_track_sample_rate_edit(
-    bytes: &[u8],
-    request: &TrackSampleRateEditRequest,
-) -> Result<PreparedTrackSampleRateEdit, Error> {
-    let before = preflight_export(bytes)?;
-    let matches: Vec<_> = before
-        .selected_tracks
-        .iter()
-        .filter(|t| t.id == request.track_id)
-        .collect();
-    let track = match matches.as_slice() {
-        [] => return Err(Error(format!("unknown TrackID {}", request.track_id))),
-        [track] => *track,
-        _ => return Err(Error(format!("duplicate TrackID {}", request.track_id))),
-    };
-    let old = track
-        .sample_rate
-        .as_deref()
-        .ok_or_else(|| Error("track SampleRate missing".into()))?;
-    if old != request.expected_old_sample_rate {
-        return Err(Error("track SampleRate changed".into()));
-    }
-    if !request.new_sample_rate.chars().all(
-        |c| matches!(c as u32, 9 | 10 | 13 | 0x20..=0xD7FF | 0xE000..=0xFFFD | 0x10000..=0x10FFFF),
-    ) {
-        return Err(Error("new SampleRate contains invalid XML 1.0 text".into()));
-    }
-    let range = track_attribute_range(
-        bytes,
-        &request.track_id,
-        "SampleRate",
-        &request.expected_old_sample_rate,
-    )?;
-    let escaped = request
-        .new_sample_rate
-        .replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
-        .replace('\'', "&apos;")
-        .replace('\t', "&#9;")
-        .replace('\n', "&#10;")
-        .replace('\r', "&#13;");
-    let mut output = bytes.to_vec();
-    output.splice(range, escaped.bytes());
-    let after = preflight_export(&output)?;
-    let mut expected = before.selected_tracks.clone();
-    expected
-        .iter_mut()
-        .find(|t| t.id == request.track_id)
-        .unwrap()
-        .sample_rate = Some(request.new_sample_rate.clone());
-    if after.selected_tracks != expected {
-        return Err(Error("track SampleRate edit verification failed".into()));
-    }
-    Ok(PreparedTrackSampleRateEdit {
-        bytes: output,
-        change: TrackSampleRateEditChange {
-            track_id: request.track_id.clone(),
-            old_sample_rate: old.to_owned(),
-            new_sample_rate: request.new_sample_rate.clone(),
-        },
-    })
-}
-
-/// Prepare one exact-old-value guarded raw Track Kind edit (no numeric conversion).
-pub fn prepare_track_kind_edit(
-    bytes: &[u8],
-    request: &TrackKindEditRequest,
-) -> Result<PreparedTrackKindEdit, Error> {
-    let before = preflight_export(bytes)?;
-    let matches: Vec<_> = before
-        .selected_tracks
-        .iter()
-        .filter(|t| t.id == request.track_id)
-        .collect();
-    let track = match matches.as_slice() {
-        [] => return Err(Error(format!("unknown TrackID {}", request.track_id))),
-        [track] => *track,
-        _ => return Err(Error(format!("duplicate TrackID {}", request.track_id))),
-    };
-    let old_kind = track
-        .kind
-        .as_deref()
-        .ok_or_else(|| Error("track Kind missing".into()))?;
-    if old_kind != request.expected_old_kind {
-        return Err(Error("track Kind changed".into()));
-    }
-    if !request.new_kind.chars().all(
-        |c| matches!(c as u32, 9 | 10 | 13 | 0x20..=0xD7FF | 0xE000..=0xFFFD | 0x10000..=0x10FFFF),
-    ) {
-        return Err(Error("new Kind contains invalid XML 1.0 text".into()));
-    }
-    let range =
-        track_attribute_range(bytes, &request.track_id, "Kind", &request.expected_old_kind)?;
-    let escaped = request
-        .new_kind
-        .replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
-        .replace('\'', "&apos;")
-        .replace('\t', "&#9;")
-        .replace('\n', "&#10;")
-        .replace('\r', "&#13;");
-    let mut output = bytes.to_vec();
-    output.splice(range, escaped.bytes());
-    let after = preflight_export(&output)?;
-    let mut expected = before.selected_tracks.clone();
-    expected
-        .iter_mut()
-        .find(|t| t.id == request.track_id)
-        .unwrap()
-        .kind = Some(request.new_kind.clone());
-    if after.selected_tracks != expected {
-        return Err(Error("track Kind edit verification failed".into()));
-    }
-    Ok(PreparedTrackKindEdit {
-        bytes: output,
-        change: TrackKindEditChange {
-            track_id: request.track_id.clone(),
-            old_kind: old_kind.to_owned(),
-            new_kind: request.new_kind.clone(),
-        },
-    })
-}
-
-/// Prepare one exact-old-value guarded Track Artist edit.
-pub fn prepare_track_artist_edit(
-    bytes: &[u8],
-    request: &TrackArtistEditRequest,
-) -> Result<PreparedTrackArtistEdit, Error> {
-    let before = preflight_export(bytes)?;
-    let matches: Vec<_> = before
-        .selected_tracks
-        .iter()
-        .filter(|t| t.id == request.track_id)
-        .collect();
-    let track = match matches.as_slice() {
-        [] => return Err(Error(format!("unknown TrackID {}", request.track_id))),
-        [track] => *track,
-        _ => return Err(Error(format!("duplicate TrackID {}", request.track_id))),
-    };
-    let old_artist = track
-        .artist
-        .as_deref()
-        .ok_or_else(|| Error("track Artist missing".into()))?;
-    if old_artist != request.expected_old_artist {
-        return Err(Error("track Artist changed".into()));
-    }
-    if !request.new_artist.chars().all(
-        |c| matches!(c as u32, 9 | 10 | 13 | 0x20..=0xD7FF | 0xE000..=0xFFFD | 0x10000..=0x10FFFF),
-    ) {
-        return Err(Error("new Artist contains invalid XML 1.0 text".into()));
-    }
-    let range = track_attribute_range(
-        bytes,
-        &request.track_id,
-        "Artist",
-        &request.expected_old_artist,
-    )?;
-    let escaped = request
-        .new_artist
-        .replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
-        .replace('\'', "&apos;")
-        .replace('\t', "&#9;")
-        .replace('\n', "&#10;")
-        .replace('\r', "&#13;");
-    let mut output = bytes.to_vec();
-    output.splice(range, escaped.bytes());
-    let after = preflight_export(&output)?;
-    let mut expected = before.selected_tracks.clone();
-    expected
-        .iter_mut()
-        .find(|t| t.id == request.track_id)
-        .unwrap()
-        .artist = Some(request.new_artist.clone());
-    if after.selected_tracks != expected {
-        return Err(Error("track Artist edit verification failed".into()));
-    }
-    Ok(PreparedTrackArtistEdit {
-        bytes: output,
-        change: TrackArtistEditChange {
-            track_id: request.track_id.clone(),
-            old_artist: old_artist.to_owned(),
-            new_artist: request.new_artist.clone(),
-        },
-    })
 }
 
 fn tempo_bpm_range(
@@ -6530,17 +4604,7 @@ pub fn prepare_position_mark_name_edit(
     if mark.name != request.expected_old_name {
         return Err(Error("position mark Name changed".into()));
     }
-    if request.new_name.is_empty()
-        || request.new_name.chars().any(|character| {
-            let code = character as u32;
-            !(code == 0x9
-                || code == 0xA
-                || code == 0xD
-                || (0x20..=0xD7FF).contains(&code)
-                || (0xE000..=0xFFFD).contains(&code)
-                || (0x10000..=0x10FFFF).contains(&code))
-        })
-    {
+    if request.new_name.is_empty() || !valid_xml_text(&request.new_name) {
         return Err(Error("invalid position mark Name".into()));
     }
     let mut reader = Reader::from_reader(bytes);
@@ -6601,13 +4665,7 @@ pub fn prepare_position_mark_name_edit(
         buf.clear();
     }
     let range = range.ok_or_else(|| Error("position mark missing".into()))?;
-    let escaped = request
-        .new_name
-        .replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
-        .replace('\'', "&apos;");
+    let escaped = escape_attribute(&request.new_name, false);
     let mut output = bytes.to_vec();
     output.splice(range, escaped.bytes());
     let verified = preflight_export(&output)?;
@@ -6975,13 +5033,7 @@ pub fn prepare_tempo_meter_edit(
             request.expected_old_meter, tempo.meter
         )));
     }
-    let valid_xml_text = |value: &str| {
-        !value.is_empty()
-            && value.chars().all(|c| {
-                matches!(c as u32, 9 | 10 | 13 | 0x20..=0xD7FF | 0xE000..=0xFFFD | 0x10000..=0x10FFFF)
-            })
-    };
-    if !valid_xml_text(&request.new_meter) {
+    if request.new_meter.is_empty() || !valid_xml_text(&request.new_meter) {
         return Err(Error("invalid tempo Metro XML text".into()));
     }
     let range = tempo_attribute_range(
@@ -6991,13 +5043,7 @@ pub fn prepare_tempo_meter_edit(
         "Metro",
         &request.expected_old_meter,
     )?;
-    let escaped = request
-        .new_meter
-        .replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
-        .replace('\'', "&apos;");
+    let escaped = escape_attribute(&request.new_meter, false);
     let mut output = bytes.to_vec();
     output.splice(range, escaped.bytes());
     let verified = preflight_export(&output)?;
