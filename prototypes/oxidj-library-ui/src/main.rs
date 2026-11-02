@@ -3694,6 +3694,26 @@ mod keyboard_tests {
         let bytes = std::fs::read(&output).unwrap();
         assert_eq!(bytes, prepared);
         f02_folder_move_oracle::check(&bytes).unwrap();
+        let moved_subtree = b"<NODE Type=\"0\" Name=\"ToMove\" Count=\"1\"><NODE Type=\"0\" Name=\"Nested\" Count=\"1\"><NODE Type=\"1\" Name=\"Inside\" Entries=\"2\" KeyType=\"0\"><TRACK Key=\"1\"/><TRACK Key=\"3\"/></NODE></NODE></NODE>";
+        assert!(
+            bytes
+                .windows(moved_subtree.len())
+                .any(|window| window == moved_subtree)
+        );
+        let collection = b"<COLLECTION Entries=\"3\"><TRACK TrackID=\"1\" Name=\"one\" Location=\"file://localhost/one\"/><TRACK TrackID=\"2\" Name=\"two\" Location=\"file://localhost/two\"/><TRACK TrackID=\"3\" Name=\"three\" Location=\"file://localhost/three\"/></COLLECTION>";
+        assert!(
+            bytes
+                .windows(collection.len())
+                .any(|window| window == collection)
+        );
+        assert_eq!(
+            direct_xml_typed_child_order(&output, &["From".into()]).unwrap(),
+            ["1:Remain"]
+        );
+        assert_eq!(
+            direct_xml_typed_child_order(&output, &["Dest".into()]).unwrap(),
+            ["1:Existing", "0:ToMove"]
+        );
         let reopened = oxidj_application::preview_rekordbox_xml(&output).unwrap();
         assert!(
             reopened
@@ -3724,6 +3744,26 @@ mod keyboard_tests {
                 .folders
                 .iter()
                 .find(|f| f.name == "Dest")
+                .unwrap()
+                .count
+                .as_deref(),
+            Some("2")
+        );
+        assert_eq!(
+            reopened
+                .folders
+                .iter()
+                .find(|f| f.name == "Nested")
+                .unwrap()
+                .count
+                .as_deref(),
+            Some("1")
+        );
+        assert_eq!(
+            reopened
+                .folders
+                .iter()
+                .find(|f| f.path == ["ROOT"])
                 .unwrap()
                 .count
                 .as_deref(),
