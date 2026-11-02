@@ -602,7 +602,7 @@
       "checker": {
         "path": "xtask/tests/f02_track_tonality_edit_oracle.rs",
         "version": "f09-operation-oracle-v1",
-        "sha256": "1257fd4dad75eb5a848d0d8e87a14d05aef43d1e7a28f6ba0382a92ca5bdca56",
+        "sha256": "8f92cdeb17a1ecf6c3aef9e6fb64b6c2ba6a2b68d4880b46aa822e2249073d2b",
         "tests": [
           "independently_verifies_guarded_track_tonality_edit_and_rejects_mutations"
         ]

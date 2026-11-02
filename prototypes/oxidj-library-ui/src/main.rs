@@ -221,6 +221,8 @@ mod f02_track_label_edit_oracle;
 #[cfg(test)]
 #[path = "../../../xtask/tests/f02_track_mix_edit_oracle.rs"]
 mod f02_track_mix_edit_oracle;
+#[path = "../../../xtask/tests/f02_track_tonality_edit_oracle.rs"]
+mod f02_track_tonality_edit_oracle;
 #[cfg(test)]
 #[path = "../../../xtask/tests/common/f02_track_name_oracle_support.rs"]
 mod f02_track_name_oracle_support;
@@ -278,6 +280,12 @@ struct PendingTrackMixEdit {
     source: PathBuf,
     track_id: String,
     prepared: oxidj_application::PreparedTrackMixExport,
+}
+#[derive(Debug, Clone)]
+struct PendingTrackTonalityEdit {
+    source: PathBuf,
+    track_id: String,
+    prepared: oxidj_application::PreparedTrackTonalityExport,
 }
 #[derive(Debug, Clone)]
 struct PendingTrackGroupingEdit {
@@ -516,6 +524,9 @@ struct LibraryApp {
     xml_pending_remixer_edit: Option<PendingTrackRemixerEdit>,
     xml_edit_mix: String,
     xml_mix_export_path: String,
+    xml_edit_tonality: String,
+    xml_tonality_export_path: String,
+    xml_pending_tonality_edit: Option<PendingTrackTonalityEdit>,
     xml_pending_mix_edit: Option<PendingTrackMixEdit>,
     xml_genre_export_path: String,
     xml_selected_playlist: Option<usize>,
@@ -632,6 +643,9 @@ impl LibraryApp {
             xml_pending_remixer_edit: None,
             xml_edit_mix: String::new(),
             xml_mix_export_path: String::new(),
+            xml_edit_tonality: String::new(),
+            xml_tonality_export_path: String::new(),
+            xml_pending_tonality_edit: None,
             xml_pending_mix_edit: None,
             xml_edit_label: String::new(),
             xml_label_export_path: String::new(),
@@ -2414,6 +2428,8 @@ impl LibraryApp {
             .and_then(|t| t.mix.clone())
             .unwrap_or_default();
         self.xml_pending_mix_edit = None;
+        self.xml_edit_tonality = self.xml_preview.as_ref().and_then(|p| p.as_ref().ok()).and_then(|p| p.tracks.iter().find(|t| t.id == track_id)).and_then(|t| t.tonality.clone()).unwrap_or_default();
+        self.xml_pending_tonality_edit = None;
         self.xml_edit_label = self
             .xml_preview
             .as_ref()
@@ -2468,6 +2484,7 @@ impl LibraryApp {
         self.xml_pending_insert = None;
         self.xml_pending_remixer_edit = None;
         self.xml_pending_mix_edit = None;
+        self.xml_pending_tonality_edit = None;
         self.invalidate_xml_member_delete();
         self.xml_selected_playlist = None;
         self.xml_selected_member = None;
@@ -2652,6 +2669,7 @@ impl LibraryApp {
         self.xml_selected_track = None;
         self.xml_pending_remixer_edit = None;
         self.xml_pending_mix_edit = None;
+        self.xml_pending_tonality_edit = None;
         self.xml_edit_error = None;
         let source = PathBuf::from(&self.xml_path);
         self.xml_document_source = Some(source.clone());
@@ -3357,6 +3375,52 @@ impl LibraryApp {
     fn cancel_xml_mix_edit(&mut self) {
         self.xml_pending_mix_edit = None;
         self.xml_edit_error = None;
+    }
+
+    fn prepare_xml_tonality_edit(&mut self, track_id: &str, old_tonality: Option<&str>) {
+        let Some(old_tonality) = old_tonality else {
+            self.xml_pending_tonality_edit = None;
+            self.xml_edit_error = Some("Track Tonality preparation refused: selected track has no Tonality attribute".into());
+            return;
+        };
+        let Some(source) = self.xml_document_source.clone() else {
+            self.xml_pending_tonality_edit = None;
+            self.xml_edit_error = Some("Track Tonality preparation refused: no XML document is loaded".into());
+            return;
+        };
+        let request = oxidj_application::TrackTonalityEditPreparationRequest {
+            source: source.clone(), track_id: track_id.to_owned(),
+            expected_old_tonality: old_tonality.to_owned(), new_tonality: self.xml_edit_tonality.clone(),
+        };
+        match oxidj_application::prepare_rekordbox_track_tonality_export(&request) {
+            Ok(prepared) => { self.xml_pending_tonality_edit = Some(PendingTrackTonalityEdit { source, track_id: track_id.to_owned(), prepared }); self.xml_edit_error = None; }
+            Err(error) => { self.xml_pending_tonality_edit = None; self.xml_edit_error = Some(format!("Track Tonality preparation refused: {error}")); }
+        }
+    }
+
+    fn cancel_xml_tonality_edit(&mut self) { self.xml_pending_tonality_edit = None; self.xml_edit_error = None; }
+
+    fn export_xml_tonality_edit(&mut self) {
+        self.notice.clear();
+        let Some(pending) = self.xml_pending_tonality_edit.clone() else { self.xml_edit_error = Some("Track Tonality export refused: no prepared pending edit".into()); return; };
+        let change = pending.prepared.change();
+        let selected = self.xml_preview.as_ref().and_then(|p| p.as_ref().ok()).and_then(|p| p.tracks.iter().find(|t| t.id == pending.track_id)).and_then(|t| t.tonality.as_deref());
+        if self.xml_document_source.as_ref() != Some(&pending.source) || PathBuf::from(&self.xml_path) != pending.source || self.xml_selected_track.as_deref() != Some(&pending.track_id) || self.xml_edit_tonality != change.new_tonality || selected != Some(change.old_tonality.as_str()) {
+            self.xml_pending_tonality_edit = None;
+            self.xml_edit_error = Some("Track Tonality export refused: source, selected track, or proposed value changed".into());
+            return;
+        }
+        let output = PathBuf::from(&self.xml_tonality_export_path);
+        if self.xml_tonality_export_path.trim().is_empty() { self.xml_edit_error = Some("Track Tonality export refused: choose a new XML destination".into()); return; }
+        match oxidj_application::export_prepared_rekordbox_track_tonality_edit(&pending.prepared, &output) {
+            Ok(change) => {
+                self.xml_pending_tonality_edit = None; self.xml_edit_error = None;
+                self.notice = format!("Track Tonality exported to {}", output.display());
+                self.xml_tonality_export_path = output.display().to_string(); self.xml_path = output.display().to_string(); self.xml_document_source = Some(output.clone());
+                self.xml_preview = Some(oxidj_application::preview_rekordbox_xml(&output).map_err(|e| e.to_string())); self.xml_edit_tonality = change.new_tonality;
+            }
+            Err(error) => self.xml_edit_error = Some(format!("Track Tonality export failed: {error}")),
+        }
     }
 
     fn export_xml_mix_edit(&mut self) {
@@ -4069,6 +4133,25 @@ impl eframe::App for LibraryApp {
                         } else {
                             ui.label("Select one track above to prepare a pending Remixer edit.");
                         }
+                        SectionHeading { title: "Track Tonality edit (provisional)" }.show(ui, tokens);
+                        if let Some(track_id) = self.xml_selected_track.clone() {
+                            if let Some(track) = preview.tracks.iter().find(|t| t.id == track_id) {
+                                ui.label(format!("Selected TrackID: {track_id}"));
+                                if let Some(tonality) = track.tonality.as_deref() {
+                                    ui.label(format!("Current Tonality: {tonality:?}{}", if tonality.is_empty() { " (present but empty)" } else { "" }));
+                                    ui.horizontal(|ui| { ui.label("Proposed Tonality"); if ui.text_edit_singleline(&mut self.xml_edit_tonality).changed() { self.xml_pending_tonality_edit = None; } });
+                                    if ui.button("Prepare pending Tonality edit").clicked() { self.prepare_xml_tonality_edit(&track.id, Some(tonality)); }
+                                    if let Some(pending) = &self.xml_pending_tonality_edit {
+                                        ui.separator(); ui.strong("Pending Tonality edit · not exported or saved");
+                                        ui.label(format!("Source: {}", pending.source.display())); ui.label(format!("TrackID: {}", pending.track_id));
+                                        ui.label(format!("Original Tonality: {:?}", pending.prepared.change().old_tonality)); ui.label(format!("Proposed Tonality: {:?}", pending.prepared.change().new_tonality));
+                                        ui.horizontal(|ui| { ui.label("New XML destination"); ui.text_edit_singleline(&mut self.xml_tonality_export_path); });
+                                        if ui.button("Export prepared Tonality edit").clicked() { self.export_xml_tonality_edit(); }
+                                        if ui.button("Cancel pending Tonality edit").clicked() { self.cancel_xml_tonality_edit(); }
+                                    }
+                                } else { self.xml_pending_tonality_edit = None; ui.label("Selected track has no Tonality attribute; insertion is not supported."); }
+                            } else { self.xml_pending_tonality_edit = None; ui.label("Selected TrackID is no longer in the loaded preview."); }
+                        } else { ui.label("Select one track above to prepare a pending Tonality edit."); }
                         SectionHeading { title: "Track Mix edit (provisional)" }.show(ui, tokens);
                         if let Some(track_id) = self.xml_selected_track.clone() {
                             if let Some(track) = preview.tracks.iter().find(|t| t.id == track_id) {
@@ -9163,6 +9246,94 @@ mod keyboard_tests {
             app.xml_pending_mix_edit.is_none(),
             "absent Mix insertion must refuse"
         );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn track_tonality_edit_ui_exports_actual_bytes_through_independent_oracle() {
+        let (root, source) = temporary_xml();
+        std::fs::write(&source, include_bytes!("../../../xtask/tests/fixtures/f02-track-tonality-edit/source.xml")).unwrap();
+        let mut app = app();
+        app.xml_path = source.display().to_string();
+        app.preview_xml();
+        app.select_xml_track("100", "A");
+        assert_eq!(app.xml_edit_tonality, "old & key");
+        app.xml_edit_tonality = "new < key".into();
+        app.prepare_xml_tonality_edit("100", Some("old & key"));
+        assert!(app.xml_pending_tonality_edit.is_some());
+        let output = root.join("edited.xml");
+        app.xml_tonality_export_path = output.display().to_string();
+        app.cancel_xml_tonality_edit();
+        assert!(app.xml_pending_tonality_edit.is_none());
+        assert!(!output.exists());
+        app.prepare_xml_tonality_edit("100", Some("old & key"));
+        app.export_xml_tonality_edit();
+        assert_eq!(app.xml_edit_tonality, "new < key");
+        assert!(f02_track_tonality_edit_oracle::check(&std::fs::read(&output).unwrap()).is_ok());
+        app.select_xml_track("200", "B");
+        app.prepare_xml_tonality_edit("200", None);
+        assert!(app.xml_pending_tonality_edit.is_none(), "absent Tonality insertion must refuse");
+        assert!(app.xml_edit_error.as_deref().unwrap().contains("no Tonality attribute"));
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn track_tonality_ui_refuses_invalid_unknown_stale_duplicate_and_invalidates_pending() {
+        let (root, source) = temporary_xml();
+        let fixture = include_bytes!("../../../xtask/tests/fixtures/f02-track-tonality-edit/source.xml");
+        std::fs::write(&source, fixture).unwrap();
+        let mut app = app();
+        app.xml_path = source.display().to_string();
+        app.preview_xml();
+        app.select_xml_track("999", "Unknown");
+        app.xml_edit_tonality = "Changed".into();
+        app.prepare_xml_tonality_edit("999", Some("old & key"));
+        assert!(app.xml_pending_tonality_edit.is_none());
+
+        app.select_xml_track("100", "A");
+        app.xml_edit_tonality = "bad\u{1}".into();
+        app.prepare_xml_tonality_edit("100", Some("old & key"));
+        assert!(app.xml_pending_tonality_edit.is_none());
+        app.xml_edit_tonality = "Changed".into();
+        app.prepare_xml_tonality_edit("100", Some("stale"));
+        assert!(app.xml_pending_tonality_edit.is_none());
+
+        let duplicate = String::from_utf8(fixture.to_vec())
+            .unwrap()
+            .replace("TrackID=\"200\"", "TrackID=\"100\"");
+        std::fs::write(&source, duplicate).unwrap();
+        app.preview_xml();
+        app.select_xml_track("100", "A");
+        app.xml_edit_tonality = "Changed".into();
+        app.prepare_xml_tonality_edit("100", Some("old & key"));
+        assert!(app.xml_pending_tonality_edit.is_none(), "duplicate target must refuse");
+
+        std::fs::write(&source, fixture).unwrap();
+        app.xml_path = source.display().to_string();
+        app.preview_xml();
+        app.select_xml_track("100", "A");
+        app.xml_edit_tonality = "Changed".into();
+        app.prepare_xml_tonality_edit("100", Some("old & key"));
+        assert!(app.xml_pending_tonality_edit.is_some());
+        app.preview_xml();
+        assert!(app.xml_pending_tonality_edit.is_none(), "reload must invalidate pending edit");
+
+        let empty = String::from_utf8(fixture.to_vec())
+            .unwrap()
+            .replace("Tonality=\"old &amp; key\"", "Tonality=\"\"");
+        std::fs::write(&source, empty).unwrap();
+        app.preview_xml();
+        app.select_xml_track("100", "A");
+        assert_eq!(app.xml_edit_tonality, "", "present-empty Tonality must stay distinct from absent");
+        app.xml_edit_tonality = "new raw value".into();
+        app.prepare_xml_tonality_edit("100", Some(""));
+        assert!(app.xml_pending_tonality_edit.is_some(), "present-empty Tonality is editable");
+        app.cancel_xml_tonality_edit();
+        assert!(app.xml_pending_tonality_edit.is_none());
+
+        std::fs::write(&source, "<broken>").unwrap();
+        app.preview_xml();
+        assert!(app.xml_preview.as_ref().unwrap().is_err());
         std::fs::remove_dir_all(root).unwrap();
     }
 

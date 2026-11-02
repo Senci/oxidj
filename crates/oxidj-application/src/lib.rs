@@ -892,6 +892,69 @@ pub fn export_prepared_rekordbox_track_mix_edit(
     Ok(prepared.change.clone())
 }
 
+/// A source-bound prepared Tonality edit retains the exact preview snapshot.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PreparedTrackTonalityExport {
+    source: std::path::PathBuf,
+    source_bytes: Vec<u8>,
+    bytes: Vec<u8>,
+    change: oxidj_rekordbox::TrackTonalityEditChange,
+}
+
+impl PreparedTrackTonalityExport {
+    pub fn source(&self) -> &Path {
+        &self.source
+    }
+    pub fn bytes(&self) -> &[u8] {
+        &self.bytes
+    }
+    pub fn change(&self) -> &oxidj_rekordbox::TrackTonalityEditChange {
+        &self.change
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TrackTonalityEditPreparationRequest {
+    pub source: std::path::PathBuf,
+    pub track_id: String,
+    pub expected_old_tonality: String,
+    pub new_tonality: String,
+}
+
+/// Prepare one guarded Tonality edit without writing any file.
+pub fn prepare_rekordbox_track_tonality_export(
+    request: &TrackTonalityEditPreparationRequest,
+) -> Result<PreparedTrackTonalityExport, RekordboxError> {
+    let source =
+        std::fs::read(&request.source).map_err(|error| RekordboxError(error.to_string()))?;
+    let adapter_request = oxidj_rekordbox::TrackTonalityEditRequest {
+        track_id: request.track_id.clone(),
+        expected_old_tonality: request.expected_old_tonality.clone(),
+        new_tonality: request.new_tonality.clone(),
+    };
+    let prepared = oxidj_rekordbox::prepare_track_tonality_edit(&source, &adapter_request)?;
+    Ok(PreparedTrackTonalityExport {
+        source: request.source.clone(),
+        source_bytes: source,
+        bytes: prepared.bytes,
+        change: prepared.change,
+    })
+}
+/// Export a prepared Tonality edit only after source revalidation, to a new path.
+pub fn export_prepared_rekordbox_track_tonality_edit(
+    prepared: &PreparedTrackTonalityExport,
+    output: impl AsRef<Path>,
+) -> Result<oxidj_rekordbox::TrackTonalityEditChange, RekordboxError> {
+    let (current_source, output) = read_new_export_source(&prepared.source, output)?;
+    if current_source != prepared.source_bytes {
+        return Err(RekordboxError(
+            "source changed after Track Tonality edit preparation".into(),
+        ));
+    }
+    publish_new_file(&output, &prepared.bytes)?;
+    Ok(prepared.change.clone())
+}
+
 /// A source-bound prepared Track Grouping export retains the exact preview snapshot.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PreparedTrackGroupingExport {
@@ -3174,6 +3237,37 @@ mod track_mix_preparation_tests {
         let prepared =
             prepare_rekordbox_track_mix_export(&request(source.clone(), "", "new")).unwrap();
         assert_eq!(prepared.change().old_mix, "");
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn tonality_preparation_is_source_bound_and_refuses_absent_values() {
+        let root = std::env::temp_dir().join(format!("oxidj-app-tonality-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let source = root.join("source.xml");
+        std::fs::copy(
+            concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../xtask/tests/fixtures/f02-track-tonality-edit/source.xml"
+            ),
+            &source,
+        )
+        .unwrap();
+        let request = TrackTonalityEditPreparationRequest {
+            source: source.clone(),
+            track_id: "100".into(),
+            expected_old_tonality: "old & key".into(),
+            new_tonality: "new < key".into(),
+        };
+        let original = std::fs::read(&source).unwrap();
+        let prepared = prepare_rekordbox_track_tonality_export(&request).unwrap();
+        assert_eq!(std::fs::read(&source).unwrap(), original);
+        let output = root.join("out.xml");
+        export_prepared_rekordbox_track_tonality_edit(&prepared, &output).unwrap();
+        assert_eq!(std::fs::read(&output).unwrap(), prepared.bytes());
+        let mut absent = request.clone();
+        absent.track_id = "200".into();
+        assert!(prepare_rekordbox_track_tonality_export(&absent).is_err());
         std::fs::remove_dir_all(root).unwrap();
     }
 }
