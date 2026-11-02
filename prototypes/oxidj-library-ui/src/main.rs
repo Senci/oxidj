@@ -212,6 +212,8 @@ mod f02_track_label_edit_oracle;
 #[cfg(test)]
 #[path = "../../../xtask/tests/f02_track_composer_edit_oracle.rs"]
 mod f02_track_composer_edit_oracle;
+#[path = "../../../xtask/tests/f02_track_grouping_edit_oracle.rs"]
+mod f02_track_grouping_edit_oracle;
 #[cfg(test)]
 #[path = "../../../xtask/tests/f02_track_genre_edit_oracle.rs"]
 mod f02_track_genre_edit_oracle;
@@ -254,6 +256,8 @@ struct PendingTrackAlbumEdit {
 }
 #[derive(Debug, Clone)]
 struct PendingTrackComposerEdit { source: PathBuf, track_id: String, prepared: oxidj_application::PreparedTrackComposerExport }
+#[derive(Debug, Clone)]
+struct PendingTrackGroupingEdit { source: PathBuf, track_id: String, prepared: oxidj_application::PreparedTrackGroupingExport }
 #[derive(Debug, Clone)]
 struct PendingTrackLabelEdit {
     source: PathBuf,
@@ -474,6 +478,9 @@ struct LibraryApp {
     xml_edit_composer: String,
     xml_composer_export_path: String,
     xml_pending_composer_edit: Option<PendingTrackComposerEdit>,
+    xml_edit_grouping: String,
+    xml_grouping_export_path: String,
+    xml_pending_grouping_edit: Option<PendingTrackGroupingEdit>,
     xml_edit_label: String,
     xml_label_export_path: String,
     xml_pending_label_edit: Option<PendingTrackLabelEdit>,
@@ -584,6 +591,9 @@ impl LibraryApp {
             xml_edit_composer: String::new(),
             xml_composer_export_path: String::new(),
             xml_pending_composer_edit: None,
+            xml_edit_grouping: String::new(),
+            xml_grouping_export_path: String::new(),
+            xml_pending_grouping_edit: None,
             xml_edit_label: String::new(),
             xml_label_export_path: String::new(),
             xml_pending_label_edit: None,
@@ -2358,6 +2368,8 @@ impl LibraryApp {
             .unwrap_or_default();
         self.xml_edit_composer = self.xml_preview.as_ref().and_then(|p| p.as_ref().ok()).and_then(|p| p.tracks.iter().find(|t| t.id == track_id)).and_then(|t| t.composer.clone()).unwrap_or_default();
         self.xml_pending_composer_edit = None;
+        self.xml_edit_grouping = self.xml_preview.as_ref().and_then(|p| p.as_ref().ok()).and_then(|p| p.tracks.iter().find(|t| t.id == track_id)).and_then(|t| t.grouping.clone()).unwrap_or_default();
+        self.xml_pending_grouping_edit = None;
         self.xml_pending_label_edit = None;
         self.xml_pending_edit = None;
         self.xml_pending_artist_edit = None;
@@ -3136,6 +3148,100 @@ impl LibraryApp {
         }
     }
 
+    fn prepare_xml_grouping_edit(&mut self, track_id: &str, old_grouping: Option<&str>) {
+        let Some(old_grouping) = old_grouping else {
+            self.xml_pending_grouping_edit = None;
+            self.xml_edit_error = Some(
+                "Track Grouping preparation refused: selected track has no Grouping attribute".into(),
+            );
+            return;
+        };
+        let Some(source) = self.xml_document_source.clone() else {
+            self.xml_pending_grouping_edit = None;
+            self.xml_edit_error =
+                Some("Track Grouping preparation refused: no XML document is loaded".into());
+            return;
+        };
+        let request = oxidj_application::TrackGroupingEditPreparationRequest {
+            source: source.clone(),
+            track_id: track_id.to_owned(),
+            expected_old_grouping: old_grouping.to_owned(),
+            new_grouping: self.xml_edit_grouping.clone(),
+        };
+        match oxidj_application::prepare_rekordbox_track_grouping_export(&request) {
+            Ok(prepared) => {
+                self.xml_pending_grouping_edit = Some(PendingTrackGroupingEdit {
+                    source,
+                    track_id: track_id.to_owned(),
+                    prepared,
+                });
+                self.xml_edit_error = None;
+            }
+            Err(error) => {
+                self.xml_pending_grouping_edit = None;
+                self.xml_edit_error = Some(format!("Track Grouping preparation refused: {error}"));
+            }
+        }
+    }
+
+    fn cancel_xml_grouping_edit(&mut self) {
+        self.xml_pending_grouping_edit = None;
+        self.xml_edit_error = None;
+    }
+
+    fn export_xml_grouping_edit(&mut self) {
+        self.notice.clear();
+        let Some(pending) = self.xml_pending_grouping_edit.clone() else {
+            self.xml_edit_error =
+                Some("Track Grouping export refused: no prepared pending edit".into());
+            return;
+        };
+        let proposal = pending.prepared.change();
+        let selected_grouping = self
+            .xml_preview
+            .as_ref()
+            .and_then(|p| p.as_ref().ok())
+            .and_then(|p| p.tracks.iter().find(|t| t.id == pending.track_id))
+            .and_then(|t| t.grouping.as_deref());
+        if self.xml_document_source.as_ref() != Some(&pending.source)
+            || PathBuf::from(&self.xml_path) != pending.source
+            || self.xml_selected_track.as_deref() != Some(&pending.track_id)
+            || self.xml_edit_grouping != proposal.new_grouping
+            || selected_grouping != Some(proposal.old_grouping.as_str())
+        {
+            self.xml_pending_grouping_edit = None;
+            self.xml_edit_error = Some(
+                "Track Grouping export refused: source, selected track, or proposed value changed"
+                    .into(),
+            );
+            return;
+        }
+        let output = PathBuf::from(&self.xml_grouping_export_path);
+        if self.xml_grouping_export_path.trim().is_empty() {
+            self.xml_edit_error =
+                Some("Track Grouping export refused: choose a new XML destination".into());
+            return;
+        }
+        match oxidj_application::export_prepared_rekordbox_track_grouping_edit(
+            &pending.prepared,
+            &output,
+        ) {
+            Ok(change) => {
+                self.xml_pending_grouping_edit = None;
+                self.xml_edit_error = None;
+                self.notice = format!("Track Grouping exported to {}", output.display());
+                self.xml_grouping_export_path = output.display().to_string();
+                self.xml_path = output.display().to_string();
+                self.xml_document_source = Some(output.clone());
+                self.xml_preview = Some(
+                    oxidj_application::preview_rekordbox_xml(&output).map_err(|e| e.to_string()),
+                );
+                self.xml_edit_grouping = change.new_grouping;
+            }
+            Err(error) => self.xml_edit_error = Some(format!("Track Grouping export failed: {error}")),
+        }
+    }
+
     fn prepare_xml_label_edit(&mut self, track_id: &str, old_label: Option<&str>) {
         let Some(old_label) = old_label else {
             self.xml_pending_label_edit = None;
@@ -3665,6 +3771,26 @@ impl eframe::App for LibraryApp {
                                 } else { self.xml_pending_composer_edit = None; ui.label("Selected track has no Composer attribute; insertion is not supported."); }
                             } else { self.xml_pending_composer_edit = None; ui.label("Selected TrackID is no longer in the loaded preview."); }
                         } else { ui.label("Select one track above to prepare a pending Composer edit."); }
+                        SectionHeading { title: "Track Grouping edit (provisional)" }.show(ui, tokens);
+                        if let Some(track_id) = self.xml_selected_track.clone() {
+                            if let Some(track) = preview.tracks.iter().find(|t| t.id == track_id) {
+                                ui.label(format!("Selected TrackID: {track_id}"));
+                                if let Some(grouping) = track.grouping.as_deref() {
+                                    ui.label(if grouping.is_empty() { "Current Grouping: present but empty" } else { "Current Grouping: present" });
+                                    ui.horizontal(|ui| { ui.label("Proposed Grouping"); if ui.text_edit_singleline(&mut self.xml_edit_grouping).changed() { self.xml_pending_grouping_edit = None; } });
+                                    if ui.button("Prepare pending Grouping edit").clicked() { self.prepare_xml_grouping_edit(&track.id, Some(grouping)); }
+                                    if let Some(pending) = &self.xml_pending_grouping_edit {
+                                        ui.separator(); ui.strong("Pending Grouping edit · not exported or saved");
+                                        ui.label(format!("Source: {}", pending.source.display())); ui.label(format!("TrackID: {}", pending.track_id));
+                                        ui.label(format!("Original Grouping: {:?}", pending.prepared.change().old_grouping));
+                                        ui.label(format!("Proposed Grouping: {:?}", pending.prepared.change().new_grouping));
+                                        ui.horizontal(|ui| { ui.label("New XML destination"); ui.text_edit_singleline(&mut self.xml_grouping_export_path); });
+                                        if ui.button("Export prepared Grouping edit").clicked() { self.export_xml_grouping_edit(); }
+                                        if ui.button("Cancel pending Grouping edit").clicked() { self.cancel_xml_grouping_edit(); }
+                                    }
+                                } else { self.xml_pending_grouping_edit = None; ui.label("Selected track has no Grouping attribute; insertion is not supported."); }
+                            } else { self.xml_pending_grouping_edit = None; ui.label("Selected TrackID is no longer in the loaded preview."); }
+                        } else { ui.label("Select one track above to prepare a pending Grouping edit."); }
                         SectionHeading {
                             title: "Track Label edit (provisional)",
                         }
@@ -7911,6 +8037,218 @@ mod keyboard_tests {
     }
 
     #[test]
+    fn track_grouping_edit_ui_refuses_invalid_xml_unknown_and_stale_old_value() {
+        let (root, source) = temporary_xml();
+        std::fs::write(
+            &source,
+            include_bytes!("../../../xtask/tests/fixtures/f02-track-grouping-edit/source.xml"),
+        )
+        .unwrap();
+        let mut app = app();
+        app.xml_path = source.display().to_string();
+        app.preview_xml();
+        app.select_xml_track("999", "Unknown");
+        app.xml_edit_grouping = "Changed".into();
+        app.prepare_xml_grouping_edit("999", Some("old & crate"));
+        assert!(app.xml_pending_grouping_edit.is_none());
+
+        app.select_xml_track("100", "A");
+        app.xml_edit_grouping = "bad\u{1}".into();
+        app.prepare_xml_grouping_edit("100", Some("old & crate"));
+        assert!(app.xml_pending_grouping_edit.is_none());
+
+        app.xml_edit_grouping = "Changed".into();
+        app.prepare_xml_grouping_edit("100", Some("stale"));
+        assert!(app.xml_pending_grouping_edit.is_none());
+
+        std::fs::write(
+            &source,
+            String::from_utf8(
+                include_bytes!("../../../xtask/tests/fixtures/f02-track-grouping-edit/source.xml")
+                    .to_vec(),
+            )
+            .unwrap()
+            .replace("TrackID=\"200\"", "TrackID=\"100\""),
+        )
+        .unwrap();
+        app.preview_xml();
+        app.select_xml_track("100", "A");
+        app.xml_edit_grouping = "Changed".into();
+        app.prepare_xml_grouping_edit("100", Some("old & crate"));
+        assert!(app.xml_pending_grouping_edit.is_none(), "duplicate target must refuse");
+
+        std::fs::write(
+            &source,
+            String::from_utf8(
+                include_bytes!("../../../xtask/tests/fixtures/f02-track-grouping-edit/source.xml")
+                    .to_vec(),
+            )
+            .unwrap()
+            .replace("Grouping=\"old &amp; crate\"", "Grouping=\"\""),
+        )
+        .unwrap();
+        app.xml_path = source.display().to_string();
+        app.preview_xml();
+        app.select_xml_track("100", "A");
+        assert_eq!(app.xml_edit_grouping, "", "present-empty Grouping must stay editable");
+        app.xml_edit_grouping = "Restored".into();
+        app.prepare_xml_grouping_edit("100", Some(""));
+        assert!(app.xml_pending_grouping_edit.is_some(), "present-empty Grouping is editable");
+        app.cancel_xml_grouping_edit();
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn track_grouping_edit_ui_exports_previewed_bytes_and_reopens_output() {
+        use std::time::{SystemTime, UNIX_EPOCH};
+        let root = std::env::temp_dir().join(format!(
+            "oxidj-ui-track-grouping-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let source = root.join("source.xml");
+        std::fs::write(
+            &source,
+            include_bytes!("../../../xtask/tests/fixtures/f02-track-grouping-edit/source.xml"),
+        )
+        .unwrap();
+        let original = std::fs::read(&source).unwrap();
+        let catalog = root.join("catalog.sqlite");
+        drop(Catalog::open(&catalog).unwrap());
+        let catalog_before = std::fs::read(&catalog).unwrap();
+        let mut app = LibraryApp::new(
+            catalog.clone(),
+            ThemeMode::TokyoNight,
+            ThemeMode::TokyoNight.tokens(),
+        );
+        app.xml_path = source.display().to_string();
+        app.preview_xml();
+        app.select_xml_track("100", "A");
+        assert_eq!(app.xml_edit_grouping, "old & crate");
+        app.xml_edit_grouping = "new < crate".into();
+        app.prepare_xml_grouping_edit("100", Some("old & crate"));
+        let prepared = app
+            .xml_pending_grouping_edit
+            .as_ref()
+            .unwrap()
+            .prepared
+            .bytes()
+            .to_vec();
+        assert_eq!(std::fs::read(&source).unwrap(), original);
+        let cancelled = root.join("cancelled.xml");
+        app.xml_grouping_export_path = cancelled.display().to_string();
+        app.cancel_xml_grouping_edit();
+        assert!(app.xml_pending_grouping_edit.is_none());
+        assert!(!cancelled.exists());
+        app.prepare_xml_grouping_edit("100", Some("old & crate"));
+        app.xml_grouping_export_path.clear();
+        app.export_xml_grouping_edit();
+        assert!(app.xml_pending_grouping_edit.is_some());
+        assert!(app.xml_edit_error.as_deref().unwrap().contains("choose a new XML destination"));
+        app.xml_grouping_export_path = source.display().to_string();
+        app.export_xml_grouping_edit();
+        assert!(app.xml_edit_error.is_some(), "source alias must be refused");
+        assert_eq!(std::fs::read(&source).unwrap(), original);
+        let existing = root.join("existing.xml");
+        std::fs::write(&existing, b"preserve").unwrap();
+        app.xml_grouping_export_path = existing.display().to_string();
+        app.export_xml_grouping_edit();
+        assert!(app.xml_edit_error.is_some(), "existing output must be refused");
+        assert_eq!(std::fs::read(&existing).unwrap(), b"preserve");
+        app.xml_grouping_export_path = root.join("missing/output.xml").display().to_string();
+        app.export_xml_grouping_edit();
+        assert!(app.xml_edit_error.is_some(), "write failure must be surfaced");
+        assert!(app.notice.is_empty(), "failure must not claim success");
+        app.xml_grouping_export_path = root.join("stale-source.xml").display().to_string();
+        std::fs::write(&source, b"<changed/>").unwrap();
+        app.export_xml_grouping_edit();
+        assert!(app.xml_edit_error.as_deref().unwrap().contains("source changed"));
+        assert!(!root.join("stale-source.xml").exists());
+        std::fs::write(&source, &original).unwrap();
+        app.prepare_xml_grouping_edit("100", Some("old & crate"));
+        app.xml_edit_grouping = "changed after preview".into();
+        let stale_proposal = root.join("stale-proposal.xml");
+        app.xml_grouping_export_path = stale_proposal.display().to_string();
+        app.export_xml_grouping_edit();
+        assert!(!stale_proposal.exists());
+        assert!(app.xml_pending_grouping_edit.is_none());
+        app.xml_edit_grouping = "new < crate".into();
+        app.prepare_xml_grouping_edit("100", Some("stale old value"));
+        assert!(app.xml_pending_grouping_edit.is_none());
+        app.prepare_xml_grouping_edit("200", Some("old & crate"));
+        assert!(
+            app.xml_pending_grouping_edit.is_none(),
+            "absent Grouping insertion is refused"
+        );
+        app.prepare_xml_grouping_edit("100", Some("old & crate"));
+        let changed_selection = root.join("changed-selection.xml");
+        app.xml_grouping_export_path = changed_selection.display().to_string();
+        app.select_xml_track("200", "B");
+        app.export_xml_grouping_edit();
+        assert!(!changed_selection.exists());
+        app.prepare_xml_grouping_edit("100", Some("old & crate"));
+        let changed_source = root.join("different.xml");
+        app.xml_document_source = Some(changed_source);
+        let stale_source = root.join("stale-source.xml");
+        app.xml_grouping_export_path = stale_source.display().to_string();
+        app.export_xml_grouping_edit();
+        assert!(!stale_source.exists());
+        app.xml_document_source = Some(source.clone());
+        app.select_xml_track("100", "A");
+        app.xml_edit_grouping = "new < crate".into();
+        app.prepare_xml_grouping_edit("100", Some("old & crate"));
+        let output = root.join("edited.xml");
+        app.xml_grouping_export_path = output.display().to_string();
+        app.export_xml_grouping_edit();
+        let bytes = std::fs::read(&output).unwrap();
+        assert_eq!(bytes, prepared);
+        f02_track_grouping_edit_oracle::check(&bytes)
+            .expect("independent F-02 oracle accepts UI-exported Grouping bytes");
+        assert!(String::from_utf8_lossy(&bytes).contains("Grouping=\"new &lt; crate\""));
+        let mutated = String::from_utf8(bytes.clone())
+            .unwrap()
+            .replacen("Grouping=\"new &lt; crate\"", "Grouping=\"altered\"", 1);
+        assert!(f02_track_grouping_edit_oracle::check(mutated.as_bytes()).is_err());
+        assert_eq!(std::fs::read(&source).unwrap(), original);
+        assert_eq!(std::fs::read(&catalog).unwrap(), catalog_before);
+        assert_eq!(
+            app.xml_preview
+                .as_ref()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .tracks
+                .iter()
+                .find(|t| t.id == "100")
+                .unwrap()
+                .grouping
+                .as_deref(),
+            Some("new < crate")
+        );
+        assert_eq!(
+            app.xml_preview
+                .as_ref()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .tracks
+                .iter()
+                .find(|t| t.id == "200")
+                .unwrap()
+                .grouping,
+            None,
+            "absent Grouping remains absent on other tracks"
+        );
+        assert!(app.xml_pending_grouping_edit.is_none());
+        assert!(app.xml_edit_error.is_none());
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
     fn track_label_edit_ui_refuses_invalid_xml_unknown_and_stale_old_value() {
         let (root, source) = temporary_xml();
         std::fs::write(
@@ -8215,6 +8553,31 @@ mod keyboard_tests {
     }
 
     #[test]
+    fn track_grouping_edit_ui_refuses_changed_editable_path_without_output() {
+        let (root, source) = temporary_xml();
+        std::fs::write(
+            &source,
+            include_bytes!("../../../xtask/tests/fixtures/f02-track-grouping-edit/source.xml"),
+        )
+        .unwrap();
+        let mut app = app();
+        app.xml_path = source.display().to_string();
+        app.preview_xml();
+        app.select_xml_track("100", "A");
+        app.xml_edit_grouping = "new < crate".into();
+        app.prepare_xml_grouping_edit("100", Some("old & crate"));
+        assert!(app.xml_pending_grouping_edit.is_some());
+        let output = root.join("stale-path.xml");
+        app.xml_grouping_export_path = output.display().to_string();
+        app.xml_path = root.join("different.xml").display().to_string();
+        app.export_xml_grouping_edit();
+        assert!(app.xml_pending_grouping_edit.is_none());
+        assert!(app.xml_edit_error.as_deref().unwrap().contains("source"));
+        assert!(!output.exists(), "changed editable XML path must refuse export");
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn track_composer_edit_ui_allows_present_empty_but_not_absent_insertion() {
         let (root, source) = temporary_xml();
         let fixture = include_bytes!("../../../xtask/tests/fixtures/f02-track-composer-edit/source.xml");
@@ -8226,6 +8589,21 @@ mod keyboard_tests {
         app.xml_composer_export_path = root.join("empty-edited.xml").display().to_string(); app.export_xml_composer_edit();
         assert_eq!(app.xml_preview.as_ref().unwrap().as_ref().unwrap().tracks.iter().find(|t| t.id == "100").unwrap().composer.as_deref(), Some("Composed"));
         app.prepare_xml_composer_edit("200", None); assert!(app.xml_pending_composer_edit.is_none(), "absent Composer insertion is refused");
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn track_grouping_edit_ui_allows_present_empty_but_not_absent_insertion() {
+        let (root, source) = temporary_xml();
+        let fixture = include_bytes!("../../../xtask/tests/fixtures/f02-track-grouping-edit/source.xml");
+        let xml = String::from_utf8(fixture.to_vec()).unwrap().replace("Grouping=\"old &amp; crate\"", "Grouping=\"\"");
+        std::fs::write(&source, xml).unwrap();
+        let mut app = app(); app.xml_path = source.display().to_string(); app.preview_xml(); app.select_xml_track("100", "A");
+        assert_eq!(app.xml_edit_grouping, ""); app.xml_edit_grouping = "Composed".into();
+        app.prepare_xml_grouping_edit("100", Some("")); assert!(app.xml_pending_grouping_edit.is_some());
+        app.xml_grouping_export_path = root.join("empty-edited.xml").display().to_string(); app.export_xml_grouping_edit();
+        assert_eq!(app.xml_preview.as_ref().unwrap().as_ref().unwrap().tracks.iter().find(|t| t.id == "100").unwrap().grouping.as_deref(), Some("Composed"));
+        app.prepare_xml_grouping_edit("200", None); assert!(app.xml_pending_grouping_edit.is_none(), "absent Grouping insertion is refused");
         std::fs::remove_dir_all(root).unwrap();
     }
 
@@ -8264,6 +8642,45 @@ mod keyboard_tests {
                 .composer
                 .as_deref(),
             Some(composer)
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn track_grouping_edit_ui_round_trips_entities_and_whitespace() {
+        let (root, source) = temporary_xml();
+        std::fs::write(
+            &source,
+            include_bytes!("../../../xtask/tests/fixtures/f02-track-grouping-edit/source.xml"),
+        )
+        .unwrap();
+        let mut app = app();
+        app.xml_path = source.display().to_string();
+        app.preview_xml();
+        app.select_xml_track("100", "A");
+        let grouping = "new < crate & mix\tfirst\nsecond\r";
+        app.xml_edit_grouping = grouping.into();
+        app.prepare_xml_grouping_edit("100", Some("old & crate"));
+        assert!(app.xml_pending_grouping_edit.is_some());
+        app.xml_grouping_export_path = root.join("escaped.xml").display().to_string();
+        app.export_xml_grouping_edit();
+        let output = PathBuf::from(&app.xml_grouping_export_path);
+        let bytes = std::fs::read(&output).unwrap();
+        let text = String::from_utf8(bytes).unwrap();
+        assert!(text.contains("Grouping=\"new &lt; crate &amp; mix&#9;first&#10;second&#13;\""));
+        assert_eq!(
+            app.xml_preview
+                .as_ref()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .tracks
+                .iter()
+                .find(|track| track.id == "100")
+                .unwrap()
+                .grouping
+                .as_deref(),
+            Some(grouping)
         );
         std::fs::remove_dir_all(root).unwrap();
     }

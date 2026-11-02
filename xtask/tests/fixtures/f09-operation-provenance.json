@@ -412,7 +412,7 @@
       "checker": {
         "path": "xtask/tests/f02_track_grouping_edit_oracle.rs",
         "version": "f09-operation-oracle-v1",
-        "sha256": "b349d399abaf1b8f5d0589e0e6f82d9343959764635ef0196510679e9de14186",
+        "sha256": "00d3836380d602c83aec3940cf9439e9a709dc27aa95a0dbf9bc41f9e13acc1a",
         "tests": [
           "independently_verifies_guarded_track_grouping_edit_and_rejects_mutations"
         ]

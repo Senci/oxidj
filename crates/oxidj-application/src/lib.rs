@@ -772,6 +772,66 @@ pub fn export_prepared_rekordbox_track_composer_edit(
     Ok(prepared.change.clone())
 }
 
+/// A source-bound prepared Track Grouping export retains the exact preview snapshot.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PreparedTrackGroupingExport {
+    source: std::path::PathBuf,
+    source_bytes: Vec<u8>,
+    bytes: Vec<u8>,
+    change: oxidj_rekordbox::TrackGroupingEditChange,
+}
+impl PreparedTrackGroupingExport {
+    pub fn source(&self) -> &Path {
+        &self.source
+    }
+    pub fn bytes(&self) -> &[u8] {
+        &self.bytes
+    }
+    pub fn change(&self) -> &oxidj_rekordbox::TrackGroupingEditChange {
+        &self.change
+    }
+}
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TrackGroupingEditPreparationRequest {
+    pub source: std::path::PathBuf,
+    pub track_id: String,
+    pub expected_old_grouping: String,
+    pub new_grouping: String,
+}
+/// Prepare one guarded Grouping edit without writing any file.
+pub fn prepare_rekordbox_track_grouping_export(
+    request: &TrackGroupingEditPreparationRequest,
+) -> Result<PreparedTrackGroupingExport, RekordboxError> {
+    let source =
+        std::fs::read(&request.source).map_err(|error| RekordboxError(error.to_string()))?;
+    let adapter_request = oxidj_rekordbox::TrackGroupingEditRequest {
+        track_id: request.track_id.clone(),
+        expected_old_grouping: request.expected_old_grouping.clone(),
+        new_grouping: request.new_grouping.clone(),
+    };
+    let prepared = oxidj_rekordbox::prepare_track_grouping_edit(&source, &adapter_request)?;
+    Ok(PreparedTrackGroupingExport {
+        source: request.source.clone(),
+        source_bytes: source,
+        bytes: prepared.bytes,
+        change: prepared.change,
+    })
+}
+/// Export a prepared Grouping edit only after source revalidation, to a new path.
+pub fn export_prepared_rekordbox_track_grouping_edit(
+    prepared: &PreparedTrackGroupingExport,
+    output: impl AsRef<Path>,
+) -> Result<oxidj_rekordbox::TrackGroupingEditChange, RekordboxError> {
+    let (current_source, output) = read_new_export_source(&prepared.source, output)?;
+    if current_source != prepared.source_bytes {
+        return Err(RekordboxError(
+            "source changed after Track Grouping edit preparation".into(),
+        ));
+    }
+    publish_new_file(&output, &prepared.bytes)?;
+    Ok(prepared.change.clone())
+}
+
 /// A source-bound prepared Track Label export retains the exact preview snapshot.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PreparedTrackLabelExport {
