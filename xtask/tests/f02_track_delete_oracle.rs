@@ -1,18 +1,14 @@
 //! Independent post-edit XML check for synthetic F-02 shared-track deletion.
 //! Uses test-only quick-xml, never the production importer.
 use oxidj_rekordbox::{TrackDeleteRequest, prepare_track_delete};
-use quick_xml::{Reader, XmlVersion, events::Event};
 use serde_json as _;
 use sha2 as _;
 
 const SOURCE: &[u8] = include_bytes!("fixtures/f02-track-delete/source.xml");
 
-#[derive(Debug)]
-struct Node {
-    name: String,
-    attrs: Vec<(String, String)>,
-    children: Vec<Node>,
-}
+#[path = "common/xml_tree.rs"]
+mod xml_tree;
+use xml_tree::{Node, decode};
 impl Node {
     fn attr(&self, key: &str) -> &str {
         self.attrs
@@ -23,80 +19,6 @@ impl Node {
     fn named(&self, key: &str) -> Vec<&Node> {
         self.children.iter().filter(|n| n.name == key).collect()
     }
-}
-fn decode(bytes: &[u8]) -> Node {
-    let mut reader = Reader::from_reader(bytes);
-    let mut stack: Vec<Node> = vec![];
-    let mut root = None;
-    loop {
-        let event = reader.read_event().unwrap();
-        let (name, attrs, empty) = match event {
-            Event::Start(e) => {
-                let name = String::from_utf8(e.local_name().as_ref().to_vec()).unwrap();
-                let attrs = e
-                    .attributes()
-                    .map(|a| {
-                        let a = a.unwrap();
-                        (
-                            String::from_utf8(a.key.local_name().as_ref().to_vec()).unwrap(),
-                            a.decoded_and_normalized_value(
-                                XmlVersion::Explicit1_0,
-                                reader.decoder(),
-                            )
-                            .unwrap()
-                            .into_owned(),
-                        )
-                    })
-                    .collect();
-                (name, attrs, false)
-            }
-            Event::Empty(e) => {
-                let name = String::from_utf8(e.local_name().as_ref().to_vec()).unwrap();
-                let attrs = e
-                    .attributes()
-                    .map(|a| {
-                        let a = a.unwrap();
-                        (
-                            String::from_utf8(a.key.local_name().as_ref().to_vec()).unwrap(),
-                            a.decoded_and_normalized_value(
-                                XmlVersion::Explicit1_0,
-                                reader.decoder(),
-                            )
-                            .unwrap()
-                            .into_owned(),
-                        )
-                    })
-                    .collect();
-                (name, attrs, true)
-            }
-            Event::End(_) => {
-                let node = stack.pop().unwrap();
-                if let Some(parent) = stack.last_mut() {
-                    parent.children.push(node);
-                } else {
-                    root = Some(node);
-                }
-                continue;
-            }
-            Event::Eof => break,
-            _ => continue,
-        };
-        let node = Node {
-            name,
-            attrs,
-            children: vec![],
-        };
-        if empty {
-            if let Some(parent) = stack.last_mut() {
-                parent.children.push(node);
-            } else {
-                root = Some(node);
-            }
-        } else {
-            stack.push(node);
-        }
-    }
-    root.unwrap()
 }
 
 type Playlist = (Vec<String>, String, String, String, Vec<String>);

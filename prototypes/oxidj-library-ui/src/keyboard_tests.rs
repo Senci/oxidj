@@ -26,30 +26,10 @@ mod f02_playlist_rename_oracle;
 mod f02_sibling_folder_reorder_oracle;
 #[path = "../../../xtask/tests/f02_sibling_playlist_reorder_oracle.rs"]
 mod f02_sibling_playlist_reorder_oracle;
-#[path = "../../../xtask/tests/f02_track_album_edit_oracle.rs"]
-mod f02_track_album_edit_oracle;
-#[path = "../../../xtask/tests/f02_track_artist_edit_oracle.rs"]
-mod f02_track_artist_edit_oracle;
-#[path = "../../../xtask/tests/f02_track_comments_edit_oracle.rs"]
-mod f02_track_comments_edit_oracle;
-#[path = "../../../xtask/tests/f02_track_composer_edit_oracle.rs"]
-mod f02_track_composer_edit_oracle;
-#[path = "../../../xtask/tests/f02_track_genre_edit_oracle.rs"]
-mod f02_track_genre_edit_oracle;
-#[path = "../../../xtask/tests/f02_track_grouping_edit_oracle.rs"]
-mod f02_track_grouping_edit_oracle;
-#[path = "../../../xtask/tests/f02_track_label_edit_oracle.rs"]
-mod f02_track_label_edit_oracle;
-#[path = "../../../xtask/tests/f02_track_mix_edit_oracle.rs"]
-mod f02_track_mix_edit_oracle;
-#[path = "../../../xtask/tests/f02_track_tonality_edit_oracle.rs"]
-mod f02_track_tonality_edit_oracle;
-#[path = "../../../xtask/tests/f02_track_kind_edit_oracle.rs"]
-mod f02_track_kind_edit_oracle;
+#[path = "../../../xtask/tests/f02_track_attribute_edit_oracle.rs"]
+mod f02_track_attribute_edit_oracle;
 #[path = "../../../xtask/tests/common/f02_track_name_oracle_support.rs"]
 mod f02_track_name_oracle_support;
-#[path = "../../../xtask/tests/f02_track_remixer_edit_oracle.rs"]
-mod f02_track_remixer_edit_oracle;
 
 fn app() -> LibraryApp {
     LibraryApp::new(
@@ -2695,7 +2675,7 @@ fn track_artist_edit_ui_exports_prepared_bytes_and_checks_independent_oracle() {
     app.export_xml_artist_edit();
     let bytes = std::fs::read(&output).unwrap();
     assert_eq!(bytes, prepared_bytes);
-    f02_track_artist_edit_oracle::check(&bytes)
+    f02_track_attribute_edit_oracle::check(&f02_track_attribute_edit_oracle::ARTIST, &bytes)
         .expect("independent F-02 oracle accepts only the selected Artist change");
     let mutated = String::from_utf8(bytes.clone()).unwrap().replacen(
         "Artist=\"New Artist\"",
@@ -2703,7 +2683,7 @@ fn track_artist_edit_ui_exports_prepared_bytes_and_checks_independent_oracle() {
         1,
     );
     assert_ne!(mutated.as_bytes(), bytes.as_slice());
-    assert!(f02_track_artist_edit_oracle::check(mutated.as_bytes()).is_err());
+    assert!(f02_track_attribute_edit_oracle::check(&f02_track_attribute_edit_oracle::ARTIST, mutated.as_bytes()).is_err());
     assert_eq!(std::fs::read(&source).unwrap(), original);
     assert_eq!(std::fs::read(&catalog).unwrap(), catalog_before);
     let reopened = app.xml_preview.as_ref().unwrap().as_ref().unwrap();
@@ -2790,7 +2770,7 @@ fn track_artist_ui_escapes_xml_and_refuses_changed_proposals_and_absent_values()
     let bytes = std::fs::read(&output).unwrap();
     let text = String::from_utf8(bytes.clone()).unwrap();
     assert!(text.contains("New &lt; Artist &amp; &quot;guest&quot;"));
-    f02_track_artist_edit_oracle::check_with_artist(&bytes, "New < Artist & \"guest\"")
+    f02_track_attribute_edit_oracle::check_with(&f02_track_attribute_edit_oracle::ARTIST, &bytes, "New < Artist & \"guest\"")
         .expect("independent whole-tree oracle accepts escaped UI output");
     assert_eq!(std::fs::read(&source).unwrap(), original);
     std::fs::remove_dir_all(root).unwrap();
@@ -2893,7 +2873,7 @@ fn track_comments_edit_ui_exports_previewed_bytes_through_independent_oracle() {
     let output = PathBuf::from(&app.xml_comments_export_path);
     let bytes = std::fs::read(&output).unwrap();
     assert_eq!(bytes, prepared_bytes);
-    f02_track_comments_edit_oracle::check(&bytes)
+    f02_track_attribute_edit_oracle::check(&f02_track_attribute_edit_oracle::COMMENTS, &bytes)
         .expect("independent F-02 oracle accepts only selected Comments edit");
     let mutated = String::from_utf8(bytes.clone()).unwrap().replacen(
         "Comments=\"new &lt; note\"",
@@ -2901,7 +2881,7 @@ fn track_comments_edit_ui_exports_previewed_bytes_through_independent_oracle() {
         1,
     );
     assert_ne!(mutated.as_bytes(), bytes.as_slice());
-    assert!(f02_track_comments_edit_oracle::check(mutated.as_bytes()).is_err());
+    assert!(f02_track_attribute_edit_oracle::check(&f02_track_attribute_edit_oracle::COMMENTS, mutated.as_bytes()).is_err());
     assert_eq!(std::fs::read(&source).unwrap(), original);
     assert_eq!(std::fs::read(&catalog).unwrap(), catalog_before);
     let reopened = app.xml_preview.as_ref().unwrap().as_ref().unwrap();
@@ -3163,7 +3143,7 @@ fn track_genre_edit_ui_exports_previewed_bytes_and_reopens_output() {
     app.export_xml_genre_edit();
     let bytes = std::fs::read(&output).unwrap();
     assert_eq!(bytes, prepared);
-    f02_track_genre_edit_oracle::check(&bytes)
+    f02_track_attribute_edit_oracle::check(&f02_track_attribute_edit_oracle::GENRE, &bytes)
         .expect("independent F-02 oracle accepts UI-exported Genre bytes");
     assert!(String::from_utf8_lossy(&bytes).contains("Genre=\"new &lt; style\""));
     let mutated = String::from_utf8(bytes.clone()).unwrap().replacen(
@@ -3171,7 +3151,7 @@ fn track_genre_edit_ui_exports_previewed_bytes_and_reopens_output() {
         "Genre=\"altered\"",
         1,
     );
-    assert!(f02_track_genre_edit_oracle::check(mutated.as_bytes()).is_err());
+    assert!(f02_track_attribute_edit_oracle::check(&f02_track_attribute_edit_oracle::GENRE, mutated.as_bytes()).is_err());
     assert_eq!(std::fs::read(&source).unwrap(), original);
     assert_eq!(std::fs::read(&catalog).unwrap(), catalog_before);
     assert_eq!(
@@ -3331,7 +3311,7 @@ fn track_label_edit_ui_exports_previewed_bytes_and_reopens_output() {
     app.export_xml_label_edit();
     let bytes = std::fs::read(&output).unwrap();
     assert_eq!(bytes, prepared);
-    f02_track_label_edit_oracle::check(&bytes)
+    f02_track_attribute_edit_oracle::check(&f02_track_attribute_edit_oracle::LABEL, &bytes)
         .expect("independent F-02 oracle accepts UI-exported Label bytes");
     assert!(String::from_utf8_lossy(&bytes).contains("Label=\"new &lt; imprint\""));
     let mutated = String::from_utf8(bytes.clone()).unwrap().replacen(
@@ -3339,7 +3319,7 @@ fn track_label_edit_ui_exports_previewed_bytes_and_reopens_output() {
         "Label=\"altered\"",
         1,
     );
-    assert!(f02_track_label_edit_oracle::check(mutated.as_bytes()).is_err());
+    assert!(f02_track_attribute_edit_oracle::check(&f02_track_attribute_edit_oracle::LABEL, mutated.as_bytes()).is_err());
     assert_eq!(std::fs::read(&source).unwrap(), original);
     assert_eq!(std::fs::read(&catalog).unwrap(), catalog_before);
     assert_eq!(
@@ -3570,7 +3550,7 @@ fn track_composer_edit_ui_exports_previewed_bytes_and_reopens_output() {
     app.export_xml_composer_edit();
     let bytes = std::fs::read(&output).unwrap();
     assert_eq!(bytes, prepared);
-    f02_track_composer_edit_oracle::check(&bytes)
+    f02_track_attribute_edit_oracle::check(&f02_track_attribute_edit_oracle::COMPOSER, &bytes)
         .expect("independent F-02 oracle accepts UI-exported Composer bytes");
     assert!(String::from_utf8_lossy(&bytes).contains("Composer=\"new &lt; composer\""));
     let mutated = String::from_utf8(bytes.clone()).unwrap().replacen(
@@ -3578,7 +3558,7 @@ fn track_composer_edit_ui_exports_previewed_bytes_and_reopens_output() {
         "Composer=\"altered\"",
         1,
     );
-    assert!(f02_track_composer_edit_oracle::check(mutated.as_bytes()).is_err());
+    assert!(f02_track_attribute_edit_oracle::check(&f02_track_attribute_edit_oracle::COMPOSER, mutated.as_bytes()).is_err());
     assert_eq!(std::fs::read(&source).unwrap(), original);
     assert_eq!(std::fs::read(&catalog).unwrap(), catalog_before);
     assert_eq!(
@@ -3809,7 +3789,7 @@ fn track_grouping_edit_ui_exports_previewed_bytes_and_reopens_output() {
     app.export_xml_grouping_edit();
     let bytes = std::fs::read(&output).unwrap();
     assert_eq!(bytes, prepared);
-    f02_track_grouping_edit_oracle::check(&bytes)
+    f02_track_attribute_edit_oracle::check(&f02_track_attribute_edit_oracle::GROUPING, &bytes)
         .expect("independent F-02 oracle accepts UI-exported Grouping bytes");
     assert!(String::from_utf8_lossy(&bytes).contains("Grouping=\"new &lt; crate\""));
     let mutated = String::from_utf8(bytes.clone()).unwrap().replacen(
@@ -3817,7 +3797,7 @@ fn track_grouping_edit_ui_exports_previewed_bytes_and_reopens_output() {
         "Grouping=\"altered\"",
         1,
     );
-    assert!(f02_track_grouping_edit_oracle::check(mutated.as_bytes()).is_err());
+    assert!(f02_track_attribute_edit_oracle::check(&f02_track_attribute_edit_oracle::GROUPING, mutated.as_bytes()).is_err());
     assert_eq!(std::fs::read(&source).unwrap(), original);
     assert_eq!(std::fs::read(&catalog).unwrap(), catalog_before);
     assert_eq!(
@@ -4049,7 +4029,7 @@ fn track_remixer_edit_ui_exports_previewed_bytes_and_reopens_output() {
     app.export_xml_remixer_edit();
     let bytes = std::fs::read(&output).unwrap();
     assert_eq!(bytes, prepared);
-    f02_track_remixer_edit_oracle::check(&bytes)
+    f02_track_attribute_edit_oracle::check(&f02_track_attribute_edit_oracle::REMIXER, &bytes)
         .expect("independent F-02 remixer oracle accepts UI-exported Remixer bytes");
     assert!(String::from_utf8_lossy(&bytes).contains("Remixer=\"new &lt; mix\""));
     let mutated = String::from_utf8(bytes.clone()).unwrap().replacen(
@@ -4057,7 +4037,7 @@ fn track_remixer_edit_ui_exports_previewed_bytes_and_reopens_output() {
         "Remixer=\"altered\"",
         1,
     );
-    assert!(f02_track_remixer_edit_oracle::check(mutated.as_bytes()).is_err());
+    assert!(f02_track_attribute_edit_oracle::check(&f02_track_attribute_edit_oracle::REMIXER, mutated.as_bytes()).is_err());
     assert_eq!(std::fs::read(&source).unwrap(), original);
     assert_eq!(std::fs::read(&catalog).unwrap(), catalog_before);
     assert_eq!(
@@ -4339,7 +4319,7 @@ fn track_tonality_edit_ui_exports_actual_bytes_through_independent_oracle() {
     app.prepare_xml_tonality_edit("100", Some("old & key"));
     app.export_xml_tonality_edit();
     assert_eq!(app.xml_edit_tonality, "new < key");
-    assert!(f02_track_tonality_edit_oracle::check(&std::fs::read(&output).unwrap()).is_ok());
+    assert!(f02_track_attribute_edit_oracle::check(&f02_track_attribute_edit_oracle::TONALITY, &std::fs::read(&output).unwrap()).is_ok());
     app.select_xml_track("200", "B");
     app.prepare_xml_tonality_edit("200", None);
     assert!(app.xml_pending_tonality_edit.is_none(), "absent Tonality insertion must refuse");
@@ -4427,7 +4407,7 @@ fn track_kind_edit_ui_exports_actual_bytes_through_independent_oracle() {
     app.prepare_xml_kind_edit("100", Some("old & kind"));
     app.export_xml_kind_edit();
     assert_eq!(app.xml_edit_kind, "new < kind");
-    assert!(f02_track_kind_edit_oracle::check(&std::fs::read(&output).unwrap()).is_ok());
+    assert!(f02_track_attribute_edit_oracle::check(&f02_track_attribute_edit_oracle::KIND, &std::fs::read(&output).unwrap()).is_ok());
     std::fs::remove_dir_all(root).unwrap();
 }
 
@@ -4744,12 +4724,12 @@ fn track_tonality_ui_refuses_changed_path_selection_proposal_stale_source_and_ov
     app.xml_tonality_export_path = output.display().to_string();
     app.export_xml_tonality_edit();
     let bytes = std::fs::read(&output).unwrap();
-    assert!(f02_track_tonality_edit_oracle::check(&bytes).is_ok());
+    assert!(f02_track_attribute_edit_oracle::check(&f02_track_attribute_edit_oracle::TONALITY, &bytes).is_ok());
     let mutated = String::from_utf8(bytes.clone())
         .unwrap()
         .replacen("new &lt; key", "new &lt; KEY", 1);
     assert_ne!(mutated.as_bytes(), bytes.as_slice());
-    assert!(f02_track_tonality_edit_oracle::check(mutated.as_bytes()).is_err());
+    assert!(f02_track_attribute_edit_oracle::check(&f02_track_attribute_edit_oracle::TONALITY, mutated.as_bytes()).is_err());
     std::fs::remove_dir_all(root).unwrap();
 }
 
@@ -4798,12 +4778,12 @@ fn track_kind_ui_refuses_absent_insertion_stale_source_and_overwrite_with_oracle
     app.xml_kind_export_path = output.display().to_string();
     app.export_xml_kind_edit();
     let bytes = std::fs::read(&output).unwrap();
-    assert!(f02_track_kind_edit_oracle::check(&bytes).is_ok());
+    assert!(f02_track_attribute_edit_oracle::check(&f02_track_attribute_edit_oracle::KIND, &bytes).is_ok());
     let mutated = String::from_utf8(bytes.clone())
         .unwrap()
         .replacen("new &lt; kind", "new &lt; KIND", 1);
     assert_ne!(mutated.as_bytes(), bytes.as_slice());
-    assert!(f02_track_kind_edit_oracle::check(mutated.as_bytes()).is_err());
+    assert!(f02_track_attribute_edit_oracle::check(&f02_track_attribute_edit_oracle::KIND, mutated.as_bytes()).is_err());
     std::fs::remove_dir_all(root).unwrap();
 }
 
@@ -4885,14 +4865,14 @@ fn track_mix_edit_ui_exports_previewed_bytes_through_independent_oracle() {
     app.export_xml_mix_edit();
     let bytes = std::fs::read(&output).unwrap();
     assert_eq!(bytes, prepared);
-    f02_track_mix_edit_oracle::check(&bytes)
+    f02_track_attribute_edit_oracle::check(&f02_track_attribute_edit_oracle::MIX, &bytes)
         .expect("independent F-02 Mix oracle accepts UI bytes");
     let mutated = String::from_utf8(bytes).unwrap().replacen(
         "Mix=\"new &lt; set\"",
         "Mix=\"altered\"",
         1,
     );
-    assert!(f02_track_mix_edit_oracle::check(mutated.as_bytes()).is_err());
+    assert!(f02_track_attribute_edit_oracle::check(&f02_track_attribute_edit_oracle::MIX, mutated.as_bytes()).is_err());
     assert_eq!(std::fs::read(&source).unwrap(), original);
     assert_eq!(std::fs::read(&catalog).unwrap(), catalog_before);
     assert_eq!(
@@ -5351,7 +5331,7 @@ fn track_album_edit_ui_exports_previewed_bytes_through_independent_oracle() {
     app.export_xml_album_edit();
     let bytes = std::fs::read(&output).unwrap();
     assert_eq!(bytes, prepared_bytes);
-    f02_track_album_edit_oracle::check(&bytes)
+    f02_track_attribute_edit_oracle::check(&f02_track_attribute_edit_oracle::ALBUM, &bytes)
         .expect("independent F-02 oracle accepts only selected Album edit");
     let mutated = String::from_utf8(bytes.clone()).unwrap().replacen(
         "Album=\"new &lt; record\"",
@@ -5359,7 +5339,7 @@ fn track_album_edit_ui_exports_previewed_bytes_through_independent_oracle() {
         1,
     );
     assert_ne!(mutated.as_bytes(), bytes.as_slice());
-    assert!(f02_track_album_edit_oracle::check(mutated.as_bytes()).is_err());
+    assert!(f02_track_attribute_edit_oracle::check(&f02_track_attribute_edit_oracle::ALBUM, mutated.as_bytes()).is_err());
     assert_eq!(std::fs::read(&source).unwrap(), original);
     assert_eq!(std::fs::read(&catalog).unwrap(), catalog_before);
     let reopened = app.xml_preview.as_ref().unwrap().as_ref().unwrap();
@@ -5762,7 +5742,7 @@ fn track_album_edit_ui_round_trips_xml_entities_and_whitespace() {
     let bytes = std::fs::read(&output).unwrap();
     let text = String::from_utf8(bytes.clone()).unwrap();
     assert!(text.contains("Album=\"new &lt; record &amp; mix&#9;first&#10;second&#13;\""));
-    f02_track_album_edit_oracle::check_with_album(&bytes, album)
+    f02_track_attribute_edit_oracle::check_with(&f02_track_attribute_edit_oracle::ALBUM, &bytes, album)
         .expect("independent F-02 oracle preserves escaped Album text");
     assert_eq!(
         app.xml_preview
