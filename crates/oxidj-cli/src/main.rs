@@ -1757,6 +1757,13 @@ fn print_not_carried(not_carried: &oxidj_application::NotCarried, tracks: usize)
         );
         println!("AbsentInSource\t{name}\t{count}");
     }
+    for (name, count) in &not_carried.elements_absent {
+        println!(
+            "Carried\tTRACK/{name}\t{}",
+            not_carried.carried(name, tracks)
+        );
+        println!("AbsentInSource\t{name}\t{count}");
+    }
     for (name, count) in &not_carried.track_attributes {
         println!("NotCarried\tTRACK@{name}\t{count}");
     }

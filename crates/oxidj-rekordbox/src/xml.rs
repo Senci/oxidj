@@ -183,6 +183,9 @@ pub fn parse(bytes: &[u8]) -> Result<Preview, Error> {
                             start_seconds: attr(&e, "Start")?,
                             number: attr(&e, "Num")?,
                             end_seconds: optional(&e, "End")?,
+                            red: optional(&e, "Red")?,
+                            green: optional(&e, "Green")?,
+                            blue: optional(&e, "Blue")?,
                         });
                     }
                 } else if tag == "TRACK"
@@ -269,6 +272,9 @@ pub fn parse(bytes: &[u8]) -> Result<Preview, Error> {
                             start_seconds: attr(&e, "Start")?,
                             number: attr(&e, "Num")?,
                             end_seconds: optional(&e, "End")?,
+                            red: optional(&e, "Red")?,
+                            green: optional(&e, "Green")?,
+                            blue: optional(&e, "Blue")?,
                         });
                     }
                 } else if tag == "NODE" {

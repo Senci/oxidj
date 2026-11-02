@@ -49,6 +49,9 @@ pub struct PositionMark {
     pub start_seconds: String,
     pub number: String,
     pub end_seconds: Option<String>,
+    pub red: Option<String>,
+    pub green: Option<String>,
+    pub blue: Option<String>,
 }
 #[derive(Debug, Clone, PartialEq)]
 pub struct Folder {
@@ -89,12 +92,14 @@ impl std::fmt::Display for Error {
 }
 impl std::error::Error for Error {}
 
+mod anlz;
 mod edit;
 mod library_xml;
 mod pdb;
 mod playlist;
 mod xml;
 
+pub use anlz::*;
 pub use edit::*;
 pub use library_xml::*;
 pub use pdb::*;

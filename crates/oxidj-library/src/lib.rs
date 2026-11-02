@@ -9,9 +9,11 @@ use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 mod imported_library;
-pub use imported_library::{LibraryCounts, LibraryNode, LibrarySnapshot, LibraryTrack};
+pub use imported_library::{
+    LibraryBeat, LibraryCounts, LibraryCue, LibraryNode, LibrarySnapshot, LibraryTrack,
+};
 
-const SCHEMA_VERSION: i64 = 4;
+const SCHEMA_VERSION: i64 = 5;
 const MIGRATION_LIST: &[M<'static>] = &[
     M::up(
         "CREATE TABLE tracks (\
@@ -80,6 +82,30 @@ const MIGRATION_LIST: &[M<'static>] = &[
         ALTER TABLE library_tracks ADD COLUMN disc_number INTEGER CHECK (disc_number > 0);\
         ALTER TABLE library_tracks ADD COLUMN rating_stars INTEGER \
             CHECK (rating_stars BETWEEN 1 AND 5);",
+    ),
+    // M7 slice 3: imported beat grid and cues/loops (times in milliseconds).
+    M::up(
+        "CREATE TABLE library_beats (\
+            track_position INTEGER NOT NULL REFERENCES library_tracks(position),\
+            position INTEGER NOT NULL CHECK (position >= 0),\
+            time_ms INTEGER NOT NULL CHECK (time_ms >= 0),\
+            tempo_hundredths_bpm INTEGER NOT NULL CHECK (tempo_hundredths_bpm > 0),\
+            beat_in_bar INTEGER NOT NULL CHECK (beat_in_bar BETWEEN 1 AND 4),\
+            PRIMARY KEY (track_position, position)\
+        );\
+        CREATE TABLE library_cues (\
+            track_position INTEGER NOT NULL REFERENCES library_tracks(position),\
+            position INTEGER NOT NULL CHECK (position >= 0),\
+            hot_cue INTEGER CHECK (hot_cue > 0),\
+            start_ms INTEGER NOT NULL CHECK (start_ms >= 0),\
+            end_ms INTEGER CHECK (end_ms > start_ms),\
+            name TEXT NOT NULL,\
+            red INTEGER CHECK (red BETWEEN 0 AND 255),\
+            green INTEGER CHECK (green BETWEEN 0 AND 255),\
+            blue INTEGER CHECK (blue BETWEEN 0 AND 255),\
+            CHECK ((red IS NULL) = (green IS NULL) AND (green IS NULL) = (blue IS NULL)),\
+            PRIMARY KEY (track_position, position)\
+        );",
     ),
 ];
 const MIGRATIONS: Migrations<'static> = Migrations::from_slice(MIGRATION_LIST);

@@ -28,6 +28,37 @@ pub struct LibraryXmlTrack {
     pub sample_rate: Option<u32>,
     /// 1..=5 stars, written as the XML 0–255 scale (`stars * 51`).
     pub rating_stars: Option<u8>,
+    /// Ordered `TEMPO` children (one per stored beat-grid point).
+    pub tempos: Vec<LibraryXmlTempo>,
+    /// Ordered `POSITION_MARK` children.
+    pub marks: Vec<LibraryXmlMark>,
+}
+
+/// One `TEMPO` point: `Inizio` = `start_ms`/1000 (3 decimals), `Bpm` = hundredths
+/// (2 decimals), `Metro` = `4/4`, `Battito` = `beat_in_bar` (1..=4). Written exactly
+/// as given: no averaging, bar numbering or interpolation (ADR-005 F-10 tuple).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LibraryXmlTempo {
+    pub start_ms: u32,
+    pub bpm_hundredths: u32,
+    pub beat_in_bar: u8,
+}
+
+/// One `POSITION_MARK`: `Type` 0 (cue) or 4 (loop, with `End`), `Num` = hot-cue
+/// index (0 = A) or -1 for a memory cue, times in seconds with 3 decimals, optional
+/// `Red`/`Green`/`Blue`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LibraryXmlMark {
+    pub name: String,
+    pub start_ms: u32,
+    pub end_ms: Option<u32>,
+    /// `None` = memory cue (`Num="-1"`); `Some(n)` = hot cue `n` (1 = A → `Num="0"`).
+    pub hot_cue: Option<u32>,
+    pub colour: Option<[u8; 3]>,
+}
+
+fn seconds(ms: u32) -> String {
+    format!("{}.{:03}", ms / 1000, ms % 1000)
 }
 
 /// Optional TRACK attributes this writer emits when the caller supplies a value.
@@ -74,8 +105,10 @@ pub const LIBRARY_XML_NOT_WRITTEN_TRACK_ATTRIBUTES: &[&str] = &[
     "PlayCount",
     "Colour",
 ];
-/// TRACK child elements this writer never emits (beat grid, cues).
-pub const LIBRARY_XML_NOT_WRITTEN_TRACK_ELEMENTS: &[&str] = &["TEMPO", "POSITION_MARK"];
+/// TRACK child elements this writer never emits.
+pub const LIBRARY_XML_NOT_WRITTEN_TRACK_ELEMENTS: &[&str] = &[];
+/// TRACK child elements this writer emits when the caller supplies them.
+pub const LIBRARY_XML_OPTIONAL_TRACK_ELEMENTS: &[&str] = &["TEMPO", "POSITION_MARK"];
 
 fn checked(value: &str) -> Result<String, Error> {
     if value
@@ -165,7 +198,50 @@ pub fn write_library_xml(
         let _ = write!(out, " Location=\"{}\"", checked(&t.location)?);
         text(&mut out, "Tonality", &t.tonality)?;
         text(&mut out, "Label", &t.label)?;
-        out.push_str("/>\n");
+        if t.tempos.is_empty() && t.marks.is_empty() {
+            out.push_str("/>\n");
+            continue;
+        }
+        out.push_str(">\n");
+        for tempo in &t.tempos {
+            if !(1..=4).contains(&tempo.beat_in_bar) || tempo.bpm_hundredths == 0 {
+                return Err(Error("library tempo point is outside the 4/4 grid".into()));
+            }
+            let _ = writeln!(
+                out,
+                "      <TEMPO Inizio=\"{}\" Bpm=\"{}.{:02}\" Metro=\"4/4\" Battito=\"{}\"/>",
+                seconds(tempo.start_ms),
+                tempo.bpm_hundredths / 100,
+                tempo.bpm_hundredths % 100,
+                tempo.beat_in_bar
+            );
+        }
+        for mark in &t.marks {
+            let _ = write!(
+                out,
+                "      <POSITION_MARK Name=\"{}\" Type=\"{}\" Start=\"{}\"",
+                checked(&mark.name)?,
+                if mark.end_ms.is_some() { 4 } else { 0 },
+                seconds(mark.start_ms)
+            );
+            if let Some(end) = mark.end_ms {
+                if end <= mark.start_ms {
+                    return Err(Error("library loop end is not after its start".into()));
+                }
+                let _ = write!(out, " End=\"{}\"", seconds(end));
+            }
+            let num = match mark.hot_cue {
+                None => -1,
+                Some(0) => return Err(Error("library hot cue number is zero".into())),
+                Some(n) => i64::from(n) - 1,
+            };
+            let _ = write!(out, " Num=\"{num}\"");
+            if let Some([r, g, b]) = mark.colour {
+                let _ = write!(out, " Red=\"{r}\" Green=\"{g}\" Blue=\"{b}\"");
+            }
+            out.push_str("/>\n");
+        }
+        out.push_str("    </TRACK>\n");
     }
     out.push_str("  </COLLECTION>\n  <PLAYLISTS>\n");
     fn node(
@@ -328,6 +404,103 @@ mod library_xml_tests {
             },
             LibraryXmlTrack {
                 genre: Some("bad\u{1}".into()),
+                ..track.clone()
+            },
+        ] {
+            assert!(write_library_xml(&[bad], &[]).is_err());
+        }
+    }
+
+    #[test]
+    fn tempo_and_position_mark_children_are_written_exactly_and_reparse() {
+        let track = LibraryXmlTrack {
+            track_id: 1,
+            name: "T".into(),
+            location: "file://localhost/t.wav".into(),
+            tempos: vec![
+                LibraryXmlTempo {
+                    start_ms: 25,
+                    bpm_hundredths: 12_800,
+                    beat_in_bar: 1,
+                },
+                LibraryXmlTempo {
+                    start_ms: 61_004,
+                    bpm_hundredths: 9_005,
+                    beat_in_bar: 4,
+                },
+            ],
+            marks: vec![
+                LibraryXmlMark {
+                    name: "In & <x>".into(),
+                    start_ms: 1_500,
+                    end_ms: None,
+                    hot_cue: Some(1),
+                    colour: Some([40, 226, 20]),
+                },
+                LibraryXmlMark {
+                    name: String::new(),
+                    start_ms: 2_000,
+                    end_ms: Some(4_250),
+                    hot_cue: None,
+                    colour: None,
+                },
+            ],
+            ..LibraryXmlTrack::default()
+        };
+        let bytes = write_library_xml(std::slice::from_ref(&track), &[]).unwrap();
+        let text = String::from_utf8(bytes.clone()).unwrap();
+        for line in [
+            "<TEMPO Inizio=\"0.025\" Bpm=\"128.00\" Metro=\"4/4\" Battito=\"1\"/>",
+            "<TEMPO Inizio=\"61.004\" Bpm=\"90.05\" Metro=\"4/4\" Battito=\"4\"/>",
+            "<POSITION_MARK Name=\"In &amp; &lt;x&gt;\" Type=\"0\" Start=\"1.500\" Num=\"0\" Red=\"40\" Green=\"226\" Blue=\"20\"/>",
+            "<POSITION_MARK Name=\"\" Type=\"4\" Start=\"2.000\" End=\"4.250\" Num=\"-1\"/>",
+        ] {
+            assert!(text.lines().any(|l| l.trim() == line), "missing {line}");
+        }
+        let preview = parse(&bytes).unwrap();
+        assert!(preview.unsupported.is_empty());
+        let t = &preview.tracks[0];
+        assert_eq!(t.tempos.len(), 2);
+        assert_eq!(t.marks[0].name, "In & <x>");
+        assert_eq!(t.marks[1].end_seconds.as_deref(), Some("4.250"));
+        // The frozen no-edit export subset accepts the written children unchanged.
+        assert_eq!(export_xml(&bytes).unwrap(), bytes);
+        for bad in [
+            LibraryXmlTrack {
+                tempos: vec![LibraryXmlTempo {
+                    start_ms: 0,
+                    bpm_hundredths: 100,
+                    beat_in_bar: 5,
+                }],
+                ..track.clone()
+            },
+            LibraryXmlTrack {
+                tempos: vec![LibraryXmlTempo {
+                    start_ms: 0,
+                    bpm_hundredths: 0,
+                    beat_in_bar: 1,
+                }],
+                ..track.clone()
+            },
+            LibraryXmlTrack {
+                marks: vec![LibraryXmlMark {
+                    end_ms: Some(1_500),
+                    ..track.marks[0].clone()
+                }],
+                ..track.clone()
+            },
+            LibraryXmlTrack {
+                marks: vec![LibraryXmlMark {
+                    hot_cue: Some(0),
+                    ..track.marks[0].clone()
+                }],
+                ..track.clone()
+            },
+            LibraryXmlTrack {
+                marks: vec![LibraryXmlMark {
+                    name: "bad\u{1}".into(),
+                    ..track.marks[0].clone()
+                }],
                 ..track.clone()
             },
         ] {

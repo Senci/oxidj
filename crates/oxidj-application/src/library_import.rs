@@ -8,10 +8,13 @@ use std::{
     path::Path,
 };
 
-use oxidj_library::{Catalog, LibraryCounts, LibraryNode, LibrarySnapshot, LibraryTrack};
+use oxidj_library::{
+    Catalog, LibraryBeat, LibraryCounts, LibraryCue, LibraryNode, LibrarySnapshot, LibraryTrack,
+};
 use oxidj_rekordbox::{
     LIBRARY_XML_NOT_WRITTEN_TRACK_ATTRIBUTES, LIBRARY_XML_NOT_WRITTEN_TRACK_ELEMENTS,
-    LIBRARY_XML_OPTIONAL_TRACK_ATTRIBUTES, LibraryXmlNode, LibraryXmlTrack, PdbNodeId, PdbPreview,
+    LIBRARY_XML_OPTIONAL_TRACK_ATTRIBUTES, LIBRARY_XML_OPTIONAL_TRACK_ELEMENTS, LibraryXmlMark,
+    LibraryXmlNode, LibraryXmlTempo, LibraryXmlTrack, PdbNodeId, PdbPreview,
 };
 
 /// A fail-closed import/export refusal. Messages never contain source values.
@@ -38,6 +41,9 @@ pub struct NotCarried {
     /// (optional XML TRACK attribute the library carries, number of tracks whose
     /// value was absent — so the attribute was not written). Absent, not dropped.
     pub absent: Vec<(&'static str, usize)>,
+    /// (optional XML TRACK child element the library carries, number of tracks
+    /// without any — so none was written). Absent, not dropped.
+    pub elements_absent: Vec<(&'static str, usize)>,
 }
 
 impl NotCarried {
@@ -47,6 +53,7 @@ impl NotCarried {
             - self
                 .absent
                 .iter()
+                .chain(&self.elements_absent)
                 .find(|(name, _)| *name == attribute)
                 .map_or(0, |(_, count)| *count)
     }
@@ -81,6 +88,20 @@ impl NotCarried {
                         "Tonality" => t.key.is_some(),
                         "Label" => t.label.is_some(),
                         _ => unreachable!("every optional attribute is mapped"),
+                    };
+                    (
+                        *name,
+                        snapshot.tracks.iter().filter(|t| !present(t)).count(),
+                    )
+                })
+                .collect(),
+            elements_absent: LIBRARY_XML_OPTIONAL_TRACK_ELEMENTS
+                .iter()
+                .map(|name| {
+                    let present = |t: &LibraryTrack| match *name {
+                        "TEMPO" => !t.beat_grid.is_empty(),
+                        "POSITION_MARK" => !t.cues.is_empty(),
+                        _ => unreachable!("every optional element is mapped"),
                     };
                     (
                         *name,
@@ -198,6 +219,27 @@ pub fn library_from_pdb_preview(
             track_number: track.track_number,
             disc_number: track.disc_number.map(u32::from),
             rating_stars: track.rating_stars,
+            beat_grid: track
+                .beat_grid
+                .iter()
+                .map(|b| LibraryBeat {
+                    time_ms: b.time_ms,
+                    tempo_hundredths_bpm: u32::from(b.tempo_hundredths_bpm),
+                    beat_in_bar: u8::try_from(b.beat_in_bar).unwrap_or(0),
+                })
+                .collect(),
+            cues: track
+                .cues
+                .iter()
+                .map(|c| LibraryCue {
+                    hot_cue: (c.hot_cue != 0).then_some(c.hot_cue),
+                    start_ms: c.start_ms,
+                    end_ms: c.loop_end_ms,
+                    name: c.comment.clone().unwrap_or_default(),
+                    // Colour is carried for hot cues only (memory cues have none in XML).
+                    colour: c.rgb.filter(|_| c.hot_cue != 0),
+                })
+                .collect(),
         });
     }
     // (sort_order, id, node) per parent.
@@ -273,11 +315,13 @@ pub fn library_from_pdb_preview(
     Ok((LibrarySnapshot { tracks, roots }, encoded))
 }
 
-/// Per-attribute counts of source values the PDB preview could not interpret, in
-/// the order of [`LIBRARY_XML_OPTIONAL_TRACK_ATTRIBUTES`] (zero counts included).
+/// Per-attribute (then per-element) counts of source values the PDB preview could
+/// not interpret, in the order of [`LIBRARY_XML_OPTIONAL_TRACK_ATTRIBUTES`] then
+/// [`LIBRARY_XML_OPTIONAL_TRACK_ELEMENTS`] (zero counts included).
 pub fn unresolved_counts(preview: &PdbPreview) -> Vec<(&'static str, usize)> {
     LIBRARY_XML_OPTIONAL_TRACK_ATTRIBUTES
         .iter()
+        .chain(LIBRARY_XML_OPTIONAL_TRACK_ELEMENTS)
         .map(|name| {
             (
                 *name,
@@ -297,6 +341,16 @@ fn catalog_files(catalog: &Path) -> [std::path::PathBuf; 3] {
     let mut shm = catalog.as_os_str().to_owned();
     shm.push("-shm");
     [catalog.to_path_buf(), wal.into(), shm.into()]
+}
+
+/// The device root of a `<root>/PIONEER/rekordbox/export.pdb` layout, where ANLZ
+/// `analyze_path` values (`/PIONEER/USBANLZ/...`) resolve; `None` for any other layout.
+fn device_root(pdb: &Path) -> Option<std::path::PathBuf> {
+    let rekordbox = pdb.parent()?;
+    let pioneer = rekordbox.parent()?;
+    (rekordbox.file_name()? == "rekordbox" && pioneer.file_name()? == "PIONEER")
+        .then(|| pioneer.parent().map(Path::to_path_buf))
+        .flatten()
 }
 
 fn read_source(path: &Path) -> Result<Vec<u8>, LibraryWorkflowError> {
@@ -336,8 +390,9 @@ fn import_library_with(
         return Err(fail("refusing to reuse an existing catalog path"));
     }
     let before = read_source(pdb)?;
-    let preview = oxidj_rekordbox::parse_pdb(&before)
+    let mut preview = oxidj_rekordbox::parse_pdb(&before)
         .map_err(|_| fail("PDB source was rejected by the read-only preview"))?;
+    oxidj_rekordbox::attach_analysis(&mut preview, device_root(pdb).as_deref());
     let (snapshot, locations_uri_encoded) = library_from_pdb_preview(&preview)?;
     let unresolved = unresolved_counts(&preview);
     let counts = snapshot.counts();
@@ -407,6 +462,26 @@ fn xml_library(
                 bit_rate: t.bit_rate,
                 sample_rate: t.sample_rate,
                 rating_stars: t.rating_stars,
+                tempos: t
+                    .beat_grid
+                    .iter()
+                    .map(|b| LibraryXmlTempo {
+                        start_ms: b.time_ms,
+                        bpm_hundredths: b.tempo_hundredths_bpm,
+                        beat_in_bar: b.beat_in_bar,
+                    })
+                    .collect(),
+                marks: t
+                    .cues
+                    .iter()
+                    .map(|c| LibraryXmlMark {
+                        name: c.name.clone(),
+                        start_ms: c.start_ms,
+                        end_ms: c.end_ms,
+                        hot_cue: c.hot_cue,
+                        colour: c.colour,
+                    })
+                    .collect(),
             })
         })
         .collect::<Result<_, LibraryWorkflowError>>()?;
@@ -429,6 +504,40 @@ fn xml_library(
             .collect()
     }
     Ok((tracks, nodes(&snapshot.roots, &key)?))
+}
+
+fn seconds(ms: u32) -> String {
+    format!("{}.{:03}", ms / 1000, ms % 1000)
+}
+
+fn tempos_match(actual: &[oxidj_rekordbox::Tempo], expected: &[LibraryBeat]) -> bool {
+    actual.len() == expected.len()
+        && actual.iter().zip(expected).all(|(x, b)| {
+            x.start_seconds == seconds(b.time_ms)
+                && x.bpm
+                    == format!(
+                        "{}.{:02}",
+                        b.tempo_hundredths_bpm / 100,
+                        b.tempo_hundredths_bpm % 100
+                    )
+                && x.meter == "4/4"
+                && x.beat == b.beat_in_bar.to_string()
+        })
+}
+
+fn marks_match(actual: &[oxidj_rekordbox::PositionMark], expected: &[LibraryCue]) -> bool {
+    actual.len() == expected.len()
+        && actual.iter().zip(expected).all(|(x, c)| {
+            let colour = |i: usize| c.colour.map(|rgb| rgb[i].to_string());
+            x.name == c.name
+                && x.kind == if c.end_ms.is_some() { "4" } else { "0" }
+                && x.start_seconds == seconds(c.start_ms)
+                && x.end_seconds == c.end_ms.map(seconds)
+                && x.number == c.hot_cue.map_or(-1, |n| i64::from(n) - 1).to_string()
+                && x.red == colour(0)
+                && x.green == colour(1)
+                && x.blue == colour(2)
+        })
 }
 
 /// Check re-parsed XML against the catalog snapshot: tracks, folder and playlist
@@ -479,8 +588,8 @@ fn verify_export(snapshot: &LibrarySnapshot, preview: &crate::Preview) -> bool {
                     ]
                     .iter()
                     .all(|v| v.is_none())
-                    && x.tempos.is_empty()
-                    && x.marks.is_empty()
+                    && tempos_match(&x.tempos, &t.beat_grid)
+                    && marks_match(&x.marks, &t.cues)
             });
     let mut folders = vec![vec!["ROOT".to_string()]];
     let mut playlists = Vec::new();
@@ -700,6 +809,51 @@ mod tests {
                 source_unchanged: true,
             }
         );
+    }
+
+    #[test]
+    fn export_verification_checks_every_tempo_and_mark_field() {
+        let mut t = track(1, None);
+        t.beat_grid = vec![oxidj_rekordbox::AnlzBeat {
+            beat_in_bar: 2,
+            tempo_hundredths_bpm: 12_345,
+            time_ms: 1_001,
+        }];
+        t.cues = vec![oxidj_rekordbox::AnlzCue {
+            hot_cue: 2,
+            start_ms: 5,
+            loop_end_ms: Some(9),
+            comment: Some("N".into()),
+            rgb: Some([1, 2, 3]),
+        }];
+        let source = PdbPreview {
+            tracks: vec![t],
+            playlists: vec![],
+            folders: vec![],
+        };
+        let (snapshot, _) = library_from_pdb_preview(&source).unwrap();
+        let (tracks, roots) = xml_library(&snapshot).unwrap();
+        let preview =
+            oxidj_rekordbox::parse(&oxidj_rekordbox::write_library_xml(&tracks, &roots).unwrap())
+                .unwrap();
+        assert!(verify_export(&snapshot, &preview));
+        let mutations: [fn(&mut LibraryTrack); 10] = [
+            (|t| t.beat_grid[0].time_ms += 1),
+            (|t| t.beat_grid[0].tempo_hundredths_bpm += 1),
+            (|t| t.beat_grid[0].beat_in_bar = 3),
+            (|t| t.beat_grid.clear()),
+            (|t| t.cues[0].start_ms += 1),
+            (|t| t.cues[0].end_ms = None),
+            (|t| t.cues[0].hot_cue = None),
+            (|t| t.cues[0].name.clear()),
+            (|t| t.cues[0].colour = Some([1, 2, 4])),
+            (|t| t.cues[0].colour = None),
+        ];
+        for mutate in mutations {
+            let mut changed = snapshot.clone();
+            mutate(&mut changed.tracks[0]);
+            assert!(!verify_export(&changed, &preview));
+        }
     }
 
     #[test]

@@ -33,6 +33,33 @@ pub struct LibraryTrack {
     pub disc_number: Option<u32>,
     /// 1..=5.
     pub rating_stars: Option<u8>,
+    /// Ordered beat grid (empty = none).
+    pub beat_grid: Vec<LibraryBeat>,
+    /// Ordered cues and loops (empty = none).
+    pub cues: Vec<LibraryCue>,
+}
+
+/// One beat-grid point as stored by the source.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LibraryBeat {
+    pub time_ms: u32,
+    /// Positive.
+    pub tempo_hundredths_bpm: u32,
+    /// Position in a 4/4 bar, 1..=4.
+    pub beat_in_bar: u8,
+}
+
+/// One cue point or loop.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LibraryCue {
+    /// `None` = memory cue; `Some(n)` = hot cue `n` (1 = A).
+    pub hot_cue: Option<u32>,
+    pub start_ms: u32,
+    /// `Some` = loop end (after `start_ms`).
+    pub end_ms: Option<u32>,
+    /// Empty when the source stores no name.
+    pub name: String,
+    pub colour: Option<[u8; 3]>,
 }
 
 /// A playlist-tree node. Children and members are ordered.
@@ -148,6 +175,41 @@ impl Catalog {
                 ],
             )?;
         }
+        {
+            let mut beat_insert = tx.prepare(
+                "INSERT INTO library_beats(track_position,position,time_ms,tempo_hundredths_bpm,\
+                 beat_in_bar) VALUES(?1,?2,?3,?4,?5)",
+            )?;
+            let mut cue_insert = tx.prepare(
+                "INSERT INTO library_cues(track_position,position,hot_cue,start_ms,end_ms,name,\
+                 red,green,blue) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9)",
+            )?;
+            for (position, track) in snapshot.tracks.iter().enumerate() {
+                for (index, beat) in track.beat_grid.iter().enumerate() {
+                    beat_insert.execute(rusqlite::params![
+                        to_i64(position)?,
+                        to_i64(index)?,
+                        beat.time_ms,
+                        beat.tempo_hundredths_bpm,
+                        beat.beat_in_bar
+                    ])?;
+                }
+                for (index, cue) in track.cues.iter().enumerate() {
+                    let colour = cue.colour.map(|[r, g, b]| (r, g, b));
+                    cue_insert.execute(rusqlite::params![
+                        to_i64(position)?,
+                        to_i64(index)?,
+                        cue.hot_cue,
+                        cue.start_ms,
+                        cue.end_ms,
+                        cue.name,
+                        colour.map(|c| c.0),
+                        colour.map(|c| c.1),
+                        colour.map(|c| c.2)
+                    ])?;
+                }
+            }
+        }
         let mut next_id = 1_i64;
         fn insert(
             tx: &rusqlite::Transaction<'_>,
@@ -235,6 +297,8 @@ impl Catalog {
                     track_number: row.get(16)?,
                     disc_number: row.get(17)?,
                     rating_stars: row.get(18)?,
+                    beat_grid: Vec::new(),
+                    cues: Vec::new(),
                 },
             ))
         })?;
@@ -246,6 +310,76 @@ impl Catalog {
                 ));
             }
             tracks.push(track);
+        }
+        fn dense(
+            track: i64,
+            position: i64,
+            tracks: &mut [LibraryTrack],
+            beats: bool,
+        ) -> Result<&mut LibraryTrack, CatalogError> {
+            let slot = usize::try_from(track)
+                .ok()
+                .and_then(|t| tracks.get_mut(t))
+                .ok_or(CatalogError::InvalidRecord(
+                    "library analysis references a missing track",
+                ))?;
+            let len = if beats {
+                slot.beat_grid.len()
+            } else {
+                slot.cues.len()
+            };
+            if position != to_i64(len)? {
+                return Err(CatalogError::InvalidRecord(
+                    "library analysis positions are not dense",
+                ));
+            }
+            Ok(slot)
+        }
+        let mut statement = self.connection.prepare(
+            "SELECT track_position,position,time_ms,tempo_hundredths_bpm,beat_in_bar \
+             FROM library_beats ORDER BY track_position,position",
+        )?;
+        let rows = statement.query_map([], |row| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, i64>(1)?,
+                LibraryBeat {
+                    time_ms: row.get(2)?,
+                    tempo_hundredths_bpm: row.get(3)?,
+                    beat_in_bar: row.get(4)?,
+                },
+            ))
+        })?;
+        for row in rows {
+            let (track, position, beat) = row?;
+            dense(track, position, &mut tracks, true)?
+                .beat_grid
+                .push(beat);
+        }
+        let mut statement = self.connection.prepare(
+            "SELECT track_position,position,hot_cue,start_ms,end_ms,name,red,green,blue \
+             FROM library_cues ORDER BY track_position,position",
+        )?;
+        let rows = statement.query_map([], |row| {
+            let colour = match (row.get(6)?, row.get(7)?, row.get(8)?) {
+                (Some(r), Some(g), Some(b)) => Some([r, g, b]),
+                _ => None,
+            };
+            Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, i64>(1)?,
+                LibraryCue {
+                    hot_cue: row.get(2)?,
+                    start_ms: row.get(3)?,
+                    end_ms: row.get(4)?,
+                    name: row.get(5)?,
+                    colour,
+                },
+            ))
+        })?;
+        for row in rows {
+            let (track, position, cue) = row?;
+            dense(track, position, &mut tracks, false)?.cues.push(cue);
         }
         let mut statement = self.connection.prepare(
             "SELECT id,parent_id,name,is_folder FROM library_nodes ORDER BY parent_id,sibling_order",
@@ -341,10 +475,48 @@ mod tests {
             track_number: Some(3),
             disc_number: Some(1),
             rating_stars: Some(5),
+            beat_grid: vec![
+                LibraryBeat {
+                    time_ms: 0,
+                    tempo_hundredths_bpm: 12_000,
+                    beat_in_bar: 4,
+                },
+                LibraryBeat {
+                    time_ms: 500,
+                    tempo_hundredths_bpm: 12_850,
+                    beat_in_bar: 1,
+                },
+            ],
+            cues: vec![
+                LibraryCue {
+                    hot_cue: None,
+                    start_ms: 0,
+                    end_ms: None,
+                    name: String::new(),
+                    colour: None,
+                },
+                LibraryCue {
+                    hot_cue: Some(8),
+                    start_ms: 1_000,
+                    end_ms: Some(3_000),
+                    name: "Loop & <x>".into(),
+                    colour: Some([0, 128, 255]),
+                },
+            ],
             ..track("A")
         };
+        let cue_only = LibraryTrack {
+            cues: vec![LibraryCue {
+                hot_cue: Some(1),
+                start_ms: 7,
+                end_ms: None,
+                name: "Drop".into(),
+                colour: None,
+            }],
+            ..track("C")
+        };
         LibrarySnapshot {
-            tracks: vec![full, track("B"), track("C")],
+            tracks: vec![full, track("B"), cue_only],
             roots: vec![
                 LibraryNode::Playlist {
                     name: "Zeta".into(),

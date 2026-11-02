@@ -78,6 +78,7 @@ struct Meta {
     rating: u8,
     date_added: &'static str,
     comment: &'static str,
+    analyze_path: &'static str,
 }
 
 fn track_row_with(
@@ -110,6 +111,7 @@ fn track_row_with(
     row[0x54..0x56].copy_from_slice(&duration.to_le_bytes());
     let mut strings = vec![String::new(); 21];
     strings[10] = meta.date_added.into();
+    strings[14] = meta.analyze_path.into();
     strings[16] = meta.comment.into();
     strings[17] = title.into();
     strings[20] = path.into();
@@ -195,6 +197,7 @@ fn synthetic_pdb(extra_entry: Option<Vec<u8>>) -> Vec<u8> {
                     rating: 5,
                     date_added: "2025-12-31",
                     comment: "Synth <c> & \"d\"",
+                    analyze_path: ANLZ_A,
                 },
             ),
             track_row_with(
@@ -210,6 +213,7 @@ fn synthetic_pdb(extra_entry: Option<Vec<u8>>) -> Vec<u8> {
                     rating: 9,
                     date_added: "yesterday",
                     bit_rate: 128,
+                    analyze_path: ANLZ_B,
                     ..Meta::default()
                 },
             ),
@@ -262,6 +266,169 @@ fn synthetic_pdb(extra_entry: Option<Vec<u8>>) -> Vec<u8> {
     bytes
 }
 
+// --- synthetic ANLZ builder (big-endian tagged sections per the public format
+// reference; independent of the production decoder) ---
+
+const ANLZ_A: &str = "/PIONEER/USBANLZ/P001/0000002A/ANLZ0000.DAT";
+const ANLZ_B: &str = "/PIONEER/USBANLZ/P001/00000007/ANLZ0000.DAT";
+
+fn be(v: u32) -> [u8; 4] {
+    v.to_be_bytes()
+}
+
+fn anlz_section(tag: &[u8; 4], header_rest: &[u8], body: &[u8]) -> Vec<u8> {
+    let header = 12 + header_rest.len() as u32;
+    [
+        &tag[..],
+        &be(header),
+        &be(header + body.len() as u32),
+        header_rest,
+        body,
+    ]
+    .concat()
+}
+
+fn anlz_file(sections: &[Vec<u8>]) -> Vec<u8> {
+    let body = sections.concat();
+    [
+        &b"PMAI"[..],
+        &be(28),
+        &be(28 + body.len() as u32),
+        &[0; 16],
+        &body,
+    ]
+    .concat()
+}
+
+fn utf16(text: &str) -> Vec<u8> {
+    text.encode_utf16()
+        .chain([0])
+        .flat_map(u16::to_be_bytes)
+        .collect()
+}
+
+fn anlz_path(path: &str) -> Vec<u8> {
+    let body = utf16(path);
+    anlz_section(b"PPTH", &be(body.len() as u32), &body)
+}
+
+/// (beat 1..=4, BPM×100, time ms).
+fn anlz_grid(beats: &[(u16, u16, u32)]) -> Vec<u8> {
+    let rest = [be(0), be(0x0008_0000), be(beats.len() as u32)].concat();
+    let body: Vec<u8> = beats
+        .iter()
+        .flat_map(|(b, t, ms)| [&b.to_be_bytes()[..], &t.to_be_bytes(), &be(*ms)].concat())
+        .collect();
+    anlz_section(b"PQTZ", &rest, &body)
+}
+
+/// PCOB list of PCPT entries (hot, type 1 point / 2 loop, time ms, loop end ms).
+fn anlz_cues(list: u32, cues: &[(u32, u8, u32, u32)]) -> Vec<u8> {
+    let entries: Vec<u8> = cues
+        .iter()
+        .flat_map(|&(hot, kind, ms, end)| {
+            let mut e = [
+                &b"PCPT"[..],
+                &be(28),
+                &be(56),
+                &be(hot),
+                &be(0),
+                &be(0x10000),
+            ]
+            .concat();
+            e.extend([0xff, 0xff, 0xff, 0xff, kind, 0, 0x03, 0xe8]);
+            e.extend(be(ms));
+            e.extend(be(end));
+            e.resize(56, 0);
+            e
+        })
+        .collect();
+    let rest = [
+        &be(list)[..],
+        &0u16.to_be_bytes(),
+        &(cues.len() as u16).to_be_bytes(),
+        &be(u32::MAX),
+    ]
+    .concat();
+    anlz_section(b"PCOB", &rest, &entries)
+}
+
+/// PCO2 list of PCP2 entries (hot, type, time ms, loop end ms, comment, rgb).
+/// (hot, type, time ms, loop end ms, comment, rgb).
+type ExtCue<'a> = (u32, u8, u32, u32, &'a str, Option<[u8; 3]>);
+
+fn anlz_ext_cues(list: u32, cues: &[ExtCue<'_>]) -> Vec<u8> {
+    let entries: Vec<u8> = cues
+        .iter()
+        .flat_map(|&(hot, kind, ms, end, comment, rgb)| {
+            let text = if comment.is_empty() {
+                vec![]
+            } else {
+                utf16(comment)
+            };
+            let mut e = [&be(hot)[..], &[kind, 0, 0, 0], &be(ms), &be(end), &[0; 12]].concat();
+            e.extend(be(text.len() as u32));
+            e.extend(text);
+            if let Some([r, g, b]) = rgb {
+                e.extend([1, r, g, b]);
+            }
+            [&b"PCP2"[..], &be(16), &be(12 + e.len() as u32), &e].concat()
+        })
+        .collect();
+    let rest = [&be(list)[..], &(cues.len() as u16).to_be_bytes(), &[0, 0]].concat();
+    anlz_section(b"PCO2", &rest, &entries)
+}
+
+/// Writes the analysis files referenced by `synthetic_pdb` under `root`:
+/// "Song A" has a 3-beat grid with a tempo change, DAT hot cue A, and an EXT
+/// superset (named, coloured hot cue A; memory cue; hot cue C loop); "Song <B>"
+/// has an analysis file with an unknown section (unresolved); "Song C" has none.
+fn write_analysis(root: &Path) -> Vec<(PathBuf, Vec<u8>)> {
+    let a_path = anlz_path("/Contents/Song A.mp3");
+    let files = vec![
+        (
+            ANLZ_A.to_string(),
+            anlz_file(&[
+                a_path.clone(),
+                anlz_grid(&[(1, 12_800, 25), (2, 12_800, 494), (3, 13_050, 963)]),
+                anlz_cues(1, &[(1, 1, 1_500, u32::MAX)]),
+                anlz_cues(0, &[]),
+            ]),
+        ),
+        (
+            ANLZ_A.replace(".DAT", ".EXT"),
+            anlz_file(&[
+                a_path,
+                anlz_ext_cues(
+                    1,
+                    &[
+                        (1, 1, 1_500, u32::MAX, "Drop & <go>", Some([40, 226, 20])),
+                        (3, 2, 64_000, 72_250, "", Some([255, 0, 128])),
+                    ],
+                ),
+                anlz_ext_cues(0, &[(0, 1, 30_001, u32::MAX, "", None)]),
+            ]),
+        ),
+        (
+            ANLZ_B.to_string(),
+            anlz_file(&[
+                anlz_path("file://localhost/b.wav"),
+                anlz_grid(&[(1, 9_050, 0)]),
+                anlz_section(b"PZZZ", &[], &[1, 2, 3]),
+            ]),
+        ),
+    ];
+    files
+        .into_iter()
+        .map(|(rel, bytes)| {
+            let path = root.join(rel.trim_start_matches('/'));
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(&path, &bytes).unwrap();
+            (path, bytes)
+        })
+        .collect()
+}
+
 // --- independent decoder of the exported XML ---
 
 #[derive(Debug, PartialEq)]
@@ -270,10 +437,15 @@ enum Node {
     Playlist(String, Vec<String>),
 }
 
+/// (child element name, attributes).
+type Child = (String, Vec<(String, String)>);
+
 #[derive(Debug, PartialEq)]
 struct Decoded {
     collection_entries: String,
     tracks: Vec<Vec<(String, String)>>,
+    /// Per collection track: ordered (child element name, attributes).
+    children: Vec<Vec<Child>>,
     root: Node,
 }
 
@@ -300,6 +472,7 @@ fn decode(bytes: &[u8]) -> Decoded {
     reader.config_mut().trim_text(true);
     let mut buf = Vec::new();
     let mut tracks = Vec::new();
+    let mut children: Vec<Vec<Child>> = Vec::new();
     let mut entries = String::new();
     let mut stack: Vec<Node> = Vec::new();
     let mut root = None;
@@ -315,7 +488,14 @@ fn decode(bytes: &[u8]) -> Decoded {
                         entries = get(&a, "Entries");
                         in_collection = !empty;
                     }
-                    b"TRACK" if in_collection => tracks.push(a),
+                    b"TRACK" if in_collection => {
+                        tracks.push(a);
+                        children.push(vec![]);
+                    }
+                    name @ (b"TEMPO" | b"POSITION_MARK") if in_collection => children
+                        .last_mut()
+                        .expect("child outside track")
+                        .push((String::from_utf8(name.to_vec()).unwrap(), a)),
                     b"TRACK" => match stack.last_mut() {
                         Some(Node::Playlist(_, keys)) => keys.push(get(&a, "Key")),
                         _ => panic!("member outside playlist"),
@@ -358,6 +538,7 @@ fn decode(bytes: &[u8]) -> Decoded {
     Decoded {
         collection_entries: entries,
         tracks,
+        children,
         root: root.unwrap(),
     }
 }
@@ -367,6 +548,18 @@ fn kv(pairs: &[(&str, &str)]) -> Vec<(String, String)> {
         .iter()
         .map(|(k, v)| (k.to_string(), v.to_string()))
         .collect()
+}
+
+fn tempo(start: &str, bpm: &str, beat: &str) -> Child {
+    (
+        "TEMPO".into(),
+        kv(&[
+            ("Inizio", start),
+            ("Bpm", bpm),
+            ("Metro", "4/4"),
+            ("Battito", beat),
+        ]),
+    )
 }
 
 fn expected() -> Decoded {
@@ -413,6 +606,49 @@ fn expected() -> Decoded {
                 ("Location", "file://localhost/Contents/C.flac"),
             ]),
         ],
+        children: vec![
+            vec![
+                tempo("0.025", "128.00", "1"),
+                tempo("0.494", "128.00", "2"),
+                tempo("0.963", "130.50", "3"),
+                (
+                    "POSITION_MARK".into(),
+                    kv(&[
+                        ("Name", "Drop & <go>"),
+                        ("Type", "0"),
+                        ("Start", "1.500"),
+                        ("Num", "0"),
+                        ("Red", "40"),
+                        ("Green", "226"),
+                        ("Blue", "20"),
+                    ]),
+                ),
+                (
+                    "POSITION_MARK".into(),
+                    kv(&[
+                        ("Name", ""),
+                        ("Type", "4"),
+                        ("Start", "64.000"),
+                        ("End", "72.250"),
+                        ("Num", "2"),
+                        ("Red", "255"),
+                        ("Green", "0"),
+                        ("Blue", "128"),
+                    ]),
+                ),
+                (
+                    "POSITION_MARK".into(),
+                    kv(&[
+                        ("Name", ""),
+                        ("Type", "0"),
+                        ("Start", "30.001"),
+                        ("Num", "-1"),
+                    ]),
+                ),
+            ],
+            vec![],
+            vec![],
+        ],
         root: Node::Folder(
             "ROOT".into(),
             vec![
@@ -451,6 +687,9 @@ fn assert_aggregate_only(text: &str) {
         "Empty Folder",
         "Empty Playlist",
         "Contents",
+        "PIONEER",
+        "USBANLZ",
+        "Drop",
         "Inner",
         ".mp3",
         "oxidj-library-import",
@@ -465,9 +704,12 @@ fn assert_aggregate_only(text: &str) {
 #[test]
 fn pdb_library_imports_into_new_catalog_and_exports_verified_xml_without_touching_source() {
     let dir = scratch();
-    let pdb = dir.join("export.pdb");
+    let device = dir.join("device");
+    std::fs::create_dir_all(device.join("PIONEER/rekordbox")).unwrap();
+    let pdb = device.join("PIONEER/rekordbox/export.pdb");
     let source = synthetic_pdb(None);
     std::fs::write(&pdb, &source).unwrap();
+    let analysis = write_analysis(&device);
     let catalog = dir.join("catalog.sqlite");
     let xml = dir.join("out.xml");
 
@@ -492,8 +734,12 @@ fn pdb_library_imports_into_new_catalog_and_exports_verified_xml_without_touchin
         "NotCarried\tTRACK@Composer\t3",
         "NotCarried\tTRACK@PlayCount\t3",
         "NotCarried\tTRACK@Colour\t3",
-        "NotCarried\tTRACK/POSITION_MARK\t3",
-        "NotCarried\tTRACK/TEMPO\t3",
+        "Carried\tTRACK/TEMPO\t1",
+        "AbsentInSource\tTEMPO\t2",
+        "UnresolvedInSource\tTEMPO\t1",
+        "Carried\tTRACK/POSITION_MARK\t1",
+        "AbsentInSource\tPOSITION_MARK\t2",
+        "UnresolvedInSource\tPOSITION_MARK\t1",
         "Carried\tTRACK@Artist\t2",
         "AbsentInSource\tArtist\t1",
         "Carried\tTRACK@Album\t0",
@@ -595,6 +841,17 @@ fn pdb_library_imports_into_new_catalog_and_exports_verified_xml_without_touchin
         std::fs::read(&pdb).unwrap(),
         source,
         "source must be byte-identical"
+    );
+    for (path, bytes) in &analysis {
+        assert_eq!(
+            &std::fs::read(path).unwrap(),
+            bytes,
+            "analysis must be byte-identical"
+        );
+    }
+    assert!(
+        !report.lines().any(|l| l.starts_with("NotCarried\tTRACK/")),
+        "TEMPO/POSITION_MARK are carried: {report}"
     );
 
     // New-file-only: a second export to the same path is refused and leaves it intact.
