@@ -29,7 +29,7 @@ export function renderRoadmap(html: string): string {
       .slice(5)
       .map(
         (m) =>
-          `<li id="${m.id}"><strong>${m.id.toUpperCase()}: ${escapeHtml(m.title)}</strong> ${escapeHtml(m.detail)}</li>`,
+          `<li id="${m.id}"><strong>${m.id.toUpperCase()}: ${escapeHtml(m.title)}</strong>${m.status === 'planned' ? '' : ` <em>${escapeHtml(m.statusLabel)}.</em>`} ${escapeHtml(m.detail)}</li>`,
       )
       .join(''),
     updates: projectUpdates

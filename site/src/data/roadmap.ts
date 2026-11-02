@@ -19,12 +19,12 @@ export interface ProjectUpdate {
 const repo = 'https://github.com/Senci/oxidj';
 const closeout = `${repo}/blob/master/plan/MVP.md#bounded-local-m1m3-acceptance-closeout-2026-10-26`;
 export const roadmapSnapshot = {
-  verifiedAt: '2026-10-31',
-  currentFocus: 'M4: Rekordbox XML groundwork',
+  verifiedAt: '2026-11-03',
+  currentFocus: 'M4 and M7: first real-library round trip',
   currentSummary:
-    'Synthetic Rekordbox XML fixtures support read-only preview, bounded export of a supported subset to a new file, and exact-value guarded edits.',
+    'Synthetic Rekordbox XML fixtures support read-only preview, bounded export of a supported subset to a new file, and exact-value guarded edits. A first run on one real library export carried playlists, track details, beat grids and cues into a catalog and a new XML file.',
   working:
-    'A persistent local catalog, reference-only WAV/FLAC/MP3 import and a provisional viewer with search, sort and track details work today.',
+    'A persistent local catalog, reference-only WAV/FLAC/MP3 import and a provisional viewer with search, sort and track details work today. From the command line, a Rekordbox USB export can be read into a new catalog and written back out as a checked XML file.',
   unfinished:
     'Compatibility with real Rekordbox or OneLibrary libraries has not been demonstrated. Production desktop, accessibility and platform testing is still pending, as is performance testing at 500,000 tracks and 60 frames per second.',
   repo,
@@ -38,7 +38,7 @@ export const milestones: readonly Milestone[] = [
     detail: 'Rust workspace, architecture and development checks established.',
     source: {
       label: 'Foundation record',
-      href: `${repo}/blob/master/plan/STATUS.md#m0-09-verification-summary-independent-lead-run`,
+      href: `${repo}/blob/master/docs/history/status-2026-11-02.md#m0-09-verification-summary-independent-lead-run`,
     },
   },
   {
@@ -77,7 +77,7 @@ export const milestones: readonly Milestone[] = [
     status: 'in-progress',
     statusLabel: 'In progress',
     detail:
-      'Synthetic Rekordbox XML fixtures support read-only preview, bounded export of a supported subset to a new file, and guarded edits that check the expected old value. Unsupported content can prevent export. Compatibility with real Rekordbox or OneLibrary libraries has not been demonstrated.',
+      'Synthetic Rekordbox XML fixtures support read-only preview, bounded export of a supported subset to a new file, and guarded edits that check the expected old value. Unsupported content can prevent export. A first import of a real library export, with playlists, track details, beat grids and cues, has been checked against an independent decoder. Compatibility with real Rekordbox or OneLibrary libraries has not been demonstrated.',
     source: { label: 'XML adapter and tests', href: `${repo}/tree/master/crates/oxidj-rekordbox` },
   },
   {
@@ -85,7 +85,8 @@ export const milestones: readonly Milestone[] = [
     title: 'DJ metadata',
     status: 'planned',
     statusLabel: 'Later',
-    detail: 'Cues, loops, beat grids and key.',
+    detail:
+      'Cues, loops, beat grids and key. Beat grids and cues from a real library are already read during import; editing them comes later.',
     source: { label: 'Priorities', href: `${repo}/blob/master/idea.md#priorities` },
   },
   {
@@ -99,29 +100,30 @@ export const milestones: readonly Milestone[] = [
   {
     id: 'm7',
     title: 'Interoperability proof',
-    status: 'planned',
-    statusLabel: 'Later',
-    detail: 'Import, manage and export a real library with supported metadata intact.',
+    status: 'in-progress',
+    statusLabel: 'First slices',
+    detail:
+      'Import, manage and export a real library with supported metadata intact. The first import and checked XML export has run on one private library. Rekordbox itself has not yet accepted an exported file.',
     source: { label: 'MVP objective', href: `${repo}/blob/master/idea.md#mvp` },
   },
 ];
 export const projectUpdates: readonly ProjectUpdate[] = [
   {
-    date: '2026-10-29',
-    title: 'No-edit export retains cue colour fields.',
-    detail: 'A synthetic XML regression checks RGB fields survive a bounded export unchanged.',
-    source: { label: 'Export change', href: `${repo}/commit/30a2d29` },
+    date: '2026-11-03',
+    title: 'Beat grids and cues now flow through import and export.',
+    detail: 'A read-only analysis-file decoder feeds tempo and cue marks into the exported XML.',
+    source: { label: 'Beat grids and cues', href: `${repo}/commit/eac045c` },
   },
   {
-    date: '2026-10-27',
-    title: 'Added an exact-value guarded Track Kind edit.',
-    detail: 'The synthetic XML edit targets one track and writes to a new file.',
-    source: { label: 'Guarded edit', href: `${repo}/commit/9b62674` },
+    date: '2026-11-03',
+    title: 'Genre, label, key, year and more carry through import.',
+    detail: 'Values the source cannot supply are counted as missing, never invented.',
+    source: { label: 'Track metadata', href: `${repo}/commit/219dcb7` },
   },
   {
-    date: '2026-10-26',
-    title: 'Export checks declared playlist counts.',
-    detail: 'Inconsistent counts are rejected before a new XML file is written.',
-    source: { label: 'Count validation', href: `${repo}/commit/3a961b9` },
+    date: '2026-11-03',
+    title: 'First real-library import and checked XML export.',
+    detail: 'A Rekordbox USB export loads into a new catalog and writes a new XML file.',
+    source: { label: 'Library import', href: `${repo}/commit/40b0631` },
   },
 ];
