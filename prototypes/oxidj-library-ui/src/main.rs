@@ -8699,9 +8699,34 @@ mod keyboard_tests {
         app.select_xml_track("100", "A");
         app.xml_edit_remixer = "new < mix".into();
         app.prepare_xml_remixer_edit("100", Some("old & mix"));
+        app.xml_remixer_export_path = root.join("cand.xml").display().to_string();
         app.xml_path = root.join("other.xml").display().to_string();
         app.export_xml_remixer_edit();
         assert!(app.xml_pending_remixer_edit.is_none(), "pending Remixer edit must be refused after xml_path change");
+        assert!(!root.join("cand.xml").exists(), "refused export must not write a candidate");
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn track_remixer_edit_ui_discards_pending_after_source_path_change() {
+        let (root, source) = temporary_xml();
+        std::fs::write(
+            &source,
+            include_bytes!("../../../xtask/tests/fixtures/f02-track-remixer-edit/source.xml"),
+        )
+        .unwrap();
+        let mut app = app();
+        app.xml_path = source.display().to_string();
+        app.preview_xml();
+        app.select_xml_track("100", "A");
+        app.xml_edit_remixer = "new < mix".into();
+        app.prepare_xml_remixer_edit("100", Some("old & mix"));
+        assert!(app.xml_pending_remixer_edit.is_some());
+        // Change the source path through on_xml_source_changed.
+        app.xml_path = root.join("other.xml").display().to_string();
+        app.on_xml_source_changed();
+        assert!(app.xml_pending_remixer_edit.is_none(), "pending Remixer edit must be discarded after source path change");
+        assert!(app.xml_edit_error.is_none(), "discarded pending edit must not leave an error");
         std::fs::remove_dir_all(root).unwrap();
     }
 
