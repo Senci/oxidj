@@ -221,6 +221,7 @@ mod f02_track_label_edit_oracle;
 #[cfg(test)]
 #[path = "../../../xtask/tests/f02_track_mix_edit_oracle.rs"]
 mod f02_track_mix_edit_oracle;
+#[cfg(test)]
 #[path = "../../../xtask/tests/f02_track_tonality_edit_oracle.rs"]
 mod f02_track_tonality_edit_oracle;
 #[cfg(test)]
