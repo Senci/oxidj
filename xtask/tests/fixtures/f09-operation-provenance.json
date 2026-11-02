@@ -557,7 +557,7 @@
       "checker": {
         "path": "xtask/tests/f02_track_remixer_edit_oracle.rs",
         "version": "f09-operation-oracle-v1",
-        "sha256": "873c8f3a1b4f24c7609c7fa1fda57b0557368857fe13c5d96e44b13433c1ce20",
+        "sha256": "2c901997605453d7f4941a542a3194e11e3ed7366464a940ab723e1ba5dc408f",
         "tests": [
           "independently_verifies_guarded_track_remixer_edit_and_rejects_mutations"
         ]
