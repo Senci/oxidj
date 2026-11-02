@@ -72,7 +72,7 @@ Repository passages were read directly in this worktree:
 
 - docs/adr/002-persistence.md:11,28–33,93,97–100,115–119: dependency-admission separation, required architecture, generic-figure caveat and explicit prototype/recovery requirements.
 - docs/research/persistence-evaluation.md:29–35,184–200,217–233: third-party baseline context and checkpoint/migration risks. These are not local measurements. Its old optionality/portability recommendations do not override ADR-002's final ruling.
-- docs/adr/003-metadata-representation.md:119–123 and plan/STATUS.md:69–70: unresolved relationship-aware representation and edit/export qualification.
+- docs/adr/003-metadata-representation.md:119–123 and docs/history/status-2026-11-02.md:69–70: unresolved relationship-aware representation and edit/export qualification.
 - idea.md:24–25,34: no silent metadata loss and reproducible interoperability proof.
 
 Primary-source verification, fetched during this task:

@@ -148,6 +148,9 @@ Engineering rules and conventions, committed in-repo for reproducibility.
 
 ## Planning
 
-- [plan/MVP.md](../plan/MVP.md) — milestone roadmap M0 through M7.
-- [plan/STATUS.md](../plan/STATUS.md) — current milestone, blockers, recent
-  decisions, and next tasks. Read for the live project state.
+- [plan/MVP.md](../plan/MVP.md) — milestone roadmap M0 through M7 (condensed).
+- [plan/STATUS.md](../plan/STATUS.md) — stages, workstreams, NOT DEMONSTRATED
+  gates and next actions. Read for the live project state.
+- [docs/history/](history/) — full pre-condensation text of both files
+  (`status-2026-11-02.md`, `mvp-2026-11-02.md`): per-increment evidence,
+  decisions, risks, M0-09 verification.
