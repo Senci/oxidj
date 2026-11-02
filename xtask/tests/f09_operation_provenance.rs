@@ -7,7 +7,7 @@ use std::{collections::BTreeMap, fs, path::PathBuf};
 
 type Files = BTreeMap<String, Vec<u8>>;
 const MANIFEST: &str = "tests/fixtures/f09-operation-provenance.json";
-const MANIFEST_SHA256: &str = "8cf7ea689ad7cf43f6edb21b95a9a17cfc8016582e1c4d7cfad6afe6c7a6d150";
+const MANIFEST_SHA256: &str = "928dc414826aa6f4f6ef7fd4cbca2819c111709ebe075d473a302003bf0c4b4e";
 const TRACK_NAME_HELPER: &str = "xtask/tests/common/f02_track_name_oracle_support.rs";
 
 fn sha(bytes: &[u8]) -> String {

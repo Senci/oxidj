@@ -611,6 +611,29 @@ impl PreparedTrackNameExport {
     }
 }
 
+/// A source-bound prepared Track Artist export retains the exact preview snapshot.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PreparedTrackArtistExport {
+    source: std::path::PathBuf,
+    source_bytes: Vec<u8>,
+    bytes: Vec<u8>,
+    change: TrackArtistEditChange,
+}
+
+impl PreparedTrackArtistExport {
+    pub fn source(&self) -> &Path {
+        &self.source
+    }
+
+    pub fn bytes(&self) -> &[u8] {
+        &self.bytes
+    }
+
+    pub fn change(&self) -> &TrackArtistEditChange {
+        &self.change
+    }
+}
+
 /// Source and exact-old guard for a previewable Track Name edit.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TrackNameEditPreparationRequest {
@@ -618,6 +641,15 @@ pub struct TrackNameEditPreparationRequest {
     pub track_id: String,
     pub expected_old_name: String,
     pub new_name: String,
+}
+
+/// Source and exact-old guard for a previewable Track Artist edit.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TrackArtistEditPreparationRequest {
+    pub source: std::path::PathBuf,
+    pub track_id: String,
+    pub expected_old_artist: String,
+    pub new_artist: String,
 }
 
 /// Read-only application handler: prepare one guarded Track Name edit for preview.
@@ -663,6 +695,55 @@ pub fn export_prepared_rekordbox_track_name_edit(
     if current_source != prepared.source_bytes {
         return Err(RekordboxError(
             "source changed after Track Name edit preparation".into(),
+        ));
+    }
+    publish_new_file(&output, &prepared.bytes)?;
+    Ok(prepared.change.clone())
+}
+
+/// Read-only application handler: prepare one guarded Track Artist edit for preview.
+pub fn prepare_rekordbox_track_artist_edit(
+    request: &TrackArtistEditPreparationRequest,
+) -> Result<PreparedTrackArtistEdit, RekordboxError> {
+    let source =
+        std::fs::read(&request.source).map_err(|error| RekordboxError(error.to_string()))?;
+    let adapter_request = TrackArtistEditRequest {
+        track_id: request.track_id.clone(),
+        expected_old_artist: request.expected_old_artist.clone(),
+        new_artist: request.new_artist.clone(),
+    };
+    oxidj_rekordbox::prepare_track_artist_edit(&source, &adapter_request)
+}
+
+/// Prepare a guarded Track Artist edit for source-bound, revalidated new-file export.
+pub fn prepare_rekordbox_track_artist_export(
+    request: &TrackArtistEditPreparationRequest,
+) -> Result<PreparedTrackArtistExport, RekordboxError> {
+    let source_bytes =
+        std::fs::read(&request.source).map_err(|error| RekordboxError(error.to_string()))?;
+    let adapter_request = TrackArtistEditRequest {
+        track_id: request.track_id.clone(),
+        expected_old_artist: request.expected_old_artist.clone(),
+        new_artist: request.new_artist.clone(),
+    };
+    let prepared = oxidj_rekordbox::prepare_track_artist_edit(&source_bytes, &adapter_request)?;
+    Ok(PreparedTrackArtistExport {
+        source: request.source.clone(),
+        source_bytes,
+        bytes: prepared.bytes,
+        change: prepared.change,
+    })
+}
+
+/// Export only a source-bound prepared Track Artist edit after confirming its source is unchanged.
+pub fn export_prepared_rekordbox_track_artist_edit(
+    prepared: &PreparedTrackArtistExport,
+    output: impl AsRef<Path>,
+) -> Result<TrackArtistEditChange, RekordboxError> {
+    let (current_source, output) = read_new_export_source(&prepared.source, output)?;
+    if current_source != prepared.source_bytes {
+        return Err(RekordboxError(
+            "source changed after Track Artist edit preparation".into(),
         ));
     }
     publish_new_file(&output, &prepared.bytes)?;
@@ -1788,6 +1869,146 @@ mod track_name_preparation_tests {
             .is_err()
         );
         std::fs::remove_file(malformed).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod track_artist_preparation_tests {
+    use super::*;
+
+    fn copy_fixture(root: &std::path::Path) -> std::path::PathBuf {
+        let source = root.join("source.xml");
+        std::fs::copy(
+            concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../xtask/tests/fixtures/f02-track-artist-edit/source.xml"
+            ),
+            &source,
+        )
+        .unwrap();
+        source
+    }
+
+    #[test]
+    fn preparation_and_export_are_source_bound_and_refuse_aliases_and_overwrites() {
+        let root = std::env::temp_dir().join(format!(
+            "oxidj-track-artist-export-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let source = copy_fixture(&root);
+        let original = std::fs::read(&source).unwrap();
+        let request = TrackArtistEditPreparationRequest {
+            source: source.clone(),
+            track_id: "100".into(),
+            expected_old_artist: "Old & exact".into(),
+            new_artist: "New < artist & \"guest\"\tline\ncarriage\r".into(),
+        };
+        let prepared = prepare_rekordbox_track_artist_export(&request).unwrap();
+        assert_eq!(prepared.change().old_artist, "Old & exact");
+        assert_eq!(prepared.change().new_artist, request.new_artist);
+        assert_eq!(std::fs::read(&source).unwrap(), original);
+
+        let alias = export_prepared_rekordbox_track_artist_edit(&prepared, &source);
+        assert!(alias.is_err(), "source alias must be refused");
+        let existing = root.join("existing.xml");
+        std::fs::write(&existing, b"preserve").unwrap();
+        assert!(export_prepared_rekordbox_track_artist_edit(&prepared, &existing).is_err());
+        assert_eq!(std::fs::read(&existing).unwrap(), b"preserve");
+
+        let output = root.join("edited.xml");
+        let change = export_prepared_rekordbox_track_artist_edit(&prepared, &output).unwrap();
+        assert_eq!(change.new_artist, request.new_artist);
+        let bytes = std::fs::read(&output).unwrap();
+        assert_eq!(bytes, prepared.bytes());
+        let text = String::from_utf8(bytes).unwrap();
+        assert!(text.contains("New &lt; artist &amp; &quot;guest&quot;&#9;line&#10;carriage&#13;"));
+        assert_eq!(std::fs::read(&source).unwrap(), original);
+        let reopened = preview_rekordbox_xml(&output).unwrap();
+        assert_eq!(
+            reopened
+                .tracks
+                .iter()
+                .find(|track| track.id == "100")
+                .unwrap()
+                .artist
+                .as_deref(),
+            Some(request.new_artist.as_str())
+        );
+        assert_eq!(
+            reopened
+                .tracks
+                .iter()
+                .find(|track| track.id == "200")
+                .unwrap()
+                .artist,
+            None
+        );
+
+        let stale = prepare_rekordbox_track_artist_export(&request).unwrap();
+        std::fs::write(&source, b"<changed/>").unwrap();
+        let stale_output = root.join("stale.xml");
+        assert!(export_prepared_rekordbox_track_artist_edit(&stale, &stale_output).is_err());
+        assert!(!stale_output.exists());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn preparation_refuses_absent_stale_and_invalid_artist_values() {
+        let root = std::env::temp_dir().join(format!(
+            "oxidj-track-artist-refusal-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let source = copy_fixture(&root);
+        for (track_id, expected_old_artist, new_artist) in [
+            ("200", "Old & exact", "New"),
+            ("100", "stale", "New"),
+            ("100", "Old & exact", "bad\u{1}"),
+        ] {
+            let request = TrackArtistEditPreparationRequest {
+                source: source.clone(),
+                track_id: track_id.into(),
+                expected_old_artist: expected_old_artist.into(),
+                new_artist: new_artist.into(),
+            };
+            assert!(prepare_rekordbox_track_artist_export(&request).is_err());
+        }
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn present_empty_artist_can_be_prepared_without_inserting_absent_attributes() {
+        let root = std::env::temp_dir().join(format!(
+            "oxidj-track-artist-empty-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let source = copy_fixture(&root);
+        let xml = std::fs::read_to_string(&source)
+            .unwrap()
+            .replace("Artist=\"Old &amp; exact\"", "Artist=\"\"");
+        std::fs::write(&source, xml).unwrap();
+        let request = TrackArtistEditPreparationRequest {
+            source,
+            track_id: "100".into(),
+            expected_old_artist: String::new(),
+            new_artist: "Restored".into(),
+        };
+        assert!(prepare_rekordbox_track_artist_edit(&request).is_ok());
+        std::fs::remove_dir_all(root).unwrap();
     }
 }
 

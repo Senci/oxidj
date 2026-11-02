@@ -81,16 +81,16 @@ fn decode(bytes: &[u8]) -> N {
     }
     root.unwrap()
 }
-fn change_expected_artist(n: &mut N) -> bool {
+fn change_expected_artist(n: &mut N, expected_artist: &str) -> bool {
     if n.name == "TRACK" && n.attrs.iter().any(|(k, v)| k == "TrackID" && v == "100") {
         let artist = n.attrs.iter_mut().find(|(k, _)| k == "Artist").unwrap();
         assert_eq!(artist.1, "Old & exact");
-        artist.1 = "New Artist".into();
+        artist.1 = expected_artist.into();
         return true;
     }
     let mut found = false;
     for child in &mut n.children {
-        found |= change_expected_artist(child);
+        found |= change_expected_artist(child, expected_artist);
     }
     found
 }
@@ -100,11 +100,14 @@ fn has_artist(n: &N, track_id: &str) -> bool {
         && n.attrs.iter().any(|(k, _)| k == "Artist"))
         || n.children.iter().any(|child| has_artist(child, track_id))
 }
-fn check(bytes: &[u8]) -> Result<(), String> {
+pub fn check(bytes: &[u8]) -> Result<(), String> {
+    check_with_artist(bytes, "New Artist")
+}
+pub fn check_with_artist(bytes: &[u8], expected_artist: &str) -> Result<(), String> {
     let actual = decode(bytes);
     let mut expected = decode(SOURCE);
     assert!(
-        change_expected_artist(&mut expected),
+        change_expected_artist(&mut expected, expected_artist),
         "fixture lacks TrackID 100 Artist"
     );
     if actual != expected {

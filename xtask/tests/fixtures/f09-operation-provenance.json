@@ -247,7 +247,7 @@
       "checker": {
         "path": "xtask/tests/f02_track_artist_edit_oracle.rs",
         "version": "f09-operation-oracle-v1",
-        "sha256": "cbc548bea397412482f0b4772f72f1bbc4718212df1e6c75a8c8704c05bb8a72",
+        "sha256": "f6c15c96efafb1cc96d8d539edfa6c1add2c5846620e5216cb1ebe924e9b2628",
         "tests": [
           "independently_verifies_guarded_track_artist_edit_and_rejects_mutations"
         ]
