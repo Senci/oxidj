@@ -2509,6 +2509,8 @@ impl LibraryApp {
         self.xml_pending_grouping_edit = None;
         self.xml_pending_label_edit = None;
         self.xml_pending_edit = None;
+        self.xml_pending_move = None;
+        self.xml_pending_folder_move = None;
         self.invalidate_xml_member_delete();
         self.xml_selected_playlist = None;
         self.xml_selected_member = None;
@@ -2695,6 +2697,13 @@ impl LibraryApp {
         self.xml_pending_mix_edit = None;
         self.xml_pending_tonality_edit = None;
         self.xml_pending_kind_edit = None;
+        self.xml_pending_composer_edit = None;
+        self.xml_pending_grouping_edit = None;
+        self.xml_pending_label_edit = None;
+        self.xml_pending_create = None;
+        self.xml_pending_rename = None;
+        self.xml_pending_move = None;
+        self.xml_pending_folder_move = None;
         self.xml_edit_error = None;
         let source = PathBuf::from(&self.xml_path);
         self.xml_document_source = Some(source.clone());
@@ -9672,6 +9681,72 @@ mod keyboard_tests {
                 "source path change must discard pending {field} edit"
             );
         }
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn reload_and_source_change_discard_composer_grouping_label_and_playlist_move() {
+        let (root, source) = temporary_xml();
+        let fixtures: [(&[u8], &str); 3] = [
+            (include_bytes!("../../../xtask/tests/fixtures/f02-track-composer-edit/source.xml"), "composer"),
+            (include_bytes!("../../../xtask/tests/fixtures/f02-track-grouping-edit/source.xml"), "grouping"),
+            (include_bytes!("../../../xtask/tests/fixtures/f02-track-label-edit/source.xml"), "label"),
+        ];
+        for (fixture, field) in fixtures {
+            std::fs::write(&source, fixture).unwrap();
+            let mut app = app();
+            app.xml_path = source.display().to_string();
+            app.preview_xml();
+            app.select_xml_track("100", "A");
+            match field {
+                "composer" => {
+                    app.xml_edit_composer = "new".into();
+                    app.prepare_xml_composer_edit("100", Some("old & composer"));
+                    assert!(app.xml_pending_composer_edit.is_some());
+                }
+                "grouping" => {
+                    app.xml_edit_grouping = "new".into();
+                    app.prepare_xml_grouping_edit("100", Some("old & crate"));
+                    assert!(app.xml_pending_grouping_edit.is_some());
+                }
+                _ => {
+                    app.xml_edit_label = "new".into();
+                    app.prepare_xml_label_edit("100", Some("old & imprint"));
+                    assert!(app.xml_pending_label_edit.is_some());
+                }
+            }
+            app.preview_xml();
+            assert!(
+                app.xml_pending_composer_edit.is_none()
+                    && app.xml_pending_grouping_edit.is_none()
+                    && app.xml_pending_label_edit.is_none(),
+                "reload must discard pending {field} edit"
+            );
+        }
+
+        std::fs::write(
+            &source,
+            include_bytes!("../../../xtask/tests/fixtures/f02-playlist-move/source.xml"),
+        )
+        .unwrap();
+        let mut app = app();
+        app.xml_path = source.display().to_string();
+        app.preview_xml();
+        let target = app.xml_preview.as_ref().unwrap().as_ref().unwrap().folders.iter()
+            .find(|f| f.name == "Target").unwrap().ordinal;
+        let prepare = |app: &mut LibraryApp| {
+            app.xml_selected_playlist = Some(0);
+            app.xml_move_destination = Some(target);
+            app.prepare_xml_playlist_move(0);
+            assert!(app.xml_pending_move.is_some(), "{:?}", app.xml_edit_error);
+        };
+        prepare(&mut app);
+        app.preview_xml();
+        assert!(app.xml_pending_move.is_none(), "reload must discard pending playlist move");
+        prepare(&mut app);
+        app.xml_path = root.join("other.xml").display().to_string();
+        app.on_xml_source_changed();
+        assert!(app.xml_pending_move.is_none(), "source change must discard pending playlist move");
         std::fs::remove_dir_all(root).unwrap();
     }
 
