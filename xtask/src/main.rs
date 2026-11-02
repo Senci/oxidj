@@ -452,8 +452,9 @@ fn check_onelibrary_boundary() -> Result<(), String> {
             "Cargo.toml",
             "--format-version",
             "1",
+            // `--locked` pins the resolution; no `--offline`, so a clean CI
+            // cache can fetch the pinned isolated-reader packages.
             "--locked",
-            "--offline",
             "--all-features",
         ])
         .current_dir(&isolated)

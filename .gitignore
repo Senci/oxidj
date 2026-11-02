@@ -3,3 +3,11 @@ target/
 /.worktrees/
 .env
 .env.*
+
+# Local tool artifacts (not project sources)
+/.hallmark/
+/.hallmark-tooling/
+/.lavish/
+/docs/.obsidian/themes/
+/site/.hallmark/
+/oxidj-library.sqlite
