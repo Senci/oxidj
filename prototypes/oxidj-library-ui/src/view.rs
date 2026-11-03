@@ -94,18 +94,25 @@ impl LibraryApp {
                 ui.label("Search");
                 ui.add_sized(
                     [field, height],
-                    egui::TextEdit::singleline(&mut self.search).hint_text("Filter tracks"),
+                    egui::TextEdit::singleline(&mut self.search).hint_text("Filter tracks").vertical_align(egui::Align::Center),
                 );
                 ui.label("");
                 row_break(ui);
                 ui.label("Catalog");
                 let full_path = self.db_path.display().to_string();
-                ui.add_sized(
-                    [field, height],
-                    egui::Label::new(egui::RichText::new(&full_path).monospace().color(tokens.muted_text))
-                        .truncate(),
-                )
-                .on_hover_text(&full_path);
+                // Left-aligned like the fields (add_sized would centre it).
+                ui.allocate_ui_with_layout(
+                    egui::vec2(field, height),
+                    egui::Layout::left_to_right(egui::Align::Center),
+                    |ui| {
+                        ui.set_min_width(field);
+                        ui.add(
+                            egui::Label::new(egui::RichText::new(&full_path).monospace().color(tokens.muted_text))
+                                .truncate(),
+                        )
+                        .on_hover_text(&full_path);
+                    },
+                );
                 if ui.button("Reload").clicked() {
                     self.reload();
                 }
@@ -113,7 +120,7 @@ impl LibraryApp {
                 ui.label("Import folder");
                 ui.add_sized(
                     [field, height],
-                    egui::TextEdit::singleline(&mut self.import_root).hint_text("Folder path"),
+                    egui::TextEdit::singleline(&mut self.import_root).hint_text("Folder path").vertical_align(egui::Align::Center),
                 );
                 if (PrimaryActionButton {
                     label: "Import references",
@@ -128,7 +135,7 @@ impl LibraryApp {
                 let source_changed = ui
                     .add_sized(
                         [field, height],
-                        egui::TextEdit::singleline(&mut self.xml_path).hint_text("XML file path"),
+                        egui::TextEdit::singleline(&mut self.xml_path).hint_text("XML file path").vertical_align(egui::Align::Center),
                     )
                     .changed();
                 if source_changed {
@@ -861,7 +868,7 @@ impl LibraryApp {
                             self.selected = Some(id);
                         }
                         ui.vertical(|ui| {
-                            ui.set_width(name_width);
+                            ui.set_max_width(name_width);
                             ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
                             if ui
                                 .selectable_label(self.selected == Some(id), file_name(&item.track.path))

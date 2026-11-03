@@ -154,7 +154,7 @@ impl TrackWaveformPanel {
                     ui.spacing_mut().slider_width = ((full - 3.0 * 96.0) / 3.0).clamp(40.0, 160.0);
                     let mut slider = |value: &mut f32, text| {
                         ui.add(
-                            egui::Slider::new(value, 0.0..=1.0)
+                            egui::Slider::new(value, 0.0..=1.0).trailing_fill(true)
                                 .text(text)
                                 .max_decimals(2),
                         )
