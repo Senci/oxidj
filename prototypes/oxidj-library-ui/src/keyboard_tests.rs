@@ -6736,6 +6736,13 @@ fn xml_window_fits_scrolls_and_reports_disabled_reorder_at_narrow_width() {
         }
     }
 
+    // Every text field (toolbar and XML window) meets the 24 px target.
+    let fields: Vec<_> = before.iter().filter(|n| n.0 == egui::accesskit::Role::TextInput).collect();
+    assert!(fields.len() >= 5, "toolbar + XML window text fields: {}", fields.len());
+    for field in &fields {
+        assert!(field.3.height() >= 24.0, "text field below 24 px: {:?}", field.3);
+    }
+
     // Wheel near the window bottom, below the inner (bounded) track list.
     let pointer = egui::pos2(window.center().x, window.bottom() - 20.0);
     frame(&mut app, vec![egui::Event::PointerMoved(pointer)]);

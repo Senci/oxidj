@@ -234,7 +234,7 @@ impl LibraryApp {
                             ui.label(format!("Selected TrackID: {track_id}"));
                             ui.horizontal(|ui| {
                                 ui.label("Proposed Name");
-                                ui.text_edit_singleline(&mut self.xml_edit_name);
+                                text_field(ui, &mut self.xml_edit_name);
                             });
                             if ui.button("Prepare pending edit").clicked() {
                                 if let Some(track) = preview.tracks.iter().find(|track| track.id == track_id) {
@@ -256,7 +256,7 @@ impl LibraryApp {
                                 ui.label(format!("Proposed Name: {:?}", pending.prepared.change().new_name));
                                 ui.horizontal(|ui| {
                                     ui.label("New XML destination");
-                                    ui.text_edit_singleline(&mut self.xml_export_path);
+                                    text_field(ui, &mut self.xml_export_path);
                                 });
                                 if ui.button("Export prepared edit").clicked() {
                                     self.export_xml_name_edit();
@@ -278,11 +278,11 @@ impl LibraryApp {
                                 self.xml_sibling_order = preview.playlists.iter().filter(|pl| pl.path.len() >= 2 && pl.path[..pl.path.len()-1] == folder.path[1..]).map(|pl| pl.name.clone()).collect::<Vec<_>>().join(", ");
                             }
                         }
-                        ui.horizontal(|ui| { ui.label("Requested direct playlist order (comma-separated names)"); if ui.text_edit_singleline(&mut self.xml_sibling_order).changed() { self.xml_sibling_pending = None; } });
+                        ui.horizontal(|ui| { ui.label("Requested direct playlist order (comma-separated names)"); if text_field(ui, &mut self.xml_sibling_order).changed() { self.xml_sibling_pending = None; } });
                         if ui.button("Prepare sibling playlist reorder preview").clicked() { self.prepare_xml_sibling_playlist_reorder(); }
                         if let Some(pending) = &self.xml_sibling_pending {
                             ui.label(format!("Preview · parent #{} {} · {:?} → {:?}", pending.parent_index, pending.parent_name, pending.expected_order, pending.new_order));
-                            ui.horizontal(|ui| { ui.label("New XML destination"); ui.text_edit_singleline(&mut self.xml_sibling_export_path); });
+                            ui.horizontal(|ui| { ui.label("New XML destination"); text_field(ui, &mut self.xml_sibling_export_path); });
                             if ui.button("Export prepared sibling order").clicked() { self.export_xml_sibling_playlist_reorder(); }
                             if ui.button("Cancel sibling reorder").clicked() { self.cancel_xml_sibling_playlist_reorder(); }
                         }
@@ -295,11 +295,11 @@ impl LibraryApp {
                                 self.xml_folder_sibling_order = preview.folders.iter().filter(|child| child.path.len() > 2 && child.path[..child.path.len()-1] == folder.path).map(|child| child.name.clone()).collect::<Vec<_>>().join(", ");
                             }
                         }
-                        ui.horizontal(|ui| { ui.label("Requested direct folder order (comma-separated names)"); if ui.text_edit_singleline(&mut self.xml_folder_sibling_order).changed() { self.xml_folder_sibling_pending = None; } });
+                        ui.horizontal(|ui| { ui.label("Requested direct folder order (comma-separated names)"); if text_field(ui, &mut self.xml_folder_sibling_order).changed() { self.xml_folder_sibling_pending = None; } });
                         if ui.button("Prepare sibling folder reorder preview").clicked() { self.prepare_xml_sibling_folder_reorder(); }
                         if let Some(pending) = &self.xml_folder_sibling_pending {
                             ui.label(format!("Preview · parent #{} {} · {:?} → {:?} (playlist slots retained)", pending.parent_index, pending.parent_name, pending.expected_order, pending.new_order));
-                            ui.horizontal(|ui| { ui.label("New XML destination"); ui.text_edit_singleline(&mut self.xml_folder_sibling_export_path); });
+                            ui.horizontal(|ui| { ui.label("New XML destination"); text_field(ui, &mut self.xml_folder_sibling_export_path); });
                             if ui.button("Export prepared sibling folders").clicked() { self.export_xml_sibling_folder_reorder(); }
                             if ui.button("Cancel sibling folder reorder").clicked() { self.cancel_xml_sibling_folder_reorder(); }
                         }
@@ -323,7 +323,7 @@ impl LibraryApp {
                             let count = |value: &Option<String>, delta: isize| value.as_deref().and_then(|v| v.parse::<usize>().ok()).map(|n| if delta < 0 { n.saturating_sub(delta.unsigned_abs()) } else { n + delta as usize }.to_string()).unwrap_or_else(|| if delta < 0 { "N-1".into() } else { "N+1".into() });
                             ui.label(format!("Preview · {} → {} · source Count {} → {}; destination Count {} → {}", pending.old_path.join(" / "), pending.new_path.join(" / "), pending.source_count.as_deref().unwrap_or("?"), count(&pending.source_count, -1), pending.target_count.as_deref().unwrap_or("?"), count(&pending.target_count, 1)));
                             ui.label("Subtree, nested playlists, memberships and unrelated Counts remain unchanged.");
-                            ui.horizontal(|ui| { ui.label("New XML destination"); ui.text_edit_singleline(&mut self.xml_folder_move_export_path); });
+                            ui.horizontal(|ui| { ui.label("New XML destination"); text_field(ui, &mut self.xml_folder_move_export_path); });
                             if ui.button("Export prepared folder move").clicked() { self.export_xml_folder_move(); }
                             if ui.button("Cancel folder move").clicked() { self.cancel_xml_folder_move(); }
                         }
@@ -342,7 +342,7 @@ impl LibraryApp {
                             let new_source_count = pending.source_count.as_deref().and_then(|v| v.parse::<usize>().ok()).map(|v| v.saturating_sub(1).to_string()).unwrap_or_else(|| "N-1".into());
                             let new_destination_count = pending.destination_count.as_deref().and_then(|v| v.parse::<usize>().ok()).map(|v| (v+1).to_string()).unwrap_or_else(|| "N+1".into());
                             ui.label(format!("Preview #{} · {} → {} · source Count {old_count} → {new_source_count}; destination Count {} → {new_destination_count}", pending.playlist_index, pending.old_path.join(" / "), pending.new_path.join(" / "), pending.destination_count.as_deref().unwrap_or("?")));
-                            ui.horizontal(|ui| { ui.label("New XML destination"); ui.text_edit_singleline(&mut self.xml_move_export_path); });
+                            ui.horizontal(|ui| { ui.label("New XML destination"); text_field(ui, &mut self.xml_move_export_path); });
                             if ui.button("Export prepared playlist move").clicked() { self.export_xml_playlist_move(); }
                             if ui.button("Cancel playlist move").clicked() { self.cancel_xml_playlist_move(); }
                         }
@@ -356,7 +356,7 @@ impl LibraryApp {
                         if let Some(index) = self.xml_selected_playlist {
                             if let Some(playlist) = preview.playlists.get(index) {
                                 ui.label(format!("Selected playlist #{index}: {} / {}", playlist.path.join(" / "), playlist.name));
-                                let changed = ui.text_edit_singleline(&mut self.xml_playlist_rename_name).changed();
+                                let changed = text_field(ui, &mut self.xml_playlist_rename_name).changed();
                                 if changed { self.xml_pending_rename = None; }
                                 if ui.button("Prepare playlist rename").clicked() { self.prepare_xml_playlist_rename(index, &playlist.name); }
                                 if ui.button("Prepare delete playlist node").clicked() { self.prepare_xml_playlist_delete(index); }
@@ -402,7 +402,7 @@ impl LibraryApp {
                                 }
                             }
                             ui.label("Collection tracks and shared memberships in other playlists stay intact.");
-                            ui.horizontal(|ui| { ui.label("New XML destination"); ui.text_edit_singleline(&mut self.xml_playlist_delete_export_path); });
+                            ui.horizontal(|ui| { ui.label("New XML destination"); text_field(ui, &mut self.xml_playlist_delete_export_path); });
                             if ui.button("Export prepared playlist deletion").clicked() { self.export_xml_playlist_delete(); }
                             if ui.button("Cancel playlist deletion").clicked() { self.cancel_xml_playlist_delete(); }
                         }
@@ -414,7 +414,7 @@ impl LibraryApp {
                             ui.label("Collection tracks and other playlists stay unchanged.");
                             ui.horizontal(|ui| {
                                 ui.label("New XML destination");
-                                ui.text_edit_singleline(&mut self.xml_clear_export_path);
+                                text_field(ui, &mut self.xml_clear_export_path);
                             });
                             if ui.button("Export prepared clear").clicked() { self.export_xml_playlist_clear(); }
                             if ui.button("Cancel clear").clicked() { self.cancel_xml_playlist_clear(); }
@@ -425,7 +425,7 @@ impl LibraryApp {
                             ui.label("Prepared XML bytes are not written until export.");
                             ui.horizontal(|ui| {
                                 ui.label("New XML destination");
-                                ui.text_edit_singleline(&mut self.xml_reorder_export_path);
+                                text_field(ui, &mut self.xml_reorder_export_path);
                             });
                             if ui.button("Export prepared reorder").clicked() { self.export_xml_member_reorder(); }
                             if ui.button("Cancel reorder").clicked() { self.xml_pending_reorder = None; }
@@ -438,7 +438,7 @@ impl LibraryApp {
                             ui.label(format!("Prepared output: {} bytes", pending.prepared.bytes().len()));
                             ui.horizontal(|ui| {
                                 ui.label("New XML destination");
-                                ui.text_edit_singleline(&mut self.xml_delete_export_path);
+                                text_field(ui, &mut self.xml_delete_export_path);
                             });
                             if ui.button("Export prepared removal").clicked() { self.export_xml_member_delete(); }
                             if ui.button("Cancel removal").clicked() { self.cancel_xml_member_delete(); }
@@ -448,7 +448,7 @@ impl LibraryApp {
                             ui.strong("Pending playlist rename · not exported or saved");
                             ui.label(format!("Source: {} · playlist #{} · {} → {}", pending.source.display(), pending.playlist_index, pending.current_name, pending.name));
                             ui.label(format!("Prepared XML bytes: {}", pending.prepared.bytes().len()));
-                            ui.horizontal(|ui| { ui.label("New XML destination"); ui.text_edit_singleline(&mut self.xml_rename_export_path); });
+                            ui.horizontal(|ui| { ui.label("New XML destination"); text_field(ui, &mut self.xml_rename_export_path); });
                             if ui.button("Export prepared rename").clicked() { self.export_xml_playlist_rename(); }
                             if ui.button("Cancel playlist rename").clicked() { self.cancel_xml_playlist_rename(); }
                         }
@@ -463,7 +463,7 @@ impl LibraryApp {
                         }
                         if let Some(parent_index) = self.xml_selected_parent {
                             ui.label(format!("Selected parent #{parent_index}"));
-                            let name_changed = ui.text_edit_singleline(&mut self.xml_create_name).changed();
+                            let name_changed = text_field(ui, &mut self.xml_create_name).changed();
                             if name_changed { self.xml_pending_create = None; }
                             if ui.button("Prepare empty playlist").clicked() { self.prepare_xml_playlist_create(); }
                         }
@@ -471,7 +471,7 @@ impl LibraryApp {
                             ui.label(format!("Preview: create {:?} under paired parent #{} ({:?}) · {} bytes prepared", pending.name, pending.parent_index, pending.parent_name, pending.prepared.bytes().len()));
                             ui.horizontal(|ui| {
                                 ui.label("New XML destination");
-                                ui.text_edit_singleline(&mut self.xml_create_export_path);
+                                text_field(ui, &mut self.xml_create_export_path);
                             });
                             if ui.button("Export prepared playlist").clicked() { self.export_xml_playlist_create(); }
                             if ui.button("Cancel playlist creation").clicked() { self.xml_pending_create = None; }
@@ -482,7 +482,7 @@ impl LibraryApp {
                             if let Some(parent) = parent {
                                 let label = format!("Selected paired parent #{} · {}", parent.ordinal.saturating_sub(1), parent.path.join(" / "));
                                 ui.label(label);
-                                let changed = ui.text_edit_singleline(&mut self.xml_folder_create_name).changed();
+                                let changed = text_field(ui, &mut self.xml_folder_create_name).changed();
                                 if changed { self.xml_pending_folder_create = None; }
                                 if ui.button("Prepare empty folder").clicked() { self.prepare_xml_folder_create(); }
                             }
@@ -494,7 +494,7 @@ impl LibraryApp {
                             let parent_path = preview.folders.get(pending.parent_index).map(|f| f.path.join(" / ")).unwrap_or_default();
                             ui.strong("Pending folder creation · not exported or saved");
                             ui.label(format!("Preview: {} / {} · child Count=0 · parent Count {:?} → {} · {} bytes prepared", parent_path, pending.name, pending.parent_count, new_count, pending.prepared.bytes().len()));
-                            ui.horizontal(|ui| { ui.label("New XML destination"); ui.text_edit_singleline(&mut self.xml_folder_create_export_path); });
+                            ui.horizontal(|ui| { ui.label("New XML destination"); text_field(ui, &mut self.xml_folder_create_export_path); });
                             if ui.button("Export prepared folder").clicked() { self.export_xml_folder_create(); }
                             if ui.button("Cancel folder creation").clicked() { self.cancel_xml_folder_create(); }
                         }
@@ -509,7 +509,7 @@ impl LibraryApp {
                         if let Some(index) = self.xml_selected_folder_rename {
                             if let Some(folder) = preview.folders.get(index).filter(|f| f.path.len() > 1) {
                                 ui.label(format!("Selected #{} · {} · {:?}", folder.ordinal, folder.path.join(" / "), folder.name));
-                                if ui.text_edit_singleline(&mut self.xml_folder_rename_name).changed() { self.xml_pending_folder_rename = None; }
+                                if text_field(ui, &mut self.xml_folder_rename_name).changed() { self.xml_pending_folder_rename = None; }
                                 if ui.button("Prepare folder rename").clicked() { self.prepare_xml_folder_rename(); }
                             } else { ui.label("Root cannot be renamed."); }
                         }
@@ -519,7 +519,7 @@ impl LibraryApp {
                             for playlist in preview.playlists.iter().filter(|p| p.path.starts_with(&pending.path)) {
                                 ui.label(format!("Affected playlist: {}", playlist.path.join(" / ")));
                             }
-                            ui.horizontal(|ui| { ui.label("New XML destination"); ui.text_edit_singleline(&mut self.xml_folder_rename_export_path); });
+                            ui.horizontal(|ui| { ui.label("New XML destination"); text_field(ui, &mut self.xml_folder_rename_export_path); });
                             if ui.button("Export prepared folder rename").clicked() { self.export_xml_folder_rename(); }
                             if ui.button("Cancel folder rename").clicked() { self.xml_pending_folder_rename = None; }
                         }
@@ -541,7 +541,7 @@ impl LibraryApp {
                             let next_count = pending.parent_count.as_deref().and_then(|n| n.parse::<usize>().ok()).map(|n| n.saturating_sub(1).to_string()).unwrap_or_else(|| "N-1".into());
                             ui.strong("Pending folder deletion · not exported or saved");
                             ui.label(format!("Remove {} · Count=0 · immediate parent {} Count {:?} → {} · {} bytes prepared", pending.path.join(" / "), pending.parent_path.join(" / "), pending.parent_count, next_count, pending.prepared.bytes().len()));
-                            ui.horizontal(|ui| { ui.label("New XML destination"); ui.text_edit_singleline(&mut self.xml_folder_delete_export_path); });
+                            ui.horizontal(|ui| { ui.label("New XML destination"); text_field(ui, &mut self.xml_folder_delete_export_path); });
                             if ui.button("Export prepared folder deletion").clicked() { self.export_xml_folder_delete(); }
                             if ui.button("Cancel folder deletion").clicked() { self.cancel_xml_folder_delete(); }
                         }
@@ -562,7 +562,7 @@ impl LibraryApp {
                             ui.label(format!("Prepared output: {} bytes", pending.prepared.bytes().len()));
                             ui.horizontal(|ui| {
                                 ui.label("New XML destination");
-                                ui.text_edit_singleline(&mut self.xml_append_export_path);
+                                text_field(ui, &mut self.xml_append_export_path);
                             });
                             if ui.button("Export prepared append").clicked() { self.export_xml_member_append(); }
                             if ui.button("Cancel append").clicked() {
@@ -591,7 +591,7 @@ impl LibraryApp {
                             ui.label(format!("Source: {}", pending.source.display()));
                             ui.label(format!("Playlist #{} · insert TrackID {} at slot {}", pending.playlist_index, pending.track_id, pending.position));
                             ui.label(format!("Prepared output: {} bytes", pending.prepared.bytes().len()));
-                            ui.horizontal(|ui| { ui.label("New XML destination"); ui.text_edit_singleline(&mut self.xml_insert_export_path); });
+                            ui.horizontal(|ui| { ui.label("New XML destination"); text_field(ui, &mut self.xml_insert_export_path); });
                             if ui.button("Export prepared insertion").clicked() { self.export_xml_member_insert(); }
                             if ui.button("Cancel insertion").clicked() { self.cancel_xml_member_insert(); }
                         }

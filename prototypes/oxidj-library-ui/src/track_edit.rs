@@ -14,7 +14,7 @@
 //! its preserved panel presentation.
 
 use crate::LibraryApp;
-use crate::components::SectionHeading;
+use crate::components::{text_field, SectionHeading};
 use crate::theme;
 use eframe::egui;
 use oxidj_application::{PreparedTrackEditExport, RekordboxError, Track, TrackAttribute};
@@ -254,7 +254,7 @@ impl LibraryApp {
         } else {
             ui.horizontal(|ui| {
                 ui.label(format!("Proposed {label}"));
-                ui.text_edit_singleline(F::input(self)).changed()
+                text_field(ui, F::input(self)).changed()
             })
             .inner
         };
@@ -282,7 +282,7 @@ impl LibraryApp {
         ui.label(format!("Proposed {label}: {new:?}"));
         ui.horizontal(|ui| {
             ui.label("New XML destination");
-            ui.text_edit_singleline(F::export_path(self));
+            text_field(ui, F::export_path(self));
         });
         if ui.button(format!("Export prepared {label} edit")).clicked() {
             self.export_track_edit::<F>();

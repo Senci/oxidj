@@ -107,6 +107,17 @@ impl StatusBadge<'_> {
     }
 }
 
+/// Single-line text field at the shared control height, text vertically
+/// centred: `ui.text_edit_singleline` sizes to the font (~20 px), below the
+/// 24 px target and shorter than the toolbar fields beside it.
+pub fn text_field(ui: &mut egui::Ui, text: &mut String) -> egui::Response {
+    ui.add(
+        egui::TextEdit::singleline(text)
+            .min_size(egui::vec2(0.0, crate::theme::CONTROL_HEIGHT))
+            .vertical_align(egui::Align::Center),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
