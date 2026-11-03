@@ -31,6 +31,7 @@ flowchart TB
     app --> library["oxidj-library<br/>commands, import/export"]
     app --> adapters["oxidj-rekordbox<br/>read-only XML + DeviceSQL previews"]
     app --> onelibrary["oxidj-onelibrary<br/>preview DTO/protocol"]
+    app --> analysis
     onelibrary --> reader["separate one-shot SQLCipher reader<br/>independent Cargo workspace"]
     library --> core["oxidj-core<br/>neutral domain; no UI, persistence, audio, or vendor deps"]
     adapters --> xml["quick-xml<br/>XML parsing only"]
@@ -42,6 +43,8 @@ flowchart TB
 ```
 
 **Offline analysis (W1 amendment):** `oxidj-analysis` exists at layer 1 with exactly one dependency edge, `oxidj-core`. It consumes already-decoded mono samples (decoding stays in `oxidj-library`) and produces the neutral `oxidj_core::waveform::WaveformPeaks`; `cargo xtask layers` rejects any other dependency of the crate. BPM/beatgrid/key analysis remain unimplemented.
+
+**Waveform persistence (W2 amendment):** `oxidj-application` composes the library's streaming mono decode (`oxidj_library::pcm`) with `oxidj-analysis` chunk by chunk and stores the result through `oxidj-library` (`track_waveforms`, keyed by catalog track ID). The library still depends on no adapter and not on `oxidj-analysis`. Vendor waveforms decoded by `oxidj-rekordbox` (ANLZ `PWV3`/`PWV5`) are mapped by the application into the library's neutral `VendorWaveform` and stored in the separate `library_vendor_waveforms` table; they are never mixed into computed peaks.
 
 The **realtime engine** (`oxidj-engine`: CPAL + dasp/fundsp/rubato) is a separate crate with strictly one dependency edge — `oxidj-core` — and is **not created in M0**. It enters only at M4.
 

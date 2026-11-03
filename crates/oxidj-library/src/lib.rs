@@ -9,11 +9,14 @@ use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 mod imported_library;
+pub mod pcm;
+mod waveform_store;
 pub use imported_library::{
     LibraryBeat, LibraryCounts, LibraryCue, LibraryNode, LibrarySnapshot, LibraryTrack,
 };
+pub use waveform_store::{StoredWaveform, VendorWaveform, WAVEFORM_FORMAT_VERSION};
 
-const SCHEMA_VERSION: i64 = 5;
+const SCHEMA_VERSION: i64 = 6;
 const MIGRATION_LIST: &[M<'static>] = &[
     M::up(
         "CREATE TABLE tracks (\
@@ -105,6 +108,25 @@ const MIGRATION_LIST: &[M<'static>] = &[
             blue INTEGER CHECK (blue BETWEEN 0 AND 255),\
             CHECK ((red IS NULL) = (green IS NULL) AND (green IS NULL) = (blue IS NULL)),\
             PRIMARY KEY (track_position, position)\
+        );",
+    ),
+    // W2: computed waveform peaks per catalog track, and (separately) vendor-derived
+    // waveforms per imported library track; see waveform_store.rs.
+    M::up(
+        "CREATE TABLE track_waveforms (\
+            track_id INTEGER PRIMARY KEY REFERENCES tracks(id),\
+            format_version INTEGER NOT NULL CHECK (format_version = 1),\
+            sample_rate INTEGER NOT NULL CHECK (sample_rate > 0),\
+            samples_per_peak INTEGER NOT NULL CHECK (samples_per_peak > 0),\
+            sample_count INTEGER NOT NULL CHECK (sample_count > 0),\
+            source_sha256 BLOB NOT NULL CHECK (length(source_sha256) = 32),\
+            peaks BLOB NOT NULL CHECK (length(peaks) > 0 AND length(peaks) % 6 = 0)\
+        );\
+        CREATE TABLE library_vendor_waveforms (\
+            track_position INTEGER NOT NULL REFERENCES library_tracks(position),\
+            kind TEXT NOT NULL CHECK (kind IN ('rekordbox-anlz-pwv3', 'rekordbox-anlz-pwv5')),\
+            data BLOB NOT NULL,\
+            PRIMARY KEY (track_position, kind)\
         );",
     ),
 ];
@@ -1257,15 +1279,52 @@ fn validate_mp3_frame_layout(
 }
 
 fn decode_mp3_facts(path: &Path) -> Result<AudioFacts, ImportStatus> {
+    let (rate, channels, samples) = mp3_stream::<std::convert::Infallible>(path, &mut |_, _, _| {
+        Ok(())
+    })
+    .map_err(|error| match error {
+        pcm::PcmError::Unreadable => ImportStatus::Unreadable,
+        pcm::PcmError::Unsupported => ImportStatus::Unsupported,
+        _ => ImportStatus::Malformed,
+    })?;
+    Ok(AudioFacts {
+        duration: samples as f64 / f64::from(rate),
+        sample_rate: rate,
+        channels,
+        bit_depth: 16,
+    })
+}
+
+/// One decoded MP3 frame's PCM: interleaved samples, or a count of frames whose
+/// PCM is not reconstructable (leading bit-reservoir frames).
+pub(crate) enum Mp3Pcm<'a> {
+    Interleaved(&'a [f32]),
+    Silence(usize),
+}
+
+/// Per-frame MP3 callback: `(sample_rate, channels, pcm)`.
+pub(crate) type Mp3FrameFn<'f, E> =
+    dyn FnMut(u32, u16, Mp3Pcm<'_>) -> Result<(), pcm::PcmError<E>> + 'f;
+
+/// The MP3 decode loop shared by import facts and streaming PCM. `on_frame` gets
+/// `(sample_rate, channels, pcm)` per frame. Returns `(rate, channels, frames)`.
+pub(crate) fn mp3_stream<E>(
+    path: &Path,
+    on_frame: &mut Mp3FrameFn<'_, E>,
+) -> Result<(u32, u16, u64), pcm::PcmError<E>> {
+    let status = pcm::PcmError::<E>::status;
     use std::io::{Read, Seek, SeekFrom};
     const INPUT: usize = 32 * 1024;
     const MAX_ID3_TAG: u64 = 16 * 1024 * 1024;
-    let mut file = std::fs::File::open(path).map_err(|_| ImportStatus::Unreadable)?;
-    let file_len = file.metadata().map_err(|_| ImportStatus::Unreadable)?.len();
+    let mut file = std::fs::File::open(path).map_err(|_| status(ImportStatus::Unreadable))?;
+    let file_len = file
+        .metadata()
+        .map_err(|_| status(ImportStatus::Unreadable))?
+        .len();
     let mut header = [0_u8; 10];
     let header_len = file
         .read(&mut header)
-        .map_err(|_| ImportStatus::Unreadable)?;
+        .map_err(|_| status(ImportStatus::Unreadable))?;
     let audio_start = if header_len >= 3 && &header[..3] == b"ID3" {
         if header_len != 10
             || !matches!(header[3], 2..=4)
@@ -1273,7 +1332,7 @@ fn decode_mp3_facts(path: &Path) -> Result<AudioFacts, ImportStatus> {
             || header[5] & 15 != 0
             || header[6..10].iter().any(|byte| byte & 0x80 != 0)
         {
-            return Err(ImportStatus::Malformed);
+            return Err(status(ImportStatus::Malformed));
         }
         let tag_len = u64::from(header[6]) * 2_097_152
             + u64::from(header[7]) * 16_384
@@ -1282,10 +1341,10 @@ fn decode_mp3_facts(path: &Path) -> Result<AudioFacts, ImportStatus> {
             + 10
             + if header[5] & 16 != 0 { 10 } else { 0 };
         if tag_len > MAX_ID3_TAG {
-            return Err(ImportStatus::Unsupported);
+            return Err(status(ImportStatus::Unsupported));
         }
         if tag_len > file_len {
-            return Err(ImportStatus::Malformed);
+            return Err(status(ImportStatus::Malformed));
         }
         tag_len
     } else {
@@ -1294,22 +1353,22 @@ fn decode_mp3_facts(path: &Path) -> Result<AudioFacts, ImportStatus> {
     let mut audio_end = file_len;
     if file_len.saturating_sub(audio_start) >= 128 {
         file.seek(SeekFrom::Start(file_len - 128))
-            .map_err(|_| ImportStatus::Unreadable)?;
+            .map_err(|_| status(ImportStatus::Unreadable))?;
         let mut tag = [0_u8; 3];
         file.read_exact(&mut tag)
-            .map_err(|_| ImportStatus::Unreadable)?;
+            .map_err(|_| status(ImportStatus::Unreadable))?;
         if &tag == b"TAG" {
             audio_end -= 128;
         }
     }
-    validate_mp3_frame_layout(&mut file, audio_start, audio_end)?;
+    validate_mp3_frame_layout(&mut file, audio_start, audio_end).map_err(status)?;
     file.seek(SeekFrom::Start(audio_start))
-        .map_err(|_| ImportStatus::Unreadable)?;
+        .map_err(|_| status(ImportStatus::Unreadable))?;
     let mut file = file.take(audio_end - audio_start);
     let mut input = [0_u8; INPUT];
     let mut length = file
         .read(&mut input)
-        .map_err(|_| ImportStatus::Unreadable)?;
+        .map_err(|_| status(ImportStatus::Unreadable))?;
     let mut decoder = nanomp3::Decoder::new();
     let mut pcm = [0_f32; nanomp3::MAX_SAMPLES_PER_FRAME];
     let (mut rate, mut channels, mut samples, mut frames) = (0_u32, 0_u16, 0_u64, 0_u64);
@@ -1319,15 +1378,15 @@ fn decode_mp3_facts(path: &Path) -> Result<AudioFacts, ImportStatus> {
         }
         let (consumed, decoded) = decoder.decode(&input[..length], &mut pcm);
         if consumed > length {
-            return Err(ImportStatus::Malformed);
+            return Err(status(ImportStatus::Malformed));
         }
         if consumed == 0 {
             if length == INPUT {
-                return Err(ImportStatus::Malformed);
+                return Err(status(ImportStatus::Malformed));
             }
             let read = file
                 .read(&mut input[length..])
-                .map_err(|_| ImportStatus::Unreadable)?;
+                .map_err(|_| status(ImportStatus::Unreadable))?;
             if read == 0 {
                 break;
             }
@@ -1336,49 +1395,58 @@ fn decode_mp3_facts(path: &Path) -> Result<AudioFacts, ImportStatus> {
         }
         input.copy_within(consumed..length, 0);
         length -= consumed;
-        let info = match decoded {
+        let (info, silent) = match decoded {
             Ok(info) => {
                 samples = samples
                     .checked_add(info.samples_produced as u64)
-                    .ok_or(ImportStatus::Malformed)?;
-                info
+                    .ok_or(status(ImportStatus::Malformed))?;
+                (info, None)
             }
             Err(nanomp3::DecodeError::ReservoirUnavailable(info)) => {
                 // The initial reservoir-dependent frames are valid frames, but
                 // their PCM is not reconstructable without preceding audio.
+                let silent = if info.sample_rate >= 32_000 {
+                    1152
+                } else {
+                    576
+                };
                 samples = samples
-                    .checked_add(if info.sample_rate >= 32_000 {
-                        1152
-                    } else {
-                        576
-                    })
-                    .ok_or(ImportStatus::Malformed)?;
-                info
+                    .checked_add(silent)
+                    .ok_or(status(ImportStatus::Malformed))?;
+                (info, Some(silent as usize))
             }
             Err(nanomp3::DecodeError::UnsupportedLayer(info)) => {
                 let _ = info;
-                return Err(ImportStatus::Unsupported);
+                return Err(status(ImportStatus::Unsupported));
             }
             Err(nanomp3::DecodeError::NoFrame | nanomp3::DecodeError::Corrupt(_)) => {
-                return Err(ImportStatus::Malformed);
+                return Err(status(ImportStatus::Malformed));
             }
-            Err(_) => return Err(ImportStatus::Malformed),
+            Err(_) => return Err(status(ImportStatus::Malformed)),
         };
         if info.layer != 3 {
-            return Err(ImportStatus::Unsupported);
+            return Err(status(ImportStatus::Unsupported));
         }
         if rate == 0 {
             rate = info.sample_rate;
             channels = u16::from(info.channels.num());
         }
         if info.sample_rate != rate || u16::from(info.channels.num()) != channels {
-            return Err(ImportStatus::Unsupported);
+            return Err(status(ImportStatus::Unsupported));
         }
         frames += 1;
+        let produced = match silent {
+            Some(count) => Mp3Pcm::Silence(count),
+            None => Mp3Pcm::Interleaved(
+                pcm.get(..info.samples_produced * usize::from(channels))
+                    .ok_or(status(ImportStatus::Malformed))?,
+            ),
+        };
+        on_frame(rate, channels, produced)?;
         if length < INPUT {
             let read = file
                 .read(&mut input[length..])
-                .map_err(|_| ImportStatus::Unreadable)?;
+                .map_err(|_| status(ImportStatus::Unreadable))?;
             length += read;
             if read == 0 && length == 0 {
                 break;
@@ -1386,14 +1454,9 @@ fn decode_mp3_facts(path: &Path) -> Result<AudioFacts, ImportStatus> {
         }
     }
     if frames == 0 || rate == 0 || channels == 0 || samples == 0 {
-        return Err(ImportStatus::Malformed);
+        return Err(status(ImportStatus::Malformed));
     }
-    Ok(AudioFacts {
-        duration: samples as f64 / f64::from(rate),
-        sample_rate: rate,
-        channels,
-        bit_depth: 16,
-    })
+    Ok((rate, channels, samples))
 }
 
 // Supported M2 WAV matrix: integer PCM 8/16/24/32 and IEEE float32.
@@ -1531,7 +1594,8 @@ impl std::io::Read for PaddingStrippingReader {
     }
 }
 
-fn file_sha256(path: &Path) -> std::io::Result<([u8; 32], u64)> {
+/// SHA-256 digest and byte length of a file, streamed (the catalog's identity check).
+pub fn file_sha256(path: &Path) -> std::io::Result<([u8; 32], u64)> {
     let mut file = std::fs::File::open(path)?;
     let mut hasher = sha2::Sha256::new();
     let mut buffer = [0_u8; 64 * 1024];

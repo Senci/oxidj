@@ -3,7 +3,7 @@
 //! adapter previews into these types; this crate never depends on an adapter.
 //! No audio is read or written.
 
-use super::{Catalog, CatalogError};
+use super::{Catalog, CatalogError, VendorWaveform};
 
 /// One imported track's metadata; `location` is kept as supplied by the caller.
 /// Optional fields are `None` when the source supplied no value.
@@ -37,6 +37,9 @@ pub struct LibraryTrack {
     pub beat_grid: Vec<LibraryBeat>,
     /// Ordered cues and loops (empty = none).
     pub cues: Vec<LibraryCue>,
+    /// Vendor-derived waveforms (empty = none), at most one per kind, in
+    /// [`VendorWaveform`] declaration order. Never computed peaks.
+    pub vendor_waveforms: Vec<VendorWaveform>,
 }
 
 /// One beat-grid point as stored by the source.
@@ -184,6 +187,9 @@ impl Catalog {
                 "INSERT INTO library_cues(track_position,position,hot_cue,start_ms,end_ms,name,\
                  red,green,blue) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9)",
             )?;
+            let mut waveform_insert = tx.prepare(
+                "INSERT INTO library_vendor_waveforms(track_position,kind,data) VALUES(?1,?2,?3)",
+            )?;
             for (position, track) in snapshot.tracks.iter().enumerate() {
                 for (index, beat) in track.beat_grid.iter().enumerate() {
                     beat_insert.execute(rusqlite::params![
@@ -192,6 +198,22 @@ impl Catalog {
                         beat.time_ms,
                         beat.tempo_hundredths_bpm,
                         beat.beat_in_bar
+                    ])?;
+                }
+                if !track
+                    .vendor_waveforms
+                    .windows(2)
+                    .all(|w| w[0].order() < w[1].order())
+                {
+                    return Err(CatalogError::InvalidRecord(
+                        "vendor waveforms are duplicated or out of order",
+                    ));
+                }
+                for waveform in &track.vendor_waveforms {
+                    waveform_insert.execute(rusqlite::params![
+                        to_i64(position)?,
+                        waveform.kind(),
+                        waveform.encode()?
                     ])?;
                 }
                 for (index, cue) in track.cues.iter().enumerate() {
@@ -299,6 +321,7 @@ impl Catalog {
                     rating_stars: row.get(18)?,
                     beat_grid: Vec::new(),
                     cues: Vec::new(),
+                    vendor_waveforms: Vec::new(),
                 },
             ))
         })?;
@@ -380,6 +403,28 @@ impl Catalog {
         for row in rows {
             let (track, position, cue) = row?;
             dense(track, position, &mut tracks, false)?.cues.push(cue);
+        }
+        let mut statement = self.connection.prepare(
+            "SELECT track_position,kind,data FROM library_vendor_waveforms \
+             ORDER BY track_position,kind",
+        )?;
+        let rows = statement.query_map([], |row| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, Vec<u8>>(2)?,
+            ))
+        })?;
+        for row in rows {
+            let (track, kind, data) = row?;
+            let waveform = VendorWaveform::decode(&kind, &data)?;
+            let slot = usize::try_from(track)
+                .ok()
+                .and_then(|t| tracks.get_mut(t))
+                .ok_or(CatalogError::InvalidRecord(
+                    "vendor waveform references a missing track",
+                ))?;
+            slot.vendor_waveforms.push(waveform);
         }
         let mut statement = self.connection.prepare(
             "SELECT id,parent_id,name,is_folder FROM library_nodes ORDER BY parent_id,sibling_order",
@@ -503,6 +548,10 @@ mod tests {
                     colour: Some([0, 128, 255]),
                 },
             ],
+            vendor_waveforms: vec![
+                VendorWaveform::RekordboxDetail(vec![[31, 7], [0, 0], [12, 3]]),
+                VendorWaveform::RekordboxColourDetail(vec![[7, 0, 3, 31]]),
+            ],
             ..track("A")
         };
         let cue_only = LibraryTrack {
@@ -589,5 +638,42 @@ mod tests {
             ))
         ));
         assert_eq!(catalog.library_snapshot().unwrap(), snapshot());
+    }
+
+    #[test]
+    fn vendor_waveforms_are_stored_apart_from_computed_peaks_and_fail_closed() {
+        let path = path();
+        let mut catalog = Catalog::open(&path).unwrap();
+        let mut bad = snapshot();
+        bad.tracks[1].vendor_waveforms = vec![VendorWaveform::RekordboxDetail(vec![[40, 0]])];
+        assert!(catalog.import_library(&bad).is_err());
+        bad.tracks[1].vendor_waveforms = vec![
+            VendorWaveform::RekordboxColourDetail(vec![]),
+            VendorWaveform::RekordboxDetail(vec![]),
+        ];
+        assert!(catalog.import_library(&bad).is_err());
+        assert_eq!(
+            catalog.library_snapshot().unwrap(),
+            LibrarySnapshot::default()
+        );
+        catalog.import_library(&snapshot()).unwrap();
+        let (vendor, computed): (i64, i64) = catalog
+            .connection
+            .query_row(
+                "SELECT (SELECT COUNT(*) FROM library_vendor_waveforms),\
+                 (SELECT COUNT(*) FROM track_waveforms)",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!((vendor, computed), (2, 0));
+        catalog
+            .connection
+            .execute(
+                "UPDATE library_vendor_waveforms SET data=x'2000' WHERE kind='rekordbox-anlz-pwv3'",
+                [],
+            )
+            .unwrap();
+        assert!(catalog.library_snapshot().is_err());
     }
 }

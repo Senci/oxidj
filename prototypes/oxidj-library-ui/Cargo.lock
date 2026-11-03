@@ -2272,9 +2272,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "oxidj-analysis"
+version = "0.1.0"
+dependencies = [
+ "oxidj-core",
+]
+
+[[package]]
 name = "oxidj-application"
 version = "0.1.0"
 dependencies = [
+ "oxidj-analysis",
  "oxidj-core",
  "oxidj-library",
  "oxidj-onelibrary",

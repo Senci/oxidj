@@ -1624,6 +1624,9 @@ fn run_catalog(args: &[String]) -> i32 {
     if action == "export-library-xml" {
         return run_export_library_xml(&args[1..]);
     }
+    if action == "analyze-waveform" {
+        return run_analyze_waveform(&args[1..]);
+    }
     if action == "import" {
         let Some(dir_index) = args.iter().position(|arg| arg == "--dir") else {
             eprintln!("error: catalog import requires --dir PATH");
@@ -1738,6 +1741,50 @@ fn run_catalog(args: &[String]) -> i32 {
         _ => {
             eprintln!("error: unknown catalog action: {action}");
             USAGE
+        }
+    }
+}
+
+/// `catalog analyze-waveform --db DB [--track-id ID]`: compute and store waveform
+/// peaks. Prints one line per track (ID and outcome, never paths) and a summary;
+/// exits non-zero when any track was refused.
+fn run_analyze_waveform(args: &[String]) -> i32 {
+    let (db, track) = match args {
+        [a, db] if a == "--db" => (db, None),
+        [a, db, b, id] | [b, id, a, db] if a == "--db" && b == "--track-id" => {
+            match id
+                .parse::<u64>()
+                .ok()
+                .and_then(|n| oxidj_core::TrackId::new(n).ok())
+            {
+                Some(id) => (db, Some(id)),
+                None => {
+                    eprintln!("error: --track-id requires a positive integer");
+                    return USAGE;
+                }
+            }
+        }
+        _ => {
+            eprintln!("error: expected catalog analyze-waveform --db PATH [--track-id ID]");
+            return USAGE;
+        }
+    };
+    match oxidj_application::analyze_catalog_waveforms(db, track) {
+        Ok(report) => {
+            for (id, outcome) in &report.outcomes {
+                match outcome {
+                    Ok(outcome) => println!("{outcome:?}\t{id}"),
+                    Err(error) => println!("Failed\t{id}\t{error}"),
+                }
+            }
+            println!("Analyzed: {}", report.analyzed());
+            println!("Unchanged: {}", report.unchanged());
+            println!("Failed: {}", report.failed());
+            if report.failed() == 0 { OK } else { DOMAIN }
+        }
+        Err(error) => {
+            eprintln!("error: {error}");
+            DOMAIN
         }
     }
 }
@@ -2012,6 +2059,10 @@ fn print_usage(to_stdout: bool) {
     let _ = writeln!(
         output,
         "  catalog import --dir <directory> --db <path>   Import WAV/FLAC/MP3 references recursively"
+    );
+    let _ = writeln!(
+        output,
+        "  catalog analyze-waveform --db <path> [--track-id <id>]   Compute and store waveform peaks (idempotent; sources only read)"
     );
     let _ = writeln!(
         output,

@@ -10,12 +10,29 @@ use std::{
 
 use oxidj_library::{
     Catalog, LibraryBeat, LibraryCounts, LibraryCue, LibraryNode, LibrarySnapshot, LibraryTrack,
+    VendorWaveform,
 };
 use oxidj_rekordbox::{
     LIBRARY_XML_NOT_WRITTEN_TRACK_ATTRIBUTES, LIBRARY_XML_NOT_WRITTEN_TRACK_ELEMENTS,
     LIBRARY_XML_OPTIONAL_TRACK_ATTRIBUTES, LIBRARY_XML_OPTIONAL_TRACK_ELEMENTS, LibraryXmlMark,
     LibraryXmlNode, LibraryXmlTempo, LibraryXmlTrack, PdbNodeId, PdbPreview,
 };
+
+/// The track's ANLZ waveforms as vendor-derived catalog data (never computed peaks).
+fn vendor_waveforms(track: &oxidj_rekordbox::PdbTrackPreview) -> Vec<VendorWaveform> {
+    let detail = track.waveform_detail.as_ref().map(|columns| {
+        VendorWaveform::RekordboxDetail(columns.iter().map(|c| [c.height, c.whiteness]).collect())
+    });
+    let colour = track.colour_waveform_detail.as_ref().map(|columns| {
+        VendorWaveform::RekordboxColourDetail(
+            columns
+                .iter()
+                .map(|c| [c.red, c.green, c.blue, c.height])
+                .collect(),
+        )
+    });
+    detail.into_iter().chain(colour).collect()
+}
 
 /// A fail-closed import/export refusal. Messages never contain source values.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -240,6 +257,7 @@ pub fn library_from_pdb_preview(
                     colour: c.rgb.filter(|_| c.hot_cue != 0),
                 })
                 .collect(),
+            vendor_waveforms: vendor_waveforms(track),
         });
     }
     // (sort_order, id, node) per parent.
@@ -743,6 +761,55 @@ mod tests {
                 }
             ]
         );
+    }
+
+    #[test]
+    fn anlz_waveforms_map_to_labelled_vendor_waveforms_only_when_present() {
+        let mut source = preview();
+        source.tracks[0].waveform_detail = Some(vec![oxidj_rekordbox::AnlzDetailColumn {
+            height: 31,
+            whiteness: 2,
+        }]);
+        source.tracks[0].colour_waveform_detail = Some(vec![oxidj_rekordbox::AnlzColourColumn {
+            red: 1,
+            green: 2,
+            blue: 3,
+            height: 4,
+        }]);
+        source.tracks[1].colour_waveform_detail = Some(vec![]);
+        let (snapshot, _) = library_from_pdb_preview(&source).unwrap();
+        assert_eq!(
+            snapshot.tracks[0].vendor_waveforms,
+            vec![
+                VendorWaveform::RekordboxDetail(vec![[31, 2]]),
+                VendorWaveform::RekordboxColourDetail(vec![[1, 2, 3, 4]]),
+            ]
+        );
+        assert_eq!(
+            snapshot.tracks[1].vendor_waveforms,
+            vec![VendorWaveform::RekordboxColourDetail(vec![])]
+        );
+        assert!(
+            snapshot.tracks[2..]
+                .iter()
+                .all(|t| t.vendor_waveforms.is_empty())
+        );
+        // Persisted in the vendor table and read back verbatim.
+        let path = std::env::temp_dir().join(format!(
+            "oxidj-vendor-waveform-{}-{}.sqlite",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let mut catalog = Catalog::open(&path).unwrap();
+        catalog.import_library(&snapshot).unwrap();
+        assert_eq!(catalog.library_snapshot().unwrap(), snapshot);
+        drop(catalog);
+        for file in catalog_files(&path) {
+            let _ = std::fs::remove_file(file);
+        }
     }
 
     #[test]

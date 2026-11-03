@@ -8,12 +8,17 @@ use std::{
 use zeroize::{Zeroize, Zeroizing};
 
 mod library_import;
+mod waveform;
 pub use library_import::{
     LibraryExportReport, LibraryImportReport, LibraryWorkflowError, NotCarried,
     OneLibraryCrossCheck, export_library_xml, import_library_from_pdb, library_from_pdb_preview,
     onelibrary_cross_check,
 };
 pub use oxidj_library::{LibraryCounts, LibraryNode, LibrarySnapshot, LibraryTrack};
+pub use waveform::{
+    WaveformAnalysisError, WaveformOutcome, WaveformReport, analyze_catalog_waveforms,
+    analyze_track_waveform, analyze_waveform_file,
+};
 
 pub use oxidj_rekordbox::{
     Error as RekordboxError, ExportDecision, ExportPreflight, FolderCreateRequest,

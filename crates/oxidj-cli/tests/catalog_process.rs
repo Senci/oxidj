@@ -274,7 +274,7 @@ fn catalog_backup_and_fresh_path_restore_preserve_records_and_refuse_unsafe_path
         database.file_name().unwrap().to_string_lossy()
     ));
     let mut newer_bytes = std::fs::read(&backup).unwrap();
-    newer_bytes[60..64].copy_from_slice(&6_i32.to_be_bytes());
+    newer_bytes[60..64].copy_from_slice(&7_i32.to_be_bytes());
     std::fs::write(&newer_schema, &newer_bytes).unwrap();
     let newer_before = std::fs::read(&newer_schema).unwrap();
     let newer_result = run(&[
@@ -379,4 +379,72 @@ fn backup_rejects_identical_source_and_destination_without_mutation() {
         "backup changed source bytes"
     );
     let _ = std::fs::remove_file(source);
+}
+
+#[test]
+fn analyze_waveform_command_stores_peaks_idempotently_and_refuses_bad_input() {
+    let database = database_path();
+    let db = database.to_str().unwrap();
+    let root = database.with_extension("waveform-audio");
+    std::fs::create_dir(&root).unwrap();
+    let flac = include_bytes!("../../oxidj-library/tests/fixtures/tone.flac");
+    std::fs::write(root.join("tone.flac"), flac).unwrap();
+    std::fs::write(root.join("broken.flac"), b"fLaC broken").unwrap();
+    let import = run(&[
+        "catalog",
+        "import",
+        "--dir",
+        root.to_str().unwrap(),
+        "--db",
+        db,
+    ]);
+    assert_eq!(import.status.code(), Some(0), "{:?}", import.stderr);
+
+    let first = run(&["catalog", "analyze-waveform", "--db", db]);
+    assert_eq!(first.status.code(), Some(0), "{:?}", first.stderr);
+    assert_eq!(
+        String::from_utf8(first.stdout).unwrap(),
+        "Analyzed\t1\nAnalyzed: 1\nUnchanged: 0\nFailed: 0\n"
+    );
+    let stored = Catalog::open(&database)
+        .unwrap()
+        .read_waveform(oxidj_core::TrackId::new(1).unwrap())
+        .unwrap()
+        .expect("peaks stored");
+    let again = run(&["catalog", "analyze-waveform", "--track-id", "1", "--db", db]);
+    assert_eq!(again.status.code(), Some(0));
+    assert_eq!(
+        String::from_utf8(again.stdout).unwrap(),
+        "Unchanged\t1\nAnalyzed: 0\nUnchanged: 1\nFailed: 0\n"
+    );
+    let reread = Catalog::open(&database)
+        .unwrap()
+        .read_waveform(oxidj_core::TrackId::new(1).unwrap())
+        .unwrap();
+    assert_eq!(reread, Some(stored));
+    assert_eq!(std::fs::read(root.join("tone.flac")).unwrap(), flac);
+
+    for args in [
+        vec!["catalog", "analyze-waveform", "--db", db, "--track-id", "7"],
+        vec![
+            "catalog",
+            "analyze-waveform",
+            "--db",
+            "/nonexistent/oxidj.sqlite",
+        ],
+    ] {
+        let out = run(&args);
+        assert_eq!(out.status.code(), Some(1), "{args:?}");
+        assert!(out.stdout.is_empty());
+    }
+    for args in [
+        vec!["catalog", "analyze-waveform"],
+        vec!["catalog", "analyze-waveform", "--db", db, "--track-id", "0"],
+        vec!["catalog", "analyze-waveform", "--db", db, "--bogus"],
+    ] {
+        assert_eq!(run(&args).status.code(), Some(2), "{args:?}");
+    }
+    assert!(!std::path::Path::new("/nonexistent/oxidj.sqlite").exists());
+    let _ = std::fs::remove_file(&database);
+    let _ = std::fs::remove_dir_all(root);
 }

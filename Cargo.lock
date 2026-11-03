@@ -163,6 +163,7 @@ dependencies = [
 name = "oxidj-application"
 version = "0.1.0"
 dependencies = [
+ "oxidj-analysis",
  "oxidj-core",
  "oxidj-library",
  "oxidj-onelibrary",

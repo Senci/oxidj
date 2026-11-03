@@ -2,7 +2,9 @@
 //! (`PQTZ`), cue lists (`PCOB`) and extended cue lists (`PCO2`). Big-endian tagged
 //! sections per the public Deep Symmetry `rekordbox_anlz` reference. Every length is
 //! checked before use; unknown, duplicated or malformed sections reject the whole
-//! file. Recognised-but-undecoded sections (waveforms, VBR index, song structure,
+//! file. The `PWV3` waveform detail and `PWV5` colour waveform detail (W2) are
+//! decoded as vendor-derived data, never as OxiDJ-computed peaks. Other
+//! recognised-but-undecoded sections (other waveforms, VBR index, song structure,
 //! extended grid) are length-checked and skipped. Nothing is ever written.
 
 /// Analysis files larger than this are refused.
@@ -31,6 +33,30 @@ pub struct AnlzCue {
     pub rgb: Option<[u8; 3]>,
 }
 
+/// One `PWV3` waveform-detail column (vendor-derived): low 5 bits height, high 3
+/// bits whiteness.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AnlzDetailColumn {
+    /// 0..=31.
+    pub height: u8,
+    /// 0..=7.
+    pub whiteness: u8,
+}
+
+/// One `PWV5` colour-waveform-detail column (vendor-derived): a big-endian `u16`
+/// of red (bits 15-13), green (12-10), blue (9-7), height (6-2); bits 1-0 unused.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AnlzColourColumn {
+    /// 0..=7.
+    pub red: u8,
+    /// 0..=7.
+    pub green: u8,
+    /// 0..=7.
+    pub blue: u8,
+    /// 0..=31.
+    pub height: u8,
+}
+
 /// The decoded sections of one ANLZ file. `None` = the section is not present.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct AnlzFile {
@@ -41,6 +67,10 @@ pub struct AnlzFile {
     pub cues: Option<Vec<AnlzCue>>,
     /// `PCO2` lists in file order.
     pub extended_cues: Option<Vec<AnlzCue>>,
+    /// `PWV3` waveform detail (vendor-derived).
+    pub waveform_detail: Option<Vec<AnlzDetailColumn>>,
+    /// `PWV5` colour waveform detail (vendor-derived).
+    pub colour_waveform_detail: Option<Vec<AnlzColourColumn>>,
 }
 
 /// A refusal; messages never contain source values.
@@ -54,8 +84,7 @@ impl std::fmt::Display for AnlzError {
 impl std::error::Error for AnlzError {}
 
 const SKIPPED: &[&[u8; 4]] = &[
-    b"PVBR", b"PWAV", b"PWV2", b"PWV3", b"PWV4", b"PWV5", b"PWV6", b"PWV7", b"PWVC", b"PQT2",
-    b"PSSI",
+    b"PVBR", b"PWAV", b"PWV2", b"PWV4", b"PWV6", b"PWV7", b"PWVC", b"PQT2", b"PSSI",
 ];
 
 fn slice(bytes: &[u8], at: usize, len: usize) -> Result<&[u8], AnlzError> {
@@ -152,6 +181,26 @@ fn check_list(list_type: u32, cues: &[AnlzCue]) -> Result<(), AnlzError> {
         }
     }
     Ok(())
+}
+
+/// Entry bytes of a `PWV3`/`PWV5` section: header at least 24 bytes, the stored
+/// entry size must equal `entry_size` and `count * entry_size` must fill the body.
+fn waveform_entries(section: &[u8], header: usize, entry_size: u32) -> Result<&[u8], AnlzError> {
+    if header < 24 {
+        return Err(AnlzError("malformed ANLZ waveform section"));
+    }
+    if u32_at(section, 12)? != entry_size {
+        return Err(AnlzError("unknown ANLZ waveform entry size"));
+    }
+    let count = size(u32_at(section, 16)?);
+    if count
+        .checked_mul(size(entry_size))
+        .and_then(|n| n.checked_add(header))
+        != Some(section.len())
+    {
+        return Err(AnlzError("ANLZ waveform length mismatch"));
+    }
+    slice(section, header, section.len() - header)
 }
 
 /// Decode one ANLZ file (`.DAT` or `.EXT`).
@@ -256,6 +305,41 @@ pub fn parse_anlz(bytes: &[u8]) -> Result<AnlzFile, AnlzError> {
                     .collect::<Result<Vec<_>, AnlzError>>()?;
                 check_list(list_type, &cues)?;
                 file.extended_cues.get_or_insert_with(Vec::new).extend(cues);
+            }
+            b"PWV3" => {
+                if file.waveform_detail.is_some() {
+                    return Err(AnlzError("duplicate ANLZ waveform detail"));
+                }
+                let body = waveform_entries(section, section_header, 1)?;
+                file.waveform_detail = Some(
+                    body.iter()
+                        .map(|&b| AnlzDetailColumn {
+                            height: b & 0x1f,
+                            whiteness: b >> 5,
+                        })
+                        .collect(),
+                );
+            }
+            b"PWV5" => {
+                if file.colour_waveform_detail.is_some() {
+                    return Err(AnlzError("duplicate ANLZ colour waveform detail"));
+                }
+                let body = waveform_entries(section, section_header, 2)?;
+                file.colour_waveform_detail = Some(
+                    body.as_chunks::<2>()
+                        .0
+                        .iter()
+                        .map(|&pair| {
+                            let v = u16::from_be_bytes(pair);
+                            AnlzColourColumn {
+                                red: (v >> 13) as u8 & 7,
+                                green: (v >> 10) as u8 & 7,
+                                blue: (v >> 7) as u8 & 7,
+                                height: (v >> 2) as u8 & 0x1f,
+                            }
+                        })
+                        .collect(),
+                );
             }
             other if SKIPPED.contains(&other) => {}
             _ => return Err(AnlzError("unknown ANLZ section")),
@@ -367,6 +451,13 @@ pub(crate) mod fixture {
         out.extend(((12 + e.len()) as u32).to_be_bytes());
         out.extend(e);
         out
+    }
+    /// `PWV3` (entry size 1) or `PWV5` (entry size 2) with raw entry bytes.
+    pub fn pwv(tag: &[u8; 4], entry_size: u32, entries: &[u8]) -> Vec<u8> {
+        let mut rest = entry_size.to_be_bytes().to_vec();
+        rest.extend((entries.len() as u32 / entry_size).to_be_bytes());
+        rest.extend(0x0096_0000u32.to_be_bytes());
+        section(tag, &rest, entries)
     }
     pub fn pco2(list_type: u32, entries: &[Vec<u8>]) -> Vec<u8> {
         let mut rest = list_type.to_be_bytes().to_vec();
@@ -541,6 +632,78 @@ mod tests {
             parse_anlz(&bad),
             Err(AnlzError("malformed ANLZ file header"))
         );
+    }
+
+    #[test]
+    fn pwv3_and_pwv5_decode_present_absent_and_fail_closed() {
+        // PWV3 bytes: height 31 / whiteness 7, height 0 / whiteness 0, height 10 / whiteness 2.
+        // PWV5 words: r7 g0 b3 h31 (+ unused bits set), r1 g2 b4 h5.
+        let colour_a: u16 = (7 << 13) | (3 << 7) | (31 << 2) | 0b11;
+        let colour_b: u16 = (1 << 13) | (2 << 10) | (4 << 7) | (5 << 2);
+        let pwv5_bytes = [colour_a.to_be_bytes(), colour_b.to_be_bytes()].concat();
+        let bytes = file(&[
+            ppth("/a"),
+            pwv(b"PWV3", 1, &[0xff, 0x00, 0x4a]),
+            pwv(b"PWV5", 2, &pwv5_bytes),
+        ]);
+        let f = parse_anlz(&bytes).unwrap();
+        let d = |height, whiteness| AnlzDetailColumn { height, whiteness };
+        assert_eq!(f.waveform_detail, Some(vec![d(31, 7), d(0, 0), d(10, 2)]));
+        let c = |red, green, blue, height| AnlzColourColumn {
+            red,
+            green,
+            blue,
+            height,
+        };
+        assert_eq!(
+            f.colour_waveform_detail,
+            Some(vec![c(7, 0, 3, 31), c(1, 2, 4, 5)])
+        );
+        let absent = parse_anlz(&file(&[ppth("/a")])).unwrap();
+        assert_eq!(
+            (absent.waveform_detail, absent.colour_waveform_detail),
+            (None, None)
+        );
+        let empty = parse_anlz(&file(&[pwv(b"PWV3", 1, &[]), pwv(b"PWV5", 2, &[])])).unwrap();
+        assert_eq!(empty.waveform_detail, Some(vec![]));
+        assert_eq!(empty.colour_waveform_detail, Some(vec![]));
+
+        let cases: Vec<(Vec<u8>, &str)> = vec![
+            (
+                file(&[pwv(b"PWV3", 1, &[1]), pwv(b"PWV3", 1, &[1])]),
+                "duplicate ANLZ waveform detail",
+            ),
+            (
+                file(&[pwv(b"PWV5", 2, &[0, 0]), pwv(b"PWV5", 2, &[0, 0])]),
+                "duplicate ANLZ colour waveform detail",
+            ),
+            (
+                file(&[pwv(b"PWV3", 2, &[1, 1])]),
+                "unknown ANLZ waveform entry size",
+            ),
+            (
+                file(&[pwv(b"PWV5", 1, &[1, 1])]),
+                "unknown ANLZ waveform entry size",
+            ),
+            (
+                file(&[section(b"PWV3", &[0, 0, 0, 1], &[1])]),
+                "malformed ANLZ waveform section",
+            ),
+        ];
+        for (bytes, reason) in cases {
+            assert_eq!(parse_anlz(&bytes), Err(AnlzError(reason)));
+        }
+        // Declared entry count disagrees with the stored body (one entry short).
+        let mut short = file(&[pwv(b"PWV5", 2, &pwv5_bytes)]);
+        short[28 + 19] = 3;
+        assert_eq!(
+            parse_anlz(&short),
+            Err(AnlzError("ANLZ waveform length mismatch"))
+        );
+        // Every truncation of a waveform-bearing file is refused.
+        for len in 0..bytes.len() {
+            assert!(parse_anlz(&bytes[..len]).is_err(), "prefix {len} accepted");
+        }
     }
 
     #[test]

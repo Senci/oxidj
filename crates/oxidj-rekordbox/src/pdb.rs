@@ -48,6 +48,10 @@ pub struct PdbTrackPreview {
     pub beat_grid: Vec<AnlzBeat>,
     /// Cues and loops from the track's ANLZ analysis (empty = none).
     pub cues: Vec<AnlzCue>,
+    /// Vendor-derived `PWV3` waveform detail from the sibling `.EXT` (`None` = absent).
+    pub waveform_detail: Option<Vec<AnlzDetailColumn>>,
+    /// Vendor-derived `PWV5` colour waveform detail from the sibling `.EXT`.
+    pub colour_waveform_detail: Option<Vec<AnlzColourColumn>>,
     /// XML attribute names (or `TEMPO` / `POSITION_MARK`) whose source value could
     /// not be interpreted.
     pub unresolved: Vec<&'static str>,
@@ -195,6 +199,8 @@ pub fn parse_pdb(bytes: &[u8]) -> Result<PdbPreview, PdbPreviewError> {
                 analysis_path: row.analyze_path().to_owned(),
                 beat_grid: Vec::new(),
                 cues: Vec::new(),
+                waveform_detail: None,
+                colour_waveform_detail: None,
                 unresolved,
             }
         })
@@ -312,7 +318,9 @@ pub fn attach_analysis(preview: &mut PdbPreview, device_root: Option<&Path>) {
 ///   non-increasing times → unresolved;
 /// - cues: from the sibling `.EXT` `PCO2` lists when present (every `.DAT` `PCOB`
 ///   cue must also appear there, and the `.EXT` `PPTH` must match), else from the
-///   `.DAT` `PCOB` lists; an unreadable/undecodable `.EXT` → unresolved.
+///   `.DAT` `PCOB` lists; an unreadable/undecodable `.EXT` → unresolved;
+/// - waveforms: `PWV3` / `PWV5` from a decoded `.EXT` only (vendor-derived, carried
+///   as stored); absent, unreadable or undecodable `.EXT` → no waveform.
 pub fn attach_analysis_with(
     preview: &mut PdbPreview,
     mut read: impl FnMut(&[&str]) -> AnalysisRead,
@@ -363,7 +371,12 @@ pub fn attach_analysis_with(
         *ext_parts.last_mut().expect("non-empty") = &ext_name;
         let dat_cues = dat.cues.unwrap_or_default();
         let key = |c: &AnlzCue| (c.hot_cue, c.start_ms, c.loop_end_ms);
-        match owned(&ext_parts) {
+        let ext = owned(&ext_parts);
+        if let Ok(Some(ext)) = &ext {
+            track.waveform_detail = ext.waveform_detail.clone();
+            track.colour_waveform_detail = ext.colour_waveform_detail.clone();
+        }
+        match ext {
             Ok(Some(AnlzFile {
                 extended_cues: Some(extended),
                 ..
@@ -602,6 +615,71 @@ mod analysis_tests {
         )[0];
         assert!(t.unresolved.is_empty());
         assert_eq!(t.cues.len(), 1);
+    }
+
+    #[test]
+    fn ext_waveforms_attach_as_vendor_data_present_absent_or_truncated() {
+        let owner = ppth("/Contents/1.mp3");
+        let dat = file(&[owner.clone(), grid()]);
+        let colour: u16 = (5 << 13) | (1 << 10) | (2 << 7) | (17 << 2);
+        let ext = file(&[
+            owner.clone(),
+            pwv(b"PWV3", 1, &[0x3f, 0x01]),
+            pwv(b"PWV5", 2, &colour.to_be_bytes()),
+        ]);
+        // Present: carried exactly as decoded; grid unaffected.
+        let t = &attach(
+            vec![track(1, DAT)],
+            &[(DAT, dat.clone()), (EXT, ext.clone())],
+        )[0];
+        assert!(t.unresolved.is_empty());
+        assert_eq!(t.beat_grid.len(), 2);
+        assert_eq!(
+            t.waveform_detail,
+            Some(vec![
+                AnlzDetailColumn {
+                    height: 31,
+                    whiteness: 1
+                },
+                AnlzDetailColumn {
+                    height: 1,
+                    whiteness: 0
+                }
+            ])
+        );
+        assert_eq!(
+            t.colour_waveform_detail,
+            Some(vec![AnlzColourColumn {
+                red: 5,
+                green: 1,
+                blue: 2,
+                height: 17
+            }])
+        );
+        // Absent: no EXT, or an EXT without waveform sections.
+        for files in [
+            vec![(DAT, dat.clone())],
+            vec![
+                (DAT, dat.clone()),
+                (EXT, file(std::slice::from_ref(&owner))),
+            ],
+        ] {
+            let t = &attach(vec![track(1, DAT)], &files)[0];
+            assert!(t.unresolved.is_empty());
+            assert_eq!(
+                (&t.waveform_detail, &t.colour_waveform_detail),
+                (&None, &None)
+            );
+        }
+        // Truncated EXT: nothing invented; the EXT-derived cues are unresolved.
+        let truncated = ext[..ext.len() - 1].to_vec();
+        let t = &attach(vec![track(1, DAT)], &[(DAT, dat), (EXT, truncated)])[0];
+        assert_eq!(t.unresolved, vec!["POSITION_MARK"]);
+        assert_eq!(
+            (&t.waveform_detail, &t.colour_waveform_detail),
+            (&None, &None)
+        );
+        assert_eq!(t.beat_grid.len(), 2);
     }
 
     #[test]
