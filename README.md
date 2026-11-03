@@ -13,7 +13,7 @@ M0 is verified complete. The named `local-catalog-alpha-v1` dependency exception
 - `oxidj-library` — local SQLite catalog (versioned schema, 10,000-track cap), reference-only WAV/FLAC/MP3 import, persisted computed waveforms and separate vendor-derived waveforms.
 - `oxidj-rekordbox` / `oxidj-onelibrary` — isolated adapters: Rekordbox XML preview, no-edit export and guarded edits; read-only DeviceSQL PDB, ANLZ (beat grid, cues, waveforms) and OneLibrary previews.
 - `oxidj-application` / `oxidj-cli` — orchestration and commands, including `catalog import-library`, `catalog export-library-xml` and `catalog analyze-waveform`.
-- `prototypes/oxidj-library-ui` — provisional egui library UI with guarded XML editing and a mono / 3-band / RGB waveform view with live per-band EQ gain.
+- `prototypes/oxidj-library-ui` — provisional egui library UI: dense shell with a full-width track table and toggleable navigation / details / decks panels, guarded XML editing, and a smooth anti-aliased mono / 3-band / RGB waveform view with live per-band display gain and bar/beat lines from an imported library beat grid.
 - `xtask` — the repo-owned quality gate: `cargo xtask ci` (Tier 1) and `cargo xtask ci-full` (Tier 1 + tests + UI tests + licence gate, used by CI).
 - Accepted ADRs and the architecture baseline (docs/adr/index.md, docs/architecture.md).
 

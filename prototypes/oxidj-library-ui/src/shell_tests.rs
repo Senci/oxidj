@@ -491,3 +491,93 @@ fn more_menu_reaches_catalog_import_and_xml_controls() {
     }
     std::fs::remove_dir_all(root).unwrap();
 }
+
+/// W9: the decks bar keeps both decks' Play/Cue inside the window and the
+/// track name in its truncated column, even for a very long filename, at
+/// 1440 and 900 px; Play still toggles by a real click.
+#[test]
+fn decks_bar_truncates_long_names_and_keeps_play_cue_reachable() {
+    let (root, _) = catalog_root("decks");
+    let long = format!("{}.wav", "very-long-synthetic-track-name-".repeat(5));
+    write_wav(&root.join("audio").join(&long), 0.2);
+    let db = root.join("catalog.sqlite");
+    Catalog::open(&db)
+        .unwrap()
+        .import_audio_directory(root.join("audio").to_str().unwrap())
+        .unwrap();
+    for width in [1440.0, 900.0] {
+        let mut shell = Shell::new(&db, width);
+        shell.app.reload();
+        let id = shell
+            .app
+            .tracks
+            .iter()
+            .find(|t| t.track.path.ends_with(&long))
+            .expect("long-named track imported")
+            .track
+            .id
+            .as_u64();
+        shell.app.selected = Some(id);
+        shell.app.show_decks = true;
+        let out = shell.settle();
+        let decks = shell.app.shell.decks.expect("decks panel");
+        assert!(shell.screen.contains_rect(decks), "{width}: {decks:?}");
+        let tree = nodes(&out);
+        for label in ["Play", "Cue"] {
+            let hits: Vec<_> = tree
+                .iter()
+                .filter(|n| n.1.as_deref() == Some(label))
+                .collect();
+            assert_eq!(hits.len(), 2, "{width}: one {label} per deck: {hits:?}");
+            for n in hits {
+                assert!(
+                    decks.contains_rect(n.2),
+                    "{width}: {label} {:?} outside {decks:?}",
+                    n.2
+                );
+                assert!(n.2.height() >= 24.0, "{width}: {label} target {:?}", n.2);
+            }
+        }
+        // The name is painted elided inside the window, never past its column.
+        let names: Vec<Rect> = out
+            .shapes
+            .iter()
+            .filter_map(|c| match &c.shape {
+                egui::Shape::Text(t)
+                    if t.galley.job.text == long && decks.intersects(t.visual_bounding_rect()) =>
+                {
+                    Some(t.visual_bounding_rect())
+                }
+                _ => None,
+            })
+            .collect();
+        assert_eq!(names.len(), 2, "{width}: {names:?}");
+        for name in names {
+            assert!(
+                name.width() <= view::DECK_NAME_WIDTH + 0.5,
+                "{width}: name {name:?}"
+            );
+            assert!(shell.screen.contains_rect(name), "{width}: {name:?}");
+        }
+        let play = find(&tree, "Play").2;
+        let deck_controls = |tree: &[Node]| -> Vec<Rect> {
+            tree.iter()
+                .filter(|n| matches!(n.1.as_deref(), Some("Play" | "Cue")))
+                .map(|n| n.2)
+                .collect()
+        };
+        let before = deck_controls(&tree);
+        let out = shell.click(play.center());
+        assert!(
+            shell.app.deck_playing[0] && !shell.app.deck_playing[1],
+            "{width}: Play toggles deck A"
+        );
+        // Toggling never moves the deck controls (the label stays "Play").
+        assert_eq!(
+            before,
+            deck_controls(&nodes(&out)),
+            "{width}: deck controls stay put"
+        );
+    }
+    std::fs::remove_dir_all(root).unwrap();
+}

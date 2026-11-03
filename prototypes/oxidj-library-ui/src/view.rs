@@ -25,6 +25,12 @@ const CELL_INSET: f32 = 6.0;
 /// Width of the "…" popup (label + 240 px field + action button).
 const MORE_MENU_WIDTH: f32 = 500.0;
 /// Panel shortcut legend shown in the status bar and the toggle tooltips.
+/// Deck strip (W9): truncated track-name column and one deck's wrap width
+/// (label + name + Play/Cue + spacing).
+pub(crate) const DECK_NAME_WIDTH: f32 = 200.0;
+const DECK_WIDTH: f32 = DECK_NAME_WIDTH + 170.0;
+/// Narrowest details panel (W9).
+pub(crate) const DETAILS_MIN_WIDTH: f32 = 320.0;
 const PANEL_SHORTCUTS: &str = "Ctrl+B Nav · Ctrl+I Details · Ctrl+D Decks";
 
 impl LibraryApp {
@@ -71,11 +77,13 @@ impl LibraryApp {
             // A bounded width keeps the panel from jumping with its content
             // (long hashes/paths) and leaves the waveform a usable width;
             // at most 40% of a narrow window so the track table keeps room.
+            // W9: the minimum is the content's real minimum (the two-line
+            // SHA-256 row is ~296 px), so the panel never silently widens.
             let details = egui::SidePanel::right("details")
                 .frame(panel)
                 .default_width(380.0)
-                .min_width(300.0)
-                .max_width((ctx.screen_rect().width() * 0.4).clamp(300.0, 480.0))
+                .min_width(DETAILS_MIN_WIDTH)
+                .max_width((ctx.screen_rect().width() * 0.4).clamp(DETAILS_MIN_WIDTH, 480.0))
                 .resizable(true)
                 .show(ctx, |ui| {
                     // No auto-shrink: the panel keeps its width with or without
@@ -789,23 +797,28 @@ impl LibraryApp {
             );
             for deck in 0..2 {
                 // One deck wraps as a unit so Play/Cue never orphan.
-                if ui.max_rect().right() - ui.cursor().min.x < 340.0 {
+                if ui.max_rect().right() - ui.cursor().min.x < DECK_WIDTH {
                     ui.end_row();
                 } else {
                     ui.separator();
                 }
                 ui.horizontal(|ui| {
                     ui.strong(format!("DECK {}", if deck == 0 { "A" } else { "B" }));
-                    ui.label(&loaded);
+                    // W9: a fixed, truncated name column (full name on hover):
+                    // a long filename pushed Play/Cue past the window edge.
+                    ui.allocate_ui_with_layout(
+                        egui::vec2(DECK_NAME_WIDTH, theme::CONTROL_HEIGHT),
+                        egui::Layout::left_to_right(egui::Align::Center),
+                        |ui| {
+                            ui.add(egui::Label::new(&loaded).truncate()).on_hover_text(&loaded);
+                        },
+                    );
+                    // W9: a fixed label (the selected fill shows the state):
+                    // "Playing · demo" widened the button and shifted Cue and
+                    // the other deck on every toggle.
                     if ui
-                        .selectable_label(
-                            self.deck_playing[deck],
-                            if self.deck_playing[deck] {
-                                "Playing · demo"
-                            } else {
-                                "Play"
-                            },
-                        )
+                        .selectable_label(self.deck_playing[deck], "Play")
+                        .on_hover_text("Demo toggle only: no audio is played")
                         .clicked()
                     {
                         self.deck_playing[deck] = !self.deck_playing[deck];

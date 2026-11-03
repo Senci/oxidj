@@ -48,7 +48,12 @@ impl SectionHeading<'_> {
             let height = ui.text_style_height(&egui::TextStyle::Body);
             let (bar, _) = ui.allocate_exact_size(egui::vec2(3.0, height), egui::Sense::hover());
             ui.painter().rect_filled(bar, 1.5, tokens.primary);
-            ui.label(RichText::new(self.title).strong().color(tokens.text));
+            // Truncated (full title on hover): a heading must never widen
+            // its panel past the panel's width.
+            ui.add(
+                egui::Label::new(RichText::new(self.title).strong().color(tokens.text)).truncate(),
+            )
+            .on_hover_text(self.title);
         });
     }
 }
