@@ -157,7 +157,10 @@ pub fn build_layers(
     layers: &mut [Mesh; 3],
 ) -> usize {
     for mesh in layers.iter_mut() {
-        mesh.clear();
+        // Not `Mesh::clear()`: in epaint 0.32 it drops the vertex buffer
+        // (`vertices = Default::default()`), forcing a per-frame allocation.
+        mesh.vertices.clear();
+        mesh.indices.clear();
     }
     let px = if rect.is_finite() && rect.width() >= 1.0 {
         rect.width().floor() as usize
@@ -762,38 +765,86 @@ mod tests {
         }
     }
 
+    /// Test-only global allocator that counts allocations made by the current
+    /// thread (tests run in parallel, so a global counter would be noisy).
+    mod alloc_count {
+        use std::alloc::{GlobalAlloc, Layout, System};
+        use std::cell::Cell;
+
+        thread_local! {
+            static COUNT: Cell<u64> = const { Cell::new(0) };
+        }
+
+        struct Counting;
+
+        // SAFETY: delegates every operation to `System`; only adds a counter.
+        unsafe impl GlobalAlloc for Counting {
+            unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+                let _ = COUNT.try_with(|c| c.set(c.get() + 1));
+                // SAFETY: caller upholds `GlobalAlloc::alloc` contract.
+                unsafe { System.alloc(layout) }
+            }
+            unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
+                let _ = COUNT.try_with(|c| c.set(c.get() + 1));
+                // SAFETY: as above.
+                unsafe { System.alloc_zeroed(layout) }
+            }
+            unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, new: usize) -> *mut u8 {
+                let _ = COUNT.try_with(|c| c.set(c.get() + 1));
+                // SAFETY: as above.
+                unsafe { System.realloc(ptr, layout, new) }
+            }
+            unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
+                // SAFETY: as above.
+                unsafe { System.dealloc(ptr, layout) }
+            }
+        }
+
+        #[global_allocator]
+        static GLOBAL: Counting = Counting;
+
+        /// Allocations (incl. reallocs) by this thread so far.
+        pub(super) fn count() -> u64 {
+            COUNT.with(Cell::get)
+        }
+    }
+
     #[test]
     fn layer_buffers_are_reused_across_frames() {
+        // Allocation-aware: after warm-up, rebuilding the geometry for every
+        // style (with varying EQ) must not allocate at all on the renderer path.
         let peaks = synthetic_peaks(60);
-        let ctx = egui::Context::default();
+        let rect = Rect::from_min_size(Pos2::ZERO, Vec2::new(700.0, HEIGHT));
         let vp = Viewport::whole(&peaks, 700.0);
-        let ptrs = |shapes: &[egui::epaint::ClippedShape]| {
-            meshes(shapes)
-                .iter()
-                .map(|m| (m.vertices.as_ptr(), m.indices.as_ptr()))
-                .collect::<Vec<_>>()
-        };
-        let (_, warm) = render(&ctx, Some(&peaks), Style::ThreeBand, vp, Eq::default());
-        drop(warm);
-        let (_, a) = render(
-            &ctx,
-            Some(&peaks),
-            Style::ThreeBand,
-            vp,
+        let palette = Palette::from_tokens(tokens());
+        let eqs = [
+            Eq::default(),
             Eq {
                 low: 0.3,
                 mid: 0.6,
                 high: 0.9,
             },
-        );
-        let first = ptrs(&a);
-        drop(a);
-        let (_, b) = render(&ctx, Some(&peaks), Style::ThreeBand, vp, Eq::default());
-        assert_eq!(
-            first,
-            ptrs(&b),
-            "steady-state frames reuse the same vertex/index buffers"
-        );
+            Eq {
+                low: 0.0,
+                mid: 1.0,
+                high: 0.5,
+            },
+        ];
+        for style in Style::ALL {
+            let mut layers: [Mesh; 3] = Default::default();
+            for eq in eqs {
+                build_layers(&peaks, style, vp, eq, rect, palette, &mut layers);
+            }
+            let before = alloc_count::count();
+            for _ in 0..5 {
+                for eq in eqs {
+                    build_layers(&peaks, style, vp, eq, rect, palette, &mut layers);
+                }
+            }
+            let allocs = alloc_count::count() - before;
+            assert!(!layers[0].is_empty(), "{style:?} drew nothing");
+            assert_eq!(allocs, 0, "{style:?}: steady-state frames allocated");
+        }
     }
 
     #[test]
