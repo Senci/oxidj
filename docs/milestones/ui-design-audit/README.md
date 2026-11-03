@@ -10,7 +10,7 @@ imported file deleted afterwards (Missing state), and the synthetic F-02 fixture
 The scratch directory was bind-mounted at `/mnt`; no private library data.
 
 - `before/` — release build of `e768ed1` (HEAD before this card).
-- `after/` — release build of the final W7 tree (round 2).
+- `after/` — release build of the round-2 tree (69c2083); `after-r3/`, `before-r3/` — round 3.
 - [`contrast.py`](contrast.py) — WCAG ratios for every token pair the UI paints
   (`python3 contrast.py`; pass overrides as `n:border:6b7394,...`).
 
@@ -43,8 +43,16 @@ The scratch directory was bind-mounted at `/mnt`; no private library data.
 | 22 | XML window: Name section used plain strong text and sections alternated separator/no separator (`before-r2/05`) | Every workflow section starts with `SectionHeading`; separators only around pending sub-blocks | round 2 |
 | 23 | `toolbar_controls_fit_narrow_and_wide_viewports` tested a replica of the old toolbar | Test renders the production `toolbar()` at 800 and 1440 px and checks every Button/TextInput/ComboBox from AccessKit bounds (inside the viewport, no overlaps) | round 2 |
 
-All existing UI tests pass with unchanged assertions (178 passed, 1 ignored,
-including 2 new theme tests); the only test edit is #23, as requested in review.
+| 24 | Final-build XML window: every inline text field ~20 px tall (below 24 px, shorter than the 28 px toolbar fields) (`before-r3/01`) | `components::text_field` (single line, `CONTROL_HEIGHT` min, centred) replaces all 25 `text_edit_singleline` calls; harness test asserts every TextInput ≥ 24 px (fails at 20.2 px without the fix) | 15d0624 |
+| 25 | Tokyo Day: Low/Mid/High filled rail used the 20 % selection tint and was barely visible (`before-r3/02`) | Gain rows use `tokens.primary` as trailing fill (scoped; selected-text tint unchanged) (`after-r3/06`) | 820088e |
+| 26 | XML field panels still used two heading forms ("Prepare one guarded X edit" vs "Track X edit (provisional)") | One form, "Track X edit", for Name and every attribute panel; window title "guarded edits" | fe24fd4 |
+| 27 | Gain sliders sharing one row were squeezed to ~40 px rails in a 340 px panel | One gain per row at the standard rail width, aligned with Position | fe24fd4 |
+| 28 | At ~900 px the 420 px details panel left the table < 55 % of the window | Details max width = 40 % of the window (340–520 px) | fe24fd4 |
+| 29 | Selected table row only tinted the ID/filename cells; no row-level marker | 3 px primary accent rail spanning the selected row (no full-row tint, which would drop Day muted text below 4.5:1) | fe24fd4 |
+
+All existing UI tests pass with unchanged assertions (180 passed, 1 ignored,
+including 2 new theme tests and 2 new round-3 harness tests); the only test edit
+is #23, as requested in review.
 
 ## Contrast report
 
@@ -52,7 +60,7 @@ including 2 new theme tests); the only test edit is #23, as requested in review.
 `#6b7394` Night / `#737aa2` Day, selection tint 0.20) and prints 0 FAIL. The
 pre-audit borders are reproducible with `python3 contrast.py n:border:3b3d55,d:border:b8bed0`.
 
-## After captures (final release build, Bot Screen, synthetic data)
+## After captures (round-2 release build 69c2083, Bot Screen, synthetic data)
 
 | File | Shows |
 |---|---|
@@ -68,17 +76,50 @@ pre-audit borders are reproducible with `python3 contrast.py n:border:3b3d55,d:b
 `before-r2/` are 900 px captures of intermediate builds that showed findings 15–22.
 The first-round `after/01`/`02` were removed: they predate the final tree.
 
+## Round 3: final-build matrix (XML, Day selection, styles, disabled, ~900 px)
+
+Live captures, release builds of fe24fd4 / 15d0624 / 820088e (the commit of each
+file is listed), Bot Screen 1440x900, synthetic catalog + synthetic F-02 XML.
+Input path: XTEST pointer events via the Bot Screen's published display env,
+one action at a time, waiting ≥ 8 s after launch (earlier "input stopped
+reaching the app" was clicks sent before the new window accepted input).
+
+| File | Build | Shows |
+|---|---|---|
+| `after-r3/01-day-selection-mono.png` | fe24fd4 | Tokyo Day, track 2 selected: accent rail, facts grid, stacked gains, Mono (gain fill still faint → #25) |
+| `after-r3/02-day-selection-3band.png` | 15d0624 | Same, 3-band |
+| `after-r3/03-day-selection-rgb.png` | 15d0624 | Same, RGB (also `before-r3/02`) |
+| `after-r3/04-xml-scrolled-member-reorder.png` | 15d0624 | XML window scrolled to member reorder; 28 px text field, unified headings |
+| `after-r3/05-xml-disabled-move-up.png` | 15d0624 | Member 0 selected: **Move up disabled** (greyed), Move down / Prepare removal enabled |
+| `after-r3/06-day-gain-fill.png` | 820088e | Day selection with full-strength gain fill (#25) |
+| `before-r3/01-xml-text-fields-20px.png` | fe24fd4 | XML window scrolled (scrolling works); 20 px text fields (#24) |
+
+**~900 px**: the window manager keeps the app maximised (XMoveResizeWindow after
+un-maximise is ignored; the app has no initial-size option and adding one is not
+a product need), so narrow states are **verified by production-path harness
+tests, live capture NOT RUN (WM forces maximised 1440x900)**:
+
+- `track_waveform::tests::narrow_window_keeps_details_waveform_styles_and_gain_sliders_reachable`
+  — `LibraryApp::ui` at 900x900, track selected through the table, each of
+  Mono/3-band/RGB selected by a real click: style buttons, Low/Mid/High,
+  Position and the waveform view fully inside the viewport, rails ≥ 120x18 px,
+  table keeps ≥ 60 % width; a real click on the Low rail changes Low.
+- `keyboard_tests::xml_window_fits_scrolls_and_reports_disabled_reorder_at_narrow_width`
+  — `LibraryApp::ui` at 900x700 with the XML window open: window inside the
+  viewport, content taller than the window and scrolled by a mouse-wheel
+  event, all window actions inside the window, every text field ≥ 24 px,
+  "Move up" reported disabled and "Move down" enabled (AccessKit).
+
 ## NOT RUN / NOT DEMONSTRATED
 
-- Final-build captures of the XML window, a selection at 900 px, and Tokyo Day
-  with a selection: NOT RUN. The XML window (scrolling, all sections reachable)
-  was captured at 900 px from an intermediate build (`before-r2/05`), and
-  selection at 900 px from an intermediate build (`before-r2/03`); the fixes for
-  #19, #20 and #22 are only in the 1440 px after captures. Cause: after app
-  restarts, foreground clicks/keys stopped reaching the app (twice, including
-  after a Bot Screen restart); Ctrl+Alt+2 arrived as Ctrl+2. The first launcher
-  also left earlier instances running (fixed mid-session).
-- Hover/active states were seen in captures (hover outline on fields, Tab moved
-  focus to Preview XML in `before-r2/04`); disabled states were not exercised live.
+- Live ~900 px captures of selection/waveform styles and the XML window: NOT RUN
+  (window manager forces maximised); covered by the two harness tests above.
+  `after/10-populated-900.png` and `before-r2/` are 900 px captures of earlier
+  builds.
+- Tokyo Night with a selection is from the round-2 build (`after/05`–`07`,
+  before #25/#27–#29); the round-3 selection captures are Tokyo Day.
+- Keyboard focus order was exercised only in `before-r2/04` (Tab) and harness
+  keyboard tests; hover seen in captures; disabled state verified live
+  (`after-r3/05`) and by AccessKit.
 - Owner's native display, accessibility / screen reader (Orca), keyboard focus
   order on a real desktop: NOT DEMONSTRATED.
