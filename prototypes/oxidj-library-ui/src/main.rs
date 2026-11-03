@@ -12,6 +12,8 @@ mod keyboard_tests;
 #[path = "../../../xtask/tests/f02_playlist_member_insert_oracle.rs"]
 mod f02_playlist_member_insert_oracle;
 mod playlist_ops;
+#[cfg(test)]
+mod shell_tests;
 mod theme;
 mod track_edit;
 mod track_waveform;

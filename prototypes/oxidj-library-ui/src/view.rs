@@ -13,59 +13,88 @@ impl eframe::App for LibraryApp {
 }
 
 
-/// Width at which the toolbar fields pair up two per row.
-const WIDE_TOOLBAR: f32 = 1200.0;
+/// Fixed track-table columns: ID, Duration, Format facts, Availability.
+const ID_COLUMN: f32 = 56.0;
+const DURATION_COLUMN: f32 = 76.0;
+const FORMAT_COLUMN: f32 = 170.0;
+const AVAILABILITY_COLUMN: f32 = 96.0;
+/// Filename and path share the rest; below this the table scrolls sideways.
+const MIN_FLEX_COLUMNS: f32 = 2.0 * 130.0;
+/// Horizontal text inset of every table cell.
+const CELL_INSET: f32 = 6.0;
+/// Panel shortcut legend shown in the status bar and the toggle tooltips.
+const PANEL_SHORTCUTS: &str = "Ctrl+B Nav · Ctrl+I Details · Ctrl+D Decks";
 
 impl LibraryApp {
-    /// One frame of the whole library UI (the production `update` body).
+    /// One frame of the whole library UI (the production `update` body):
+    /// one-row toolbar, status bar, optional nav/details/decks panels and the
+    /// track table filling whatever space the visible panels leave.
     pub(crate) fn ui(&mut self, ctx: &egui::Context) {
         self.handle_theme_shortcuts(ctx);
+        self.handle_panel_shortcuts(ctx);
         self.theme.apply(self.custom_tokens, ctx);
         let tokens = self.active_tokens();
-        egui::TopBottomPanel::top("toolbar").show(ctx, |ui| self.toolbar(ui, ctx, tokens));
+        self.shell = ShellLayout::default();
+        let style = ctx.style();
+        let bar = egui::Frame::side_top_panel(&style).inner_margin(theme::BAR_MARGIN);
+        let panel = egui::Frame::side_top_panel(&style).inner_margin(theme::PANEL_MARGIN);
+        let toolbar = egui::TopBottomPanel::top("toolbar")
+            .frame(bar)
+            .show(ctx, |ui| self.toolbar(ui, ctx, tokens));
+        self.shell.toolbar = Some(toolbar.response.rect);
         self.show_control_gallery_window(ctx, tokens);
         self.show_waveform_demo_window(ctx);
         self.xml_preview_window(ctx, tokens);
-        egui::SidePanel::left("library-navigation")
-            .default_width(184.0)
-            .min_width(160.0)
-            .resizable(true)
-            .show(ctx, |ui| self.navigation(ui, tokens));
-        egui::TopBottomPanel::bottom("demo-decks")
-            .resizable(false)
-            .show(ctx, |ui| self.demo_decks(ui, tokens));
-        // A bounded width keeps the panel from jumping with its content
-        // (long hashes/paths) and leaves the waveform a usable width.
-        egui::SidePanel::right("details")
-            .default_width(420.0)
-            .min_width(340.0)
-            // At most 40% of a narrow window, so the track table keeps room.
-            .max_width((ctx.screen_rect().width() * 0.4).clamp(340.0, 520.0))
-            .resizable(true)
-            .show(ctx, |ui| {
-                // No auto-shrink: the panel keeps its width with or without
-                // a selection instead of jumping to the content width.
-                egui::ScrollArea::vertical()
-                    .auto_shrink([false, false])
-                    .show(ui, |ui| self.details(ui, tokens));
-            });
-        egui::CentralPanel::default().show(ctx, |ui| self.track_table(ui, tokens));
+        let status = egui::TopBottomPanel::bottom("status-bar")
+            .frame(bar)
+            .show(ctx, |ui| self.status_bar(ui, tokens));
+        self.shell.status = Some(status.response.rect);
+        if self.show_decks {
+            let decks = egui::TopBottomPanel::bottom("demo-decks")
+                .frame(panel)
+                .resizable(false)
+                .show(ctx, |ui| self.demo_decks(ui, tokens));
+            self.shell.decks = Some(decks.response.rect);
+        }
+        if self.show_nav {
+            let nav = egui::SidePanel::left("library-navigation")
+                .frame(panel)
+                .default_width(168.0)
+                .width_range(140.0..=280.0)
+                .resizable(true)
+                .show(ctx, |ui| self.navigation(ui, tokens));
+            self.shell.nav = Some(nav.response.rect);
+        }
+        if self.show_details {
+            // A bounded width keeps the panel from jumping with its content
+            // (long hashes/paths) and leaves the waveform a usable width;
+            // at most 40% of a narrow window so the track table keeps room.
+            let details = egui::SidePanel::right("details")
+                .frame(panel)
+                .default_width(380.0)
+                .min_width(300.0)
+                .max_width((ctx.screen_rect().width() * 0.4).clamp(300.0, 480.0))
+                .resizable(true)
+                .show(ctx, |ui| {
+                    // No auto-shrink: the panel keeps its width with or without
+                    // a selection instead of jumping to the content width.
+                    egui::ScrollArea::vertical()
+                        .auto_shrink([false, false])
+                        .show(ui, |ui| self.details(ui, tokens));
+                });
+            self.shell.details = Some(details.response.rect);
+        }
+        // No inner margin: the table runs edge to edge between the panels'
+        // hairline separators.
+        egui::CentralPanel::default()
+            .frame(egui::Frame::central_panel(&style).inner_margin(0))
+            .show(ctx, |ui| self.track_table(ui, tokens));
     }
 
-    /// Title row, theme/tool buttons, then an aligned grid of catalog,
-    /// search, import and XML fields with their actions; status notice last.
+    /// One slim row: title, growing search field, then (right-aligned) the
+    /// panel toggles, theme picker and the "…" menu with the rarely used
+    /// catalog/import/XML fields and tool windows.
     pub(crate) fn toolbar(&mut self, ui: &mut egui::Ui, ctx: &egui::Context, tokens: theme::ColorTokens) {
-        ui.add_space(4.0);
-        ui.horizontal_wrapped(|ui| {
-            ui.heading("OxiDJ · Local Library");
-            ui.add_space(16.0);
-            self.theme_selection_ui(ui);
-            self.show_control_gallery_button(ui);
-            self.show_waveform_demo_button(ui);
-            if self.theme == ThemeMode::Custom && ui.button("Edit palette…").clicked() {
-                self.show_theme_editor = true;
-            }
-        });
         if self.show_theme_editor {
             let mut editor_open = self.show_theme_editor;
             egui::Window::new("Custom palette")
@@ -80,31 +109,63 @@ impl LibraryApp {
                 });
             self.show_theme_editor = editor_open;
         }
-        let wide = ui.available_width() >= WIDE_TOOLBAR;
-        // label + field + action per group; two groups per row when wide.
-        let field = if wide {
-            ((ui.available_width() - 2.0 * 330.0) / 2.0).clamp(200.0, 420.0)
-        } else {
-            (ui.available_width() - 350.0).clamp(160.0, 480.0)
-        };
-        let height = theme::CONTROL_HEIGHT;
-        let row_break = |ui: &mut egui::Ui| {
-            if !wide {
-                ui.end_row();
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            // Right-to-left: the first widget added is the rightmost.
+            let more = ui
+                .add(egui::Button::new("…").min_size(egui::vec2(theme::CONTROL_HEIGHT + 8.0, 0.0)))
+                .on_hover_text("More: catalog, import, Rekordbox XML and tool windows");
+            self.shell.more = Some(more.rect);
+            let popup = egui::Popup::from_toggle_button_response(&more)
+                .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
+                .align(egui::RectAlign::BOTTOM_END)
+                .show(|ui| self.more_menu(ui, tokens));
+            self.shell.more_popup = popup.map(|popup| popup.response.rect);
+            self.theme_selection_ui(ui);
+            ui.separator();
+            let mut toggles = [egui::Rect::NOTHING; 3];
+            for (index, label, shortcut) in [
+                (2, "Decks", "Ctrl+D"),
+                (1, "Details", "Ctrl+I"),
+                (0, "Nav", "Ctrl+B"),
+            ] {
+                let open = match index {
+                    0 => &mut self.show_nav,
+                    1 => &mut self.show_details,
+                    _ => &mut self.show_decks,
+                };
+                let response = ui
+                    .selectable_label(*open, label)
+                    .on_hover_text(format!("Show or hide the {label} panel ({shortcut})"));
+                if response.clicked() {
+                    *open = !*open;
+                }
+                toggles[index] = response.rect;
             }
-        };
-        ui.add_space(2.0);
-        egui::Grid::new("toolbar-fields")
-            .num_columns(if wide { 6 } else { 3 })
+            self.shell.toggles = Some(toggles);
+            ui.separator();
+            ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                ui.label(egui::RichText::new("OxiDJ").strong().color(tokens.text));
+                ui.add(
+                    egui::TextEdit::singleline(&mut self.search)
+                        .hint_text("Search tracks")
+                        .desired_width(ui.available_width().max(120.0))
+                        .min_size(egui::vec2(0.0, theme::CONTROL_HEIGHT))
+                        .vertical_align(egui::Align::Center),
+                );
+            });
+        });
+    }
+
+    /// The "…" popup: catalog path + reload, import folder, Rekordbox XML
+    /// preview, then the tool windows. Actions close the popup.
+    fn more_menu(&mut self, ui: &mut egui::Ui, tokens: theme::ColorTokens) {
+        let field = 280.0;
+        let height = theme::CONTROL_HEIGHT;
+        let mut close = false;
+        egui::Grid::new("more-menu-fields")
+            .num_columns(3)
             .spacing([8.0, 6.0])
             .show(ui, |ui| {
-                ui.label("Search");
-                ui.add_sized(
-                    [field, height],
-                    egui::TextEdit::singleline(&mut self.search).hint_text("Filter tracks").vertical_align(egui::Align::Center),
-                );
-                ui.label("");
-                row_break(ui);
                 ui.label("Catalog");
                 let full_path = self.db_path.display().to_string();
                 // Left-aligned like the fields (add_sized would centre it).
@@ -122,6 +183,7 @@ impl LibraryApp {
                 );
                 if ui.button("Reload").clicked() {
                     self.reload();
+                    close = true;
                 }
                 ui.end_row();
                 ui.label("Import folder");
@@ -129,54 +191,74 @@ impl LibraryApp {
                     [field, height],
                     egui::TextEdit::singleline(&mut self.import_root).hint_text("Folder path").vertical_align(egui::Align::Center),
                 );
-                if (PrimaryActionButton {
-                    label: "Import references",
-                })
-                .show(ui, tokens)
-                .clicked()
-                {
+                if (PrimaryActionButton { label: "Import references" }).show(ui, tokens).clicked() {
                     self.import();
+                    close = true;
                 }
-                row_break(ui);
-                ui.label("Rekordbox XML (read-only)");
+                ui.end_row();
+                ui.label("Rekordbox XML");
                 let source_changed = ui
                     .add_sized(
                         [field, height],
-                        egui::TextEdit::singleline(&mut self.xml_path).hint_text("XML file path").vertical_align(egui::Align::Center),
+                        egui::TextEdit::singleline(&mut self.xml_path).hint_text("XML file path (read-only)").vertical_align(egui::Align::Center),
                     )
                     .changed();
                 if source_changed {
                     self.on_xml_source_changed();
                 }
-                if (PrimaryActionButton {
-                    label: "Preview XML",
-                })
-                .show(ui, tokens)
-                .clicked()
-                {
+                if (PrimaryActionButton { label: "Preview XML" }).show(ui, tokens).clicked() {
                     self.preview_xml();
+                    close = true;
                 }
                 ui.end_row();
             });
-        if !self.notice.is_empty() {
-            let kind = if self.notice.starts_with("Import failed:")
-                || self.notice.starts_with("Track Name export failed:")
-                || self.notice.starts_with("Track Artist export failed:")
-                || self.notice.starts_with("Catalog unavailable:")
-            {
-                StatusKind::Error
-            } else if self.notice.contains("incomplete") {
-                StatusKind::Warning
-            } else {
-                StatusKind::Success
-            };
-            StatusBadge {
-                label: &self.notice,
-                kind,
+        ui.separator();
+        ui.horizontal(|ui| {
+            close |= self.show_control_gallery_button(ui).clicked();
+            close |= self.show_waveform_demo_button(ui).clicked();
+            if self.theme == ThemeMode::Custom && ui.button("Edit palette…").clicked() {
+                self.show_theme_editor = true;
+                close = true;
             }
-            .show(ui, tokens);
+        });
+        if close {
+            egui::Popup::close_all(ui.ctx());
         }
-        ui.add_space(4.0);
+    }
+
+    /// One line: the latest notice (or "Ready"), track count, shortcut legend.
+    fn status_bar(&mut self, ui: &mut egui::Ui, tokens: theme::ColorTokens) {
+        ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
+        ui.set_min_height(theme::CONTROL_HEIGHT);
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            let muted = |text: String| egui::RichText::new(text).small().color(tokens.muted_text);
+            ui.label(muted(PANEL_SHORTCUTS.into()));
+            ui.separator();
+            ui.label(muted(format!("{} tracks", self.tracks.len())));
+            ui.separator();
+            ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                if self.notice.is_empty() {
+                    ui.label(muted("Ready".into()));
+                    return;
+                }
+                let kind = if self.notice.starts_with("Import failed:")
+                    || self.notice.starts_with("Track Name export failed:")
+                    || self.notice.starts_with("Track Artist export failed:")
+                    || self.notice.starts_with("Catalog unavailable:")
+                {
+                    StatusKind::Error
+                } else if self.notice.contains("incomplete") {
+                    StatusKind::Warning
+                } else {
+                    StatusKind::Success
+                };
+                StatusBadge {
+                    label: &self.notice,
+                    kind,
+                }
+                .show(ui, tokens);
+            });
+        });
     }
 
     /// The guarded Rekordbox XML preview/edit window (one panel per workflow).
@@ -789,42 +871,21 @@ impl LibraryApp {
             .show(ui, self.catalog.as_ref().ok(), item, tokens);
     }
 
-    /// Sort controls and the striped track table (or its empty state).
+    /// The track table: a sortable header (click a column to sort, again to
+    /// reverse) above virtualised, full-width 24 px rows, edge to edge.
     fn track_table(&mut self, ui: &mut egui::Ui, tokens: theme::ColorTokens) {
         if let Some(error) = &self.load_error {
-            StatusBadge {
-                label: &format!("Catalog error: {error}"),
-                kind: StatusKind::Error,
-            }
-            .show(ui, tokens);
+            ui.add_space(6.0);
+            ui.horizontal(|ui| {
+                ui.add_space(CELL_INSET);
+                StatusBadge {
+                    label: &format!("Catalog error: {error}"),
+                    kind: StatusKind::Error,
+                }
+                .show(ui, tokens);
+            });
             return;
         }
-        ui.horizontal_wrapped(|ui| {
-            ui.label("Sort by");
-            egui::ComboBox::from_id_salt("sort")
-                .selected_text(match self.sort {
-                    Sort::Id => "Stable ID",
-                    Sort::Filename => "Filename",
-                    Sort::Duration => "Duration",
-                })
-                .show_ui(ui, |ui| {
-                    ui.selectable_value(&mut self.sort, Sort::Id, "Stable ID");
-                    ui.selectable_value(&mut self.sort, Sort::Filename, "Filename");
-                    ui.selectable_value(&mut self.sort, Sort::Duration, "Duration");
-                });
-            if ui
-                .button(if self.descending {
-                    "Descending"
-                } else {
-                    "Ascending"
-                })
-                .clicked()
-            {
-                self.descending = !self.descending;
-            }
-            // Moves to the next row as a whole instead of breaking mid-label.
-            ui.add(egui::Label::new(egui::RichText::new(format!("{} tracks", self.tracks.len())).color(tokens.muted_text)).extend());
-        });
         let query = self.search.to_lowercase();
         let mut visible: Vec<_> = self
             .tracks
@@ -858,97 +919,187 @@ impl LibraryApp {
                 order
             }
         });
-        if visible.is_empty() {
-            // Centred without justified (stretched) word spacing.
-            let layout = egui::Layout::top_down(egui::Align::Center)
-                .with_main_align(egui::Align::Center)
-                .with_main_justify(true);
-            ui.with_layout(layout, |ui| {
-                ui.label(
-                    egui::RichText::new(if self.tracks.is_empty() {
-                        "Library is empty. Import a folder of supported audio references."
-                    } else {
-                        "No tracks match this search."
-                    })
-                    .color(tokens.muted_text),
-                )
-            });
-            return;
-        }
-        SectionHeading { title: "Tracks" }.show(ui, tokens);
-        // Fixed columns; the name column takes the remaining width and
-        // truncates (full text on hover) instead of wrapping per character.
-        let name_width = (ui.available_width() - 470.0).clamp(160.0, 640.0);
-        egui::ScrollArea::both().show(ui, |ui| {
-            egui::Grid::new("tracks")
-                .striped(true)
-                .min_col_width(48.0)
-                .spacing([16.0, 6.0])
-                .show(ui, |ui| {
-                    // Selectable cells (ID, filename) inset their text by the
-                    // button padding; inset their header and the path to match.
-                    let inset = ui.spacing().button_padding.x;
-                    let header = |ui: &mut egui::Ui, text: &str, indent: f32| {
-                        ui.horizontal(|ui| {
-                            ui.add_space(indent);
-                            ui.label(egui::RichText::new(text).small().strong().color(tokens.muted_text));
-                        });
-                    };
-                    let headers = [("ID", inset), ("Filename / path", inset), ("Duration", 0.0), ("Format facts", 0.0), ("Availability", 0.0)];
-                    for (text, indent) in headers {
-                        header(ui, text, indent);
-                    }
-                    ui.end_row();
-                    for item in visible {
-                        let id = item.track.id.as_u64();
-                        let id_cell = ui.selectable_label(self.selected == Some(id), id.to_string());
-                        if id_cell.clicked() {
-                            self.selected = Some(id);
-                        }
-                        let name_cell = ui.vertical(|ui| {
-                            ui.set_max_width(name_width);
-                            ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
-                            if ui
-                                .selectable_label(self.selected == Some(id), file_name(&item.track.path))
-                                .clicked()
-                            {
-                                self.selected = Some(id);
-                            }
-                            egui::Frame::NONE
-                                .inner_margin(egui::Margin { left: inset as i8, ..Default::default() })
-                                .show(ui, |ui| {
-                                    ui.label(egui::RichText::new(&item.track.path).small().color(tokens.muted_text))
-                                        .on_hover_text(&item.track.path);
-                                });
-                        });
-                        // A row-tall accent bar marks the selected row; a full-row
-                        // tint would drop small muted text below 4.5:1 in Tokyo Day.
-                        if self.selected == Some(id) {
-                            let rail = egui::Rect::from_x_y_ranges(
-                                id_cell.rect.left()..=id_cell.rect.left() + 3.0,
-                                name_cell.response.rect.y_range(),
-                            );
-                            ui.painter().rect_filled(rail, 1.0, tokens.primary);
-                        }
+        let fixed = ID_COLUMN + DURATION_COLUMN + FORMAT_COLUMN + AVAILABILITY_COLUMN;
+        let total = ui.available_width().max(fixed + MIN_FLEX_COLUMNS);
+        let name = ((total - fixed) * 0.45).floor();
+        let widths = [ID_COLUMN, name, total - fixed - name, DURATION_COLUMN, FORMAT_COLUMN, AVAILABILITY_COLUMN];
+        // The visible table viewport (wider content scrolls inside it).
+        self.shell.table = Some(ui.max_rect());
+        ui.spacing_mut().item_spacing = egui::vec2(0.0, 0.0);
+        // Scrolls sideways only when the window is narrower than the columns.
+        egui::ScrollArea::horizontal()
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
+                let (header, _) = ui.allocate_exact_size(egui::vec2(total, theme::HEADER_HEIGHT), egui::Sense::hover());
+                table_header(ui, header, widths, tokens, &mut self.sort, &mut self.descending);
+                if visible.is_empty() {
+                    ui.add_space(24.0);
+                    ui.vertical_centered(|ui| {
                         ui.label(
-                            item.duration_seconds
-                                .map(|v| format!("{v:.2} s"))
-                                .unwrap_or_else(|| "—".into()),
-                        );
-                        ui.label(match (item.sample_rate, item.channels, item.bit_depth) {
-                            (Some(r), Some(c), Some(b)) => format!("{r} Hz · {c} ch · {b} bit"),
-                            _ => "Facts unavailable".into(),
-                        });
-                        let (availability, kind) = availability_status(item.availability);
-                        StatusBadge {
-                            label: availability,
-                            kind,
+                            egui::RichText::new(if self.tracks.is_empty() {
+                                "Library is empty. Import a folder of supported audio references (… menu)."
+                            } else {
+                                "No tracks match this search."
+                            })
+                            .color(tokens.muted_text),
+                        )
+                    });
+                    return;
+                }
+                egui::ScrollArea::vertical()
+                    .auto_shrink([false, false])
+                    .show_rows(ui, theme::ROW_HEIGHT, visible.len(), |ui, range| {
+                        for index in range {
+                            let item = visible[index];
+                            if track_row(ui, item, self.selected, index, total, widths, tokens) {
+                                self.selected = Some(item.track.id.as_u64());
+                            }
                         }
-                        .show(ui, tokens);
-                        ui.end_row();
+                    });
+            });
+    }
+
+}
+
+/// Column labels; ID, Filename and Duration sort on click (or Enter).
+fn table_header(
+    ui: &mut egui::Ui,
+    rect: egui::Rect,
+    widths: [f32; 6],
+    tokens: theme::ColorTokens,
+    current: &mut Sort,
+    descending: &mut bool,
+) {
+        let painter = ui.painter();
+        painter.rect_filled(rect, 0.0, tokens.surface);
+        painter.hline(rect.x_range(), rect.bottom() - 0.5, egui::Stroke::new(1.0_f32, tokens.border));
+        let columns: [(&str, Option<Sort>); 6] = [
+            ("ID", Some(Sort::Id)),
+            ("Filename", Some(Sort::Filename)),
+            ("Path", None),
+            ("Duration", Some(Sort::Duration)),
+            ("Format", None),
+            ("Availability", None),
+        ];
+        let mut x = rect.left();
+        for ((title, sort), width) in columns.into_iter().zip(widths) {
+            let cell = egui::Rect::from_min_size(egui::pos2(x, rect.top()), egui::vec2(width, rect.height()));
+            x += width;
+            let active = sort == Some(*current);
+            let text = if active {
+                format!("{title} {}", if *descending { "▼" } else { "▲" })
+            } else {
+                title.to_owned()
+            };
+            let color = if active { tokens.text } else { tokens.muted_text };
+            let galley = egui::WidgetText::from(egui::RichText::new(&text).small().strong()).into_galley(
+                ui,
+                Some(egui::TextWrapMode::Truncate),
+                width - 2.0 * CELL_INSET,
+                egui::TextStyle::Small,
+            );
+            let pos = egui::pos2(cell.left() + CELL_INSET, cell.center().y - galley.size().y / 2.0);
+            if let Some(sort) = sort {
+                let response = ui.interact(cell, ui.id().with(("sort-header", title)), egui::Sense::click());
+                response.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, true, active, &text));
+                if response.hovered() || response.has_focus() {
+                    let stroke: f32 = if response.has_focus() { 2.0 } else { 1.0 };
+                    ui.painter().rect_stroke(cell.shrink(1.0), 2.0, egui::Stroke::new(stroke, tokens.focus), egui::StrokeKind::Inside);
+                }
+                if response.on_hover_text(format!("Sort by {title}")).clicked() {
+                    if active {
+                        *descending = !*descending;
+                    } else {
+                        *current = sort;
+                        *descending = false;
                     }
-                });
-        });
+                }
+            }
+            ui.painter().galley(pos, galley, color);
+        }
+    }
+
+/// One full-width selectable row (true when clicked); the selected row
+/// carries a 3 px primary rail (a full-row tint would drop Day muted text
+/// below 4.5:1).
+fn track_row(
+        ui: &mut egui::Ui,
+        item: &TrackDetails,
+        selected: Option<u64>,
+        index: usize,
+        total: f32,
+        widths: [f32; 6],
+        tokens: theme::ColorTokens,
+    ) -> bool {
+        let id = item.track.id.as_u64();
+        let selected = selected == Some(id);
+        let filename = file_name(&item.track.path);
+        let (rect, response) = ui.allocate_exact_size(egui::vec2(total, theme::ROW_HEIGHT), egui::Sense::click());
+        response.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, true, selected, &filename));
+        if index % 2 == 1 {
+            ui.painter().rect_filled(rect, 0.0, tokens.surface);
+        }
+        if selected {
+            let rail = egui::Rect::from_x_y_ranges(rect.left()..=rect.left() + 3.0, rect.y_range());
+            ui.painter().rect_filled(rail, 0.0, tokens.primary);
+        }
+        if response.hovered() || response.has_focus() {
+            let stroke: f32 = if response.has_focus() { 2.0 } else { 1.0 };
+            ui.painter().rect_stroke(rect.shrink(0.5), 0.0, egui::Stroke::new(stroke, tokens.focus), egui::StrokeKind::Inside);
+        }
+        let format = match (item.sample_rate, item.channels, item.bit_depth) {
+            (Some(r), Some(c), Some(b)) => format!("{r} Hz · {c} ch · {b} bit"),
+            _ => "Facts unavailable".into(),
+        };
+        let duration = item
+            .duration_seconds
+            .map(|v| format!("{v:.2} s"))
+            .unwrap_or_else(|| "—".into());
+        let (availability, kind) = availability_status(item.availability);
+        let cells = [
+            (id.to_string(), tokens.text, false),
+            (filename, tokens.text, selected),
+            (item.track.path.clone(), tokens.muted_text, false),
+            (duration, tokens.text, false),
+            (format, tokens.text, false),
+            (availability.to_owned(), tokens.text, false),
+        ];
+        let mut x = rect.left();
+        let mut elided_path = false;
+        for (column, ((text, color, strong), width)) in cells.into_iter().zip(widths).enumerate() {
+            let mut inset = CELL_INSET;
+            if column == 5 {
+                // Availability: a semantic dot before plain text-coloured words.
+                let dot = egui::pos2(x + CELL_INSET + 4.0, rect.center().y);
+                ui.painter().circle_filled(dot, 4.0, kind_color(kind, tokens));
+                inset += 12.0;
+            }
+            let rich = egui::RichText::new(text);
+            let galley = egui::WidgetText::from(if strong { rich.strong() } else { rich }).into_galley(
+                ui,
+                Some(egui::TextWrapMode::Truncate),
+                width - inset - CELL_INSET,
+                egui::TextStyle::Body,
+            );
+            elided_path |= column == 2 && galley.elided;
+            let pos = egui::pos2(x + inset, rect.center().y - galley.size().y / 2.0);
+            ui.painter().galley(pos, galley, color);
+            x += width;
+        }
+        let response = if elided_path {
+            response.on_hover_text(&item.track.path)
+        } else {
+            response
+        };
+        response.clicked()
+}
+
+/// The semantic token behind a status kind.
+fn kind_color(kind: StatusKind, tokens: theme::ColorTokens) -> egui::Color32 {
+    match kind {
+        StatusKind::Success => tokens.success,
+        StatusKind::Warning => tokens.warning,
+        StatusKind::Error => tokens.error,
     }
 }
 

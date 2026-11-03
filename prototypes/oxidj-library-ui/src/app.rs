@@ -124,6 +124,27 @@ pub(crate) struct LibraryApp {
     pub(crate) availability_filter: Option<TrackAvailability>,
     pub(crate) deck_playing: [bool; 2],
     pub(crate) deck_cue: [bool; 2],
+    /// W8 shell panel toggles (app state only, not persisted).
+    pub(crate) show_nav: bool,
+    pub(crate) show_details: bool,
+    pub(crate) show_decks: bool,
+    /// Rects of the shell regions painted in the last frame (for tests).
+    pub(crate) shell: ShellLayout,
+}
+
+/// Where the last frame placed each shell region; `None` when hidden.
+#[derive(Clone, Copy, Debug, Default)]
+pub(crate) struct ShellLayout {
+    pub(crate) toolbar: Option<egui::Rect>,
+    pub(crate) status: Option<egui::Rect>,
+    pub(crate) nav: Option<egui::Rect>,
+    pub(crate) details: Option<egui::Rect>,
+    pub(crate) decks: Option<egui::Rect>,
+    pub(crate) table: Option<egui::Rect>,
+    /// Toolbar toggles: navigation, details, decks.
+    pub(crate) toggles: Option<[egui::Rect; 3]>,
+    pub(crate) more: Option<egui::Rect>,
+    pub(crate) more_popup: Option<egui::Rect>,
 }
 
 impl LibraryApp {
@@ -253,6 +274,10 @@ impl LibraryApp {
             availability_filter: None,
             deck_playing: [false; 2],
             deck_cue: [false; 2],
+            show_nav: true,
+            show_details: false,
+            show_decks: false,
+            shell: ShellLayout::default(),
         };
         app.reload();
         app
@@ -366,6 +391,25 @@ impl LibraryApp {
         if let Some(mode) = mode {
             self.select_theme(mode);
         }
+    }
+
+    /// Ctrl+B navigation, Ctrl+I details, Ctrl+D decks (Ctrl+Alt is the
+    /// theme chord, so it is left to [`Self::handle_theme_shortcuts`]).
+    pub(crate) fn handle_panel_shortcuts(&mut self, ctx: &egui::Context) {
+        ctx.input_mut(|input| {
+            if input.modifiers.alt {
+                return;
+            }
+            for (key, panel) in [
+                (egui::Key::B, &mut self.show_nav),
+                (egui::Key::I, &mut self.show_details),
+                (egui::Key::D, &mut self.show_decks),
+            ] {
+                if input.consume_key(egui::Modifiers::COMMAND, key) {
+                    *panel = !*panel;
+                }
+            }
+        });
     }
 
     pub(crate) fn show_palette_fields(&mut self, ui: &mut egui::Ui, error_color: egui::Color32) {
@@ -567,7 +611,8 @@ impl LibraryApp {
     pub(crate) fn theme_selection_ui(&mut self, ui: &mut egui::Ui) -> (egui::Rect, Option<[egui::Rect; 3]>) {
         let mut selected = self.theme;
         let mut option_rects = None;
-        let label = ui.label("Theme (Ctrl+Alt+1/2/3)");
+        // Combo first, then its label: the W8 toolbar lays this group out
+        // right-to-left, so the label still reads before the picker.
         let combo = egui::ComboBox::from_id_salt("theme-selection")
             .selected_text(self.theme.label())
             .show_ui(ui, |ui| {
@@ -577,6 +622,7 @@ impl LibraryApp {
                 let custom = ui.selectable_value(&mut selected, ThemeMode::Custom, "Custom");
                 option_rects = Some([night.rect, day.rect, custom.rect]);
             });
+        let label = ui.label(egui::RichText::new("Theme (Ctrl+Alt+1/2/3)").small());
         if selected != self.theme {
             self.select_theme(selected);
         }

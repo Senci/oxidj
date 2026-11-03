@@ -28,8 +28,16 @@ pub struct ColorTokens {
     pub error: Color32,
 }
 
-/// Control height: WCAG 2.2 target size is 24 px; 28 px keeps dense rows usable.
-pub const CONTROL_HEIGHT: f32 = 28.0;
+/// Control height: exactly the WCAG 2.2 24 px target (W8 dense shell).
+pub const CONTROL_HEIGHT: f32 = 24.0;
+/// Track-table row height: the whole row is the (>= 24 px) hit target.
+pub const ROW_HEIGHT: f32 = 24.0;
+/// Track-table header height.
+pub const HEADER_HEIGHT: f32 = 22.0;
+/// Toolbar and status bar padding around one control row (32 px toolbar).
+pub const BAR_MARGIN: egui::Margin = egui::Margin::symmetric(6, 4);
+/// Inner margin of the side and deck panels.
+pub const PANEL_MARGIN: egui::Margin = egui::Margin::symmetric(8, 6);
 /// Smallest text size used for captions and badges (egui's default is 9 px).
 pub const SMALL_TEXT: f32 = 11.5;
 /// Opacity of the primary tint behind selected rows; kept low so text stays >= 4.5:1.
@@ -175,17 +183,17 @@ pub fn apply_metrics(ctx: &egui::Context) {
     ctx.style_mut(|style| {
         let spacing = &mut style.spacing;
         spacing.interact_size.y = CONTROL_HEIGHT;
-        spacing.button_padding = egui::vec2(10.0, 5.0);
-        spacing.item_spacing = egui::vec2(8.0, 6.0);
+        spacing.button_padding = egui::vec2(8.0, 3.0);
+        spacing.item_spacing = egui::vec2(6.0, 4.0);
         spacing.combo_height = 240.0;
         spacing.slider_width = 160.0;
         use egui::{FontId, TextStyle};
         for (text_style, size) in [
             (TextStyle::Small, SMALL_TEXT),
-            (TextStyle::Body, 14.0),
-            (TextStyle::Button, 14.0),
-            (TextStyle::Monospace, 13.0),
-            (TextStyle::Heading, 20.0),
+            (TextStyle::Body, 13.0),
+            (TextStyle::Button, 13.0),
+            (TextStyle::Monospace, 12.0),
+            (TextStyle::Heading, 15.0),
         ] {
             if let Some(font) = style.text_styles.get_mut(&text_style) {
                 *font = FontId::new(size, font.family.clone());

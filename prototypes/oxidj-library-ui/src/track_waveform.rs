@@ -523,6 +523,8 @@ mod tests {
                 ThemeMode::TokyoNight.tokens(),
             ),
         };
+        // W8: details is a toggled panel (off by default); open it as a user would.
+        h.app.show_details = true;
         let first = h.frame(vec![]);
         assert!(
             h.app.track_waveform.layout.view.is_none(),
@@ -733,6 +735,8 @@ mod tests {
                 ThemeMode::TokyoNight.tokens(),
             ),
         };
+        // W8: details is a toggled panel (off by default); open it as a user would.
+        h.app.show_details = true;
         let first = h.frame(vec![]);
         let out = h.click(unique_text(&first, "g-grid.wav").center());
         let panel = &h.app.track_waveform;
@@ -840,6 +844,8 @@ mod tests {
         let screen = Rect::from_min_size(Pos2::ZERO, egui::vec2(900.0, 900.0));
         let ctx = egui::Context::default();
         let mut app = LibraryApp::new(db, ThemeMode::TokyoNight, ThemeMode::TokyoNight.tokens());
+        // W8: details is a toggled panel (off by default); open it as a user would.
+        app.show_details = true;
         let frame = |app: &mut LibraryApp, events: Vec<egui::Event>| {
             let input = egui::RawInput {
                 screen_rect: Some(screen),

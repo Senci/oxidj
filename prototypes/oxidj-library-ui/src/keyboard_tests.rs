@@ -5861,7 +5861,11 @@ fn toolbar_controls_fit_narrow_and_wide_viewports() {
                 .map(|r| egui::Rect::from_min_max(egui::pos2(r.x0 as f32, r.y0 as f32), egui::pos2(r.x1 as f32, r.y1 as f32)))
                 .collect::<Vec<_>>();
         }
-        assert!(rects.len() >= 8, "expected the production toolbar controls at {width}px: {rects:?}");
+        // W8: one row of search, three panel toggles, theme and "…"; the
+        // catalog/import/XML grid moved into the "…" menu (shell_tests.rs).
+        assert!(rects.len() >= 6, "expected the production toolbar controls at {width}px: {rects:?}");
+        let row = rects.iter().fold(rects[0], |a, b| a.union(*b));
+        assert!(row.height() <= 32.0, "toolbar controls share one row at {width}px: {rects:?}");
         let content = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(width, 600.0));
         assert!(
             rects.iter().all(|rect| content.contains_rect(*rect)),
