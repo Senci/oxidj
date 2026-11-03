@@ -39,7 +39,8 @@ impl LibraryApp {
         egui::SidePanel::right("details")
             .default_width(420.0)
             .min_width(340.0)
-            .max_width(520.0)
+            // At most 40% of a narrow window, so the track table keeps room.
+            .max_width((ctx.screen_rect().width() * 0.4).clamp(340.0, 520.0))
             .resizable(true)
             .show(ctx, |ui| {
                 // No auto-shrink: the panel keeps its width with or without
@@ -182,7 +183,7 @@ impl LibraryApp {
     fn xml_preview_window(&mut self, ctx: &egui::Context, tokens: theme::ColorTokens) {
         if self.show_xml_preview {
             let mut open = self.show_xml_preview;
-            egui::Window::new("Rekordbox XML preview · guarded Name export")
+            egui::Window::new("Rekordbox XML preview · guarded edits")
                 .open(&mut open)
                 .default_width(720.0)
                 .vscroll(true)
@@ -228,7 +229,7 @@ impl LibraryApp {
                                         }
                                     });
                             });
-                        SectionHeading { title: "Prepare one guarded Name edit" }.show(ui, tokens);
+                        SectionHeading { title: "Track Name edit" }.show(ui, tokens);
                         if let Some(track_id) = self.xml_selected_track.clone() {
                             ui.label(format!("Selected TrackID: {track_id}"));
                             ui.horizontal(|ui| {
@@ -900,13 +901,11 @@ impl LibraryApp {
                     ui.end_row();
                     for item in visible {
                         let id = item.track.id.as_u64();
-                        if ui
-                            .selectable_label(self.selected == Some(id), id.to_string())
-                            .clicked()
-                        {
+                        let id_cell = ui.selectable_label(self.selected == Some(id), id.to_string());
+                        if id_cell.clicked() {
                             self.selected = Some(id);
                         }
-                        ui.vertical(|ui| {
+                        let name_cell = ui.vertical(|ui| {
                             ui.set_max_width(name_width);
                             ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
                             if ui
@@ -922,6 +921,15 @@ impl LibraryApp {
                                         .on_hover_text(&item.track.path);
                                 });
                         });
+                        // A row-tall accent bar marks the selected row; a full-row
+                        // tint would drop small muted text below 4.5:1 in Tokyo Day.
+                        if self.selected == Some(id) {
+                            let rail = egui::Rect::from_x_y_ranges(
+                                id_cell.rect.left()..=id_cell.rect.left() + 3.0,
+                                name_cell.response.rect.y_range(),
+                            );
+                            ui.painter().rect_filled(rail, 1.0, tokens.primary);
+                        }
                         ui.label(
                             item.duration_seconds
                                 .map(|v| format!("{v:.2} s"))

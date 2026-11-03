@@ -147,11 +147,9 @@ impl TrackWaveformPanel {
                     layout.styles =
                         Some(Style::ALL.map(|s| ui.selectable_value(style, s, s.label()).rect));
                 });
-                // Three gain sliders share one row sized to the panel: the old
-                // wrapped row overflowed narrow panels and widened the view.
-                let full = ui.available_width();
-                ui.horizontal(|ui| {
-                    ui.spacing_mut().slider_width = ((full - 3.0 * 96.0) / 3.0).clamp(40.0, 160.0);
+                // One gain per row at the standard rail width, so the rails line
+                // up with Position; a shared row squeezed them to ~40 px.
+                ui.vertical(|ui| {
                     let mut slider = |value: &mut f32, text| {
                         ui.add(
                             egui::Slider::new(value, 0.0..=1.0).trailing_fill(true)
@@ -806,6 +804,86 @@ mod tests {
             stored
         );
         drop(reopened);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    /// W7 round 3: selection + details + every waveform style at a ~900 px
+    /// window, rendered through the production `LibraryApp::ui`. Every gain
+    /// and Position slider must be fully inside the viewport with a usable
+    /// rail, and a real click on the Low rail must change the Low gain.
+    #[test]
+    fn narrow_window_keeps_details_waveform_styles_and_gain_sliders_reachable() {
+        let root = std::env::temp_dir().join(format!(
+            "oxidj-ui-w7-narrow-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let audio = root.join("audio");
+        std::fs::create_dir_all(&audio).unwrap();
+        write_wav(&audio.join("synthetic-tone.wav"), 2.0, sine(220.0, 0.8));
+        let db = root.join("catalog.sqlite");
+        let mut catalog = Catalog::open(&db).unwrap();
+        catalog
+            .import_audio_directory(audio.to_str().unwrap())
+            .unwrap();
+        let id = catalog.list_track_details().unwrap()[0].track.id;
+        oxidj_application::analyze_track_waveform(&mut catalog, id).unwrap();
+        drop(catalog);
+
+        let screen = Rect::from_min_size(Pos2::ZERO, egui::vec2(900.0, 900.0));
+        let ctx = egui::Context::default();
+        let mut app = LibraryApp::new(db, ThemeMode::TokyoNight, ThemeMode::TokyoNight.tokens());
+        let frame = |app: &mut LibraryApp, events: Vec<egui::Event>| {
+            let input = egui::RawInput {
+                screen_rect: Some(screen),
+                events,
+                ..Default::default()
+            };
+            ctx.run(input, |ctx| app.ui(ctx))
+        };
+        let button = |pos, pressed| egui::Event::PointerButton {
+            pos,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: egui::Modifiers::default(),
+        };
+        let click = |app: &mut LibraryApp, pos: Pos2| {
+            frame(app, vec![egui::Event::PointerMoved(pos), button(pos, true)]);
+            frame(app, vec![button(pos, false)]);
+            frame(app, vec![]);
+            frame(app, vec![])
+        };
+        let first = click(&mut app, Pos2::new(1.0, 1.0));
+        // Select through the production track table.
+        click(&mut app, unique_text(&first, "synthetic-tone.wav").center());
+        assert_eq!(app.selected, Some(id.as_u64()));
+
+        for (index, style) in Style::ALL.into_iter().enumerate() {
+            let styles = app.track_waveform.layout.styles.expect("style buttons");
+            click(&mut app, styles[index].center());
+            assert_eq!(app.track_waveform.style, style);
+            let layout = &app.track_waveform.layout;
+            let view = layout.view.expect("waveform drawn");
+            let position = layout.position.expect("position slider");
+            let eq = layout.eq.expect("gain sliders");
+            for rect in styles.iter().chain(eq.iter()).chain([&position, &view]) {
+                assert!(screen.contains_rect(*rect), "{style:?}: {rect:?} clipped at 900 px");
+            }
+            for rail in eq.iter().chain([&position]) {
+                assert!(rail.width() >= 120.0 && rail.height() >= 18.0, "{style:?}: slider too small {rail:?}");
+            }
+            // The details panel leaves the track table >= 60% of the window.
+            assert!(view.left() >= 900.0 * 0.6 - 24.0, "{style:?}: details panel too wide {view:?}");
+        }
+
+        // A real click near the left end of the Low rail lowers the gain.
+        let low = app.track_waveform.layout.eq.unwrap()[0];
+        assert_eq!(app.track_waveform.eq.low, 1.0);
+        click(&mut app, Pos2::new(low.left() + 4.0, low.center().y));
+        assert!(app.track_waveform.eq.low < 0.2, "Low rail reachable: {}", app.track_waveform.eq.low);
         std::fs::remove_dir_all(root).unwrap();
     }
 }

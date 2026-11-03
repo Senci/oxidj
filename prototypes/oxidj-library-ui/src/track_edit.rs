@@ -28,15 +28,6 @@ pub(crate) struct PendingTrackEdit<C> {
     pub(crate) prepared: PreparedTrackEditExport<C>,
 }
 
-/// Panel heading style.
-#[derive(Clone, Copy)]
-pub(crate) enum Heading {
-    /// Separator + "Prepare one guarded X edit".
-    Strong,
-    /// "Track X edit (provisional)" section heading.
-    Section,
-}
-
 /// How the current attribute value is shown above the editor.
 #[derive(Clone, Copy)]
 pub(crate) enum Current {
@@ -62,7 +53,6 @@ pub(crate) enum Absent {
 
 #[derive(Clone, Copy)]
 pub(crate) struct Layout {
-    pub(crate) heading: Heading,
     pub(crate) current: Current,
     pub(crate) absent: Absent,
     pub(crate) multiline: bool,
@@ -199,18 +189,11 @@ impl LibraryApp {
     ) {
         let label = F::ATTRIBUTE.xml_name();
         let layout = F::LAYOUT;
-        match layout.heading {
-            Heading::Strong => {
-                SectionHeading {
-                    title: &format!("Prepare one guarded {label} edit"),
-                }
-                .show(ui, tokens);
-            }
-            Heading::Section => SectionHeading {
-                title: &format!("Track {label} edit (provisional)"),
-            }
-            .show(ui, tokens),
+        // One heading form for every field panel (was two mixed copy styles).
+        SectionHeading {
+            title: &format!("Track {label} edit"),
         }
+        .show(ui, tokens);
         let Some(track_id) = self.xml_selected_track.clone() else {
             ui.label(format!(
                 "Select one track above to prepare a pending {label} edit."
@@ -425,31 +408,28 @@ macro_rules! track_edit_fields {
     };
 }
 
-const STRONG_EDITOR_WHEN_ABSENT: Layout = Layout {
-    heading: Heading::Strong,
+const EDITOR_WHEN_ABSENT: Layout = Layout {
     current: Current::Hidden,
     absent: Absent::ShowEditor,
     multiline: false,
 };
-const STRONG_PRESENCE: Layout = Layout {
-    heading: Heading::Strong,
+const PRESENCE_NOTE: Layout = Layout {
     current: Current::Presence,
     absent: Absent::Note,
     multiline: false,
 };
-const SECTION_PRESENCE: Layout = Layout {
-    heading: Heading::Section,
+const PRESENCE_CLEAR: Layout = Layout {
     current: Current::Presence,
     absent: Absent::ClearAndNote,
     multiline: false,
 };
 const SECTION_QUOTED: Layout = Layout {
     current: Current::Quoted,
-    ..SECTION_PRESENCE
+    ..PRESENCE_CLEAR
 };
 const SECTION_QUOTED_EMPTY_NOTE: Layout = Layout {
     current: Current::QuotedEmptyNote,
-    ..SECTION_PRESENCE
+    ..PRESENCE_CLEAR
 };
 
 #[rustfmt::skip]
@@ -458,22 +438,22 @@ track_edit_fields! {
         prepare_rekordbox_track_artist_export, export_prepared_rekordbox_track_artist_edit,
         state(xml_edit_artist, xml_artist_export_path, xml_pending_artist_edit) as PendingTrackArtistEdit,
         methods(prepare_xml_artist_edit, cancel_xml_artist_edit, export_xml_artist_edit),
-        STRONG_EDITOR_WHEN_ABSENT;
+        EDITOR_WHEN_ABSENT;
     CommentsField: Comments, comments, TrackCommentsEditChange { old_comments, new_comments }, TrackCommentsEditPreparationRequest { expected_old_comments, new_comments },
         prepare_rekordbox_track_comments_export, export_prepared_rekordbox_track_comments_edit,
         state(xml_edit_comments, xml_comments_export_path, xml_pending_comments_edit) as PendingTrackCommentsEdit,
         methods(prepare_xml_comments_edit, cancel_xml_comments_edit, export_xml_comments_edit),
-        Layout { multiline: true, ..STRONG_PRESENCE };
+        Layout { multiline: true, ..PRESENCE_NOTE };
     AlbumField: Album, album, TrackAlbumEditChange { old_album, new_album }, TrackAlbumEditPreparationRequest { expected_old_album, new_album },
         prepare_rekordbox_track_album_export, export_prepared_rekordbox_track_album_edit,
         state(xml_edit_album, xml_album_export_path, xml_pending_album_edit) as PendingTrackAlbumEdit,
         methods(prepare_xml_album_edit, cancel_xml_album_edit, export_xml_album_edit),
-        STRONG_PRESENCE;
+        PRESENCE_NOTE;
     GenreField: Genre, genre, TrackGenreEditChange { old_genre, new_genre }, TrackGenreEditPreparationRequest { expected_old_genre, new_genre },
         prepare_rekordbox_track_genre_export, export_prepared_rekordbox_track_genre_edit,
         state(xml_edit_genre, xml_genre_export_path, xml_pending_genre_edit) as PendingTrackGenreEdit,
         methods(prepare_xml_genre_edit, cancel_xml_genre_edit, export_xml_genre_edit),
-        SECTION_PRESENCE;
+        PRESENCE_CLEAR;
     RemixerField: Remixer, remixer, TrackRemixerEditChange { old_remixer, new_remixer }, TrackRemixerEditPreparationRequest { expected_old_remixer, new_remixer },
         prepare_rekordbox_track_remixer_export, export_prepared_rekordbox_track_remixer_edit,
         state(xml_edit_remixer, xml_remixer_export_path, xml_pending_remixer_edit) as PendingTrackRemixerEdit,
@@ -493,22 +473,22 @@ track_edit_fields! {
         prepare_rekordbox_track_mix_export, export_prepared_rekordbox_track_mix_edit,
         state(xml_edit_mix, xml_mix_export_path, xml_pending_mix_edit) as PendingTrackMixEdit,
         methods(prepare_xml_mix_edit, cancel_xml_mix_edit, export_xml_mix_edit),
-        SECTION_PRESENCE;
+        PRESENCE_CLEAR;
     ComposerField: Composer, composer, TrackComposerEditChange { old_composer, new_composer }, TrackComposerEditPreparationRequest { expected_old_composer, new_composer },
         prepare_rekordbox_track_composer_export, export_prepared_rekordbox_track_composer_edit,
         state(xml_edit_composer, xml_composer_export_path, xml_pending_composer_edit) as PendingTrackComposerEdit,
         methods(prepare_xml_composer_edit, cancel_xml_composer_edit, export_xml_composer_edit),
-        SECTION_PRESENCE;
+        PRESENCE_CLEAR;
     GroupingField: Grouping, grouping, TrackGroupingEditChange { old_grouping, new_grouping }, TrackGroupingEditPreparationRequest { expected_old_grouping, new_grouping },
         prepare_rekordbox_track_grouping_export, export_prepared_rekordbox_track_grouping_edit,
         state(xml_edit_grouping, xml_grouping_export_path, xml_pending_grouping_edit) as PendingTrackGroupingEdit,
         methods(prepare_xml_grouping_edit, cancel_xml_grouping_edit, export_xml_grouping_edit),
-        SECTION_PRESENCE;
+        PRESENCE_CLEAR;
     LabelField: Label, label, TrackLabelEditChange { old_label, new_label }, TrackLabelEditPreparationRequest { expected_old_label, new_label },
         prepare_rekordbox_track_label_export, export_prepared_rekordbox_track_label_edit,
         state(xml_edit_label, xml_label_export_path, xml_pending_label_edit) as PendingTrackLabelEdit,
         methods(prepare_xml_label_edit, cancel_xml_label_edit, export_xml_label_edit),
-        SECTION_PRESENCE;
+        PRESENCE_CLEAR;
 }
 
 /// The original Track Name edit keeps its own contract: no selection/proposal

@@ -6638,3 +6638,120 @@ fn empty_playlist_create_ui_exports_prepared_bytes_and_reopens_selectable_playli
     assert_eq!(std::fs::read(existing).unwrap(), b"keep");
     std::fs::remove_dir_all(root).unwrap();
 }
+
+/// W7 round 3: the XML edit window at a ~900 x 700 window, rendered through
+/// the production `LibraryApp::ui`. The window fits the viewport, its content
+/// is taller than the window and scrolls with the mouse wheel, every
+/// control stays inside the window horizontally, and the first member's
+/// "Move up" is reported disabled while "Move down" stays enabled.
+#[test]
+fn xml_window_fits_scrolls_and_reports_disabled_reorder_at_narrow_width() {
+    let (root, source) = temporary_xml();
+    let mut app = app();
+    app.xml_path = source.display().to_string();
+    app.preview_xml();
+    let preview = app.xml_preview.clone().unwrap().unwrap();
+    let track = preview.tracks.first().expect("fixture track").clone();
+    let playlist = preview
+        .playlists
+        .iter()
+        .position(|p| p.tracks.len() >= 2)
+        .expect("fixture playlist with two members");
+    app.select_xml_track(&track.id, &track.name);
+    app.select_xml_playlist(playlist);
+    app.select_xml_member(0);
+
+    let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(900.0, 700.0));
+    let ctx = egui::Context::default();
+    ctx.enable_accesskit();
+    let clock = std::cell::Cell::new(0.0);
+    let frame = |app: &mut LibraryApp, events: Vec<egui::Event>| {
+        // Advancing time lets egui's smooth wheel scrolling settle.
+        clock.set(clock.get() + 1.0 / 60.0);
+        let input = egui::RawInput {
+            screen_rect: Some(screen),
+            time: Some(clock.get()),
+            events,
+            ..Default::default()
+        };
+        ctx.run(input, |ctx| app.ui(ctx))
+    };
+    type Node = (egui::accesskit::Role, Option<String>, bool, egui::Rect);
+    let nodes = |output: egui::FullOutput| -> Vec<Node> {
+        output
+            .platform_output
+            .accesskit_update
+            .expect("AccessKit update")
+            .nodes
+            .iter()
+            .filter_map(|(_, node)| {
+                let r = node.bounds()?;
+                Some((
+                    node.role(),
+                    node.label().map(str::to_owned),
+                    node.is_disabled(),
+                    egui::Rect::from_min_max(
+                        egui::pos2(r.x0 as f32, r.y0 as f32),
+                        egui::pos2(r.x1 as f32, r.y1 as f32),
+                    ),
+                ))
+            })
+            .collect()
+    };
+    let find = |nodes: &[Node], label: &str| -> Node {
+        nodes
+            .iter()
+            .find(|n| n.1.as_deref() == Some(label))
+            .unwrap_or_else(|| panic!("{label:?} not in tree"))
+            .clone()
+    };
+    for _ in 0..3 {
+        frame(&mut app, vec![]);
+    }
+    let before = nodes(frame(&mut app, vec![]));
+    let window = ctx
+        .memory(|m| m.area_rect(egui::Id::new("Rekordbox XML preview · guarded edits")))
+        .expect("XML window shown");
+    assert!(screen.contains_rect(window), "XML window clipped: {window:?}");
+    let up = find(&before, "Move up");
+    let down = find(&before, "Move down");
+    assert!(up.2, "first member's Move up must be disabled");
+    assert!(!down.2, "Move down must be enabled");
+    assert!(up.3.width() >= 24.0 && up.3.height() >= 18.0, "{:?}", up.3);
+    assert!(up.3.bottom() > window.bottom(), "content taller than the window: {:?} vs {window:?}", up.3);
+    // Window-only actions (the panels behind the window have none of these).
+    let window_action = |label: &Option<String>| {
+        label.as_deref().is_some_and(|l| {
+            l.starts_with("Prepare") || l.starts_with("Export") || ["Move up", "Move down", "Select"].contains(&l)
+        })
+    };
+    let actions = before.iter().filter(|n| window_action(&n.1)).count();
+    assert!(actions >= 5, "expected the XML window actions in the tree: {actions}");
+    for (role, label, _, rect) in &before {
+        if matches!(role, egui::accesskit::Role::Button) && window_action(label) {
+            assert!(
+                rect.left() >= window.left() - 1.0 && rect.right() <= window.right() + 1.0,
+                "{label:?} {rect:?} outside window {window:?}"
+            );
+        }
+    }
+
+    // Wheel near the window bottom, below the inner (bounded) track list.
+    let pointer = egui::pos2(window.center().x, window.bottom() - 20.0);
+    frame(&mut app, vec![egui::Event::PointerMoved(pointer)]);
+    frame(
+        &mut app,
+        vec![egui::Event::PointerMoved(pointer), egui::Event::MouseWheel {
+            unit: egui::MouseWheelUnit::Point,
+            delta: egui::vec2(0.0, -2000.0),
+            modifiers: egui::Modifiers::default(),
+        }],
+    );
+    for _ in 0..30 {
+        frame(&mut app, vec![]);
+    }
+    let after = nodes(frame(&mut app, vec![]));
+    let scrolled = find(&after, "Move up").3;
+    assert!(scrolled.top() < up.3.top() - 50.0, "window content scrolled: {:?} -> {scrolled:?}", up.3);
+    std::fs::remove_dir_all(root).unwrap();
+}
