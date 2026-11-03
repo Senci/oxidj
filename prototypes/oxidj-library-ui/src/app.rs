@@ -118,6 +118,8 @@ pub(crate) struct LibraryApp {
     pub(crate) xml_edit_error: Option<String>,
     pub(crate) show_control_gallery: bool,
     pub(crate) control_gallery: control_gallery::GalleryState,
+    pub(crate) show_waveform_demo: bool,
+    pub(crate) waveform_demo: Option<waveform_view::DemoState>,
     pub(crate) availability_filter: Option<TrackAvailability>,
     pub(crate) deck_playing: [bool; 2],
     pub(crate) deck_cue: [bool; 2],
@@ -244,6 +246,8 @@ impl LibraryApp {
             xml_edit_error: None,
             show_control_gallery: false,
             control_gallery: control_gallery::GalleryState::default(),
+            show_waveform_demo: false,
+            waveform_demo: None,
             availability_filter: None,
             deck_playing: [false; 2],
             deck_cue: [false; 2],
@@ -271,6 +275,28 @@ impl LibraryApp {
                     control_gallery::show(ui, &mut self.control_gallery, tokens)
                 });
             self.show_control_gallery = open;
+        }
+    }
+
+    pub(crate) fn show_waveform_demo_button(&mut self, ui: &mut egui::Ui) -> egui::Response {
+        let response = ui.button("Waveform view…");
+        if response.clicked() {
+            self.show_waveform_demo = true;
+        }
+        response
+    }
+
+    /// Provisional waveform renderer demo on synthetic peaks (built on first open).
+    pub(crate) fn show_waveform_demo_window(&mut self, ctx: &egui::Context) {
+        if self.show_waveform_demo {
+            let state = self.waveform_demo.get_or_insert_with(Default::default);
+            let mut open = self.show_waveform_demo;
+            egui::Window::new("OxiDJ · Waveform view (provisional)")
+                .open(&mut open)
+                .default_width(900.0)
+                .min_width(360.0)
+                .show(ctx, |ui| waveform_view::show_demo(ui, state));
+            self.show_waveform_demo = open;
         }
     }
 

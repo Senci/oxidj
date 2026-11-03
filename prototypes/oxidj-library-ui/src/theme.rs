@@ -144,8 +144,22 @@ impl ThemeMode {
         visuals.widgets.open.bg_fill = t.surface;
         visuals.widgets.open.bg_stroke.color = t.focus;
         ctx.set_visuals(visuals);
+        publish_tokens(ctx, t);
     }
 }
+
+/// Make the active semantic tokens readable by painters that only get a `Ui`.
+pub fn publish_tokens(ctx: &egui::Context, tokens: ColorTokens) {
+    ctx.data_mut(|d| *d.get_temp_mut_or_insert_with(egui::Id::NULL.with(TOKENS_ID), || tokens) = tokens);
+}
+
+/// The tokens last published by [`ThemeMode::apply`]; Tokyo Night otherwise.
+pub fn current_tokens(ctx: &egui::Context) -> ColorTokens {
+    ctx.data(|d| d.get_temp(egui::Id::NULL.with(TOKENS_ID)))
+        .unwrap_or_else(|| ThemeMode::TokyoNight.tokens())
+}
+
+const TOKENS_ID: &str = "oxidj_theme_tokens";
 
 impl ColorTokens {
     fn encode(self) -> String {

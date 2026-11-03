@@ -14,6 +14,7 @@ mod playlist_ops;
 mod theme;
 mod track_edit;
 mod view;
+mod waveform_view;
 mod widgets;
 mod xml_order;
 

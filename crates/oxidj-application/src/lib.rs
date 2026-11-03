@@ -14,6 +14,8 @@ pub use library_import::{
     OneLibraryCrossCheck, export_library_xml, import_library_from_pdb, library_from_pdb_preview,
     onelibrary_cross_check,
 };
+/// The neutral peak model, re-exported so UI adapters need no direct core edge.
+pub use oxidj_core::waveform::{Band as WaveformBand, Peak as WaveformPeak, WaveformPeaks};
 pub use oxidj_library::{LibraryCounts, LibraryNode, LibrarySnapshot, LibraryTrack};
 pub use waveform::{
     WaveformAnalysisError, WaveformOutcome, WaveformReport, analyze_catalog_waveforms,

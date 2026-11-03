@@ -16,6 +16,7 @@ impl eframe::App for LibraryApp {
             ui.horizontal(|ui| {
                 self.theme_selection_ui(ui);
                 self.show_control_gallery_button(ui);
+                self.show_waveform_demo_button(ui);
                 if self.theme == ThemeMode::Custom {
                     if ui.button("Edit palette…").clicked() {
                         self.show_theme_editor = true;
@@ -109,6 +110,7 @@ impl eframe::App for LibraryApp {
             }
         });
         self.show_control_gallery_window(ctx, tokens);
+        self.show_waveform_demo_window(ctx);
         if self.show_xml_preview {
             let mut open = self.show_xml_preview;
             egui::Window::new("Rekordbox XML preview · guarded Name export")
