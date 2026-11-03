@@ -249,6 +249,28 @@ fn defaults_one_row_toolbar_status_bar_and_full_width_table() {
             "{width}: search grows: {:?}",
             search.2
         );
+        // Sortable header cells are clickable sort targets: >= 24 px tall,
+        // inside the table, unclipped (review W8 round 1).
+        for title in ["ID", "Filename", "Duration"] {
+            let header = tree
+                .iter()
+                .find(|n| {
+                    n.1.as_deref()
+                        .is_some_and(|l| l == title || l.starts_with(&format!("{title}, sorted")))
+                })
+                .unwrap_or_else(|| panic!("{width}: header {title} not in the AccessKit tree"))
+                .2;
+            assert!(
+                header.height() >= 24.0 && header.width() >= 24.0,
+                "{width}: header {title} target {header:?}"
+            );
+            assert!(
+                shell.screen.contains_rect(header)
+                    && header.left() >= table.left() - 0.5
+                    && header.right() <= table.right() + 0.5,
+                "{width}: header {title} clipped {header:?} table {table:?}"
+            );
+        }
         // Rows are full-width >= 24 px hit targets.
         for name in ["tone-a.wav", "tone-b.wav", "tone-c.wav"] {
             let row = find(&tree, name).2;

@@ -33,7 +33,7 @@ pub const CONTROL_HEIGHT: f32 = 24.0;
 /// Track-table row height: the whole row is the (>= 24 px) hit target.
 pub const ROW_HEIGHT: f32 = 24.0;
 /// Track-table header height.
-pub const HEADER_HEIGHT: f32 = 22.0;
+pub const HEADER_HEIGHT: f32 = 24.0;
 /// Toolbar and status bar padding around one control row (32 px toolbar).
 pub const BAR_MARGIN: egui::Margin = egui::Margin::symmetric(6, 4);
 /// Inner margin of the side and deck panels.
@@ -204,7 +204,9 @@ pub fn apply_metrics(ctx: &egui::Context) {
 
 /// Make the active semantic tokens readable by painters that only get a `Ui`.
 pub fn publish_tokens(ctx: &egui::Context, tokens: ColorTokens) {
-    ctx.data_mut(|d| *d.get_temp_mut_or_insert_with(egui::Id::NULL.with(TOKENS_ID), || tokens) = tokens);
+    ctx.data_mut(|d| {
+        *d.get_temp_mut_or_insert_with(egui::Id::NULL.with(TOKENS_ID), || tokens) = tokens
+    });
 }
 
 /// The tokens last published by [`ThemeMode::apply`]; Tokyo Night otherwise.
@@ -376,11 +378,15 @@ mod tests {
             }
             // Selection tint composited over the panel background.
             let blend = |c: u8, b: u8| {
-                (f32::from(c) * SELECTION_TINT + f32::from(b) * (1.0 - SELECTION_TINT)).round() as u8
+                (f32::from(c) * SELECTION_TINT + f32::from(b) * (1.0 - SELECTION_TINT)).round()
+                    as u8
             };
             let (p, b) = (tokens.primary, tokens.background);
-            let selected =
-                Color32::from_rgb(blend(p.r(), b.r()), blend(p.g(), b.g()), blend(p.b(), b.b()));
+            let selected = Color32::from_rgb(
+                blend(p.r(), b.r()),
+                blend(p.g(), b.g()),
+                blend(p.b(), b.b()),
+            );
             let ratio = contrast_ratio(tokens.text, selected);
             assert!(ratio >= 4.5, "{} selected text {ratio:.2}:1", mode.label());
         }
