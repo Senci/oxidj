@@ -41,13 +41,19 @@ impl LibraryApp {
             .min_width(340.0)
             .max_width(520.0)
             .resizable(true)
-            .show(ctx, |ui| self.details(ui, tokens));
+            .show(ctx, |ui| {
+                // No auto-shrink: the panel keeps its width with or without
+                // a selection instead of jumping to the content width.
+                egui::ScrollArea::vertical()
+                    .auto_shrink([false, false])
+                    .show(ui, |ui| self.details(ui, tokens));
+            });
         egui::CentralPanel::default().show(ctx, |ui| self.track_table(ui, tokens));
     }
 
     /// Title row, theme/tool buttons, then an aligned grid of catalog,
     /// search, import and XML fields with their actions; status notice last.
-    fn toolbar(&mut self, ui: &mut egui::Ui, ctx: &egui::Context, tokens: theme::ColorTokens) {
+    pub(crate) fn toolbar(&mut self, ui: &mut egui::Ui, ctx: &egui::Context, tokens: theme::ColorTokens) {
         ui.add_space(4.0);
         ui.horizontal_wrapped(|ui| {
             ui.heading("OxiDJ · Local Library");
@@ -222,8 +228,7 @@ impl LibraryApp {
                                         }
                                     });
                             });
-                        ui.separator();
-                        ui.strong("Prepare one guarded Name edit");
+                        SectionHeading { title: "Prepare one guarded Name edit" }.show(ui, tokens);
                         if let Some(track_id) = self.xml_selected_track.clone() {
                             ui.label(format!("Selected TrackID: {track_id}"));
                             ui.horizontal(|ui| {
@@ -263,7 +268,6 @@ impl LibraryApp {
                             ui.label("Select one track above to prepare a pending Name edit.");
                         }
                         self.track_attribute_panels(ui, tokens, &preview);
-                        ui.separator();
                         SectionHeading { title: "Sibling playlist order (provisional)" }.show(ui, tokens);
                         for folder in preview.folders.iter().filter(|folder| folder.path.len() > 1) {
                             let label = format!("Parent #{} · {}", folder.ordinal, folder.path.join(" / "));
@@ -684,25 +688,32 @@ impl LibraryApp {
                     .color(tokens.muted_text),
             );
             for deck in 0..2 {
-                ui.separator();
-                ui.strong(format!("DECK {}", if deck == 0 { "A" } else { "B" }));
-                ui.label(&loaded);
-                if ui
-                    .selectable_label(
-                        self.deck_playing[deck],
-                        if self.deck_playing[deck] {
-                            "Playing · demo"
-                        } else {
-                            "Play"
-                        },
-                    )
-                    .clicked()
-                {
-                    self.deck_playing[deck] = !self.deck_playing[deck];
+                // One deck wraps as a unit so Play/Cue never orphan.
+                if ui.max_rect().right() - ui.cursor().min.x < 340.0 {
+                    ui.end_row();
+                } else {
+                    ui.separator();
                 }
-                if ui.selectable_label(self.deck_cue[deck], "Cue").clicked() {
-                    self.deck_cue[deck] = !self.deck_cue[deck];
-                }
+                ui.horizontal(|ui| {
+                    ui.strong(format!("DECK {}", if deck == 0 { "A" } else { "B" }));
+                    ui.label(&loaded);
+                    if ui
+                        .selectable_label(
+                            self.deck_playing[deck],
+                            if self.deck_playing[deck] {
+                                "Playing · demo"
+                            } else {
+                                "Play"
+                            },
+                        )
+                        .clicked()
+                    {
+                        self.deck_playing[deck] = !self.deck_playing[deck];
+                    }
+                    if ui.selectable_label(self.deck_cue[deck], "Cue").clicked() {
+                        self.deck_cue[deck] = !self.deck_cue[deck];
+                    }
+                });
             }
         });
     }
@@ -721,6 +732,18 @@ impl LibraryApp {
             ui.label("Selected track is no longer in the catalog.");
             return;
         };
+        // The facts grid sizes rows from the previous frame; re-run the
+        // frame when the selection changes so it never paints overlapped.
+        let shown = egui::Id::new("track-facts-shown");
+        let previous = ui.ctx().data_mut(|d| {
+            let previous = d.get_temp::<u64>(shown);
+            d.insert_temp(shown, id);
+            previous
+        });
+        if previous != Some(id) {
+            ui.ctx().request_discard("track facts grid layout");
+            ui.ctx().request_repaint();
+        }
         let unavailable = || "Unavailable".to_owned();
         let hash: String = item.track.sha256.iter().map(|b| format!("{b:02x}")).collect();
         let facts = [
@@ -741,7 +764,9 @@ impl LibraryApp {
             .show(ui, |ui| {
                 for (key, value) in facts {
                     ui.label(egui::RichText::new(key).color(tokens.muted_text));
-                    ui.add(egui::Label::new(value).wrap());
+                    // Truncated, not wrapped: row heights must not depend
+                    // on the (resizable) panel width or rows overlap.
+                    ui.add(egui::Label::new(&value).truncate()).on_hover_text(&value);
                     ui.end_row();
                 }
                 ui.label(egui::RichText::new("Availability").color(tokens.muted_text));
@@ -753,7 +778,9 @@ impl LibraryApp {
                 .show(ui, tokens);
                 ui.end_row();
                 ui.label(egui::RichText::new("SHA-256").color(tokens.muted_text));
-                ui.add(egui::Label::new(egui::RichText::new(hash).monospace().small()).wrap());
+                // Two fixed 32-hex-digit lines: same height at every width.
+                let (first, second) = hash.split_at(hash.len() / 2);
+                ui.add(egui::Label::new(egui::RichText::new(format!("{first}\n{second}")).monospace().small()).extend());
                 ui.end_row();
             });
         ui.add_space(4.0);
@@ -771,7 +798,7 @@ impl LibraryApp {
             .show(ui, tokens);
             return;
         }
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
             ui.label("Sort by");
             egui::ComboBox::from_id_salt("sort")
                 .selected_text(match self.sort {
@@ -794,7 +821,8 @@ impl LibraryApp {
             {
                 self.descending = !self.descending;
             }
-            ui.label(egui::RichText::new(format!("{} tracks", self.tracks.len())).color(tokens.muted_text));
+            // Moves to the next row as a whole instead of breaking mid-label.
+            ui.add(egui::Label::new(egui::RichText::new(format!("{} tracks", self.tracks.len())).color(tokens.muted_text)).extend());
         });
         let query = self.search.to_lowercase();
         let mut visible: Vec<_> = self
@@ -830,7 +858,11 @@ impl LibraryApp {
             }
         });
         if visible.is_empty() {
-            ui.centered_and_justified(|ui| {
+            // Centred without justified (stretched) word spacing.
+            let layout = egui::Layout::top_down(egui::Align::Center)
+                .with_main_align(egui::Align::Center)
+                .with_main_justify(true);
+            ui.with_layout(layout, |ui| {
                 ui.label(
                     egui::RichText::new(if self.tracks.is_empty() {
                         "Library is empty. Import a folder of supported audio references."
@@ -846,17 +878,24 @@ impl LibraryApp {
         // Fixed columns; the name column takes the remaining width and
         // truncates (full text on hover) instead of wrapping per character.
         let name_width = (ui.available_width() - 470.0).clamp(160.0, 640.0);
-        egui::ScrollArea::vertical().show(ui, |ui| {
+        egui::ScrollArea::both().show(ui, |ui| {
             egui::Grid::new("tracks")
                 .striped(true)
                 .min_col_width(48.0)
                 .spacing([16.0, 6.0])
                 .show(ui, |ui| {
-                    let header = |ui: &mut egui::Ui, text: &str| {
-                        ui.label(egui::RichText::new(text).small().strong().color(tokens.muted_text));
+                    // Selectable cells (ID, filename) inset their text by the
+                    // button padding; inset their header and the path to match.
+                    let inset = ui.spacing().button_padding.x;
+                    let header = |ui: &mut egui::Ui, text: &str, indent: f32| {
+                        ui.horizontal(|ui| {
+                            ui.add_space(indent);
+                            ui.label(egui::RichText::new(text).small().strong().color(tokens.muted_text));
+                        });
                     };
-                    for text in ["ID", "Filename / path", "Duration", "Format facts", "Availability"] {
-                        header(ui, text);
+                    let headers = [("ID", inset), ("Filename / path", inset), ("Duration", 0.0), ("Format facts", 0.0), ("Availability", 0.0)];
+                    for (text, indent) in headers {
+                        header(ui, text, indent);
                     }
                     ui.end_row();
                     for item in visible {
@@ -876,8 +915,12 @@ impl LibraryApp {
                             {
                                 self.selected = Some(id);
                             }
-                            ui.label(egui::RichText::new(&item.track.path).small().color(tokens.muted_text))
-                                .on_hover_text(&item.track.path);
+                            egui::Frame::NONE
+                                .inner_margin(egui::Margin { left: inset as i8, ..Default::default() })
+                                .show(ui, |ui| {
+                                    ui.label(egui::RichText::new(&item.track.path).small().color(tokens.muted_text))
+                                        .on_hover_text(&item.track.path);
+                                });
                         });
                         ui.label(
                             item.duration_seconds

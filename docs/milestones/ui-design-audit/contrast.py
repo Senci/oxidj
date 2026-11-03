@@ -1,10 +1,11 @@
 """WCAG contrast of the OxiDJ library-UI token pairs (W7 design audit)."""
 import sys
 
+# Defaults are the SHIPPED tokens (theme.rs after W7). Historical pre-audit borders: n:border:3b3d55, d:border:b8bed0.
 N = dict(background=0x1a1b26, surface=0x242536, text=0xc0caf5, muted=0xa9b1d6, primary=0xbb9af7,
-         secondary=0x7dcfff, border=0x3b3d55, focus=0x7dcfff, success=0x9ece6a, warning=0xe0af68, error=0xf7768e)
+         secondary=0x7dcfff, border=0x6b7394, focus=0x7dcfff, success=0x9ece6a, warning=0xe0af68, error=0xf7768e)
 D = dict(background=0xe1e2e7, surface=0xf4f4f5, text=0x2f50a0, muted=0x556485, primary=0x9854f1,
-         secondary=0x005a78, border=0xb8bed0, focus=0x007197, success=0x587539, warning=0x8c6c3d, error=0xc64343)
+         secondary=0x005a78, border=0x737aa2, focus=0x007197, success=0x587539, warning=0x8c6c3d, error=0xc64343)
 if len(sys.argv) > 1:  # proposed overrides: name=hex,...
     for kv in sys.argv[1].split(","):
         theme, k, v = kv.split(":")

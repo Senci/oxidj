@@ -156,7 +156,8 @@ impl ThemeMode {
         // indistinguishable from labels.
         visuals.widgets.inactive.bg_stroke.width = 1.0;
         visuals.widgets.hovered.bg_stroke.width = 1.0;
-        visuals.widgets.active.bg_stroke.width = 1.0;
+        // Focused/pressed: 2 px focus-coloured ring, distinct from 1 px hover.
+        visuals.widgets.active.bg_stroke.width = 2.0;
         visuals.widgets.hovered.bg_fill = t.surface;
         visuals.widgets.hovered.bg_stroke.color = t.focus;
         visuals.widgets.active.bg_fill = t.surface;

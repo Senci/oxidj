@@ -201,7 +201,6 @@ impl LibraryApp {
         let layout = F::LAYOUT;
         match layout.heading {
             Heading::Strong => {
-                ui.separator();
                 SectionHeading {
                     title: &format!("Prepare one guarded {label} edit"),
                 }

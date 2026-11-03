@@ -5826,40 +5826,49 @@ fn stale_source_guard_is_shown_as_preparation_error() {
 
 #[test]
 fn toolbar_controls_fit_narrow_and_wide_viewports() {
+    // Renders the production toolbar (both the 1-group and 2-group branch)
+    // and checks every interactive control from its AccessKit bounds.
     for width in [800.0, 1440.0] {
         let ctx = egui::Context::default();
+        ctx.enable_accesskit();
         let mut app = app();
-        let mut rects = Vec::new();
-        let _ = ctx.run(egui::RawInput {
+        app.db_path = std::path::PathBuf::from(
+            "/a/very/long/catalog/path/that/must/not/push/actions/offscreen/catalog.sqlite",
+        );
+        let input = || egui::RawInput {
             screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(width, 600.0))),
             ..Default::default()
-        }, |ctx| {
-            egui::TopBottomPanel::top("test-toolbar").show(ctx, |ui| {
-                let (theme_rect, _) = app.theme_selection_ui(ui);
-                rects.push(theme_rect);
-                ui.horizontal_wrapped(|ui| {
-                    ui.label("Catalog:");
-                    let path = "/a/very/long/catalog/path/that/must/not/push/actions/offscreen/catalog.sqlite";
-                    let path_width = (ui.available_width() - 68.0).clamp(80.0, 360.0);
-                    rects.push(ui.add_sized([path_width, 20.0], egui::Label::new(egui::RichText::new(path).monospace()).truncate()).on_hover_text(path).rect);
-                    rects.push(ui.button("Reload").rect);
-                });
-                ui.horizontal_wrapped(|ui| {
-                    ui.label("Search");
-                    rects.push(ui.add_sized([ui.available_width().clamp(100.0, 160.0), 24.0], egui::TextEdit::singleline(&mut String::new()).hint_text("Filter tracks")).rect);
-                    ui.label("Import folder");
-                    rects.push(ui.add_sized([ui.available_width().clamp(120.0, 200.0), 24.0], egui::TextEdit::singleline(&mut String::new()).hint_text("Folder path")).rect);
-                    rects.push(ui.button("Import references").rect);
-                });
+        };
+        let mut rects = Vec::new();
+        for _ in 0..2 {
+            let output = ctx.run(input(), |ctx| {
+                let tokens = app.active_tokens();
+                egui::TopBottomPanel::top("test-toolbar").show(ctx, |ui| app.toolbar(ui, ctx, tokens));
             });
-        });
+            let update = output.platform_output.accesskit_update.expect("AccessKit update");
+            rects = update
+                .nodes
+                .iter()
+                .filter(|(_, node)| {
+                    matches!(
+                        node.role(),
+                        egui::accesskit::Role::Button
+                            | egui::accesskit::Role::TextInput
+                            | egui::accesskit::Role::ComboBox
+                    )
+                })
+                .filter_map(|(_, node)| node.bounds())
+                .map(|r| egui::Rect::from_min_max(egui::pos2(r.x0 as f32, r.y0 as f32), egui::pos2(r.x1 as f32, r.y1 as f32)))
+                .collect::<Vec<_>>();
+        }
+        assert!(rects.len() >= 8, "expected the production toolbar controls at {width}px: {rects:?}");
         let content = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(width, 600.0));
         assert!(
             rects.iter().all(|rect| content.contains_rect(*rect)),
             "toolbar control clipped at {width}px: {rects:?}"
         );
         assert!(
-            rects.windows(2).all(|pair| !pair[0].intersects(pair[1])),
+            rects.iter().enumerate().all(|(i, a)| rects[i + 1..].iter().all(|b| !a.intersects(*b))),
             "toolbar controls overlap at {width}px: {rects:?}"
         );
     }
