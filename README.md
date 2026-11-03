@@ -6,14 +6,16 @@ OxiDJ is a modern, open-source DJ library manager and, eventually, performance a
 
 M0 is verified complete. The named `local-catalog-alpha-v1` dependency exception is integrated by PR #13 (`671ae2b3df933ada97297bbba19ea1394657c14e`) for the reference-only, single-process, local-filesystem catalog capped at 10,000 tracks. A local implementation candidate now initializes and lists a versioned catalog, stores reference-only records through `oxidj-library`, and demonstrates fresh-process listing. Independent acceptance and full M1 remain incomplete (plan/STATUS.md). The separate representative 500k qualification remains NOT READY and unpassed.
 
-**What exists today** (Cargo.toml, crates/oxidj-core/src/lib.rs, crates/oxidj-library/src/lib.rs, crates/oxidj-cli/src/main.rs, xtask/src/main.rs):
+**What exists today** (all local, Linux-first; synthetic and bounded real-library evidence only — see plan/STATUS.md):
 
-- `oxidj-core` — a domain `TrackId` type that reserves `0`. Unit, integration, and doctests pass under the gate (docs/testing.md).
-- `oxidj-library` — local SQLite catalog, versioned schema, reference-record handlers, operation-ID replay protection, and a 10,000-track cap.
-- `oxidj-cli` — catalog commands, read-only Rekordbox XML preview and export preflight, plus bounded no-edit, tempo-edit, and position-mark edit exports.
-- `oxidj-rekordbox` — isolated adapter for a strict Rekordbox XML subset, tested against synthetic A1 fixtures; preflight rejects unsupported input and never writes.
-- `xtask` — a repo-owned quality gate: `cargo xtask ci` (Tier 1 per-handoff gate) and `cargo xtask ci-full` (Tier 1 + tests + licence gate, used by CI).
-- Six accepted ADRs (GUI, persistence, metadata, crate boundaries, audio, licence) and the architecture baseline (docs/adr/index.md, docs/architecture.md).
+- `oxidj-core` — neutral domain types, plus `WaveformPeaks` (3-band u8 peaks with a 2x mipmap) and a no-clobber file publish helper.
+- `oxidj-analysis` — streaming 3-band waveform builder (fixed 2-pole crossover, fail-closed on bad input).
+- `oxidj-library` — local SQLite catalog (versioned schema, 10,000-track cap), reference-only WAV/FLAC/MP3 import, persisted computed waveforms and separate vendor-derived waveforms.
+- `oxidj-rekordbox` / `oxidj-onelibrary` — isolated adapters: Rekordbox XML preview, no-edit export and guarded edits; read-only DeviceSQL PDB, ANLZ (beat grid, cues, waveforms) and OneLibrary previews.
+- `oxidj-application` / `oxidj-cli` — orchestration and commands, including `catalog import-library`, `catalog export-library-xml` and `catalog analyze-waveform`.
+- `prototypes/oxidj-library-ui` — provisional egui library UI with guarded XML editing and a mono / 3-band / RGB waveform view with live per-band EQ gain.
+- `xtask` — the repo-owned quality gate: `cargo xtask ci` (Tier 1) and `cargo xtask ci-full` (Tier 1 + tests + UI tests + licence gate, used by CI).
+- Accepted ADRs and the architecture baseline (docs/adr/index.md, docs/architecture.md).
 
 **Deferred** — do not expect these yet (idea.md MVP §Deferred; docs/architecture.md §11; plan/MVP.md):
 

@@ -24,7 +24,7 @@ export const roadmapSnapshot = {
   currentSummary:
     'Synthetic Rekordbox XML fixtures support read-only preview, bounded export of a supported subset to a new file, and exact-value guarded edits. A first run on one real library export carried playlists, track details, beat grids and cues into a catalog and a new XML file.',
   working:
-    'A persistent local catalog, reference-only WAV/FLAC/MP3 import and a provisional viewer with search, sort and track details work today. From the command line, a Rekordbox USB export can be read into a new catalog and written back out as a checked XML file.',
+    'A persistent local catalog, reference-only WAV/FLAC/MP3 import and a provisional viewer with search, sort and track details work today. The library window draws a computed waveform for the selected track. From the command line, a Rekordbox USB export can be read into a new catalog and written back out as a checked XML file.',
   unfinished:
     'Compatibility with real Rekordbox or OneLibrary libraries has not been demonstrated. Production desktop, accessibility and platform testing is still pending, as is performance testing at 500,000 tracks and 60 frames per second.',
   repo,
@@ -92,9 +92,10 @@ export const milestones: readonly Milestone[] = [
   {
     id: 'm6',
     title: 'Analysis',
-    status: 'planned',
-    statusLabel: 'Later',
-    detail: 'Musical and technical analysis workflows.',
+    status: 'in-progress',
+    statusLabel: 'First slice',
+    detail:
+      'Musical and technical analysis workflows. The first piece is a waveform view with mono, 3-band and RGB styles and live per-band EQ gain. Tempo and beat-grid detection come next.',
     source: { label: 'Priorities', href: `${repo}/blob/master/idea.md#priorities` },
   },
   {
@@ -108,6 +109,13 @@ export const milestones: readonly Milestone[] = [
   },
 ];
 export const projectUpdates: readonly ProjectUpdate[] = [
+  {
+    date: '2026-11-03',
+    title: 'Waveform view with mono, 3-band and RGB styles.',
+    detail:
+      'Peaks are computed while streaming audio and stored in the catalog. EQ gains scale the drawing live without re-analysis.',
+    source: { label: 'Waveform view', href: `${repo}/commit/8713512` },
+  },
   {
     date: '2026-11-03',
     title: 'Beat grids and cues now flow through import and export.',

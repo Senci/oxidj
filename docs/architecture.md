@@ -43,7 +43,7 @@ oxidj-cli        (command-first entry point — M0 scaffold)
 Future layers (M1+), each depending only on core:
   oxidj-library  — import/export, metadata pipeline
   oxidj-storage  — SQLite persistence, migrations
-  oxidj-analysis — BPM, beatgrid, waveform, key
+  oxidj-analysis — BPM, beatgrid, waveform, key (waveform peaks implemented; layer 1, core only)
   oxidj-audio    — Symphonia decode (offline, M0-M3)
   oxidj-adapters — vendor format crates (oxidj-mixxx, oxidj-rekordbox, ...)
   oxidj-ui       — egui/Slint GUI (M3, see ADR-001)

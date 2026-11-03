@@ -23,8 +23,9 @@ describe('static public pages', () => {
         .every((m) => m.status === 'complete'),
     ).toBe(true);
     expect(
-      milestones.filter((m) => ['m5', 'm6'].includes(m.id)).every((m) => m.status === 'planned'),
+      milestones.filter((m) => ['m5'].includes(m.id)).every((m) => m.status === 'planned'),
     ).toBe(true);
+    expect(milestones.find((m) => m.id === 'm6')?.status).toBe('in-progress');
     expect(milestones.find((m) => m.id === 'm7')?.status).toBe('in-progress');
     expect(roadmapSnapshot.verifiedAt).toBe('2026-11-03');
     expect(roadmapSnapshot.currentSummary).toMatch(
@@ -43,8 +44,13 @@ describe('static public pages', () => {
     expect(milestones.find((m) => m.id === 'm4')?.detail).toMatch(
       /compatibility with real Rekordbox or OneLibrary.*not been demonstrated/i,
     );
-    expect(projectUpdates).toHaveLength(3);
-    expect(projectUpdates.map((u) => u.date)).toEqual(['2026-11-03', '2026-11-03', '2026-11-03']);
+    expect(projectUpdates).toHaveLength(4);
+    expect(projectUpdates.map((u) => u.date)).toEqual([
+      '2026-11-03',
+      '2026-11-03',
+      '2026-11-03',
+      '2026-11-03',
+    ]);
     expect(projectUpdates.every((u) => /\/commit\/[0-9a-f]{7,40}$/.test(u.source.href))).toBe(true);
     expect(html).not.toMatch(/<dt[^>]*>(Progress|Next)<\/dt>/);
     for (const u of projectUpdates) expect(html).toContain(escapeHtml(u.source.href));

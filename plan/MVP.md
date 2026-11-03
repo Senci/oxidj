@@ -11,7 +11,8 @@ Condensed 2026-11-02. Full prior text (per-increment M4 evidence, pre-alpha arch
 | M2 Filesystem import | Revised local contract below (WAV/MP3/FLAC). | Complete for revised local contract | closeout below; `docs/layers-policy.md` |
 | M3 Usable library UI | Revised local contract below. | Complete (provisional prototype); production GUI/accessibility/500k/60fps NOT DEMONSTRATED | `prototypes/oxidj-library-ui/REPORT.md` |
 | M4 OneLibrary/Rekordbox interoperability | Reviewed synthetic fixtures, read-only PDB/OneLibrary previews, guarded XML edit/export with independent F-02/F-07 oracles; native/vendor compatibility and ADR-005 qualification. | In progress; synthetic only | `xtask/tests/f02_*`, `f07_*`, `f09-operation-provenance.json`; `docs/milestones/pre-alpha-NN/` |
-| M5 DJ metadata; M6 Analysis | Unchanged wider-product milestones. | Not started (beat grids and cues from a real PDB/ANLZ library are read during M7 import only) | idea.md |
+| M5 DJ metadata | Cues, loops, beat grids, key. | Not started (beat grids and cues from a real PDB/ANLZ library are read during M7 import only) | idea.md |
+| M6 Analysis | Musical/technical analysis workflows. | In progress: waveform peaks + view reviewed (`7e8968d`..`107f656`); BPM/beat-grid/key not started; native display, a11y and GPU/presented FPS NOT DEMONSTRATED | idea.md, ADR-004 |
 | M7 MVP interoperability proof | Real-library import, safe management, export, continued use in compatible DJ software/hardware without unexpected metadata loss. | In progress: slices 1-3 reviewed (`40b0631`, `219dcb7`, `eac045c`); Rekordbox acceptance of exported XML NOT DEMONSTRATED | idea.md MVP |
 
 M4 synthetic scope (all NOT vendor evidence; Bot Screen NOT RUN; ADR-005/A3, vendor compatibility, global F-09, production GUI/accessibility and performance remain NOT DEMONSTRATED):
