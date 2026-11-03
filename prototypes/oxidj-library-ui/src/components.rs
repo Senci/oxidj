@@ -9,6 +9,7 @@ pub struct PrimaryActionButton<'a> {
 }
 
 impl PrimaryActionButton<'_> {
+    /// Draw the button; hover/focus grows a cyan underline from the centre.
     pub fn show(self, ui: &mut egui::Ui, tokens: ColorTokens) -> egui::Response {
         let response = ui.add(
             egui::Button::new(RichText::new(self.label).color(tokens.text))
@@ -39,19 +40,20 @@ pub struct SectionHeading<'a> {
 }
 
 impl SectionHeading<'_> {
+    /// Draw the heading: a 3 px primary accent bar before strong body text,
+    /// with a little air above so sections read as groups.
     pub fn show(self, ui: &mut egui::Ui, tokens: ColorTokens) {
+        ui.add_space(4.0);
         ui.horizontal(|ui| {
-            ui.add(
-                egui::Separator::default()
-                    .vertical()
-                    .spacing(2.0)
-                    .shrink(2.0),
-            );
+            let height = ui.text_style_height(&egui::TextStyle::Body);
+            let (bar, _) = ui.allocate_exact_size(egui::vec2(3.0, height), egui::Sense::hover());
+            ui.painter().rect_filled(bar, 1.5, tokens.primary);
             ui.label(RichText::new(self.title).strong().color(tokens.text));
         });
     }
 }
 
+/// Semantic outcome of a status message.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum StatusKind {
     Success,
@@ -77,7 +79,15 @@ pub struct StatusBadge<'a> {
 }
 
 impl StatusBadge<'_> {
+    /// Draw the badge: token-tinted fill, accent outline, small strong text.
+    ///
+    /// The frame sits in a control-height row so a grid cell cannot stretch
+    /// it (a bare `Frame` in a `Grid` grew by its margin every frame).
     pub fn show(self, ui: &mut egui::Ui, tokens: ColorTokens) -> egui::Response {
+        ui.horizontal(|ui| self.frame(ui, tokens)).inner
+    }
+
+    fn frame(self, ui: &mut egui::Ui, tokens: ColorTokens) -> egui::Response {
         let accent = self.kind.color(tokens);
         egui::Frame::new()
             .fill(accent.linear_multiply(0.16))

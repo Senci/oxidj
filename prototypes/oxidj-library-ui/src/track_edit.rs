@@ -202,7 +202,10 @@ impl LibraryApp {
         match layout.heading {
             Heading::Strong => {
                 ui.separator();
-                ui.strong(format!("Prepare one guarded {label} edit"));
+                SectionHeading {
+                    title: &format!("Prepare one guarded {label} edit"),
+                }
+                .show(ui, tokens);
             }
             Heading::Section => SectionHeading {
                 title: &format!("Track {label} edit (provisional)"),

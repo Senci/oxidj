@@ -12,60 +12,107 @@ impl eframe::App for LibraryApp {
     }
 }
 
+
+/// Width at which the toolbar fields pair up two per row.
+const WIDE_TOOLBAR: f32 = 1200.0;
+
 impl LibraryApp {
     /// One frame of the whole library UI (the production `update` body).
     pub(crate) fn ui(&mut self, ctx: &egui::Context) {
         self.handle_theme_shortcuts(ctx);
         self.theme.apply(self.custom_tokens, ctx);
         let tokens = self.active_tokens();
-        egui::TopBottomPanel::top("toolbar").show(ctx, |ui| {
+        egui::TopBottomPanel::top("toolbar").show(ctx, |ui| self.toolbar(ui, ctx, tokens));
+        self.show_control_gallery_window(ctx, tokens);
+        self.show_waveform_demo_window(ctx);
+        self.xml_preview_window(ctx, tokens);
+        egui::SidePanel::left("library-navigation")
+            .default_width(184.0)
+            .min_width(160.0)
+            .resizable(true)
+            .show(ctx, |ui| self.navigation(ui, tokens));
+        egui::TopBottomPanel::bottom("demo-decks")
+            .resizable(false)
+            .show(ctx, |ui| self.demo_decks(ui, tokens));
+        // A bounded width keeps the panel from jumping with its content
+        // (long hashes/paths) and leaves the waveform a usable width.
+        egui::SidePanel::right("details")
+            .default_width(420.0)
+            .min_width(340.0)
+            .max_width(520.0)
+            .resizable(true)
+            .show(ctx, |ui| self.details(ui, tokens));
+        egui::CentralPanel::default().show(ctx, |ui| self.track_table(ui, tokens));
+    }
+
+    /// Title row, theme/tool buttons, then an aligned grid of catalog,
+    /// search, import and XML fields with their actions; status notice last.
+    fn toolbar(&mut self, ui: &mut egui::Ui, ctx: &egui::Context, tokens: theme::ColorTokens) {
+        ui.add_space(4.0);
+        ui.horizontal_wrapped(|ui| {
             ui.heading("OxiDJ · Local Library");
-            ui.horizontal(|ui| {
-                self.theme_selection_ui(ui);
-                self.show_control_gallery_button(ui);
-                self.show_waveform_demo_button(ui);
-                if self.theme == ThemeMode::Custom {
-                    if ui.button("Edit palette…").clicked() {
-                        self.show_theme_editor = true;
-                    }
-                }
-            });
-            if self.show_theme_editor {
-                let mut editor_open = self.show_theme_editor;
-                egui::Window::new("Custom palette")
-                    .open(&mut editor_open)
-                    .show(ctx, |ui| {
-                        ui.label("Semantic colors");
-                        edit_color(ui, "Background", &mut self.custom_tokens.background);
-                        edit_color(ui, "Surface", &mut self.custom_tokens.surface);
-                        edit_color(ui, "Text", &mut self.custom_tokens.text);
-                        edit_color(ui, "Muted text", &mut self.custom_tokens.muted_text);
-                        self.show_palette_fields(ui, tokens.error);
-                    });
-                self.show_theme_editor = editor_open;
+            ui.add_space(16.0);
+            self.theme_selection_ui(ui);
+            self.show_control_gallery_button(ui);
+            self.show_waveform_demo_button(ui);
+            if self.theme == ThemeMode::Custom && ui.button("Edit palette…").clicked() {
+                self.show_theme_editor = true;
             }
-            ui.horizontal_wrapped(|ui| {
-                ui.label("Catalog:");
-                let full_path = self.db_path.display().to_string();
-                let path_width = (ui.available_width() - 68.0).clamp(80.0, 360.0);
+        });
+        if self.show_theme_editor {
+            let mut editor_open = self.show_theme_editor;
+            egui::Window::new("Custom palette")
+                .open(&mut editor_open)
+                .show(ctx, |ui| {
+                    ui.label("Semantic colors");
+                    edit_color(ui, "Background", &mut self.custom_tokens.background);
+                    edit_color(ui, "Surface", &mut self.custom_tokens.surface);
+                    edit_color(ui, "Text", &mut self.custom_tokens.text);
+                    edit_color(ui, "Muted text", &mut self.custom_tokens.muted_text);
+                    self.show_palette_fields(ui, tokens.error);
+                });
+            self.show_theme_editor = editor_open;
+        }
+        let wide = ui.available_width() >= WIDE_TOOLBAR;
+        // label + field + action per group; two groups per row when wide.
+        let field = if wide {
+            ((ui.available_width() - 2.0 * 330.0) / 2.0).clamp(200.0, 420.0)
+        } else {
+            (ui.available_width() - 350.0).clamp(160.0, 480.0)
+        };
+        let height = theme::CONTROL_HEIGHT;
+        let row_break = |ui: &mut egui::Ui| {
+            if !wide {
+                ui.end_row();
+            }
+        };
+        ui.add_space(2.0);
+        egui::Grid::new("toolbar-fields")
+            .num_columns(if wide { 6 } else { 3 })
+            .spacing([8.0, 6.0])
+            .show(ui, |ui| {
+                ui.label("Search");
                 ui.add_sized(
-                    [path_width, 20.0],
-                    egui::Label::new(egui::RichText::new(&full_path).monospace()).truncate(),
+                    [field, height],
+                    egui::TextEdit::singleline(&mut self.search).hint_text("Filter tracks"),
+                );
+                ui.label("");
+                row_break(ui);
+                ui.label("Catalog");
+                let full_path = self.db_path.display().to_string();
+                ui.add_sized(
+                    [field, height],
+                    egui::Label::new(egui::RichText::new(&full_path).monospace().color(tokens.muted_text))
+                        .truncate(),
                 )
                 .on_hover_text(&full_path);
                 if ui.button("Reload").clicked() {
                     self.reload();
                 }
-            });
-            ui.horizontal_wrapped(|ui| {
-                ui.label("Search");
-                ui.add_sized(
-                    [ui.available_width().clamp(100.0, 160.0), 24.0],
-                    egui::TextEdit::singleline(&mut self.search).hint_text("Filter tracks"),
-                );
+                ui.end_row();
                 ui.label("Import folder");
                 ui.add_sized(
-                    [ui.available_width().clamp(120.0, 200.0), 24.0],
+                    [field, height],
                     egui::TextEdit::singleline(&mut self.import_root).hint_text("Folder path"),
                 );
                 if (PrimaryActionButton {
@@ -76,12 +123,11 @@ impl LibraryApp {
                 {
                     self.import();
                 }
-            });
-            ui.horizontal_wrapped(|ui| {
+                row_break(ui);
                 ui.label("Rekordbox XML (read-only)");
                 let source_changed = ui
                     .add_sized(
-                        [ui.available_width().clamp(140.0, 360.0), 24.0],
+                        [field, height],
                         egui::TextEdit::singleline(&mut self.xml_path).hint_text("XML file path"),
                     )
                     .changed();
@@ -96,33 +142,38 @@ impl LibraryApp {
                 {
                     self.preview_xml();
                 }
+                ui.end_row();
             });
-            if !self.notice.is_empty() {
-                let kind = if self.notice.starts_with("Import failed:")
-                    || self.notice.starts_with("Track Name export failed:")
-                    || self.notice.starts_with("Track Artist export failed:")
-                    || self.notice.starts_with("Catalog unavailable:")
-                {
-                    StatusKind::Error
-                } else if self.notice.contains("incomplete") {
-                    StatusKind::Warning
-                } else {
-                    StatusKind::Success
-                };
-                StatusBadge {
-                    label: &self.notice,
-                    kind,
-                }
-                .show(ui, tokens);
+        if !self.notice.is_empty() {
+            let kind = if self.notice.starts_with("Import failed:")
+                || self.notice.starts_with("Track Name export failed:")
+                || self.notice.starts_with("Track Artist export failed:")
+                || self.notice.starts_with("Catalog unavailable:")
+            {
+                StatusKind::Error
+            } else if self.notice.contains("incomplete") {
+                StatusKind::Warning
+            } else {
+                StatusKind::Success
+            };
+            StatusBadge {
+                label: &self.notice,
+                kind,
             }
-        });
-        self.show_control_gallery_window(ctx, tokens);
-        self.show_waveform_demo_window(ctx);
+            .show(ui, tokens);
+        }
+        ui.add_space(4.0);
+    }
+
+    /// The guarded Rekordbox XML preview/edit window (one panel per workflow).
+    fn xml_preview_window(&mut self, ctx: &egui::Context, tokens: theme::ColorTokens) {
         if self.show_xml_preview {
             let mut open = self.show_xml_preview;
             egui::Window::new("Rekordbox XML preview · guarded Name export")
                 .open(&mut open)
                 .default_width(720.0)
+                .vscroll(true)
+                .max_height(ctx.screen_rect().height() - 96.0)
                 .show(ctx, |ui| match self.xml_preview.clone() {
                     Some(Err(error)) => {
                         StatusBadge {
@@ -572,247 +623,234 @@ impl LibraryApp {
                 });
             self.show_xml_preview = open;
         }
-        egui::SidePanel::left("library-navigation")
-            .default_width(176.0)
-            .resizable(true)
-            .show(ctx, |ui| {
-                SectionHeading {
-                    title: "Collection",
-                }
-                .show(ui, tokens);
-                if ui
-                    .selectable_label(
-                        self.availability_filter.is_none(),
-                        format!("All tracks · {}", self.tracks.len()),
-                    )
-                    .clicked()
-                {
-                    self.availability_filter = None;
-                }
-                ui.separator();
-                ui.small("LOCAL FILTERS");
-                let available = self
-                    .tracks
-                    .iter()
-                    .filter(|track| track.availability == TrackAvailability::Available)
-                    .count();
-                let missing = self.tracks.len().saturating_sub(available);
-                if ui
-                    .selectable_label(
-                        self.availability_filter == Some(TrackAvailability::Available),
-                        format!("Available · {available}"),
-                    )
-                    .clicked()
-                {
-                    self.availability_filter = Some(TrackAvailability::Available);
-                }
-                if ui
-                    .selectable_label(
-                        self.availability_filter == Some(TrackAvailability::Missing),
-                        format!("Missing · {missing}"),
-                    )
-                    .clicked()
-                {
-                    self.availability_filter = Some(TrackAvailability::Missing);
-                }
-            });
-        egui::TopBottomPanel::bottom("demo-decks")
-            .resizable(false)
-            .show(ctx, |ui| {
-                ui.horizontal(|ui| {
-                    ui.small("LOCAL DEMO · NO AUDIO CONNECTED");
-                    for deck in 0..2 {
-                        ui.separator();
-                        ui.strong(format!("DECK {}", if deck == 0 { "A" } else { "B" }));
-                        ui.label(
-                            self.selected
-                                .and_then(|id| {
-                                    self.tracks
-                                        .iter()
-                                        .find(|track| track.track.id.as_u64() == id)
-                                })
-                                .map(|track| {
-                                    PathBuf::from(&track.track.path)
-                                        .file_name()
-                                        .unwrap_or_default()
-                                        .to_string_lossy()
-                                        .to_string()
-                                })
-                                .unwrap_or_else(|| "No track selected".into()),
-                        );
-                        if ui
-                            .selectable_label(
-                                self.deck_playing[deck],
-                                if self.deck_playing[deck] {
-                                    "Playing · demo"
-                                } else {
-                                    "Play"
-                                },
-                            )
-                            .clicked()
-                        {
-                            self.deck_playing[deck] = !self.deck_playing[deck];
-                        }
-                        if ui.selectable_label(self.deck_cue[deck], "Cue").clicked() {
-                            self.deck_cue[deck] = !self.deck_cue[deck];
-                        }
-                    }
-                });
-            });
-        egui::SidePanel::right("details")
-            .default_width(380.0)
-            .show(ctx, |ui| {
-                SectionHeading {
-                    title: "Track details",
-                }
-                .show(ui, tokens);
-                if let Some(id) = self.selected {
-                    if let Some(item) = self.tracks.iter().find(|x| x.track.id.as_u64() == id) {
-                        ui.label(format!("ID: {id}"));
-                        ui.label(format!(
-                            "Filename: {}",
-                            PathBuf::from(&item.track.path)
-                                .file_name()
-                                .unwrap_or_default()
-                                .to_string_lossy()
-                        ));
-                        ui.label(format!("Path: {}", item.track.path));
-                        ui.label(format!(
-                            "Duration: {}",
-                            item.duration_seconds
-                                .map(|v| format!("{v:.3} s"))
-                                .unwrap_or_else(|| "Unavailable".into())
-                        ));
-                        ui.label(format!(
-                            "Sample rate: {}",
-                            item.sample_rate
-                                .map(|v| format!("{v} Hz"))
-                                .unwrap_or_else(|| "Unavailable".into())
-                        ));
-                        ui.label(format!(
-                            "Channels: {}",
-                            item.channels
-                                .map(|v| v.to_string())
-                                .unwrap_or_else(|| "Unavailable".into())
-                        ));
-                        ui.label(format!(
-                            "Bit depth: {}",
-                            item.bit_depth
-                                .map(|v| format!("{v} bit"))
-                                .unwrap_or_else(|| "Unavailable".into())
-                        ));
-                        ui.label(format!("Size: {} bytes", item.track.byte_length));
-                        let (availability, kind) = match item.availability {
-                            TrackAvailability::Available => ("Available", StatusKind::Success),
-                            TrackAvailability::Missing => ("Missing", StatusKind::Warning),
-                        };
-                        StatusBadge {
-                            label: &format!("Availability: {availability}"),
-                            kind,
-                        }
-                        .show(ui, tokens);
-                        ui.monospace(format!(
-                            "SHA-256: {}",
-                            item.track
-                                .sha256
-                                .iter()
-                                .map(|b| format!("{b:02x}"))
-                                .collect::<String>()
-                        ));
-                        self.track_waveform
-                            .show(ui, self.catalog.as_ref().ok(), item, tokens);
-                    } else {
-                        ui.label("Selected track is no longer in the catalog.");
-                    }
-                } else {
-                    ui.label("Select a track to inspect its details.");
-                }
-            });
-        egui::CentralPanel::default().show(ctx, |ui| {
-            if let Some(error) = &self.load_error {
-                StatusBadge {
-                    label: &format!("Catalog error: {error}"),
-                    kind: StatusKind::Error,
-                }
-                .show(ui, tokens);
-                return;
+    }
+
+    /// Collection and availability filters.
+    fn navigation(&mut self, ui: &mut egui::Ui, tokens: theme::ColorTokens) {
+        SectionHeading {
+            title: "Collection",
+        }
+        .show(ui, tokens);
+        if ui
+            .selectable_label(
+                self.availability_filter.is_none(),
+                format!("All tracks · {}", self.tracks.len()),
+            )
+            .clicked()
+        {
+            self.availability_filter = None;
+        }
+        ui.add_space(4.0);
+        ui.separator();
+        ui.label(egui::RichText::new("LOCAL FILTERS").small().strong().color(tokens.muted_text));
+        let available = self
+            .tracks
+            .iter()
+            .filter(|track| track.availability == TrackAvailability::Available)
+            .count();
+        let missing = self.tracks.len().saturating_sub(available);
+        for (filter, label) in [
+            (TrackAvailability::Available, format!("Available · {available}")),
+            (TrackAvailability::Missing, format!("Missing · {missing}")),
+        ] {
+            if ui
+                .selectable_label(self.availability_filter == Some(filter), label)
+                .clicked()
+            {
+                self.availability_filter = Some(filter);
             }
-            ui.horizontal(|ui| {
-                ui.label("Sort by");
-                egui::ComboBox::from_id_salt("sort")
-                    .selected_text(match self.sort {
-                        Sort::Id => "Stable ID",
-                        Sort::Filename => "Filename",
-                        Sort::Duration => "Duration",
-                    })
-                    .show_ui(ui, |ui| {
-                        ui.selectable_value(&mut self.sort, Sort::Id, "Stable ID");
-                        ui.selectable_value(&mut self.sort, Sort::Filename, "Filename");
-                        ui.selectable_value(&mut self.sort, Sort::Duration, "Duration");
-                    });
+        }
+    }
+
+    /// Demo deck strip (no audio engine is connected).
+    fn demo_decks(&mut self, ui: &mut egui::Ui, tokens: theme::ColorTokens) {
+        let loaded = self
+            .selected
+            .and_then(|id| self.tracks.iter().find(|track| track.track.id.as_u64() == id))
+            .map(|track| file_name(&track.track.path))
+            .unwrap_or_else(|| "No track selected".into());
+        ui.horizontal_wrapped(|ui| {
+            ui.label(
+                egui::RichText::new("LOCAL DEMO · NO AUDIO CONNECTED")
+                    .small()
+                    .strong()
+                    .color(tokens.muted_text),
+            );
+            for deck in 0..2 {
+                ui.separator();
+                ui.strong(format!("DECK {}", if deck == 0 { "A" } else { "B" }));
+                ui.label(&loaded);
                 if ui
-                    .button(if self.descending {
-                        "Descending"
-                    } else {
-                        "Ascending"
-                    })
+                    .selectable_label(
+                        self.deck_playing[deck],
+                        if self.deck_playing[deck] {
+                            "Playing · demo"
+                        } else {
+                            "Play"
+                        },
+                    )
                     .clicked()
                 {
-                    self.descending = !self.descending;
+                    self.deck_playing[deck] = !self.deck_playing[deck];
                 }
-                ui.label(format!("{} tracks", self.tracks.len()));
+                if ui.selectable_label(self.deck_cue[deck], "Cue").clicked() {
+                    self.deck_cue[deck] = !self.deck_cue[deck];
+                }
+            }
+        });
+    }
+
+    /// Selected-track facts as an aligned key/value grid, then the waveform.
+    fn details(&mut self, ui: &mut egui::Ui, tokens: theme::ColorTokens) {
+        SectionHeading {
+            title: "Track details",
+        }
+        .show(ui, tokens);
+        let Some(id) = self.selected else {
+            ui.label(egui::RichText::new("Select a track to inspect its details.").color(tokens.muted_text));
+            return;
+        };
+        let Some(item) = self.tracks.iter().find(|x| x.track.id.as_u64() == id) else {
+            ui.label("Selected track is no longer in the catalog.");
+            return;
+        };
+        let unavailable = || "Unavailable".to_owned();
+        let hash: String = item.track.sha256.iter().map(|b| format!("{b:02x}")).collect();
+        let facts = [
+            ("ID", id.to_string()),
+            ("Filename", file_name(&item.track.path)),
+            ("Path", item.track.path.clone()),
+            ("Duration", item.duration_seconds.map(|v| format!("{v:.3} s")).unwrap_or_else(unavailable)),
+            ("Sample rate", item.sample_rate.map(|v| format!("{v} Hz")).unwrap_or_else(unavailable)),
+            ("Channels", item.channels.map(|v| v.to_string()).unwrap_or_else(unavailable)),
+            ("Bit depth", item.bit_depth.map(|v| format!("{v} bit")).unwrap_or_else(unavailable)),
+            ("Size", format!("{} bytes", item.track.byte_length)),
+        ];
+        egui::Grid::new("track-facts")
+            .num_columns(2)
+            .max_col_width(ui.available_width() - 110.0)
+            .min_row_height(ui.text_style_height(&egui::TextStyle::Body))
+            .spacing([12.0, 3.0])
+            .show(ui, |ui| {
+                for (key, value) in facts {
+                    ui.label(egui::RichText::new(key).color(tokens.muted_text));
+                    ui.add(egui::Label::new(value).wrap());
+                    ui.end_row();
+                }
+                ui.label(egui::RichText::new("Availability").color(tokens.muted_text));
+                let (availability, kind) = availability_status(item.availability);
+                StatusBadge {
+                    label: availability,
+                    kind,
+                }
+                .show(ui, tokens);
+                ui.end_row();
+                ui.label(egui::RichText::new("SHA-256").color(tokens.muted_text));
+                ui.add(egui::Label::new(egui::RichText::new(hash).monospace().small()).wrap());
+                ui.end_row();
             });
-            let query = self.search.to_lowercase();
-            let mut visible: Vec<_> = self
-                .tracks
-                .iter()
-                .filter(|t| {
-                    query.is_empty()
-                        || t.track.path.to_lowercase().contains(&query)
-                        || t.track.id.as_u64().to_string().contains(&query)
+        ui.add_space(4.0);
+        self.track_waveform
+            .show(ui, self.catalog.as_ref().ok(), item, tokens);
+    }
+
+    /// Sort controls and the striped track table (or its empty state).
+    fn track_table(&mut self, ui: &mut egui::Ui, tokens: theme::ColorTokens) {
+        if let Some(error) = &self.load_error {
+            StatusBadge {
+                label: &format!("Catalog error: {error}"),
+                kind: StatusKind::Error,
+            }
+            .show(ui, tokens);
+            return;
+        }
+        ui.horizontal(|ui| {
+            ui.label("Sort by");
+            egui::ComboBox::from_id_salt("sort")
+                .selected_text(match self.sort {
+                    Sort::Id => "Stable ID",
+                    Sort::Filename => "Filename",
+                    Sort::Duration => "Duration",
                 })
-                .filter(|track| {
-                    self.availability_filter
-                        .is_none_or(|filter| track.availability == filter)
-                })
-                .collect();
-            visible.sort_by(|a, b| {
-                let order = match self.sort {
-                    Sort::Id => a.track.id.as_u64().cmp(&b.track.id.as_u64()),
-                    Sort::Filename => PathBuf::from(&a.track.path)
-                        .file_name()
-                        .cmp(&PathBuf::from(&b.track.path).file_name())
-                        .then(a.track.id.as_u64().cmp(&b.track.id.as_u64())),
-                    Sort::Duration => a
-                        .duration_seconds
-                        .partial_cmp(&b.duration_seconds)
-                        .unwrap_or(std::cmp::Ordering::Equal)
-                        .then(a.track.id.as_u64().cmp(&b.track.id.as_u64())),
-                };
-                if self.descending {
-                    order.reverse()
+                .show_ui(ui, |ui| {
+                    ui.selectable_value(&mut self.sort, Sort::Id, "Stable ID");
+                    ui.selectable_value(&mut self.sort, Sort::Filename, "Filename");
+                    ui.selectable_value(&mut self.sort, Sort::Duration, "Duration");
+                });
+            if ui
+                .button(if self.descending {
+                    "Descending"
                 } else {
-                    order
-                }
-            });
-            if visible.is_empty() {
-                ui.centered_and_justified(|ui| {
-                    ui.label(if self.tracks.is_empty() {
+                    "Ascending"
+                })
+                .clicked()
+            {
+                self.descending = !self.descending;
+            }
+            ui.label(egui::RichText::new(format!("{} tracks", self.tracks.len())).color(tokens.muted_text));
+        });
+        let query = self.search.to_lowercase();
+        let mut visible: Vec<_> = self
+            .tracks
+            .iter()
+            .filter(|t| {
+                query.is_empty()
+                    || t.track.path.to_lowercase().contains(&query)
+                    || t.track.id.as_u64().to_string().contains(&query)
+            })
+            .filter(|track| {
+                self.availability_filter
+                    .is_none_or(|filter| track.availability == filter)
+            })
+            .collect();
+        visible.sort_by(|a, b| {
+            let order = match self.sort {
+                Sort::Id => a.track.id.as_u64().cmp(&b.track.id.as_u64()),
+                Sort::Filename => PathBuf::from(&a.track.path)
+                    .file_name()
+                    .cmp(&PathBuf::from(&b.track.path).file_name())
+                    .then(a.track.id.as_u64().cmp(&b.track.id.as_u64())),
+                Sort::Duration => a
+                    .duration_seconds
+                    .partial_cmp(&b.duration_seconds)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+                    .then(a.track.id.as_u64().cmp(&b.track.id.as_u64())),
+            };
+            if self.descending {
+                order.reverse()
+            } else {
+                order
+            }
+        });
+        if visible.is_empty() {
+            ui.centered_and_justified(|ui| {
+                ui.label(
+                    egui::RichText::new(if self.tracks.is_empty() {
                         "Library is empty. Import a folder of supported audio references."
                     } else {
                         "No tracks match this search."
                     })
-                });
-                return;
-            }
-            SectionHeading { title: "Tracks" }.show(ui, tokens);
-            egui::ScrollArea::vertical().show(ui, |ui| {
-                egui::Grid::new("tracks").striped(true).show(ui, |ui| {
-                    ui.strong("ID");
-                    ui.strong("Filename / path");
-                    ui.strong("Duration");
-                    ui.strong("Format facts");
-                    ui.strong("Availability");
+                    .color(tokens.muted_text),
+                )
+            });
+            return;
+        }
+        SectionHeading { title: "Tracks" }.show(ui, tokens);
+        // Fixed columns; the name column takes the remaining width and
+        // truncates (full text on hover) instead of wrapping per character.
+        let name_width = (ui.available_width() - 470.0).clamp(160.0, 640.0);
+        egui::ScrollArea::vertical().show(ui, |ui| {
+            egui::Grid::new("tracks")
+                .striped(true)
+                .min_col_width(48.0)
+                .spacing([16.0, 6.0])
+                .show(ui, |ui| {
+                    let header = |ui: &mut egui::Ui, text: &str| {
+                        ui.label(egui::RichText::new(text).small().strong().color(tokens.muted_text));
+                    };
+                    for text in ["ID", "Filename / path", "Duration", "Format facts", "Availability"] {
+                        header(ui, text);
+                    }
                     ui.end_row();
                     for item in visible {
                         let id = item.track.id.as_u64();
@@ -823,20 +861,17 @@ impl LibraryApp {
                             self.selected = Some(id);
                         }
                         ui.vertical(|ui| {
-                            let name = PathBuf::from(&item.track.path)
-                                .file_name()
-                                .unwrap_or_default()
-                                .to_string_lossy()
-                                .to_string();
+                            ui.set_width(name_width);
+                            ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
                             if ui
-                                .selectable_label(self.selected == Some(id), name)
+                                .selectable_label(self.selected == Some(id), file_name(&item.track.path))
                                 .clicked()
                             {
                                 self.selected = Some(id);
                             }
-                            ui.small(&item.track.path);
+                            ui.label(egui::RichText::new(&item.track.path).small().color(tokens.muted_text))
+                                .on_hover_text(&item.track.path);
                         });
-
                         ui.label(
                             item.duration_seconds
                                 .map(|v| format!("{v:.2} s"))
@@ -846,10 +881,7 @@ impl LibraryApp {
                             (Some(r), Some(c), Some(b)) => format!("{r} Hz · {c} ch · {b} bit"),
                             _ => "Facts unavailable".into(),
                         });
-                        let (availability, kind) = match item.availability {
-                            TrackAvailability::Available => ("Available", StatusKind::Success),
-                            TrackAvailability::Missing => ("Missing", StatusKind::Warning),
-                        };
+                        let (availability, kind) = availability_status(item.availability);
                         StatusBadge {
                             label: availability,
                             kind,
@@ -858,7 +890,23 @@ impl LibraryApp {
                         ui.end_row();
                     }
                 });
-            });
         });
+    }
+}
+
+/// The last path component, for display.
+fn file_name(path: &str) -> String {
+    PathBuf::from(path)
+        .file_name()
+        .unwrap_or_default()
+        .to_string_lossy()
+        .into_owned()
+}
+
+/// Badge label and semantic kind for a track's availability.
+fn availability_status(availability: TrackAvailability) -> (&'static str, StatusKind) {
+    match availability {
+        TrackAvailability::Available => ("Available", StatusKind::Success),
+        TrackAvailability::Missing => ("Missing", StatusKind::Warning),
     }
 }

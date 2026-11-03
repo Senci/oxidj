@@ -147,7 +147,11 @@ impl TrackWaveformPanel {
                     layout.styles =
                         Some(Style::ALL.map(|s| ui.selectable_value(style, s, s.label()).rect));
                 });
-                ui.horizontal_wrapped(|ui| {
+                // Three gain sliders share one row sized to the panel: the old
+                // wrapped row overflowed narrow panels and widened the view.
+                let full = ui.available_width();
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().slider_width = ((full - 3.0 * 96.0) / 3.0).clamp(40.0, 160.0);
                     let mut slider = |value: &mut f32, text| {
                         ui.add(
                             egui::Slider::new(value, 0.0..=1.0)
@@ -233,7 +237,7 @@ impl TrackWaveformPanel {
                 ui.painter_at(r).rect_filled(
                     marker,
                     2.0,
-                    Color32::from_rgba_unmultiplied(255, 255, 255, 40),
+                    tokens.text.gamma_multiply(0.16),
                 );
                 let track_s = total as f64 / rate;
                 match (grid, layout.grid_window) {
