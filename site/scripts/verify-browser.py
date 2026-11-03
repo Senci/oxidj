@@ -6,7 +6,8 @@ Serve the build first, e.g. `dist/` mounted at /oxidj/ on 127.0.0.1:4190.
 Checks every route at 390 and 1440 px: console errors, failed requests,
 horizontal overflow, tap targets < 44 px (mobile), WCAG contrast of visible
 text against its effective background, layout shift, transferred bytes, and
-the lightbox (open, wheel zoom, drag, keyboard, Esc, outside click, focus
+the lightbox (open, wheel zoom, drag, keyboard, Esc, outside click, real
+mouse click/double-click on the image, touch taps (hasTouch context), focus
 return). Writes full-page reduced-motion captures and viewport captures with
 motion to the output directory and prints a JSON summary. Exit 1 on failure.
 """
@@ -63,6 +64,65 @@ AUDIT_JS = r"""
 CLS_INIT = "window.__cls = 0; new PerformanceObserver(l => { for (const e of l.getEntries()) if (!e.hadRecentInput) window.__cls += e.value; }).observe({ type: 'layout-shift', buffered: true });"
 
 
+SCALE_JS = "new DOMMatrix(getComputedStyle(document.querySelector('.lightbox-image')).transform).a"
+
+
+def open_and_centre(page, trigger, dialog):
+    trigger.click()
+    dialog.wait_for(state="visible")
+    page.wait_for_timeout(450)
+    box = page.locator(".lightbox-image").bounding_box()
+    return box["x"] + box["width"] / 2, box["y"] + box["height"] / 2
+
+
+def image_click_check(page, trigger, dialog):
+    """Real mouse clicks on the image: a click keeps the dialog open, a double-click zooms."""
+    r = {}
+    cx, cy = open_and_centre(page, trigger, dialog)
+    page.mouse.click(cx, cy)
+    page.wait_for_timeout(350)  # past the double-click interval
+    r["clickImageStaysOpen"] = dialog.is_visible()
+    page.mouse.dblclick(cx, cy)
+    page.wait_for_timeout(100)
+    r["dblclickZooms"] = dialog.is_visible() and page.evaluate(SCALE_JS) > 1.5
+    page.mouse.dblclick(cx, cy)
+    page.wait_for_timeout(100)
+    r["dblclickAgainResets"] = dialog.is_visible() and abs(page.evaluate(SCALE_JS) - 1) < 1e-3
+    page.mouse.move(cx, cy)
+    page.mouse.down()
+    page.mouse.move(cx + 60, cy + 20, steps=6)
+    page.mouse.up()
+    r["dragOnImageStaysOpen"] = dialog.is_visible()
+    vw = page.viewport_size
+    page.mouse.click(8, vw["height"] - 8)
+    r["scrimClickClosesAfter"] = not dialog.is_visible()
+    return r
+
+
+def touch_check(browser, failures):
+    """Real touch taps (hasTouch context): tap on the image keeps it open, tap on the scrim closes."""
+    ctx = browser.new_context(viewport={"width": 390, "height": 844}, has_touch=True, is_mobile=True, reduced_motion="reduce")
+    page = ctx.new_page()
+    page.goto(BASE, wait_until="networkidle")
+    trigger = page.locator("a[data-lightbox]").first
+    trigger.scroll_into_view_if_needed()
+    trigger.tap()
+    dialog = page.locator(".lightbox")
+    dialog.wait_for(state="visible")
+    page.wait_for_timeout(450)
+    box = page.locator(".lightbox-image").bounding_box()
+    page.touchscreen.tap(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+    page.wait_for_timeout(350)
+    r = {"tapImageStaysOpen": dialog.is_visible()}
+    page.touchscreen.tap(8, 836)
+    page.wait_for_timeout(100)
+    r["tapScrimCloses"] = not dialog.is_visible()
+    ctx.close()
+    if not all(r.values()):
+        failures.append(f"lightbox touch 390: {r}")
+    return r
+
+
 def lightbox_check(page, failures):
     page.evaluate("window.scrollTo(0, 0)")
     trigger = page.locator("a[data-lightbox]").first
@@ -110,11 +170,14 @@ def lightbox_check(page, failures):
     page.wait_for_timeout(300)
     page.mouse.click(8, vw["height"] - 8)
     result["outsideClickCloses"] = not dialog.is_visible()
+    result.update(image_click_check(page, trigger, dialog))
     ok = (
         result["opacity"] == "1" and result["role"] == "dialog" and result["modal"] == "true" and result["focusClose"]
         and result["imageFits"] and result["wheelZoom"] != "none" and abs(result["dragPanned"]) > 10
         and result["stillOpenAfterDrag"] and abs(result["resetScale"] - 1) < 1e-3 and result["focusTrapped"]
         and result["escCloses"] and result["focusReturned"] and result["outsideClickCloses"]
+        and result["clickImageStaysOpen"] and result["dblclickZooms"] and result["dblclickAgainResets"]
+        and result["dragOnImageStaysOpen"] and result["scrimClickClosesAfter"]
     )
     if not ok:
         failures.append(f"lightbox {vw['width']}: {result}")
@@ -177,6 +240,7 @@ def main():
                         if errors:
                             failures.append(f"{tag} (motion): errors {errors}")
                     ctx.close()
+        summary["lightbox-touch-390"] = touch_check(browser, failures)
         browser.close()
     print(json.dumps(summary, indent=1))
     if failures:

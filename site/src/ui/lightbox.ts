@@ -74,6 +74,9 @@ export function initLightbox(
   const pointers = new Map<number, Point>();
   let gesture: { start: Point; zoom: ZoomState; distance: number; mid: Point } | null = null;
   let moved = false;
+  // Whether the current press began on the image. Recorded at pointerdown, before any pointer
+  // capture, because a captured pointer's click is dispatched to the stage, not the image.
+  let pressOnImage = false;
 
   // Pointer position relative to the viewport centre; a missing coordinate means the centre.
   const centre = (clientX: number, clientY: number): Point => ({
@@ -143,6 +146,7 @@ export function initLightbox(
     overlay.hidden = true;
     pointers.clear();
     gesture = null;
+    pressOnImage = false;
     doc.documentElement.classList.remove('lightbox-open');
     image.removeAttribute('src');
     returnFocus?.focus();
@@ -168,7 +172,8 @@ export function initLightbox(
       moved = false;
       return;
     }
-    if (event.target !== image) close();
+    if (event.target !== image && !pressOnImage) close();
+    pressOnImage = false;
   });
 
   overlay.addEventListener('keydown', (event) => {
@@ -230,7 +235,8 @@ export function initLightbox(
     { passive: false },
   );
 
-  image.addEventListener('dblclick', (event) => {
+  stage.addEventListener('dblclick', (event) => {
+    if (event.target !== image && !pressOnImage) return;
     const point = centre(event.clientX, event.clientY);
     set(zoom.scale > 1.001 ? IDENTITY : zoomTo(zoom, DOUBLE_CLICK_SCALE, point, view));
   });
@@ -251,10 +257,20 @@ export function initLightbox(
     };
   };
 
+  // Capture only once a drag or pinch starts, so plain clicks and taps keep their real target.
+  const capture = (): void => {
+    for (const id of pointers.keys()) {
+      try {
+        if (!stage.hasPointerCapture?.(id)) stage.setPointerCapture?.(id);
+      } catch {
+        // The pointer already ended; nothing to capture.
+      }
+    }
+  };
   stage.addEventListener('pointerdown', (event) => {
     if (event.button !== 0 && event.pointerType === 'mouse') return;
     pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
-    stage.setPointerCapture?.(event.pointerId);
+    if (pointers.size === 1) pressOnImage = event.target === image;
     moved = false;
     startGesture();
   });
@@ -272,12 +288,14 @@ export function initLightbox(
         view,
       );
       set(panBy(scaled, mid.x - gesture.mid.x, mid.y - gesture.mid.y, view));
+      capture();
       moved = true;
     } else {
       const dx = a.x - gesture.start.x;
       const dy = a.y - gesture.start.y;
       if (!moved && Math.hypot(dx, dy) < DRAG_THRESHOLD) return;
       moved = true;
+      capture();
       overlay.classList.add('is-dragging');
       set(panBy(gesture.zoom, dx, dy, view));
     }
