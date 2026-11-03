@@ -993,3 +993,104 @@ fn import_and_export_fail_closed_without_creating_or_replacing_files() {
     assert_eq!(std::fs::read(&pdb).unwrap(), source);
     std::fs::remove_dir_all(dir).unwrap();
 }
+
+fn import_synthetic(dir: &Path) -> PathBuf {
+    let device = dir.join("device");
+    std::fs::create_dir_all(device.join("PIONEER/rekordbox")).unwrap();
+    let pdb = device.join("PIONEER/rekordbox/export.pdb");
+    std::fs::write(&pdb, synthetic_pdb(None)).unwrap();
+    write_analysis(&device);
+    let catalog = dir.join("catalog.sqlite");
+    stdout(&cli(&[
+        s("catalog"),
+        s("import-library"),
+        s("--pdb"),
+        pdb.as_os_str(),
+        s("--catalog"),
+        catalog.as_os_str(),
+    ]));
+    catalog
+}
+
+fn export_with(catalog: &Path, xml: &Path, extra: &[&str]) -> Output {
+    let mut args = vec![
+        s("catalog"),
+        s("export-library-xml"),
+        s("--catalog"),
+        catalog.as_os_str(),
+        s("--output"),
+        xml.as_os_str(),
+    ];
+    args.extend(extra.iter().map(|a| s(a)));
+    cli(&args)
+}
+
+/// `--drive X` qualifies only device-relative `file://localhost/Contents/` locations;
+/// every other byte equals the no-option export.
+#[test]
+fn drive_option_qualifies_device_relative_locations_only() {
+    let dir = scratch();
+    let catalog = import_synthetic(&dir);
+    let plain = dir.join("plain.xml");
+    stdout(&export_with(&catalog, &plain, &[]));
+    let plain_bytes = std::fs::read(&plain).unwrap();
+    // Regression: without --drive the export is today's oracle exactly.
+    assert_eq!(decode(&plain_bytes), expected());
+
+    for (arg, letter) in [("D", "D"), ("d", "D"), ("z", "Z")] {
+        let xml = dir.join(format!("drive-{arg}.xml"));
+        let report = stdout(&export_with(&catalog, &xml, &["--drive", arg]));
+        assert!(
+            report.lines().any(|l| l == "PreviewVerified: true"),
+            "{report}"
+        );
+        let bytes = std::fs::read(&xml).unwrap();
+
+        // Byte comparison: only the Location prefix of device-relative tracks differs.
+        let plain_text = String::from_utf8(plain_bytes.clone()).unwrap();
+        let from = "Location=\"file://localhost/Contents/";
+        assert_eq!(plain_text.matches(from).count(), 2);
+        let want = plain_text.replace(
+            from,
+            &format!("Location=\"file://localhost/{letter}:/Contents/"),
+        );
+        assert_eq!(String::from_utf8(bytes.clone()).unwrap(), want);
+
+        // Independent oracle: exactly these Location values, nothing else changes.
+        let mut oracle = expected();
+        let locations = [
+            format!("file://localhost/{letter}:/Contents/Song%20A.mp3"),
+            "file://localhost/b.wav".to_string(), // already absolute: unchanged
+            format!("file://localhost/{letter}:/Contents/C.flac"),
+        ];
+        for (track, location) in oracle.tracks.iter_mut().zip(&locations) {
+            track.iter_mut().find(|(k, _)| k == "Location").unwrap().1 = location.clone();
+        }
+        assert_eq!(decode(&bytes), oracle);
+    }
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn invalid_drive_is_a_usage_error_without_output() {
+    let dir = scratch();
+    let catalog = import_synthetic(&dir);
+    let xml = dir.join("never.xml");
+    for bad in ["", "DD", "C:", "1", "-", "\u{e9}", "D:/"] {
+        let out = export_with(&catalog, &xml, &["--drive", bad]);
+        assert_eq!(out.status.code(), Some(2), "{bad:?}");
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(
+            stderr.contains("--drive expects a single drive letter A-Z"),
+            "{bad:?}: {stderr}"
+        );
+        assert!(!xml.exists(), "{bad:?} created output");
+    }
+    // Missing value or unknown trailing flag: usage error, no output.
+    for extra in [&["--drive"][..], &["--letter", "D"][..]] {
+        let out = export_with(&catalog, &xml, extra);
+        assert_eq!(out.status.code(), Some(2), "{extra:?}");
+        assert!(!xml.exists());
+    }
+    std::fs::remove_dir_all(dir).unwrap();
+}

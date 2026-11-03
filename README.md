@@ -25,6 +25,21 @@ M0 is verified complete. The named `local-catalog-alpha-v1` dependency exception
 - M4: complete Rekordbox/OneLibrary interoperability remains unqualified. XML preview, preflight, no-edit export, and guarded edits to selected tempo and position-mark fields cover a bounded synthetic subset only; no vendor application acceptance or undocumented-format compatibility is claimed (interoperability.md §Fixture D).
 - M4+: realtime DJ functionality — decks, mixing, effects, stems, streaming, broad controller support (idea.md §Priorities/MVP).
 
+## Export a USB library for Rekordbox on Windows
+
+```sh
+oxidj-cli catalog import-library --pdb /media/USB/PIONEER/rekordbox/export.pdb --catalog lib.sqlite
+oxidj-cli catalog export-library-xml --catalog lib.sqlite --output rekordbox.xml --drive D
+```
+
+`--drive D` writes device-relative locations as `file://localhost/D:/Contents/…` (one letter A–Z, case-insensitive; other locations are unchanged; without it the export is unchanged). Owner-verified in real Rekordbox on Windows (2026-11-04): the export loads all tracks with BPM, key and CUE markers. Steps:
+
+1. Use the drive letter Windows gives the USB stick for `--drive`.
+2. Copy the XML to a **local** drive — opening it from a network/UNC share fails with "unable to be read properly".
+3. In Rekordbox, set Preferences > Advanced > rekordbox xml to that file and browse it under "rekordbox xml".
+
+Playlist import, playback and beat-grid display are not yet confirmed; hardware use is not demonstrated (plan/STATUS.md M7).
+
 The first major product proof — the MVP (idea.md) — is library-first: import a real DJ library, manage it safely in OxiDJ, export it again, and continue using compatible DJ software/hardware without unexpected metadata loss.
 
 ## Documentation

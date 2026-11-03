@@ -205,6 +205,35 @@ pub fn location_uri(path: &str) -> (String, bool) {
     (out, true)
 }
 
+/// A Windows drive letter (`A`–`Z`, stored upper-case) for Rekordbox XML exports.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DriveLetter(char);
+
+impl DriveLetter {
+    /// Accept exactly one ASCII letter, case-insensitive; anything else is `None`.
+    pub fn parse(value: &str) -> Option<Self> {
+        let mut chars = value.chars();
+        match (chars.next(), chars.next()) {
+            (Some(c), None) if c.is_ascii_alphabetic() => Some(Self(c.to_ascii_uppercase())),
+            _ => None,
+        }
+    }
+}
+
+const DEVICE_RELATIVE: &str = "file://localhost/Contents/";
+
+/// Qualify a device-relative `file://localhost/Contents/…` location with `drive`
+/// (`file://localhost/X:/Contents/…`) so Windows Rekordbox can resolve it. Every
+/// other location (already drive-qualified, other paths, other hosts) is unchanged.
+pub fn drive_qualified_location(location: &str, drive: Option<DriveLetter>) -> String {
+    match (drive, location.strip_prefix(DEVICE_RELATIVE)) {
+        (Some(DriveLetter(letter)), Some(rest)) => {
+            format!("file://localhost/{letter}:/Contents/{rest}")
+        }
+        _ => location.to_owned(),
+    }
+}
+
 /// Map a PDB preview to a vendor-neutral library snapshot. Fails closed on duplicate
 /// identities, missing member tracks, and nodes unreachable from the root.
 pub fn library_from_pdb_preview(
@@ -453,6 +482,7 @@ fn import_library_with(
 
 fn xml_library(
     snapshot: &LibrarySnapshot,
+    drive: Option<DriveLetter>,
 ) -> Result<(Vec<LibraryXmlTrack>, Vec<LibraryXmlNode>), LibraryWorkflowError> {
     let key = |index: usize| {
         u32::try_from(index + 1).map_err(|_| fail("library track index exceeds XML range"))
@@ -469,7 +499,7 @@ fn xml_library(
                 album: t.album.clone(),
                 average_bpm_hundredths: t.tempo_hundredths_bpm,
                 total_time_seconds: t.duration_seconds,
-                location: t.location.clone(),
+                location: drive_qualified_location(&t.location, drive),
                 genre: t.genre.clone(),
                 label: t.label.clone(),
                 tonality: t.key.clone(),
@@ -562,7 +592,11 @@ fn marks_match(actual: &[oxidj_rekordbox::PositionMark], expected: &[LibraryCue]
 
 /// Check re-parsed XML against the catalog snapshot: tracks, folder and playlist
 /// paths in document order, and ordered member keys.
-fn verify_export(snapshot: &LibrarySnapshot, preview: &crate::Preview) -> bool {
+fn verify_export(
+    snapshot: &LibrarySnapshot,
+    preview: &crate::Preview,
+    drive: Option<DriveLetter>,
+) -> bool {
     let tracks_match = preview.tracks.len() == snapshot.tracks.len()
         && preview
             .tracks
@@ -575,7 +609,7 @@ fn verify_export(snapshot: &LibrarySnapshot, preview: &crate::Preview) -> bool {
                     && x.name == t.title
                     && x.artist == t.artist
                     && x.album == t.album
-                    && x.location == t.location
+                    && x.location == drive_qualified_location(&t.location, drive)
                     && x.total_time == Some(t.duration_seconds.to_string())
                     && x.average_bpm
                         == Some(format!(
@@ -661,10 +695,12 @@ fn verify_export(snapshot: &LibrarySnapshot, preview: &crate::Preview) -> bool {
 
 /// Export a catalog's imported library as a NEW Rekordbox XML file, without edits.
 /// The bytes are re-parsed and verified before publication; nothing is written on
-/// failure and an existing output is never replaced.
+/// failure and an existing output is never replaced. `drive` qualifies device-relative
+/// locations for Windows Rekordbox (see [`drive_qualified_location`]).
 pub fn export_library_xml(
     catalog: impl AsRef<Path>,
     output: impl AsRef<Path>,
+    drive: Option<DriveLetter>,
 ) -> Result<LibraryExportReport, LibraryWorkflowError> {
     let catalog = catalog.as_ref();
     if !catalog.is_file() {
@@ -679,12 +715,12 @@ pub fn export_library_xml(
     if snapshot.tracks.is_empty() && snapshot.roots.is_empty() {
         return Err(fail("catalog holds no imported library"));
     }
-    let (tracks, roots) = xml_library(&snapshot)?;
+    let (tracks, roots) = xml_library(&snapshot, drive)?;
     let bytes = oxidj_rekordbox::write_library_xml(&tracks, &roots)
         .map_err(|e| LibraryWorkflowError(e.to_string()))?;
     let preview = oxidj_rekordbox::parse(&bytes)
         .map_err(|_| fail("written XML was rejected by the XML preview"))?;
-    if !verify_export(&snapshot, &preview) {
+    if !verify_export(&snapshot, &preview, drive) {
         return Err(fail("written XML did not match the catalog"));
     }
     crate::publish_new_file(output.as_ref(), &bytes)
@@ -901,11 +937,11 @@ mod tests {
             folders: vec![],
         };
         let (snapshot, _) = library_from_pdb_preview(&source).unwrap();
-        let (tracks, roots) = xml_library(&snapshot).unwrap();
+        let (tracks, roots) = xml_library(&snapshot, None).unwrap();
         let preview =
             oxidj_rekordbox::parse(&oxidj_rekordbox::write_library_xml(&tracks, &roots).unwrap())
                 .unwrap();
-        assert!(verify_export(&snapshot, &preview));
+        assert!(verify_export(&snapshot, &preview, None));
         let mutations: [fn(&mut LibraryTrack); 10] = [
             (|t| t.beat_grid[0].time_ms += 1),
             (|t| t.beat_grid[0].tempo_hundredths_bpm += 1),
@@ -921,7 +957,41 @@ mod tests {
         for mutate in mutations {
             let mut changed = snapshot.clone();
             mutate(&mut changed.tracks[0]);
-            assert!(!verify_export(&changed, &preview));
+            assert!(!verify_export(&changed, &preview, None));
+        }
+    }
+
+    #[test]
+    fn drive_letter_parses_one_ascii_letter_and_qualifies_device_relative_locations_only() {
+        for ok in ["d", "D", "a", "Z"] {
+            assert!(DriveLetter::parse(ok).is_some(), "{ok}");
+        }
+        for bad in ["", "DD", "C:", "1", "-", "\u{e9}", " D"] {
+            assert_eq!(DriveLetter::parse(bad), None, "{bad:?}");
+        }
+        let d = DriveLetter::parse("d");
+        for (input, want) in [
+            (
+                "file://localhost/Contents/a%20b.mp3",
+                "file://localhost/D:/Contents/a%20b.mp3",
+            ),
+            // Already drive-qualified, other paths/hosts: unchanged.
+            (
+                "file://localhost/E:/Contents/x.mp3",
+                "file://localhost/E:/Contents/x.mp3",
+            ),
+            (
+                "file://localhost/D:/Music/x.mp3",
+                "file://localhost/D:/Music/x.mp3",
+            ),
+            ("file://localhost/b.wav", "file://localhost/b.wav"),
+            (
+                "file://server/Contents/x.mp3",
+                "file://server/Contents/x.mp3",
+            ),
+        ] {
+            assert_eq!(drive_qualified_location(input, d), want);
+            assert_eq!(drive_qualified_location(input, None), input);
         }
     }
 

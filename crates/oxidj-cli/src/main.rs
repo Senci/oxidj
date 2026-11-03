@@ -1867,17 +1867,30 @@ fn run_import_library(args: &[String]) -> i32 {
     }
 }
 
-/// `catalog export-library-xml --catalog DB --output NEW`: no-edit, new-file-only.
+/// `catalog export-library-xml --catalog DB --output NEW [--drive X]`: no-edit,
+/// new-file-only. `--drive` qualifies device-relative locations for Windows.
 fn run_export_library_xml(args: &[String]) -> i32 {
-    let [a, catalog, b, output] = args else {
-        eprintln!("error: expected catalog export-library-xml --catalog DB --output NEW");
-        return USAGE;
+    const EXPECTED: &str =
+        "error: expected catalog export-library-xml --catalog DB --output NEW [--drive X]";
+    let (catalog, output, drive) = match args {
+        [a, catalog, b, output] if a == "--catalog" && b == "--output" => (catalog, output, None),
+        [a, catalog, b, output, c, drive]
+            if a == "--catalog" && b == "--output" && c == "--drive" =>
+        {
+            let Some(letter) = oxidj_application::DriveLetter::parse(drive) else {
+                eprintln!(
+                    "error: --drive expects a single drive letter A-Z (e.g. D), got {drive:?}"
+                );
+                return USAGE;
+            };
+            (catalog, output, Some(letter))
+        }
+        _ => {
+            eprintln!("{EXPECTED}");
+            return USAGE;
+        }
     };
-    if a != "--catalog" || b != "--output" {
-        eprintln!("error: expected catalog export-library-xml --catalog DB --output NEW");
-        return USAGE;
-    }
-    match oxidj_application::export_library_xml(catalog, output) {
+    match oxidj_application::export_library_xml(catalog, output, drive) {
         Ok(report) => {
             print_counts(&report.counts);
             println!("PreviewVerified: {}", report.preview_verified);
@@ -1905,7 +1918,7 @@ fn print_usage(to_stdout: bool) {
   rekordbox preview --xml <path>   Read-only Rekordbox XML preview
   rekordbox pdb-preview --pdb <path> Read-only legacy DeviceSQL PDB preview
   catalog import-library --pdb <src> --catalog <new> [--onelibrary-db <db> --key-stdin]   Import a PDB library into a new catalog (aggregate-only report)
-  catalog export-library-xml --catalog <db> --output <new>   Export the imported library as new Rekordbox XML (no edits)",
+  catalog export-library-xml --catalog <db> --output <new> [--drive <X>]   Export the imported library as new Rekordbox XML (no edits); --drive prefixes device-relative locations with X: for Windows Rekordbox",
     );
     let _ = writeln!(
         output,
