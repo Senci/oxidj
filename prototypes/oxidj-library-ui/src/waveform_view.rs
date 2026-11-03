@@ -1161,12 +1161,33 @@ mod tests {
                 ..vp
             },
         ];
+        // W6 beat-grid line path: 120 bpm over the whole minute.
+        let beats: Vec<_> = (0..120u32)
+            .map(|i| oxidj_library::LibraryBeat {
+                time_ms: 500 * i,
+                tempo_hundredths_bpm: 12_000,
+                beat_in_bar: (i % 4 + 1) as u8,
+            })
+            .collect();
+        let grid = crate::beat_grid::BeatGrid::new(&beats, 60_000.0).unwrap();
+        let colours = crate::beat_grid::GridColours::from_tokens(tokens());
+        let mut lines = Mesh::default();
+        let bars = [0, 5, grid.max_start_bar()];
         for style in Style::ALL {
             let mut layers: [Mesh; 3] = Default::default();
             for vp in vps {
                 for eq in eqs {
                     build_layers(&peaks, style, vp, eq, rect, palette, &mut layers);
                 }
+            }
+            for bar in bars {
+                crate::beat_grid::build_lines(
+                    &grid,
+                    grid.window_ms(bar),
+                    rect,
+                    colours,
+                    &mut lines,
+                );
             }
             let before = alloc_count::count();
             for _ in 0..5 {
@@ -1175,8 +1196,19 @@ mod tests {
                         build_layers(&peaks, style, vp, eq, rect, palette, &mut layers);
                     }
                 }
+                for bar in bars {
+                    crate::beat_grid::build_lines(
+                        &grid,
+                        grid.window_ms(bar),
+                        rect,
+                        colours,
+                        &mut lines,
+                    );
+                }
             }
             let allocs = alloc_count::count() - before;
+            // The line path ran: 16 beats (4 bars) of 4 vertices each.
+            assert_eq!(lines.vertices.len(), 16 * 4, "{style:?} grid lines");
             assert!(!layers[0].is_empty(), "{style:?} drew nothing");
             // The anti-aliased strip path ran: 700 columns + 2 end points.
             let used = if style == Style::ThreeBand { 3 } else { 1 };

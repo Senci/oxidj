@@ -1,6 +1,7 @@
 //! OxiDJ provisional local-library UI (prototype; outside the workspace).
 
 mod app;
+mod beat_grid;
 mod components;
 mod control_gallery;
 mod folder_ops;

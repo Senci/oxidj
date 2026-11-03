@@ -477,6 +477,33 @@ impl Catalog {
         let roots = build(&nodes, None, &mut statement, tracks.len(), 0)?;
         Ok(LibrarySnapshot { tracks, roots })
     }
+
+    /// Imported (vendor-derived) beat grid of the first library track (lowest
+    /// position) whose stored `location` equals one of `locations` exactly, in
+    /// stored beat order. Empty when no such track or no beats. Read-only; never
+    /// touches computed peaks.
+    pub fn beat_grid_for_locations(
+        &self,
+        locations: &[&str],
+    ) -> Result<Vec<LibraryBeat>, CatalogError> {
+        let Some(position) = self.library_position_for_locations(locations)? else {
+            return Ok(Vec::new());
+        };
+        let mut statement = self.connection.prepare(
+            "SELECT time_ms,tempo_hundredths_bpm,beat_in_bar FROM library_beats \
+             WHERE track_position=?1 ORDER BY position",
+        )?;
+        let beats = statement
+            .query_map([position], |row| {
+                Ok(LibraryBeat {
+                    time_ms: row.get(0)?,
+                    tempo_hundredths_bpm: row.get(1)?,
+                    beat_in_bar: row.get(2)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(beats)
+    }
 }
 
 #[cfg(test)]
@@ -638,6 +665,40 @@ mod tests {
             ))
         ));
         assert_eq!(catalog.library_snapshot().unwrap(), snapshot());
+    }
+
+    #[test]
+    fn beat_grid_is_read_by_location_and_empty_without_one() {
+        let path = path();
+        let mut catalog = Catalog::open(&path).unwrap();
+        assert!(
+            catalog
+                .beat_grid_for_locations(&["file://localhost/A.wav"])
+                .unwrap()
+                .is_empty(),
+            "no imported library"
+        );
+        catalog.import_library(&snapshot()).unwrap();
+        assert_eq!(
+            catalog
+                .beat_grid_for_locations(&["nope", "file://localhost/A.wav"])
+                .unwrap(),
+            snapshot().tracks[0].beat_grid
+        );
+        for location in ["file://localhost/B.wav", "file://localhost/missing.wav"] {
+            assert!(
+                catalog
+                    .beat_grid_for_locations(&[location])
+                    .unwrap()
+                    .is_empty(),
+                "{location}"
+            );
+        }
+        let computed: i64 = catalog
+            .connection
+            .query_row("SELECT COUNT(*) FROM track_waveforms", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(computed, 0, "never touches computed peaks");
     }
 
     #[test]

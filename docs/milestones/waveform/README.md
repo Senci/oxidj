@@ -23,6 +23,26 @@ full-screen composited grab via Hermes `computer_use`), 2026-11-03.
 | `05-empty-unanalysed.png` | Track 3 selected: "No computed waveform: track not analysed" empty state |
 | `06-three-band-smooth.png` | W5b: track 2, 3-band, after the anti-aliased strip renderer (slanted edges between column centres, 1 px transparent fringe, nested by per-column rank). Same synthetic catalog (copy), release build of the W5b working tree on top of `5b115af`, 2026-11-03; edge pixels inspected show intermediate colours (e.g. 107,173,214 between cyan 125,207,255 and plate 26,27,38). |
 
+## W6 — bar-aware detail window from an imported beat grid
+
+Same synthetic audio in a fresh scratch catalog (bind-mounted at `/mnt`),
+release build of the W6 working tree on top of `7052e2f`, 2026-11-03. A
+synthetic imported-library beat grid (124 bpm, 4/4, 100 beats from 0 ms) was
+added to the multiband track only with [`add_synthetic_grid.py`](add_synthetic_grid.py);
+no private library data.
+
+| File | Shows |
+|---|---|
+| `07-beat-grid-mono.png` | Multiband track, Mono: 4-bar detail window starting on a downbeat (default Bar 6 of 25), faint beat lines, stronger bar lines with "Bar 6"–"Bar 9" counters; kick transients sit on the beat lines; caption "beat grid: library import (vendor-derived)" |
+| `08-beat-grid-three-band.png` | Same window, 3-band |
+| `09-no-grid-fallback.png` | Hats-only track (imported, no grid): unchanged 8 s window, no lines, no bar labels, no grid caption |
+
+Real-library check (aggregate only): the staged device-layout library imported
+1330 tracks (1322 with a beat grid); the 17 local `~/Music` files were analysed;
+**0** library locations match a local file exactly (library locations are
+device-relative), so no real track showed a grid. Grid display on real music is
+NOT DEMONSTRATED.
+
 No vendor-derived (PWV) strip is shown because this synthetic catalog has no
 imported vendor analysis; that path is covered by the UI test only.
 

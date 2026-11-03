@@ -220,23 +220,7 @@ impl Catalog {
         &self,
         locations: &[&str],
     ) -> Result<Vec<VendorWaveform>, CatalogError> {
-        let mut position = None;
-        for location in locations {
-            let found: Option<i64> = self
-                .connection
-                .query_row(
-                    "SELECT MIN(position) FROM library_tracks WHERE location=?1",
-                    [location],
-                    |row| row.get(0),
-                )
-                .optional()?
-                .flatten();
-            position = match (position, found) {
-                (Some(a), Some(b)) => Some(std::cmp::min(a, b)),
-                (a, b) => a.or(b),
-            };
-        }
-        let Some(position) = position else {
+        let Some(position) = self.library_position_for_locations(locations)? else {
             return Ok(Vec::new());
         };
         let mut statement = self
@@ -253,6 +237,31 @@ impl Catalog {
             .collect::<Result<Vec<_>, _>>()?;
         waveforms.sort_by_key(VendorWaveform::order);
         Ok(waveforms)
+    }
+
+    /// Position of the first imported library track (lowest position) whose
+    /// stored `location` equals one of `locations` exactly.
+    pub(crate) fn library_position_for_locations(
+        &self,
+        locations: &[&str],
+    ) -> Result<Option<i64>, CatalogError> {
+        let mut position = None;
+        for location in locations {
+            let found: Option<i64> = self
+                .connection
+                .query_row(
+                    "SELECT MIN(position) FROM library_tracks WHERE location=?1",
+                    [location],
+                    |row| row.get(0),
+                )
+                .optional()?
+                .flatten();
+            position = match (position, found) {
+                (Some(a), Some(b)) => Some(std::cmp::min(a, b)),
+                (a, b) => a.or(b),
+            };
+        }
+        Ok(position)
     }
 }
 

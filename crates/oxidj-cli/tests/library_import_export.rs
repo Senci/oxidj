@@ -9,12 +9,15 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 
 fn scratch() -> PathBuf {
+    // Parallel tests can read the same clock value; the counter keeps names unique.
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let seq = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let nonce = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
         .as_nanos();
     let dir = std::env::temp_dir().join(format!(
-        "oxidj-library-import-{}-{nonce}",
+        "oxidj-library-import-{}-{nonce}-{seq}",
         std::process::id()
     ));
     std::fs::create_dir(&dir).unwrap();
