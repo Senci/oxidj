@@ -10,6 +10,16 @@ export interface Milestone {
   detail: string;
   source: SourceLink;
 }
+export interface Screenshot {
+  /** File stem under public/images (native-resolution lossless WebP). */
+  id: string;
+  width: number;
+  height: number;
+  /** Half-width lossy WebP for 1x screens, when one exists. */
+  halfWidth?: number;
+  alt: string;
+  caption: string;
+}
 export interface ProjectUpdate {
   date: string;
   title: string;
@@ -111,6 +121,13 @@ export const milestones: readonly Milestone[] = [
 export const projectUpdates: readonly ProjectUpdate[] = [
   {
     date: '2026-11-03',
+    title: 'Tidier waveform panel and steadier deck controls.',
+    detail:
+      'Gain sliders line up with their values, captions wrap inside the panel and the detail strip uses spare height. Play and Cue no longer move when a deck starts.',
+    source: { label: 'Waveform panel polish', href: `${repo}/commit/89cd073` },
+  },
+  {
+    date: '2026-11-03',
     title: 'Compact library window with panels you can hide.',
     detail:
       'The track list spans the window; navigation, details and decks toggle from the toolbar or with Ctrl+B, Ctrl+I and Ctrl+D. The waveform shows bar and beat lines from an imported beat grid.',
@@ -142,3 +159,46 @@ export const projectUpdates: readonly ProjectUpdate[] = [
     source: { label: 'Library import', href: `${repo}/commit/40b0631` },
   },
 ];
+
+/**
+ * Cropped captures of the provisional prototype (synthetic catalog, Tokyo Night,
+ * 1440x900 Bot Screen). Provenance: public/images/README.md.
+ */
+export const screenshots = {
+  overview: {
+    id: 'app-overview',
+    width: 1440,
+    height: 793,
+    halfWidth: 720,
+    alt: 'OxiDJ library window: a full-width list of ten synthetic tracks, a navigation panel, track details with a 3-band waveform over bar lines, and a decks bar.',
+    caption: 'Provisional prototype with a synthetic catalog. Click to zoom.',
+  },
+  trackList: {
+    id: 'track-list',
+    width: 904,
+    height: 265,
+    alt: 'Track list with ID, filename, path, duration, format and availability columns; one synthetic file is marked Missing.',
+    caption: 'The full-width track list. One file was removed on purpose.',
+  },
+  decksBar: {
+    id: 'decks-bar',
+    width: 834,
+    height: 35,
+    alt: 'Decks bar: a local demo note, Deck A with Play selected and Cue, then Deck B with Play and Cue, each beside the loaded synthetic filename.',
+    caption: 'The demo decks bar. No audio is connected yet.',
+  },
+  waveformMono: {
+    id: 'waveform-mono',
+    width: 359,
+    height: 405,
+    alt: 'Mono waveform of a synthetic track with gain sliders, Bar 6 to Bar 9 lines and an overview strip.',
+    caption: 'Mono style.',
+  },
+  waveformBands: {
+    id: 'waveform-3band',
+    width: 359,
+    height: 405,
+    alt: 'The same synthetic track drawn in the 3-band style, with low, mid and high bands in separate colours.',
+    caption: '3-band style.',
+  },
+} as const satisfies Record<string, Screenshot>;

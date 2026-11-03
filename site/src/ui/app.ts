@@ -1,5 +1,6 @@
 import { getAsylumDenial } from '../logic/asylum';
 import { getLiveObservation } from '../logic/analysis';
+import { initLightbox } from './lightbox';
 
 function initDossier(root: HTMLElement): void {
   const analysis = root.querySelector<HTMLElement>('#analysis-output');
@@ -18,74 +19,77 @@ function initDossier(root: HTMLElement): void {
   }
 }
 
-function initTraces(root: HTMLElement): void {
-  const controls = [...root.querySelectorAll<HTMLButtonElement>('[data-trace]')];
-  if (controls.length === 0 || typeof Element.prototype.animate !== 'function') return;
+const reducedMotion = (): boolean => window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-  const preference = window.matchMedia('(prefers-reduced-motion: reduce)');
-  const active = new Map<HTMLButtonElement, Animation[]>();
-  const clear = (button: HTMLButtonElement): void => {
-    for (const animation of active.get(button) ?? []) animation.cancel();
-    active.delete(button);
-    button.closest('.reference-flow, #roadmap')?.classList.remove('is-tracing');
-  };
-  const syncPreference = (): void => {
-    if (preference.matches) {
-      for (const button of controls) {
-        const hadFocus = document.activeElement === button;
-        clear(button);
-        button.hidden = true;
-        if (hadFocus) {
-          const scope = button.closest('.reference-flow, #roadmap');
-          const heading =
-            scope?.querySelector('h2') ?? button.closest('section')?.querySelector('h2');
-          heading?.setAttribute('tabindex', '-1');
-          heading?.focus();
-        }
+/**
+ * Scroll reveals. Browsers with CSS scroll-driven animations need nothing here.
+ * Elsewhere an IntersectionObserver adds `is-in` once; `html.io-reveal` is only
+ * set when the observer exists, so content is never hidden without scripts.
+ */
+function initReveal(): void {
+  if (reducedMotion() || typeof IntersectionObserver !== 'function') return;
+  // `.flow` always uses the observer: its reference pulses start only once it is seen.
+  const scrollDriven = CSS.supports?.('animation-timeline: view()') ?? false;
+  if (!scrollDriven) document.documentElement.classList.add('io-reveal');
+  const selector = scrollDriven ? '.flow' : '.reveal, .stage, .milestone, .rail, .flow';
+  const observer = new IntersectionObserver(
+    (entries) => {
+      for (const entry of entries) {
+        if (!entry.isIntersecting) continue;
+        entry.target.classList.add('is-in');
+        observer.unobserve(entry.target);
       }
-    } else {
-      for (const button of controls) button.hidden = false;
-    }
-  };
-  for (const button of controls) {
-    button.addEventListener('click', () => {
-      clear(button);
-      const scope =
-        button.dataset.trace === 'flow'
-          ? button.closest('.reference-flow')
-          : root.querySelector('#roadmap');
-      if (!scope) return;
-      scope.classList.add('is-tracing');
-      const targets =
-        button.dataset.trace === 'flow'
-          ? [scope.querySelector<SVGCircleElement>('.flow-trace')]
-          : [scope.querySelector<HTMLElement>('.milestone-trace')];
-      const animations = targets.flatMap((target) => {
-        if (!target) return [];
-        // SVG transform distances are expressed in the viewBox coordinate space.
-        const distance = button.dataset.trace === 'flow' ? 410 : 0;
-        const animation = target.animate(
-          button.dataset.trace === 'flow'
-            ? [{ transform: 'translateX(0)' }, { transform: `translateX(${distance}px)` }]
-            : [{ transform: 'scaleY(0)' }, { transform: 'scaleY(1)' }],
-          {
-            duration: 700,
-            easing: 'ease-out',
-            fill: 'both',
-          },
-        );
-        animation.onfinish = () => animation.cancel();
-        return [animation];
-      });
-      active.set(button, animations);
+    },
+    { rootMargin: '0px 0px -10% 0px' },
+  );
+  for (const el of document.querySelectorAll(selector)) observer.observe(el);
+}
+
+/** The hero glow follows the pointer; only `transform` changes, once per frame. */
+function initGlow(): void {
+  const hero = document.querySelector<HTMLElement>('.hero');
+  const glow = hero?.querySelector<HTMLElement>('.hero-glow');
+  if (!hero || !glow || reducedMotion() || !window.matchMedia('(pointer: fine)').matches) return;
+  let frame = 0;
+  hero.addEventListener('pointermove', (event) => {
+    if (frame) return;
+    frame = requestAnimationFrame(() => {
+      frame = 0;
+      const rect = hero.getBoundingClientRect();
+      glow.style.transform = `translate3d(${event.clientX - rect.left}px, ${event.clientY - rect.top}px, 0)`;
     });
+  });
+}
+
+/** A copy button on each command block; the commands stay selectable without it. */
+function initCopy(): void {
+  if (!navigator.clipboard) return;
+  for (const pre of document.querySelectorAll<HTMLPreElement>('.terminal pre')) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'copy-button';
+    button.textContent = 'Copy';
+    button.addEventListener('click', () => {
+      navigator.clipboard.writeText(pre.textContent ?? '').then(
+        () => {
+          button.textContent = 'Copied';
+          setTimeout(() => (button.textContent = 'Copy'), 1600);
+        },
+        () => (button.textContent = 'Select and copy'),
+      );
+    });
+    const block = document.createElement('div');
+    block.className = 'code-block';
+    pre.before(block);
+    block.append(pre, button);
   }
-  preference.addEventListener('change', syncPreference);
-  syncPreference();
 }
 
 export function initApp(root: HTMLElement): void {
   initDossier(root);
-  initTraces(root);
+  initReveal();
+  initGlow();
+  initCopy();
+  initLightbox(document);
   root.dataset.enhancementsReady = 'true';
 }

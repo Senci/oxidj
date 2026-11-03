@@ -1,5 +1,20 @@
-import { roadmapSnapshot } from '../data/roadmap';
+import { roadmapSnapshot, screenshots, type Screenshot } from '../data/roadmap';
 import { escapeHtml } from './roadmapMarkup';
+import { renderWaveSvg } from './waveArt';
+
+/**
+ * A screenshot figure. The link opens the native-resolution image directly when
+ * scripts are off; with scripts the lightbox intercepts it. Width/height reserve
+ * space (no layout shift); srcset lets 1x screens take the half-width copy.
+ */
+export function renderShot(shot: Screenshot, sizes: string, eager = false): string {
+  const full = `./images/${shot.id}.webp`;
+  const srcset = shot.halfWidth
+    ? ` srcset="./images/${shot.id}-${shot.halfWidth}.webp ${shot.halfWidth}w, ${full} ${shot.width}w" sizes="${sizes}"`
+    : '';
+  const loading = eager ? ' fetchpriority="high"' : ' loading="lazy"';
+  return `<figure class="shot shot-${shot.id}"><a class="shot-link" href="${full}" data-lightbox data-width="${shot.width}" data-height="${shot.height}"><img src="${full}"${srcset} width="${shot.width}" height="${shot.height}" alt="${escapeHtml(shot.alt)}" decoding="async"${loading} /><span class="shot-zoom" aria-hidden="true"><svg viewBox="0 0 24 24" width="18" height="18" focusable="false"><circle cx="10.5" cy="10.5" r="6.5" /><path d="M15.5 15.5L20 20M10.5 7.5v6M7.5 10.5h6" /></svg></span><span class="visually-hidden"> Opens a larger, zoomable view.</span></a><figcaption>${escapeHtml(shot.caption)}</figcaption></figure>`;
+}
 
 const pages: Record<string, { title: string; description: string }> = {
   'index.html': {
@@ -41,11 +56,17 @@ export function renderSite(html: string, page: string): string {
   const logo =
     '<a class="wordmark" href="./" aria-label="OxiDJ home"><span class="wordmark-mark" aria-hidden="true">/</span>OxiDJ</a>';
   const fragments: Record<string, string> = {
-    head: `<meta name="description" content="${escapeHtml(info.description)}" /><title>${escapeHtml(info.title)}</title><link rel="canonical" href="${canonical}" /><meta property="og:type" content="website" /><meta property="og:title" content="${escapeHtml(info.title)}" /><meta property="og:description" content="${escapeHtml(info.description)}" /><meta property="og:image" content="${origin}images/social.png" /><meta property="og:image:width" content="1200" /><meta property="og:image:height" content="630" /><meta property="og:image:alt" content="OxiDJ. A library before the decks. Prototype library viewer." /><meta property="og:url" content="${canonical}" /><meta name="twitter:card" content="summary_large_image" /><meta name="twitter:title" content="${escapeHtml(info.title)}" /><meta name="twitter:description" content="${escapeHtml(info.description)}" /><meta name="twitter:image" content="${origin}images/social.png" />`,
-    header: `<a class="skip-link" href="${page === '404.html' ? './404.html#main' : '#main'}">Skip to content</a><header class="site-header">${logo}<nav aria-label="Main navigation">${nav}</nav></header>`,
-    footer: `<footer class="site-footer">${logo}<p>Current focus: ${escapeHtml(roadmapSnapshot.currentFocus)}.</p><p class="snapshot">Snapshot: <time datetime="${roadmapSnapshot.verifiedAt}">${roadmapSnapshot.verifiedAt}</time>. Site code: MIT. Fonts: SIL Open Font License.</p><nav aria-label="Footer navigation">${nav}<a href="./dossier.html">Classified file (just for fun)</a></nav></footer>`,
-    status: `<aside class="status-callout" aria-labelledby="status-title"><h2 id="status-title">Status: pre-release</h2><p>${escapeHtml(roadmapSnapshot.working)}</p><p>${escapeHtml(roadmapSnapshot.unfinished)}</p><p>Current focus: <a href="./roadmap.html#m4">${escapeHtml(roadmapSnapshot.currentFocus)}</a>. Snapshot: <time datetime="${roadmapSnapshot.verifiedAt}">${roadmapSnapshot.verifiedAt}</time>.</p></aside>`,
+    head: `<link rel="preload" href="./fonts/epilogue-400.woff2" as="font" type="font/woff2" crossorigin /><link rel="preload" href="./fonts/epilogue-700.woff2" as="font" type="font/woff2" crossorigin /><meta name="description" content="${escapeHtml(info.description)}" /><title>${escapeHtml(info.title)}</title><link rel="canonical" href="${canonical}" /><meta property="og:type" content="website" /><meta property="og:title" content="${escapeHtml(info.title)}" /><meta property="og:description" content="${escapeHtml(info.description)}" /><meta property="og:image" content="${origin}images/social.png" /><meta property="og:image:width" content="1200" /><meta property="og:image:height" content="630" /><meta property="og:image:alt" content="OxiDJ. A library before the decks. Provisional prototype library window." /><meta property="og:url" content="${canonical}" /><meta name="twitter:card" content="summary_large_image" /><meta name="twitter:title" content="${escapeHtml(info.title)}" /><meta name="twitter:description" content="${escapeHtml(info.description)}" /><meta name="twitter:image" content="${origin}images/social.png" />`,
+    header: `<a class="skip-link" href="${page === '404.html' ? './404.html#main' : '#main'}">Skip to content</a><header class="site-header"><div class="site-header-inner">${logo}<nav aria-label="Main navigation">${nav}</nav></div></header>`,
+    footer: `<footer class="site-footer"><div class="footer-inner"><div class="footer-mast">${logo}<p>Current focus: ${escapeHtml(roadmapSnapshot.currentFocus)}.</p></div><nav aria-label="Footer navigation">${nav}<a href="./dossier.html">Classified file (just for fun)</a></nav><p class="snapshot">Snapshot <time datetime="${roadmapSnapshot.verifiedAt}">${roadmapSnapshot.verifiedAt}</time>. Site code MIT. Fonts under the SIL Open Font License. Screenshots show a synthetic catalog.</p></div></footer>`,
+    status: `<aside class="status-callout reveal" aria-labelledby="status-title"><div class="status-head"><h2 id="status-title">Status: pre-release</h2><p>Snapshot <time datetime="${roadmapSnapshot.verifiedAt}">${roadmapSnapshot.verifiedAt}</time>. Current focus: <a href="./roadmap.html#m4">${escapeHtml(roadmapSnapshot.currentFocus)}</a>.</p></div><div class="status-cols"><section class="status-works" aria-labelledby="status-works"><h3 id="status-works">Works today</h3><p>${escapeHtml(roadmapSnapshot.working)}</p></section><section class="status-open" aria-labelledby="status-open"><h3 id="status-open">Not yet demonstrated</h3><p>${escapeHtml(roadmapSnapshot.unfinished)}</p></section></div></aside>`,
     focus: escapeHtml(roadmapSnapshot.currentFocus),
+    wave: renderWaveSvg(),
+    stage: renderShot(screenshots.overview, '(min-width: 1360px) 1200px, 92vw', true),
+    shotTrackList: renderShot(screenshots.trackList, '(min-width: 1360px) 760px, 92vw'),
+    shotDecks: renderShot(screenshots.decksBar, '(min-width: 1360px) 680px, 92vw'),
+    shotWaveMono: renderShot(screenshots.waveformMono, '359px'),
+    shotWaveBands: renderShot(screenshots.waveformBands, '359px'),
   };
   return html.replace(/<!-- site:(\w+) -->/g, (_, key: string) => {
     if (fragments[key] === undefined) throw new Error(`Unknown site fragment: ${key}`);

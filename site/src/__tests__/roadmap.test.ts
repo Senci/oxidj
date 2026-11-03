@@ -6,10 +6,14 @@ import { renderSite } from '../logic/siteMarkup';
 const template = readFileSync(new URL('../../roadmap.html', import.meta.url), 'utf8');
 
 describe('static public pages', () => {
-  it('renders all stable milestone anchors with a compact Later group', () => {
+  it('renders every milestone on one timeline with its status label shown', () => {
     const html = renderRoadmap(template);
     expect(html).not.toContain('<!-- roadmap:');
-    expect(html.match(/class="milestone milestone-/g)).toHaveLength(5);
+    expect(html.match(/class="milestone milestone-/g)).toHaveLength(8);
+    for (const m of milestones)
+      expect(html).toContain(
+        `<p class="status-label status-${m.status}">${escapeHtml(m.statusLabel)}</p>`,
+      );
     for (const m of milestones) {
       expect(html).toContain(`id="${m.id}"`);
       expect(html).toContain(escapeHtml(m.title));
@@ -44,8 +48,10 @@ describe('static public pages', () => {
     expect(milestones.find((m) => m.id === 'm4')?.detail).toMatch(
       /compatibility with real Rekordbox or OneLibrary.*not been demonstrated/i,
     );
-    expect(projectUpdates).toHaveLength(5);
+    expect(projectUpdates).toHaveLength(6);
+    expect(projectUpdates[0]?.source.href).toMatch(/\/commit\/89cd073$/);
     expect(projectUpdates.map((u) => u.date)).toEqual([
+      '2026-11-03',
       '2026-11-03',
       '2026-11-03',
       '2026-11-03',
@@ -54,7 +60,9 @@ describe('static public pages', () => {
     ]);
     expect(projectUpdates.every((u) => /\/commit\/[0-9a-f]{7,40}$/.test(u.source.href))).toBe(true);
     expect(roadmapSnapshot.working).toMatch(/show or hide.*bar and beat lines/i);
-    expect(milestones.find((m) => m.id === 'm6')?.detail).toMatch(/smooth waveform.*bar and beat lines/i);
+    expect(milestones.find((m) => m.id === 'm6')?.detail).toMatch(
+      /smooth waveform.*bar and beat lines/i,
+    );
     expect(html).not.toMatch(/<dt[^>]*>(Progress|Next)<\/dt>/);
     for (const u of projectUpdates) expect(html).toContain(escapeHtml(u.source.href));
   });
@@ -63,7 +71,7 @@ describe('static public pages', () => {
       const shell = readFileSync(new URL(`../../${page}`, import.meta.url), 'utf8');
       const html = renderSite(renderRoadmap(shell), page);
       expect(html).not.toMatch(/<!-- (site|roadmap):/);
-      expect(html.match(/class="status-callout"/g)).toHaveLength(1);
+      expect(html.match(/class="status-callout[ "]/g)).toHaveLength(1);
       expect(html).toContain(escapeHtml(roadmapSnapshot.currentFocus));
       expect(html).toContain(roadmapSnapshot.verifiedAt);
       expect(html).toContain(escapeHtml(roadmapSnapshot.working));
@@ -98,5 +106,16 @@ describe('static public pages', () => {
   it('is idempotent', () => {
     const html = renderSite(renderRoadmap(template), 'roadmap.html');
     expect(renderSite(renderRoadmap(html), 'roadmap.html')).toBe(html);
+  });
+});
+
+describe('home milestone rail', () => {
+  it('links every milestone to its roadmap anchor with its status', () => {
+    const html = renderRoadmap('<ol><!-- roadmap:rail --></ol>');
+    expect(html.match(/class="rail-stop rail-/g)).toHaveLength(milestones.length);
+    for (const m of milestones) {
+      expect(html).toContain(`href="./roadmap.html#${m.id}"`);
+      expect(html).toContain(`<span class="rail-status">${escapeHtml(m.statusLabel)}</span>`);
+    }
   });
 });

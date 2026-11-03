@@ -11,46 +11,47 @@
   </head>
   <body>
     <!-- site:header -->
-    <main id="main" class="container">
-      <section class="hero roadmap-hero" aria-labelledby="title">
-        <div class="hero-copy">
-          <h1 id="title">What works. What comes next.</h1>
-          <p class="lead">Local files first. Careful exchange next. Decks later.</p>
-        </div>
-        <div class="focus-note">
-          <h2><!-- site:focus --></h2>
-          <p><!-- roadmap:currentSummary --></p>
-          <a class="source-link" href="#m4">Read the current milestone</a>
+    <main id="main">
+      <section class="hero hero-compact" aria-labelledby="title">
+        <div class="hero-glow" aria-hidden="true"></div>
+        <div class="container hero-split">
+          <div class="hero-copy">
+            <h1 id="title">What works. What comes next.</h1>
+            <p class="lead">Local files first. Careful exchange next. Decks later.</p>
+          </div>
+          <div class="focus-note reveal">
+            <h2><!-- site:focus --></h2>
+            <p><!-- roadmap:currentSummary --></p>
+            <a class="source-link" href="#m4">Read the current milestone</a>
+          </div>
         </div>
       </section>
-      <!-- site:status -->
-      <section id="roadmap" class="content-section" aria-labelledby="milestones-title">
-        <h2 id="milestones-title">Milestones</h2>
-        <p class="section-summary">
-          M0 to M3 cover the local-library foundation. M4 is the exchange work now in progress.
-          These are development stages, not release dates.
-        </p>
-        <p class="timeline-controls">
-          <button class="trace-button" type="button" data-trace="timeline" hidden>
-            Trace the milestones</button
-          ><span>Illustration only.</span>
-        </p>
+      <div class="container">
+        <!-- site:status -->
+      </div>
+      <section id="roadmap" class="section container" aria-labelledby="milestones-title">
+        <div class="section-head reveal">
+          <h2 id="milestones-title">Milestones</h2>
+          <p>
+            M0 to M3 cover the local-library foundation. M4, M6 and M7 are in progress; M5 comes
+            later. These are development stages, not release dates.
+          </p>
+        </div>
         <ol class="milestone-list">
-          <li class="milestone-trace" aria-hidden="true"></li>
+          <li class="milestone-track" aria-hidden="true"><span></span></li>
           <!-- roadmap:milestones -->
         </ol>
+        <p class="section-foot">
+          <a class="source-link" href="https://github.com/Senci/oxidj/blob/master/idea.md#mvp"
+            >The wider product objective</a
+          >
+        </p>
       </section>
-      <section class="content-section later" aria-labelledby="later-title">
-        <h2 id="later-title">Later</h2>
-        <ul>
-          <!-- roadmap:later -->
-        </ul>
-        <a class="source-link" href="https://github.com/Senci/oxidj/blob/master/idea.md#mvp"
-          >The wider product objective</a
-        >
-      </section>
-      <section id="updates" class="content-section" aria-labelledby="updates-title">
-        <h2 id="updates-title">Recent progress</h2>
+      <section id="updates" class="section container" aria-labelledby="updates-title">
+        <div class="section-head reveal">
+          <h2 id="updates-title">Recent progress</h2>
+          <p>Each change links to the commit that made it.</p>
+        </div>
         <ol class="update-list">
           <!-- roadmap:updates -->
         </ol>

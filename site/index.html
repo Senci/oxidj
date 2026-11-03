@@ -11,63 +11,86 @@
   </head>
   <body>
     <!-- site:header -->
-    <main id="main" class="container">
+    <main id="main">
       <section class="hero" aria-labelledby="title">
-        <div class="hero-copy">
+        <div class="hero-glow" aria-hidden="true"></div>
+        <div class="container hero-copy">
           <h1 id="title">A library before the decks.</h1>
-          <p class="lead">Your local DJ library, built in Rust.</p>
+          <p class="lead">Your local DJ library, built in Rust. Your files stay where they are.</p>
           <div class="actions">
             <a class="button" href="#try-it">Try the CLI</a
-            ><a href="./roadmap.html">See the roadmap</a>
+            ><a class="button button-quiet" href="./roadmap.html">See the roadmap</a>
           </div>
         </div>
-        <figure class="prototype">
-          <img
-            src="./images/library-prototype.png"
-            width="800"
-            height="600"
-            alt="Provisional OxiDJ library viewer showing a synthetic track, search, sort and selected-track details"
-          />
-          <figcaption>Prototype viewer with synthetic audio.</figcaption>
-        </figure>
+        <div class="hero-wave">
+          <!-- site:wave -->
+        </div>
       </section>
-      <!-- site:status -->
-      <section class="content-section" aria-labelledby="why">
-        <div class="section-intro">
+
+      <section class="stage" aria-label="Prototype screenshot">
+        <div class="container stage-frame">
+          <!-- site:stage -->
+        </div>
+      </section>
+
+      <div class="container">
+        <!-- site:status -->
+      </div>
+
+      <section class="section container" aria-labelledby="why">
+        <div class="section-head reveal">
           <h2 id="why">Your files stay yours.</h2>
           <p>
-            Playlists, cues and beat grids can get stuck in one tool. OxiDJ aims to make moving them
-            safer, without quietly losing the work behind a set.
+            Audio stays where it is. A local catalog keeps references and technical facts, so
+            organising a library never means copying or rewriting your music. No cloud account.
           </p>
         </div>
-        <p class="measure">
-          We're starting small: audio stays where it is, while references and technical facts live
-          in a local catalog. No cloud account needed. Dependable exchange comes before decks.
-        </p>
-        <figure class="reference-flow" aria-labelledby="flow-caption">
-          <svg class="flow-art" viewBox="0 0 900 150" aria-hidden="true" focusable="false">
-            <path class="flow-wire" d="M245 75H655" />
-            <path class="flow-wire flow-wire-secondary" d="M245 75H655" />
-            <circle class="flow-node" cx="130" cy="75" r="54" />
-            <rect class="flow-node flow-catalog" x="365" y="24" width="170" height="102" rx="12" />
-            <circle class="flow-node" cx="770" cy="75" r="54" />
-            <circle class="flow-trace" cx="245" cy="75" r="6" aria-hidden="true" />
+        <figure class="flow" aria-labelledby="flow-caption">
+          <svg class="flow-art" viewBox="0 0 960 200" aria-hidden="true" focusable="false">
+            <path
+              id="flow-a"
+              class="flow-wire"
+              pathLength="1"
+              d="M176 100C250 100 300 100 374 100"
+            />
+            <path
+              id="flow-b"
+              class="flow-wire"
+              pathLength="1"
+              d="M586 100C660 100 710 100 782 100"
+            />
+            <g class="flow-node flow-files">
+              <rect class="flow-back" x="56" y="58" width="96" height="112" rx="10" />
+              <rect x="72" y="40" width="96" height="112" rx="10" />
+              <path d="M92 72h56M92 92h56M92 112h36" />
+            </g>
+            <g class="flow-node flow-catalog">
+              <ellipse cx="480" cy="54" rx="98" ry="20" />
+              <path d="M382 54v92c0 11 44 20 98 20s98-9 98-20V54" />
+              <path d="M382 100c0 11 44 20 98 20s98-9 98-20" />
+            </g>
+            <g class="flow-node flow-viewer">
+              <rect x="790" y="40" width="134" height="120" rx="10" />
+              <path d="M790 66h134M810 88h94M810 106h94M810 124h58" />
+            </g>
+            <circle class="flow-pulse flow-pulse-a" r="5" />
+            <circle class="flow-pulse flow-pulse-b" r="5" />
           </svg>
           <ol class="flow-stages">
-            <li><strong>Audio files</strong><span>Stay in place, outside the catalog.</span></li>
+            <li><strong>Audio files</strong><span>Stay in place, unchanged.</span></li>
             <li><strong>Local catalog</strong><span>References and technical facts.</span></li>
-            <li>
-              <strong>Prototype viewer</strong><span>Search, sort, selection and details.</span>
-            </li>
+            <li><strong>Library window</strong><span>Search, sort, details, waveform.</span></li>
           </ol>
-          <figcaption id="flow-caption">
-            Audio stays in place. The catalog keeps references and technical facts.
+          <figcaption id="flow-caption" class="visually-hidden">
+            Audio stays in place. The catalog keeps references and technical facts. The library
+            window reads the catalog. Illustration only.
           </figcaption>
-          <div class="flow-details" aria-label="How the local library fits together">
+          <div class="flow-details">
             <details>
               <summary>Audio files</summary>
               <p>
-                The importer reads supported audio encodings. Originals stay in place and unchanged.
+                The importer reads supported WAV, FLAC and MP3 encodings. Originals stay in place
+                and unchanged.
               </p>
             </details>
             <details>
@@ -78,87 +101,105 @@
               </p>
             </details>
             <details>
-              <summary>Prototype viewer</summary>
+              <summary>Library window</summary>
               <p>
-                The provisional viewer reopens the saved catalog for search, sort, selection and
-                track details.
+                The provisional window reopens the saved catalog for search, sort, selection, track
+                details and a computed waveform.
               </p>
             </details>
           </div>
-          <p class="flow-controls">
-            <button class="trace-button" type="button" data-trace="flow" hidden>
-              Trace the references</button
-            ><span>Illustration only.</span>
-          </p>
         </figure>
-        <ol class="roadmap-preview">
-          <li>
-            <a href="./roadmap.html#m1">M1: Local catalog</a
-            ><span>Persistent IDs, technical facts, backup and recovery.</span>
-          </li>
-          <li>
-            <a href="./roadmap.html#m2">M2: File import</a
-            ><span>WAV, FLAC and MP3 references, with encoding-specific limits.</span>
-          </li>
-          <li>
-            <a href="./roadmap.html#m3">M3: Prototype viewer</a
-            ><span>Search, sort, selection and saved-catalog reopen.</span>
-          </li>
-        </ol>
       </section>
-      <section class="content-section" aria-labelledby="exchange">
-        <div class="section-intro">
-          <h2 id="exchange">XML first. Hardware exchange later.</h2>
-          <div>
-            <p>
-              Rekordbox XML is a documented playlist interchange format. OneLibrary is a separate
-              USB/SD library format used by compatible DJ hardware. XML support alone proves neither
-              OneLibrary export nor complete Rekordbox round trips.
-            </p>
-            <a
-              class="source-link"
-              href="https://github.com/Senci/oxidj/blob/master/docs/research/interoperability.md#findings-and-confidence"
-              >Format research and vendor sources</a
-            >
+
+      <section class="section container" aria-labelledby="inside">
+        <div class="section-head reveal">
+          <h2 id="inside">Inside the prototype.</h2>
+          <p>
+            Captures of the current build, cropped to the parts that matter. The catalog is
+            synthetic test audio. Click an image to zoom and drag.
+          </p>
+        </div>
+        <div class="gallery">
+          <div class="gallery-wide reveal">
+            <!-- site:shotTrackList -->
+            <!-- site:shotDecks -->
+          </div>
+          <div class="gallery-pair reveal">
+            <!-- site:shotWaveMono -->
+            <!-- site:shotWaveBands -->
           </div>
         </div>
       </section>
-      <section id="try-it" class="content-section" aria-labelledby="try-title">
-        <div class="section-intro">
-          <h2 id="try-title">Try the CLI from source.</h2>
+
+      <section class="section container" aria-labelledby="path">
+        <div class="section-head reveal">
+          <h2 id="path">Where the project stands.</h2>
           <p>
-            Linux is the exercised development platform. macOS and Windows are unverified; there is
-            no CI validation for them. These are CLI instructions, rather than a packaged desktop
-            release.
+            Development stages, not release dates. The local library is in place; exchange, analysis
+            and the real-library proof are in progress.
           </p>
         </div>
-        <p class="measure">
-          Install Git, Rust via rustup and a native C build toolchain (a compiler and linker). The
-          repository selects its pinned Rust toolchain. Use a writable local disk for the catalog
-          and a small test folder of audio. The single-process catalog has a 10,000-track scope
-          limit.
-        </p>
-        <pre><code>git clone https://github.com/Senci/oxidj.git
+        <ol class="rail">
+          <!-- roadmap:rail -->
+        </ol>
+      </section>
+
+      <section class="section container split" aria-labelledby="exchange">
+        <h2 id="exchange" class="reveal">XML first. Hardware exchange later.</h2>
+        <div class="reveal">
+          <p>
+            Rekordbox XML is a documented playlist interchange format. OneLibrary is a separate
+            USB/SD library format used by compatible DJ hardware. XML support alone proves neither
+            OneLibrary export nor complete Rekordbox round trips.
+          </p>
+          <a
+            class="source-link"
+            href="https://github.com/Senci/oxidj/blob/master/docs/research/interoperability.md#findings-and-confidence"
+            >Format research and vendor sources</a
+          >
+        </div>
+      </section>
+
+      <section id="try-it" class="section container" aria-labelledby="try-title">
+        <div class="section-head reveal">
+          <h2 id="try-title">Try the CLI from source.</h2>
+          <p>
+            Linux is the exercised development platform; macOS and Windows are unverified, with no
+            CI for them. This is a command-line build, not a packaged desktop release.
+          </p>
+        </div>
+        <div class="terminal-grid">
+          <div class="terminal-notes reveal">
+            <p>
+              Install Git, Rust via rustup and a native C toolchain. The repository pins its Rust
+              toolchain. Use a writable local disk and a small test folder of audio; the catalog is
+              capped at 10,000 tracks.
+            </p>
+            <p>
+              Import leaves original audio unchanged and reports each file's result.
+              <code>list</code> prints track IDs, paths, digests and sizes. Embedded DJ tags,
+              artwork, editing and playback are outside this slice.
+            </p>
+            <a
+              class="source-link"
+              href="https://github.com/Senci/oxidj/blob/master/crates/oxidj-cli/src/main.rs"
+              >CLI command definitions</a
+            >
+          </div>
+          <div class="terminal reveal">
+            <p class="terminal-label">Build</p>
+            <pre><code>git clone https://github.com/Senci/oxidj.git
 cd oxidj
 cargo build -p oxidj-cli --locked
 cargo run -p oxidj-cli -- --help</code></pre>
-        <p>
-          Create a catalog, import a folder, then list saved tracks. Replace
-          <code>/path/to/test-audio</code> with your folder:
-        </p>
-        <pre><code>cargo run -p oxidj-cli -- catalog init --db ./catalog.sqlite
+            <p class="terminal-label">
+              Create, import, list. Replace <code>/path/to/test-audio</code> with your folder.
+            </p>
+            <pre><code>cargo run -p oxidj-cli -- catalog init --db ./catalog.sqlite
 cargo run -p oxidj-cli -- catalog import --db ./catalog.sqlite --dir /path/to/test-audio
 cargo run -p oxidj-cli -- catalog list --db ./catalog.sqlite</code></pre>
-        <p class="measure">
-          Import leaves original audio unchanged and reports each file's result. Embedded DJ tags,
-          artwork, editing and playback are outside this local slice. <code>list</code> prints track
-          IDs, paths, digests and sizes. An empty catalog prints only the header.
-        </p>
-        <a
-          class="source-link"
-          href="https://github.com/Senci/oxidj/blob/master/crates/oxidj-cli/src/main.rs"
-          >CLI command definitions</a
-        >
+          </div>
+        </div>
       </section>
     </main>
     <!-- site:footer -->

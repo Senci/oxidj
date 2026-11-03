@@ -11,22 +11,29 @@
   </head>
   <body>
     <!-- site:header -->
-    <main id="main" class="container">
-      <section class="hero dossier-hero" aria-labelledby="title">
-        <div class="hero-copy">
-          <h1 id="title">Classified file 0042.</h1>
-          <p class="lead">Subject: your library. A completely unserious investigation.</p>
-        </div>
-        <div class="redacted-file">
-          <p>Subject name</p>
-          <span class="redaction" role="img" aria-label="Name redacted"></span>
-          <p>Verdict: pending. Subject at large.</p>
+    <main id="main">
+      <section class="hero hero-compact" aria-labelledby="title">
+        <div class="container hero-split">
+          <div class="hero-copy">
+            <h1 id="title">Classified file 0042.</h1>
+            <p class="lead">Subject: your library. A completely unserious investigation.</p>
+          </div>
+          <div class="redacted-file">
+            <p class="file-stamp" aria-hidden="true">Classified</p>
+            <p>Subject name</p>
+            <span class="redaction" role="img" aria-label="Name redacted"></span>
+            <p>Verdict: pending. Subject at large.</p>
+          </div>
         </div>
       </section>
-      <!-- site:status -->
-      <section class="content-section" aria-labelledby="file-title">
-        <h2 id="file-title">Dossier</h2>
-        <dl class="dossier-fields">
+      <div class="container">
+        <!-- site:status -->
+      </div>
+      <section class="section container" aria-labelledby="file-title">
+        <div class="section-head reveal">
+          <h2 id="file-title">Dossier</h2>
+        </div>
+        <dl class="dossier-fields reveal">
           <dt>Known associates</dt>
           <dd>Suspiciously well-organized playlists.</dd>
           <dt>Current assignment</dt>
@@ -35,20 +42,28 @@
           <dd>No actual libraries were harmed.</dd>
         </dl>
       </section>
-      <section class="content-section" aria-labelledby="evidence-title">
-        <h2 id="evidence-title">Evidence log</h2>
-        <ol class="joke-log">
-          <li>03:12: Subject attempted a crossfade. Off-beat. Noted.</li>
-          <li>04:15: Subject claimed to "know what they are doing." Flagged for review.</li>
-          <li>05:01: Subject asked for asylum. Request archived for future amusement.</li>
+      <section class="section container" aria-labelledby="evidence-title">
+        <div class="section-head reveal">
+          <h2 id="evidence-title">Evidence log</h2>
+        </div>
+        <ol class="joke-log reveal">
+          <li><time>03:12</time> Subject attempted a crossfade. Off-beat. Noted.</li>
+          <li>
+            <time>04:15</time> Subject claimed to "know what they are doing." Flagged for review.
+          </li>
+          <li>
+            <time>05:01</time> Subject asked for asylum. Request archived for future amusement.
+          </li>
         </ol>
       </section>
-      <section class="content-section" aria-labelledby="analysis-title">
-        <h2 id="analysis-title">Observations, entirely unserious</h2>
+      <section class="section container" aria-labelledby="analysis-title">
+        <div class="section-head reveal">
+          <h2 id="analysis-title">Observations, entirely unserious</h2>
+          <p>Nothing is sent or saved; this only changes the text on this page.</p>
+        </div>
         <p id="analysis-output" class="observation-output">
           Observation pending. This joke stays in your browser.
         </p>
-        <p class="joke-note">Nothing is sent or saved; this only changes the text on this page.</p>
         <div class="actions">
           <button id="asylum-button" class="button" type="button">Request asylum</button>
         </div>

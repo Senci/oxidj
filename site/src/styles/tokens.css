@@ -1,6 +1,49 @@
+/* OxiDJ site tokens: Tokyo night near-black, purple primary, cyan secondary. */
 :root {
-  color-scheme: light;
-  --space-3xs: 2px;
+  color-scheme: dark;
+
+  /* Surfaces and ink */
+  --color-paper: oklch(15% 0.014 280);
+  --color-paper-0: oklch(11.5% 0.012 280);
+  --color-paper-2: oklch(18.5% 0.02 280);
+  --color-paper-3: oklch(23% 0.028 280);
+  --color-ink: oklch(95% 0.012 280);
+  --color-ink-2: oklch(84% 0.022 280);
+  --color-muted: oklch(74% 0.03 280);
+  --color-rule: oklch(29% 0.03 280);
+  --color-rule-2: oklch(38% 0.04 285);
+
+  /* Signals: purple primary, cyan secondary, amber for the high band and open gates */
+  --color-accent: oklch(76% 0.14 295);
+  --color-accent-hover: oklch(84% 0.1 295);
+  --color-accent-ink: oklch(18% 0.04 295);
+  --color-secondary: oklch(82% 0.11 220);
+  --color-amber: oklch(81% 0.12 70);
+  --color-focus: oklch(86% 0.12 210);
+  --color-redaction: oklch(0% 0 0);
+
+  /* Translucent mixes of the tokens above */
+  --color-glow: oklch(62% 0.2 295 / 0.2);
+  --color-scrim: oklch(8% 0.012 280 / 0.96);
+  --color-veil: oklch(15% 0.014 280 / 0.86);
+  --color-tint-accent: oklch(76% 0.14 295 / 0.14);
+  --color-tint-secondary: oklch(82% 0.11 220 / 0.13);
+  --color-shadow: oklch(4% 0.01 280 / 0.7);
+
+  /* Type */
+  --font-body: 'Epilogue', ui-sans-serif, system-ui, sans-serif;
+  --font-code:
+    'OxiDJ Mono', ui-monospace, monospace; /* IBM Plex Mono subset, renamed per its OFL Reserved Font Name */
+  --text-display: clamp(3rem, 7.4vw, 6.75rem);
+  --text-display-s: clamp(2.5rem, 5vw, 4.5rem);
+  --text-section: clamp(2rem, 3.6vw, 3.4rem);
+  --text-title: clamp(1.2rem, 1.4vw, 1.5rem);
+  --text-lead: clamp(1.0625rem, 1.2vw, 1.25rem);
+  --text-md: 1rem;
+  --text-sm: 0.875rem;
+  --text-xs: 0.8125rem;
+
+  /* Space and layout */
   --space-2xs: 4px;
   --space-xs: 8px;
   --space-sm: 12px;
@@ -9,61 +52,24 @@
   --space-xl: 40px;
   --space-2xl: 64px;
   --space-3xl: 96px;
-  --space-4xl: 144px;
-  --text-xs: 0.8125rem;
-  --text-sm: 0.875rem;
-  --text-md: 1rem;
-  --text-lg: 1.25rem;
-  --text-xl: 1.5625rem;
-  --text-2xl: 1.953rem;
-  --text-3xl: 2.441rem;
-  --text-display-s: clamp(2.25rem, 4vw + 0.5rem, 3.75rem);
-  --text-display: clamp(2.75rem, 5vw + 1rem, 5.25rem);
-  --text-section: clamp(2rem, 2.5vw + 1rem, 3.5rem);
-  --text-title: clamp(1.25rem, 0.75vw + 0.875rem, 1.625rem);
-  --text-lead: clamp(1.125rem, 0.35vw + 1rem, 1.375rem);
-  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
-  --ease-in: cubic-bezier(0.7, 0, 0.84, 0);
-  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
-  --dur-micro: 120ms;
-  --dur-short: 220ms;
-  --dur-long: 420ms;
-  --color-error: oklch(52% 0.19 27);
-  --color-success: oklch(50% 0.12 150);
-  --container: 1440px;
-  --gutter: 64px;
-  --gap-columns: 32px;
-  --section-gap-s: 120px;
-  --section-gap: 144px;
-  --section-gap-l: 176px;
-  --z-base: 1;
-  --z-raised: 10;
-  --z-dropdown: 100;
-  --z-sticky: 200;
-  --z-sticky-nav: 300;
-  --z-modal: 400;
-  --z-toast: 500;
-  --z-tooltip: 600;
-  --color-paper: oklch(99.5% 0.003 100);
-  --color-paper-2: oklch(97% 0.004 100);
-  --color-paper-3: oklch(94% 0.006 100);
-  --color-ink: oklch(16% 0.005 190);
-  --color-ink-2: oklch(28% 0.005 190);
-  --color-muted: oklch(44% 0.005 190);
-  --color-rule: oklch(89% 0.004 100);
-  --color-rule-2: oklch(93.5% 0.003 100);
-  --color-accent: oklch(50% 0.095 188);
-  --color-accent-ink: oklch(99.5% 0.003 100);
-  --color-accent-soft: oklch(93% 0.05 190);
-  --color-accent-soft-ink: oklch(27% 0.045 190);
-  --color-focus: oklch(50% 0.095 188);
-  --font-display: 'Epilogue', ui-sans-serif, system-ui, sans-serif;
-  --font-body: var(--font-display);
-  --font-outlier: 'IBM Plex Mono', ui-monospace, monospace;
-  --radius-card: 12px;
+  --section-gap: clamp(88px, 12vw, 168px);
+  --container: 1200px;
+  --gutter: clamp(20px, 5vw, 72px);
+  --gap-columns: clamp(24px, 4vw, 56px);
+  --radius-s: 8px;
+  --radius: 14px;
+  --radius-l: 20px;
   --radius-pill: 999px;
-  --rule-hair: 1px;
-  --shadow-card: 0 20px 40px oklch(20% 0 0 / 0.16);
-  --tracking-display: -0.04em;
-  --display-weight: 700;
+
+  /* Motion */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --dur-micro: 140ms;
+  --dur-short: 240ms;
+  --dur-long: 700ms;
+
+  /* Stacking */
+  --z-raised: 10;
+  --z-sticky: 300;
+  --z-modal: 400;
 }
