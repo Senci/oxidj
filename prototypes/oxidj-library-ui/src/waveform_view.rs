@@ -226,10 +226,15 @@ pub fn build_layers(
         match style {
             Style::ThreeBand => {
                 let colors = [palette.low, palette.mid, palette.high];
-                for b in 0..3 {
-                    // Mirrored about the centre line: the louder side sets the extent.
-                    let m = band_amp[b].0.max(-band_amp[b].1);
-                    quad(&mut layers[b], x0, (m, -m), colors[b]);
+                // Mirrored about the centre line: the louder side sets the extent.
+                let ext: [f32; 3] = core::array::from_fn(|b| band_amp[b].0.max(-band_amp[b].1));
+                // Nest by rank: the largest extent goes to the back layer, the
+                // smallest to the front, so no band is ever covered by a larger
+                // one. Each keeps its own colour at its own true extent.
+                let mut order = [0usize, 1, 2];
+                order.sort_unstable_by(|&a, &b| ext[b].total_cmp(&ext[a]).then(a.cmp(&b)));
+                for (rank, &b) in order.iter().enumerate() {
+                    quad(&mut layers[rank], x0, (ext[b], -ext[b]), colors[b]);
                 }
             }
             Style::Mono | Style::Rgb => {
@@ -510,12 +515,20 @@ mod tests {
         let before = peaks.clone();
         let rect = Rect::from_min_size(Pos2::ZERO, Vec2::new(300.0, HEIGHT));
         let mut layers: [Mesh; 3] = Default::default();
+        let pal = Palette::from_tokens(tokens());
+        // Layers are ranked by extent, so measure a band by its colour: the
+        // largest vertical span over every vertex painted in that band's colour.
         let height = |layers: &[Mesh; 3], i: usize| {
-            let b = layers[i].calc_bounds();
-            b.height()
+            let colour = [pal.low, pal.mid, pal.high][i];
+            let ys = layers
+                .iter()
+                .flat_map(|m| m.vertices.iter())
+                .filter(|v| v.color == colour)
+                .map(|v| v.pos.y);
+            let (lo, hi) = ys.fold((f32::MAX, f32::MIN), |(l, h), y| (l.min(y), h.max(y)));
+            hi - lo
         };
         let vp = Viewport::whole(&peaks, 300.0);
-        let pal = Palette::from_tokens(tokens());
         build_layers(
             &peaks,
             Style::ThreeBand,
@@ -588,6 +601,94 @@ mod tests {
             &mut layers,
         );
         assert!(layers[0].vertices.iter().any(|v| v.color.r() > 0));
+    }
+
+    /// Constant-amplitude peaks per band: (low, mid, high), `cols` columns.
+    fn flat_peaks(amps: [f32; 3], cols: usize) -> WaveformPeaks {
+        let band = |a: f32| vec![WaveformPeak::from_f32(-a, a).unwrap(); cols];
+        WaveformPeaks::from_base(
+            44_100,
+            294,
+            cols as u64 * 294,
+            [band(amps[0]), band(amps[1]), band(amps[2])],
+        )
+        .expect("valid flat peaks")
+    }
+
+    /// Extents (half-height above the centre line) and colour of each layer's
+    /// first column, back to front, after mirroring.
+    fn layer_extents(amps: [f32; 3], eq: Eq) -> Vec<(f32, Color32)> {
+        let peaks = flat_peaks(amps, 64);
+        let rect = Rect::from_min_size(Pos2::ZERO, Vec2::new(32.0, HEIGHT));
+        let mut layers: [Mesh; 3] = Default::default();
+        let pal = Palette::from_tokens(tokens());
+        build_layers(
+            &peaks,
+            Style::ThreeBand,
+            Viewport::whole(&peaks, 32.0),
+            eq,
+            rect,
+            pal,
+            &mut layers,
+        );
+        layers
+            .iter()
+            .map(|m| {
+                let ys: Vec<f32> = m.vertices.iter().map(|v| v.pos.y).collect();
+                let (lo, hi) = ys
+                    .iter()
+                    .fold((f32::MAX, f32::MIN), |(l, h), &y| (l.min(y), h.max(y)));
+                let c = rect.center().y;
+                // Mirror symmetry about the centre line.
+                assert!(((c - lo) - (hi - c)).abs() < 1e-3, "{lo} {hi} vs {c}");
+                assert!(m.vertices.iter().all(|v| v.color == m.vertices[0].color));
+                assert_eq!(m.vertices[0].color.a(), 255, "layers are opaque");
+                (c - lo, m.vertices[0].color)
+            })
+            .collect()
+    }
+
+    #[test]
+    fn three_band_layers_are_nested_by_extent_in_every_dominance_case() {
+        let pal = Palette::from_tokens(tokens());
+        let colours = [pal.low, pal.mid, pal.high];
+        for amps in [
+            [0.9, 0.5, 0.2], // low-heavy
+            [0.1, 0.8, 0.3], // mid-heavy
+            [0.1, 0.2, 0.8], // high-heavy: used to cover low and mid entirely
+            [0.4, 0.4, 0.4], // ties keep band order, still nested (equal)
+        ] {
+            let l = layer_extents(amps, Eq::default());
+            assert!(l[0].0 >= l[1].0 && l[1].0 >= l[2].0, "{amps:?}: {l:?}");
+            // Every band is still drawn once, in its own colour, at its own extent.
+            for (b, &colour) in colours.iter().enumerate() {
+                let layer = l
+                    .iter()
+                    .find(|(_, c)| *c == colour)
+                    .unwrap_or_else(|| panic!("{amps:?} band {b} missing"));
+                let want = amps[b] * (HEIGHT / 2.0 - INSET);
+                assert!(
+                    (layer.0 - want).abs() < 1.5,
+                    "{amps:?} band {b}: {} vs {want}",
+                    layer.0
+                );
+            }
+        }
+        // High-heavy: the high band is the back (outermost) layer.
+        let l = layer_extents([0.1, 0.2, 0.8], Eq::default());
+        assert_eq!(l[0].1, pal.high);
+        assert_eq!(l[2].1, pal.low);
+        // EQ re-ranks live: cutting the dominant high band makes mid the outermost.
+        let l = layer_extents(
+            [0.1, 0.2, 0.8],
+            Eq {
+                low: 1.0,
+                mid: 1.0,
+                high: 0.0,
+            },
+        );
+        assert_eq!(l[0].1, pal.mid);
+        assert!(l[0].0 >= l[1].0 && l[1].0 >= l[2].0, "{l:?}");
     }
 
     #[test]
