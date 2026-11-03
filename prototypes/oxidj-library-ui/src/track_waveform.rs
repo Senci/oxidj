@@ -150,6 +150,10 @@ impl TrackWaveformPanel {
                 // One gain per row at the standard rail width, so the rails line
                 // up with Position; a shared row squeezed them to ~40 px.
                 ui.vertical(|ui| {
+                    // Full-strength trailing fill: the shared 20 % selection
+                    // tint (kept low for selected-text contrast) left the
+                    // filled rail barely visible in Tokyo Day.
+                    ui.visuals_mut().selection.bg_fill = tokens.primary;
                     let mut slider = |value: &mut f32, text| {
                         ui.add(
                             egui::Slider::new(value, 0.0..=1.0).trailing_fill(true)
