@@ -33,7 +33,7 @@ for name, t in (("Tokyo Night", N), ("Tokyo Day", D)):
         rows.append((f"text on {k} badge (surface)", ratio(t["text"], fill), 4.5))
         fill = pack(over(t[k], 0.16, t["background"]))
         rows.append((f"text on {k} badge (background)", ratio(t["text"], fill), 4.5))
-    sel = pack(over(t["primary"], 0.28, t["background"]))
+    sel = pack(over(t["primary"], 0.20, t["background"]))  # theme::SELECTION_TINT
     rows.append(("text on selection (background)", ratio(t["text"], sel), 4.5))
     act = pack(over(t["primary"], 0.18, t["background"]))
     rows.append(("text on primary action", ratio(t["text"], act), 4.5))
