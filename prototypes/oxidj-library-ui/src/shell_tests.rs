@@ -185,6 +185,11 @@ fn defaults_one_row_toolbar_status_bar_and_full_width_table() {
     let (root, db) = catalog_root("defaults");
     for width in [1440.0, 900.0] {
         let mut shell = Shell::new(&db, width);
+        // Many frames: a layout that fills the available height would grow
+        // the toolbar a little every frame (seen on the first live build).
+        for _ in 0..30 {
+            shell.settle();
+        }
         let out = shell.settle();
         let app = &shell.app;
         assert!(
@@ -393,7 +398,7 @@ fn selecting_a_row_does_not_open_details_and_headers_sort() {
             .unwrap()
     };
     assert_eq!(top(&out), "tone-b.wav", "shortest first");
-    let header = find(&nodes(&out), "Duration ▲").2;
+    let header = find(&nodes(&out), "Duration, sorted ascending").2;
     let out = shell.click(header.center());
     assert!(shell.app.descending);
     assert_eq!(top(&out), "tone-c.wav", "longest first");
@@ -418,6 +423,12 @@ fn more_menu_reaches_catalog_import_and_xml_controls() {
         assert!(
             shell.screen.contains_rect(popup),
             "{width}: menu clipped {popup:?}"
+        );
+        // Right-aligned under "…" from its fixed width (not a stale size).
+        let more = shell.app.shell.more.unwrap();
+        assert!(
+            close(popup.right(), more.right()) && popup.top() >= more.bottom(),
+            "{width}: {popup:?} under {more:?}"
         );
         let tree = nodes(&out);
         for label in [

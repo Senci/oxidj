@@ -22,6 +22,8 @@ const AVAILABILITY_COLUMN: f32 = 96.0;
 const MIN_FLEX_COLUMNS: f32 = 2.0 * 130.0;
 /// Horizontal text inset of every table cell.
 const CELL_INSET: f32 = 6.0;
+/// Width of the "…" popup (label + 240 px field + action button).
+const MORE_MENU_WIDTH: f32 = 500.0;
 /// Panel shortcut legend shown in the status bar and the toggle tooltips.
 const PANEL_SHORTCUTS: &str = "Ctrl+B Nav · Ctrl+I Details · Ctrl+D Decks";
 
@@ -109,16 +111,31 @@ impl LibraryApp {
                 });
             self.show_theme_editor = editor_open;
         }
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+        // A fixed one-control-high row: separators and right-to-left layouts
+        // fill the available height, which would otherwise grow the panel.
+        let row = egui::vec2(ui.available_width(), theme::CONTROL_HEIGHT);
+        ui.allocate_ui_with_layout(row, egui::Layout::right_to_left(egui::Align::Center), |ui| {
             // Right-to-left: the first widget added is the rightmost.
             let more = ui
                 .add(egui::Button::new("…").min_size(egui::vec2(theme::CONTROL_HEIGHT + 8.0, 0.0)))
                 .on_hover_text("More: catalog, import, Rekordbox XML and tool windows");
             self.shell.more = Some(more.rect);
+            // Placed from its fixed width, not from egui's previous-frame size
+            // estimate: egui repaints only on input, so a freshly opened popup
+            // positioned by pivot stayed half off-screen on the live build.
+            let corner = egui::pos2((more.rect.right() - MORE_MENU_WIDTH).max(0.0), more.rect.bottom() + 2.0);
             let popup = egui::Popup::from_toggle_button_response(&more)
                 .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
-                .align(egui::RectAlign::BOTTOM_END)
-                .show(|ui| self.more_menu(ui, tokens));
+                .anchor(corner)
+                .align(egui::RectAlign::BOTTOM_START)
+                .gap(0.0)
+                .width(MORE_MENU_WIDTH)
+                .show(|ui| {
+                    // Outer width = MORE_MENU_WIDTH: subtract the frame margin and stroke.
+                    let frame = ui.style().spacing.menu_margin.sum().x + 2.0 * ui.visuals().window_stroke.width;
+                    ui.set_width(MORE_MENU_WIDTH - frame);
+                    self.more_menu(ui, tokens)
+                });
             self.shell.more_popup = popup.map(|popup| popup.response.rect);
             self.theme_selection_ui(ui);
             ui.separator();
@@ -159,7 +176,7 @@ impl LibraryApp {
     /// The "…" popup: catalog path + reload, import folder, Rekordbox XML
     /// preview, then the tool windows. Actions close the popup.
     fn more_menu(&mut self, ui: &mut egui::Ui, tokens: theme::ColorTokens) {
-        let field = 280.0;
+        let field = 240.0;
         let height = theme::CONTROL_HEIGHT;
         let mut close = false;
         egui::Grid::new("more-menu-fields")
@@ -229,8 +246,8 @@ impl LibraryApp {
     /// One line: the latest notice (or "Ready"), track count, shortcut legend.
     fn status_bar(&mut self, ui: &mut egui::Ui, tokens: theme::ColorTokens) {
         ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
-        ui.set_min_height(theme::CONTROL_HEIGHT);
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+        let row = egui::vec2(ui.available_width(), theme::CONTROL_HEIGHT);
+        ui.allocate_ui_with_layout(row, egui::Layout::right_to_left(egui::Align::Center), |ui| {
             let muted = |text: String| egui::RichText::new(text).small().color(tokens.muted_text);
             ui.label(muted(PANEL_SHORTCUTS.into()));
             ui.separator();
@@ -986,13 +1003,15 @@ fn table_header(
             let cell = egui::Rect::from_min_size(egui::pos2(x, rect.top()), egui::vec2(width, rect.height()));
             x += width;
             let active = sort == Some(*current);
-            let text = if active {
-                format!("{title} {}", if *descending { "▼" } else { "▲" })
+            // The default fonts lack ▲/▼, so the sort arrow is painted.
+            let name = if active {
+                format!("{title}, sorted {}", if *descending { "descending" } else { "ascending" })
             } else {
                 title.to_owned()
             };
+            let text = title;
             let color = if active { tokens.text } else { tokens.muted_text };
-            let galley = egui::WidgetText::from(egui::RichText::new(&text).small().strong()).into_galley(
+            let galley = egui::WidgetText::from(egui::RichText::new(text).small().strong()).into_galley(
                 ui,
                 Some(egui::TextWrapMode::Truncate),
                 width - 2.0 * CELL_INSET,
@@ -1001,7 +1020,7 @@ fn table_header(
             let pos = egui::pos2(cell.left() + CELL_INSET, cell.center().y - galley.size().y / 2.0);
             if let Some(sort) = sort {
                 let response = ui.interact(cell, ui.id().with(("sort-header", title)), egui::Sense::click());
-                response.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, true, active, &text));
+                response.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, true, active, &name));
                 if response.hovered() || response.has_focus() {
                     let stroke: f32 = if response.has_focus() { 2.0 } else { 1.0 };
                     ui.painter().rect_stroke(cell.shrink(1.0), 2.0, egui::Stroke::new(stroke, tokens.focus), egui::StrokeKind::Inside);
@@ -1014,6 +1033,16 @@ fn table_header(
                         *descending = false;
                     }
                 }
+            }
+            if active {
+                let size = galley.size();
+                let c = egui::pos2(pos.x + size.x + 8.0, cell.center().y);
+                let (tip, base) = if *descending { (3.0, -3.0) } else { (-3.0, 3.0) };
+                ui.painter().add(egui::Shape::convex_polygon(
+                    vec![egui::pos2(c.x, c.y + tip), egui::pos2(c.x + 4.0, c.y + base), egui::pos2(c.x - 4.0, c.y + base)],
+                    color,
+                    egui::Stroke::NONE,
+                ));
             }
             ui.painter().galley(pos, galley, color);
         }
