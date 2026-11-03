@@ -2,7 +2,7 @@
 
 Run from site/:  uv run --no-project --with pillow python scripts/crop-screenshots.py
 
-Sources are the synthetic-catalog captures in docs/milestones/ui-minimal/after-w9/
+Sources are the synthetic-catalog captures in docs/milestones/archive/ui-minimal/after-w9/
 (1440x900, Bot Screen, no private library data). Each crop keeps only the app
 window content (no desktop bar, title bar or dock). Every crop is written as a
 lossless WebP at native resolution (2x and the lightbox); the wide overview
@@ -15,7 +15,7 @@ from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
 
 SITE = Path(__file__).resolve().parent.parent
-SRC = SITE.parent / "docs/milestones/ui-minimal/after-w9"
+SRC = SITE.parent / "docs/milestones/archive/ui-minimal/after-w9"
 OUT = SITE / "public/images"
 MONO = SRC / "01-details-decks-mono-night-1440.png"
 BAND = SRC / "02-three-band-deck-a-play-night-1440.png"

@@ -154,5 +154,5 @@ Engineering rules and conventions, committed in-repo for reproducibility.
 - [docs/history/](history/) — full pre-condensation text of both files
   (`status-2026-11-02.md`, `mvp-2026-11-02.md`): per-increment evidence,
   decisions, risks, M0-09 verification.
-- [docs/milestones/waveform/](milestones/waveform/README.md) — waveform view captures
+- [docs/milestones/archive/waveform/](milestones/archive/waveform/README.md) — waveform view captures
   (synthetic audio, real Bot Screen), generator script and NOT DEMONSTRATED list.

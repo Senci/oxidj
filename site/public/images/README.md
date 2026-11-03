@@ -1,7 +1,7 @@
 # Public image provenance
 
 All screenshots are crops of the two reviewed after-W9 captures in
-`docs/milestones/ui-minimal/after-w9/` (release build of the provisional
+`docs/milestones/archive/ui-minimal/after-w9/` (release build of the provisional
 `prototypes/oxidj-library-ui`, Tokyo Night, isolated Bot Screen X11 at 1440x900,
 2026-11-03, commit `89cd073`). The catalog is the synthetic W8/W9 test set: ten
 generated WAV files under `/mnt/audio/synthetic-*` (a bind-mounted scratch path), not
