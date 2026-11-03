@@ -36,6 +36,7 @@ fn layer_of(name: &str) -> Option<u8> {
     match name {
         "oxidj-core" => Some(0),
         "oxidj-library" => Some(1),
+        "oxidj-analysis" => Some(1),
         "oxidj-rekordbox" => Some(2),
         "oxidj-onelibrary" => Some(2),
         "oxidj-application" => Some(3),
@@ -43,6 +44,9 @@ fn layer_of(name: &str) -> Option<u8> {
         _ => None,
     }
 }
+
+/// Offline analysis crate: allowed to depend on `oxidj-core` only.
+const ANALYSIS_CRATE: &str = "oxidj-analysis";
 
 /// Build-tooling crates excluded from the layer + denylist rules.
 const EXEMPT_CRATES: &[&str] = &["xtask"];
@@ -238,6 +242,15 @@ fn check_layers(meta: &serde_json::Value) -> Result<(), Vec<String>> {
 
         for dep in deps {
             let dep_name = &dep.name;
+            // ADR-004: offline analysis depends on the neutral core only — no
+            // other internal crate and no external dependency of any kind.
+            if name == ANALYSIS_CRATE && !(dep_name == "oxidj-core" && dep.source.is_none()) {
+                violations.push(format!(
+                    "{name} (layer {my_layer}) -> {dep_name}: {ANALYSIS_CRATE} may depend \
+                     only on oxidj-core (ADR-004)"
+                ));
+                continue;
+            }
             let is_path_dep = dep.source.is_none();
             if is_path_dep {
                 // A path dependency is an internal edge to a workspace member
@@ -721,6 +734,7 @@ mod tests {
     fn layers_assign_core_bottom_product_crates_above_xtask_exempt() {
         assert_eq!(layer_of("oxidj-core"), Some(0));
         assert_eq!(layer_of("oxidj-library"), Some(1));
+        assert_eq!(layer_of("oxidj-analysis"), Some(1));
         assert_eq!(layer_of("oxidj-rekordbox"), Some(2));
         assert_eq!(layer_of("oxidj-application"), Some(3));
         assert_eq!(layer_of("oxidj-cli"), Some(4));
@@ -980,6 +994,42 @@ mod tests {
             errs.iter()
                 .any(|e| e.contains("cpal") && e.contains("audio"))
         );
+    }
+
+    #[test]
+    fn analysis_may_depend_only_on_core() {
+        let meta = |deps: Vec<(&str, Option<&str>)>| {
+            json!({
+                "workspace_members": [
+                    "path+file:///root#oxidj-core@0.1.0",
+                    "path+file:///root#oxidj-library@0.1.0",
+                    "path+file:///root#oxidj-application@0.1.0",
+                    "path+file:///root#oxidj-analysis@0.1.0"
+                ],
+                "packages": [
+                    member("oxidj-core", vec![]),
+                    member("oxidj-library", vec![("oxidj-core", None)]),
+                    member("oxidj-application", vec![("oxidj-core", None)]),
+                    member("oxidj-analysis", deps),
+                ]
+            })
+        };
+        assert!(check_layers(&meta(vec![("oxidj-core", None)])).is_ok());
+        let registry = Some("registry+https://github.com/rust-lang/crates.io-index");
+        for planted in [
+            vec![("oxidj-core", None), ("oxidj-application", None)], // upward
+            vec![("oxidj-core", None), ("oxidj-library", None)],     // same layer
+            vec![("oxidj-core", None), ("serde_json", registry)],    // external
+            vec![("oxidj-core", None), ("rustfft", registry)],       // new DSP dep
+        ] {
+            let bad = planted[1].0;
+            let errs = check_layers(&meta(planted)).unwrap_err();
+            assert!(
+                errs.iter()
+                    .any(|e| e.contains("oxidj-analysis") && e.contains(bad)),
+                "planted oxidj-analysis -> {bad} not flagged: {errs:?}"
+            );
+        }
     }
 
     #[test]

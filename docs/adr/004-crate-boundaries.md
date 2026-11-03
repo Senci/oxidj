@@ -36,10 +36,12 @@ flowchart TB
     adapters --> xml["quick-xml<br/>XML parsing only"]
     adapters --> pdb["rekordbox-pdb<br/>pinned read API only"]
     storage["oxidj-storage<br/>SQLite, migrations"] --> core
-    analysis["oxidj-analysis<br/>BPM, beatgrid, waveform, key"] --> core
+    analysis["oxidj-analysis<br/>layer 1; waveform peaks (W1); core only"] --> core
     audio["WAV/FLAC/MP3 decode in oxidj-library<br/>M2 import only"] --> library
     engine["oxidj-engine<br/>M4+ deferred"] -. "depends only on" .-> core
 ```
+
+**Offline analysis (W1 amendment):** `oxidj-analysis` exists at layer 1 with exactly one dependency edge, `oxidj-core`. It consumes already-decoded mono samples (decoding stays in `oxidj-library`) and produces the neutral `oxidj_core::waveform::WaveformPeaks`; `cargo xtask layers` rejects any other dependency of the crate. BPM/beatgrid/key analysis remain unimplemented.
 
 The **realtime engine** (`oxidj-engine`: CPAL + dasp/fundsp/rubato) is a separate crate with strictly one dependency edge — `oxidj-core` — and is **not created in M0**. It enters only at M4.
 

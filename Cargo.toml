@@ -4,6 +4,7 @@
 #
 #   crates/oxidj-core         neutral domain model          (layer 0)
 #   crates/oxidj-library      shared catalog handlers        (layer 1)
+#   crates/oxidj-analysis     offline analysis (waveform)    (layer 1; core only)
 #   crates/oxidj-rekordbox    isolated XML + DeviceSQL adapter (layer 2)
 #   crates/oxidj-onelibrary   isolated OneLibrary preview contract (layer 2)
 #   crates/oxidj-application  shared operation orchestration (layer 3)
@@ -24,6 +25,7 @@ resolver = "2"
 members = [
     "crates/oxidj-core",
     "crates/oxidj-library",
+    "crates/oxidj-analysis",
     "crates/oxidj-rekordbox",
     "crates/oxidj-onelibrary",
     "crates/oxidj-application",
@@ -32,7 +34,12 @@ members = [
 ]
 # A bare `cargo build` / `cargo test` at the root covers the product crates only.
 # `xtask` (a build-time tool) is invoked explicitly via `cargo xtask`.
-default-members = ["crates/oxidj-core", "crates/oxidj-library", "crates/oxidj-cli"]
+default-members = [
+    "crates/oxidj-core",
+    "crates/oxidj-library",
+    "crates/oxidj-analysis",
+    "crates/oxidj-cli",
+]
 
 [workspace.package]
 edition = "2024"
@@ -46,6 +53,7 @@ description = "OxiDJ: a modern, open-source DJ library and performance applicati
 [workspace.dependencies]
 oxidj-core = { path = "crates/oxidj-core", version = "0.1.0" }
 oxidj-library = { path = "crates/oxidj-library", version = "0.1.0" }
+oxidj-analysis = { path = "crates/oxidj-analysis", version = "0.1.0" }
 oxidj-rekordbox = { path = "crates/oxidj-rekordbox", version = "0.1.0" }
 oxidj-onelibrary = { path = "crates/oxidj-onelibrary", version = "0.1.0" }
 oxidj-application = { path = "crates/oxidj-application", version = "0.1.0" }

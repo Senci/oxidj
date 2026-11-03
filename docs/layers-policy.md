@@ -14,6 +14,7 @@ crates at the **same layer or lower**. Depending on a higher layer is a forbidde
 |-------|-------|------|
 | 0 | `oxidj-core` | Neutral domain model and rules; zero infrastructure deps. |
 | 1 | `oxidj-library` | Shared catalog/application handlers; owns SQLite and migrations. |
+| 1 | `oxidj-analysis` | Offline analysis (W1: streaming 3-band waveform peaks) over decoded mono samples. Depends on `oxidj-core` **only**: the gate rejects every other internal or external dependency of any kind, so it can neither reach the library/adapters nor add DSP crates. |
 | 2 | `oxidj-rekordbox` | Isolated vendor XML/DeviceSQL adapter (M4 preview). |
 | 2 | `oxidj-onelibrary` | Read-only OneLibrary DTO and process-protocol boundary; no SQL dependency. SQLCipher lives only in `adapters/onelibrary-reader`, an independent Cargo workspace excluded from the root graph. `cargo xtask layers` checks the root resolved feature graph excludes SQLCipher and verifies the isolated pinned reader graph and locked license gate. |
 | 3 | `oxidj-application` | Orchestrates shared handlers and adapter operations for callers. |
@@ -45,6 +46,7 @@ flowchart TB
     rekordbox --> xml["quick-xml"]
     rekordbox --> pdb["rekordbox-pdb (pinned read-only use)"]
     library --> core["oxidj-core<br/>layer 0"]
+    analysis["oxidj-analysis<br/>layer 1; core only"] --> core
     library --> sqlite["rusqlite + rusqlite_migration"]
     core -. "forbidden upward edge" .-> library
     xtask["xtask<br/>exempt build tooling"]
@@ -110,6 +112,13 @@ cargo xtask layers
 # 3. remove the planted line, then pass again (both invocations agree)
 cargo xtask layers                 # PASS
 ```
+
+The `oxidj-analysis` core-only rule is demonstrated the same way: adding
+`oxidj-library = { workspace = true }` (a same-layer, otherwise permitted edge)
+to `crates/oxidj-analysis/Cargo.toml` makes `cargo xtask layers` exit 1 with
+`oxidj-analysis (layer 1) -> oxidj-library: oxidj-analysis may depend only on
+oxidj-core (ADR-004)`; removing it passes again. Unit test
+`analysis_may_depend_only_on_core` pins upward, same-layer and external plants.
 
 The direct-binary invocation is used only to isolate the *policy* failure from a
 stale-lockfile side effect; the failure message is produced by the same

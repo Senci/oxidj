@@ -1,0 +1,17 @@
+[package]
+name = "oxidj-analysis"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "OxiDJ offline analysis: streaming 3-band waveform peaks."
+publish = false
+
+# Layer 1 (ADR-004). Depends on `oxidj-core` only; `cargo xtask layers` rejects
+# any other dependency (internal or external, any kind). Decoding stays in the
+# library; this crate consumes already-decoded mono samples.
+[dependencies]
+oxidj-core = { workspace = true }
+
+[lints]
+workspace = true

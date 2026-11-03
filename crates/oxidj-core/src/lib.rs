@@ -10,6 +10,7 @@
 //! adapter crates, not here.
 
 pub mod publish;
+pub mod waveform;
 
 use core::fmt;
 use core::str::FromStr;
