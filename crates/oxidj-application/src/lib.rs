@@ -12,7 +12,7 @@ mod waveform;
 pub use library_import::{
     LibraryExportReport, LibraryImportReport, LibraryWorkflowError, NotCarried,
     OneLibraryCrossCheck, export_library_xml, import_library_from_pdb, library_from_pdb_preview,
-    onelibrary_cross_check,
+    location_uri, onelibrary_cross_check,
 };
 /// The neutral peak model, re-exported so UI adapters need no direct core edge.
 pub use oxidj_core::waveform::{Band as WaveformBand, Peak as WaveformPeak, WaveformPeaks};

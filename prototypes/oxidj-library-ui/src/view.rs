@@ -8,6 +8,13 @@ impl eframe::App for LibraryApp {
     }
 
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        self.ui(ctx);
+    }
+}
+
+impl LibraryApp {
+    /// One frame of the whole library UI (the production `update` body).
+    pub(crate) fn ui(&mut self, ctx: &egui::Context) {
         self.handle_theme_shortcuts(ctx);
         self.theme.apply(self.custom_tokens, ctx);
         let tokens = self.active_tokens();
@@ -653,7 +660,7 @@ impl eframe::App for LibraryApp {
                 });
             });
         egui::SidePanel::right("details")
-            .default_width(300.0)
+            .default_width(380.0)
             .show(ctx, |ui| {
                 SectionHeading {
                     title: "Track details",
@@ -712,6 +719,8 @@ impl eframe::App for LibraryApp {
                                 .map(|b| format!("{b:02x}"))
                                 .collect::<String>()
                         ));
+                        self.track_waveform
+                            .show(ui, self.catalog.as_ref().ok(), item, tokens);
                     } else {
                         ui.label("Selected track is no longer in the catalog.");
                     }

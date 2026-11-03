@@ -185,7 +185,9 @@ pub struct LibraryExportReport {
     pub preview_verified: bool,
 }
 
-fn location_uri(path: &str) -> (String, bool) {
+/// The `file://localhost/…` location an imported library track records for a
+/// local `path` (already-URI paths pass through); `true` when it was encoded.
+pub fn location_uri(path: &str) -> (String, bool) {
     if path.starts_with("file://") {
         return (path.to_owned(), false);
     }

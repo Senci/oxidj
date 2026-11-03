@@ -120,6 +120,7 @@ pub(crate) struct LibraryApp {
     pub(crate) control_gallery: control_gallery::GalleryState,
     pub(crate) show_waveform_demo: bool,
     pub(crate) waveform_demo: Option<waveform_view::DemoState>,
+    pub(crate) track_waveform: track_waveform::TrackWaveformPanel,
     pub(crate) availability_filter: Option<TrackAvailability>,
     pub(crate) deck_playing: [bool; 2],
     pub(crate) deck_cue: [bool; 2],
@@ -248,6 +249,7 @@ impl LibraryApp {
             control_gallery: control_gallery::GalleryState::default(),
             show_waveform_demo: false,
             waveform_demo: None,
+            track_waveform: Default::default(),
             availability_filter: None,
             deck_playing: [false; 2],
             deck_cue: [false; 2],
@@ -440,6 +442,7 @@ impl LibraryApp {
     pub(crate) fn reload(&mut self) {
         self.tracks.clear();
         self.load_error = None;
+        self.track_waveform.invalidate();
         match &self.catalog {
             Ok(db) => match db.list_track_details() {
                 Ok(rows) => self.tracks = rows,

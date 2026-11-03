@@ -211,6 +211,49 @@ impl Catalog {
             peaks: decode_peaks(rate, spp, count, &blob)?,
         }))
     }
+
+    /// Vendor-derived waveforms of the first imported library track (lowest
+    /// position) whose stored `location` equals one of `locations` exactly, in
+    /// [`VendorWaveform`] declaration order. Empty when no such track or none
+    /// stored. Never touches computed peaks.
+    pub fn vendor_waveforms_for_locations(
+        &self,
+        locations: &[&str],
+    ) -> Result<Vec<VendorWaveform>, CatalogError> {
+        let mut position = None;
+        for location in locations {
+            let found: Option<i64> = self
+                .connection
+                .query_row(
+                    "SELECT MIN(position) FROM library_tracks WHERE location=?1",
+                    [location],
+                    |row| row.get(0),
+                )
+                .optional()?
+                .flatten();
+            position = match (position, found) {
+                (Some(a), Some(b)) => Some(std::cmp::min(a, b)),
+                (a, b) => a.or(b),
+            };
+        }
+        let Some(position) = position else {
+            return Ok(Vec::new());
+        };
+        let mut statement = self
+            .connection
+            .prepare("SELECT kind,data FROM library_vendor_waveforms WHERE track_position=?1")?;
+        let mut waveforms = statement
+            .query_map([position], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, Vec<u8>>(1)?))
+            })?
+            .map(|row| {
+                let (kind, data) = row?;
+                VendorWaveform::decode(&kind, &data)
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        waveforms.sort_by_key(VendorWaveform::order);
+        Ok(waveforms)
+    }
 }
 
 #[cfg(test)]

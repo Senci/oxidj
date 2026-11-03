@@ -667,6 +667,23 @@ mod tests {
             )
             .unwrap();
         assert_eq!((vendor, computed), (2, 0));
+        let vendor_a = catalog
+            .vendor_waveforms_for_locations(&["nope", "file://localhost/A.wav"])
+            .unwrap();
+        assert_eq!(vendor_a, snapshot().tracks[0].vendor_waveforms);
+        assert!(
+            catalog
+                .vendor_waveforms_for_locations(&["file://localhost/B.wav"])
+                .unwrap()
+                .is_empty(),
+            "track without vendor data"
+        );
+        assert!(
+            catalog
+                .vendor_waveforms_for_locations(&["file://localhost/missing.wav"])
+                .unwrap()
+                .is_empty()
+        );
         catalog
             .connection
             .execute(
@@ -675,5 +692,11 @@ mod tests {
             )
             .unwrap();
         assert!(catalog.library_snapshot().is_err());
+        assert!(
+            catalog
+                .vendor_waveforms_for_locations(&["file://localhost/A.wav"])
+                .is_err(),
+            "corrupt vendor rows fail closed"
+        );
     }
 }
