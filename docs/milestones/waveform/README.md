@@ -21,6 +21,7 @@ full-screen composited grab via Hermes `computer_use`), 2026-11-03.
 | `03-rgb.png` | Same track, style RGB (breakdown bars visibly lack low energy) |
 | `04-rgb-low-cut.png` | RGB with Low display gain 0.00 — red/low energy removed; audio unchanged |
 | `05-empty-unanalysed.png` | Track 3 selected: "No computed waveform: track not analysed" empty state |
+| `06-three-band-smooth.png` | W5b: track 2, 3-band, after the anti-aliased strip renderer (slanted edges between column centres, 1 px transparent fringe, nested by per-column rank). Same synthetic catalog (copy), release build of the W5b working tree on top of `5b115af`, 2026-11-03; edge pixels inspected show intermediate colours (e.g. 107,173,214 between cyan 125,207,255 and plate 26,27,38). |
 
 No vendor-derived (PWV) strip is shown because this synthetic catalog has no
 imported vendor analysis; that path is covered by the UI test only.

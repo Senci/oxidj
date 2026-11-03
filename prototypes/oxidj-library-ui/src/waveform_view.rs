@@ -1,7 +1,8 @@
 //! Reusable vector waveform renderer (W3).
 //!
 //! [`waveform_view`] draws a [`WaveformPeaks`] into an egui rect as one
-//! [`Mesh`] per layer. It picks the mipmap level whose density is closest to
+//! anti-aliased triangle-strip [`Mesh`] per layer (slanted edges between
+//! column centres, a 1 px transparent fringe along the outline). It picks the mipmap level whose density is closest to
 //! (but not below) one column per pixel, so per-frame cost is O(visible px),
 //! independent of track length. EQ gains scale drawn band amplitude live; the
 //! peaks themselves are never re-analysed or mutated. Layer meshes live in
@@ -20,6 +21,8 @@ pub const HEIGHT: f32 = 96.0;
 const INSET: f32 = 1.0;
 /// A silent or fully attenuated column still paints a 1 px line.
 const MIN_THICKNESS: f32 = 1.0;
+/// Width of the transparent anti-aliasing fringe around each layer outline.
+pub const FRINGE: f32 = 1.0;
 /// Widest viewport honoured (guards absurd widths).
 const MAX_WIDTH_PX: f32 = 16_384.0;
 
@@ -156,9 +159,23 @@ fn amplitude(p: WaveformPeak) -> (f32, f32) {
     (s(p.max()), s(p.min()))
 }
 
-/// Fill `layers` (cleared first) with the quads for one frame and return the
-/// mip level used. Pure: no egui context needed. `layers[0]` is the mono/RGB
-/// envelope or the low band; `[1]`/`[2]` are only used by [`Style::ThreeBand`].
+/// Vertices emitted per strip point: outer fringe, body edge, body edge, outer fringe.
+pub const VERTS_PER_POINT: usize = 4;
+/// Triangles per strip segment: top fringe, body, bottom fringe (two each).
+const TRIS_PER_SEGMENT: usize = 6;
+
+/// Fill `layers` (cleared first) with one anti-aliased triangle strip per
+/// layer for one frame and return the mip level used. Pure: no egui context
+/// needed. `layers[0]` is the mono/RGB envelope or the back (largest) 3-band
+/// layer; `[1]`/`[2]` are only used by [`Style::ThreeBand`].
+///
+/// Each layer is one polygon: per drawn pixel column a point at the column
+/// centre (plus one at each end so the shape spans the full columns), whose
+/// top and bottom extents are joined to the next point by slanted segments.
+/// Every point carries [`VERTS_PER_POINT`] vertices; the outer two form a
+/// [`FRINGE`]-px fully transparent band offset along the outline normal, so
+/// the GPU's colour interpolation fades the edge (anti-aliasing without
+/// textures). Vertex colours give Rgb a smooth per-column gradient.
 pub fn build_layers(
     peaks: &WaveformPeaks,
     style: Style,
@@ -194,18 +211,21 @@ pub fn build_layers(
     let half = (rect.height() / 2.0 - INSET).max(0.0);
     let used = if style == Style::ThreeBand { 3 } else { 1 };
     for mesh in layers.iter_mut().take(used) {
-        mesh.reserve_vertices(px * 4);
-        mesh.reserve_triangles(px * 2);
+        mesh.reserve_vertices((px + 2) * VERTS_PER_POINT);
+        mesh.reserve_triangles((px + 1) * TRIS_PER_SEGMENT);
     }
-    let quad = |mesh: &mut Mesh, x0: f32, (top, bottom): (f32, f32), color: Color32| {
+    // Body edge y for a (top, bottom) amplitude pair, at least MIN_THICKNESS apart.
+    let edges = |(top, bottom): (f32, f32)| {
         let (mut y0, mut y1) = (cy - top * half, cy - bottom * half);
         if y1 - y0 < MIN_THICKNESS {
             let mid = (y0 + y1) / 2.0;
             (y0, y1) = (mid - MIN_THICKNESS / 2.0, mid + MIN_THICKNESS / 2.0);
         }
-        let r = Rect::from_min_max(Pos2::new(x0, y0), Pos2::new(x0 + w, y1));
-        mesh.add_colored_rect(r.intersect(rect), color);
+        (y0, y1)
     };
+    // Per layer: the last column's (top, bottom, colour), repeated at the right end.
+    let mut last = [(0.0_f32, 0.0_f32, Color32::TRANSPARENT); 3];
+    let mut drawn = 0usize;
     for i in 0..px {
         let s0 = u128::from(start) + u128::from(span) * i as u128 / px as u128;
         let s1 = u128::from(start) + u128::from(span) * (i as u128 + 1) / px as u128;
@@ -222,7 +242,7 @@ pub fn build_layers(
             let (t, bo) = amplitude(p);
             (t * gains[b], bo * gains[b])
         });
-        let x0 = rect.left() + i as f32 * w;
+        let mut column = [(0.0_f32, 0.0_f32, Color32::TRANSPARENT); 3];
         match style {
             Style::ThreeBand => {
                 let colors = [palette.low, palette.mid, palette.high];
@@ -230,11 +250,14 @@ pub fn build_layers(
                 let ext: [f32; 3] = core::array::from_fn(|b| band_amp[b].0.max(-band_amp[b].1));
                 // Nest by rank: the largest extent goes to the back layer, the
                 // smallest to the front, so no band is ever covered by a larger
-                // one. Each keeps its own colour at its own true extent.
+                // one. Each keeps its own colour at its own true extent. Linear
+                // interpolation between columns preserves this order, so the
+                // strips stay nested between points too.
                 let mut order = [0usize, 1, 2];
                 order.sort_unstable_by(|&a, &b| ext[b].total_cmp(&ext[a]).then(a.cmp(&b)));
                 for (rank, &b) in order.iter().enumerate() {
-                    quad(&mut layers[rank], x0, (ext[b], -ext[b]), colors[b]);
+                    let (y0, y1) = edges((ext[b], -ext[b]));
+                    column[rank] = (y0, y1, colors[b]);
                 }
             }
             Style::Mono | Style::Rgb => {
@@ -245,11 +268,77 @@ pub fn build_layers(
                 } else {
                     rgb_color(band_amp, palette.silent)
                 };
-                quad(&mut layers[0], x0, (top, bottom), color);
+                let (y0, y1) = edges((top, bottom));
+                column[0] = (y0, y1, color);
             }
+        }
+        let xc = rect.left() + (i as f32 + 0.5) * w;
+        for (mesh, &(y0, y1, color)) in layers.iter_mut().zip(&column).take(used) {
+            if i == 0 {
+                push_point(mesh, rect.left(), y0, y1, color);
+            }
+            push_point(mesh, xc, y0, y1, color);
+        }
+        last = column;
+        drawn = i + 1;
+    }
+    if drawn > 0 {
+        let x_end = (rect.left() + drawn as f32 * w).min(rect.right());
+        for (mesh, &(y0, y1, color)) in layers.iter_mut().zip(&last).take(used) {
+            push_point(mesh, x_end, y0, y1, color);
+            finish_strip(mesh, rect);
         }
     }
     level
+}
+
+/// Append one strip point: `[fringe, top, bottom, fringe]`, fringe still at
+/// the body position (moved outward by [`finish_strip`]) and transparent.
+fn push_point(mesh: &mut Mesh, x: f32, top: f32, bottom: f32, color: Color32) {
+    let v = |y: f32, color: Color32| egui::epaint::Vertex {
+        pos: Pos2::new(x, y),
+        uv: egui::epaint::WHITE_UV,
+        color,
+    };
+    let n = mesh.vertices.len() as u32;
+    mesh.vertices.extend_from_slice(&[
+        v(top, Color32::TRANSPARENT),
+        v(top, color),
+        v(bottom, color),
+        v(bottom, Color32::TRANSPARENT),
+    ]);
+    if n >= VERTS_PER_POINT as u32 {
+        let a = n - VERTS_PER_POINT as u32;
+        let b = n;
+        // Top fringe, body, bottom fringe: two triangles each.
+        for k in 0..3 {
+            mesh.indices
+                .extend_from_slice(&[a + k, a + k + 1, b + k, a + k + 1, b + k + 1, b + k]);
+        }
+    }
+}
+
+/// Move every fringe vertex [`FRINGE`] px outward along the outline normal
+/// (averaged over the neighbouring segments), clamped into `rect`.
+fn finish_strip(mesh: &mut Mesh, rect: Rect) {
+    let points = mesh.vertices.len() / VERTS_PER_POINT;
+    for j in 0..points {
+        let prev = j.saturating_sub(1) * VERTS_PER_POINT;
+        let next = (j + 1).min(points - 1) * VERTS_PER_POINT;
+        let at = j * VERTS_PER_POINT;
+        // Top edge (vertex 1) normal points up, bottom edge (vertex 2) down.
+        for (body, fringe, sign) in [(1, 0, -1.0_f32), (2, 3, 1.0)] {
+            let t = mesh.vertices[next + body].pos - mesh.vertices[prev + body].pos;
+            let n = Vec2::new(-t.y, t.x).normalized() * sign;
+            let n = if n.is_finite() && n != Vec2::ZERO {
+                n
+            } else {
+                Vec2::new(0.0, sign)
+            };
+            let p = mesh.vertices[at + body].pos + n * FRINGE;
+            mesh.vertices[at + fringe].pos = p.clamp(rect.min, rect.max);
+        }
+    }
 }
 
 /// Gained band energies (half peak-to-peak) mapped to R/G/B, normalised to the
@@ -499,11 +588,17 @@ mod tests {
                 &mut layers,
             );
             let verts: Vec<_> = layers.iter().flat_map(|m| m.vertices.iter()).collect();
-            assert!(!verts.is_empty());
+            assert!(verts.iter().any(|v| v.color.a() == 255));
             for v in verts {
+                // Opaque body: the 1 px line; transparent fringe: 1 px outside it.
+                let limit = if v.color.a() == 0 {
+                    MIN_THICKNESS / 2.0 + FRINGE
+                } else {
+                    MIN_THICKNESS / 2.0
+                };
                 assert!(
-                    (v.pos.y - rect.center().y).abs() <= MIN_THICKNESS / 2.0 + 1e-4,
-                    "{style:?}"
+                    (v.pos.y - rect.center().y).abs() <= limit + 1e-4,
+                    "{style:?} {v:?}"
                 );
             }
         }
@@ -634,16 +729,34 @@ mod tests {
         layers
             .iter()
             .map(|m| {
-                let ys: Vec<f32> = m.vertices.iter().map(|v| v.pos.y).collect();
-                let (lo, hi) = ys
-                    .iter()
-                    .fold((f32::MAX, f32::MIN), |(l, h), &y| (l.min(y), h.max(y)));
                 let c = rect.center().y;
-                // Mirror symmetry about the centre line.
+                let span = |opaque: bool| {
+                    m.vertices
+                        .iter()
+                        .filter(|v| (v.color.a() == 255) == opaque)
+                        .fold((f32::MAX, f32::MIN), |(l, h), v| {
+                            (l.min(v.pos.y), h.max(v.pos.y))
+                        })
+                };
+                // The strip is the body (opaque) plus a transparent fringe;
+                // there is no third kind of vertex.
+                assert!(
+                    m.vertices
+                        .iter()
+                        .all(|v| v.color.a() == 255 || v.color == Color32::TRANSPARENT)
+                );
+                let (lo, hi) = span(true);
+                let (flo, fhi) = span(false);
+                // Mirror symmetry about the centre line, body and fringe.
                 assert!(((c - lo) - (hi - c)).abs() < 1e-3, "{lo} {hi} vs {c}");
-                assert!(m.vertices.iter().all(|v| v.color == m.vertices[0].color));
-                assert_eq!(m.vertices[0].color.a(), 255, "layers are opaque");
-                (c - lo, m.vertices[0].color)
+                assert!(((c - flo) - (fhi - c)).abs() < 1e-3, "{flo} {fhi} vs {c}");
+                // Fringe hugs the body outline (clamped into the rect).
+                assert!(lo - flo <= FRINGE + 1e-3 && flo <= lo, "{flo} {lo}");
+                let body: Vec<_> = m.vertices.iter().filter(|v| v.color.a() == 255).collect();
+                assert!(!body.is_empty());
+                assert!(body.iter().all(|v| v.color == body[0].color));
+                assert_eq!(body[0].color.a(), 255, "layers are opaque");
+                (c - lo, body[0].color)
             })
             .collect()
     }
@@ -844,7 +957,10 @@ mod tests {
                 "level {level} cols {cols}"
             );
             for m in &layers {
-                assert!(m.vertices.len() <= 1440 * 4, "geometry is O(visible px)");
+                assert!(
+                    m.vertices.len() <= (1440 + 2) * VERTS_PER_POINT,
+                    "geometry is O(visible px)"
+                );
             }
         }
     }
@@ -889,12 +1005,84 @@ mod tests {
             // Exact level-0 union, and the same range widened to mip-column alignment.
             let exact = y_of(top_over(c0, c1.max(c0 + 1)));
             let widened = y_of(top_over(c0 / scale * scale, c1.div_ceil(scale) * scale));
-            let drawn = layers[0].vertices[i * 4].pos.y;
+            // Point 0 is the left end; column i's top body vertex follows.
+            let drawn = layers[0].vertices[(i + 1) * VERTS_PER_POINT + 1].pos.y;
             // y grows downward: drawn is at least the exact peak, at most the widened one.
             assert!(
                 drawn <= exact + 1e-3 && drawn >= widened - 1e-3,
                 "pixel {i}: {widened} <= {drawn} <= {exact}"
             );
+        }
+    }
+
+    #[test]
+    fn layers_are_slanted_strips_with_a_soft_fringe_and_rgb_gradient() {
+        let peaks = synthetic_peaks(8);
+        let rect = Rect::from_min_size(Pos2::new(5.0, 7.0), Vec2::new(200.0, HEIGHT));
+        let vp = Viewport::whole(&peaks, 200.0);
+        let pal = Palette::from_tokens(tokens());
+        let mut layers: [Mesh; 3] = Default::default();
+        for style in Style::ALL {
+            build_layers(&peaks, style, vp, Eq::default(), rect, pal, &mut layers);
+            let used = if style == Style::ThreeBand { 3 } else { 1 };
+            for (k, m) in layers.iter().enumerate() {
+                if k >= used {
+                    assert!(m.is_empty(), "{style:?} unused layer {k}");
+                    continue;
+                }
+                let points = m.vertices.len() / VERTS_PER_POINT;
+                assert_eq!(points, 202, "{style:?}: one point per column + 2 ends");
+                assert_eq!(m.vertices.len() % VERTS_PER_POINT, 0);
+                // One connected strip: 6 triangles per segment, all indices valid.
+                assert_eq!(m.indices.len(), (points - 1) * TRIS_PER_SEGMENT * 3);
+                assert!(m.indices.iter().all(|&i| (i as usize) < m.vertices.len()));
+                let pt = |j: usize, k: usize| m.vertices[j * VERTS_PER_POINT + k];
+                let mut slanted = 0;
+                for j in 0..points {
+                    // Layout: transparent fringe, opaque top, opaque bottom, transparent fringe.
+                    assert_eq!(pt(j, 0).color, Color32::TRANSPARENT);
+                    assert_eq!(pt(j, 3).color, Color32::TRANSPARENT);
+                    assert_eq!(pt(j, 1).color.a(), 255);
+                    assert_eq!(pt(j, 1).color, pt(j, 2).color);
+                    assert!(pt(j, 0).pos.y <= pt(j, 1).pos.y && pt(j, 1).pos.y < pt(j, 2).pos.y);
+                    assert!(pt(j, 2).pos.y <= pt(j, 3).pos.y);
+                    // The fringe sits ~1 px from the outline (closer only where clamped).
+                    for (f, b) in [(0, 1), (3, 2)] {
+                        let d = pt(j, f).pos.distance(pt(j, b).pos);
+                        let clamped = [rect.top(), rect.bottom()].contains(&pt(j, f).pos.y)
+                            || [rect.left(), rect.right()].contains(&pt(j, f).pos.x);
+                        assert!(
+                            (d - FRINGE).abs() < 1e-3 || (clamped && d <= FRINGE),
+                            "{style:?} point {j}: fringe {d}"
+                        );
+                        assert!(rect.contains(pt(j, f).pos));
+                    }
+                    if j > 0 {
+                        // No vertical stair-steps: x strictly increases point to point.
+                        assert!(pt(j, 1).pos.x > pt(j - 1, 1).pos.x, "{style:?} {j}");
+                        if pt(j, 1).pos.y != pt(j - 1, 1).pos.y {
+                            slanted += 1;
+                        }
+                    }
+                }
+                assert!(
+                    slanted > 20,
+                    "{style:?} layer {k}: {slanted} slanted segments"
+                );
+                // The strip spans the whole drawn width.
+                assert_eq!(pt(0, 1).pos.x, rect.left());
+                assert!((pt(points - 1, 1).pos.x - rect.right()).abs() < 1e-3);
+            }
+            if style == Style::Rgb {
+                // Per-column colour, interpolated between neighbouring points.
+                let colours: std::collections::BTreeSet<_> = layers[0]
+                    .vertices
+                    .iter()
+                    .filter(|v| v.color.a() == 255)
+                    .map(|v| v.color.to_array())
+                    .collect();
+                assert!(colours.len() > 20, "{} distinct Rgb colours", colours.len());
+            }
         }
     }
 
@@ -963,19 +1151,39 @@ mod tests {
                 high: 0.5,
             },
         ];
+        let n = peaks.sample_count();
+        // Whole track and a zoomed window (different mip level, same strip size).
+        let vps = [
+            vp,
+            Viewport {
+                start_sample: n / 3,
+                end_sample: n / 3 + 441_000,
+                ..vp
+            },
+        ];
         for style in Style::ALL {
             let mut layers: [Mesh; 3] = Default::default();
-            for eq in eqs {
-                build_layers(&peaks, style, vp, eq, rect, palette, &mut layers);
-            }
-            let before = alloc_count::count();
-            for _ in 0..5 {
+            for vp in vps {
                 for eq in eqs {
                     build_layers(&peaks, style, vp, eq, rect, palette, &mut layers);
                 }
             }
+            let before = alloc_count::count();
+            for _ in 0..5 {
+                for vp in vps {
+                    for eq in eqs {
+                        build_layers(&peaks, style, vp, eq, rect, palette, &mut layers);
+                    }
+                }
+            }
             let allocs = alloc_count::count() - before;
             assert!(!layers[0].is_empty(), "{style:?} drew nothing");
+            // The anti-aliased strip path ran: 700 columns + 2 end points.
+            let used = if style == Style::ThreeBand { 3 } else { 1 };
+            for m in layers.iter().take(used) {
+                assert_eq!(m.vertices.len(), 702 * VERTS_PER_POINT, "{style:?}");
+                assert_eq!(m.indices.len(), 701 * TRIS_PER_SEGMENT * 3, "{style:?}");
+            }
             assert_eq!(allocs, 0, "{style:?}: steady-state frames allocated");
         }
     }
@@ -1050,7 +1258,10 @@ mod tests {
             high: 0.0,
         };
         let (_, _, height) = frame(&mut app, egui::RawInput::default());
-        assert!(height > 0.0 && height <= MIN_THICKNESS + 1e-3, "{height}");
+        assert!(
+            height > 0.0 && height <= MIN_THICKNESS + 2.0 * FRINGE + 1e-3,
+            "{height}"
+        );
     }
 
     /// MEASURED, not asserted: `cargo test --release --manifest-path
