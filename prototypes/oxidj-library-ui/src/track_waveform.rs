@@ -9,10 +9,18 @@
 
 use crate::components::{SectionHeading, StatusBadge, StatusKind};
 use crate::theme::ColorTokens;
-use crate::waveform_view::{self as wv, Style, Viewport, waveform_view};
+use crate::waveform_view::{self as wv, Style, Viewport, waveform_view, waveform_view_sized};
 use eframe::egui::{self, Color32, Rect, Sense, Ui, Vec2};
 use oxidj_application::WaveformPeaks;
 use oxidj_library::{Catalog, TrackDetails, VendorWaveform};
+
+/// Length of the always-visible zoomed detail window (a few bars at typical
+/// tempos; the catalog has no BPM for locally imported files, so a fixed span).
+pub const DETAIL_SECONDS: f64 = 8.0;
+/// Height of the slim whole-track overview.
+pub const OVERVIEW_HEIGHT: f32 = 36.0;
+/// Where the detail window starts on a newly selected track (skips most intros).
+const DEFAULT_POSITION: f32 = 0.25;
 
 /// Height of the vendor-derived strip.
 pub const VENDOR_HEIGHT: f32 = 40.0;
@@ -41,6 +49,8 @@ pub(crate) struct TrackWaveformPanel {
     pub(crate) eq: wv::Eq,
     loaded: Option<Loaded>,
     pub(crate) layout: PanelLayout,
+    /// Detail-window position `0..=1` through the track; `None` = default for a new selection.
+    position: Option<f32>,
 }
 
 impl TrackWaveformPanel {
@@ -68,6 +78,7 @@ impl TrackWaveformPanel {
                 db.vendor_waveforms_for_locations(&[&item.track.path, &uri])
                     .map_err(|e| e.to_string())
             });
+            self.position = None;
             self.loaded = Some(Loaded {
                 track: id,
                 computed,
@@ -98,6 +109,7 @@ impl TrackWaveformPanel {
             eq,
             loaded,
             layout,
+            position,
         } = self;
         let loaded = loaded.as_ref().expect("loaded above");
         match &loaded.computed {
@@ -122,11 +134,48 @@ impl TrackWaveformPanel {
                         slider(&mut eq.high, "High"),
                     ]);
                 });
-                let viewport = Viewport::whole(peaks, ui.available_width());
-                layout.view = Some(waveform_view(ui, Some(peaks), *style, viewport, *eq).rect);
+                let width = ui.available_width();
+                let total = peaks.sample_count();
+                let window = ((f64::from(peaks.sample_rate().max(1)) * DETAIL_SECONDS) as u64)
+                    .clamp(1, total.max(1));
+                let slack = total.saturating_sub(window);
+                let mut pos = position.unwrap_or(DEFAULT_POSITION).clamp(0.0, 1.0);
+                ui.add(
+                    egui::Slider::new(&mut pos, 0.0..=1.0)
+                        .text("Position")
+                        .show_value(false),
+                );
+                *position = Some(pos);
+                let start = (slack as f64 * f64::from(pos)) as u64;
+                let detail = Viewport {
+                    start_sample: start,
+                    end_sample: start + window,
+                    width_px: width,
+                };
+                layout.view = Some(waveform_view(ui, Some(peaks), *style, detail, *eq).rect);
+                let overview = waveform_view_sized(
+                    ui,
+                    Some(peaks),
+                    *style,
+                    Viewport::whole(peaks, width),
+                    *eq,
+                    OVERVIEW_HEIGHT,
+                );
+                // Window marker over the overview.
+                let r = overview.rect;
+                let frac = |s: u64| r.left() + r.width() * (s as f32 / total.max(1) as f32);
+                let marker = Rect::from_min_max(
+                    egui::pos2(frac(start), r.top()),
+                    egui::pos2(frac(start + window).max(frac(start) + 2.0), r.bottom()),
+                );
+                ui.painter_at(r).rect_filled(
+                    marker,
+                    2.0,
+                    Color32::from_rgba_unmultiplied(255, 255, 255, 40),
+                );
                 ui.small(format!(
-                    "{:.1} s · {} Hz · display gain only (audio unchanged)",
-                    peaks.sample_count() as f64 / f64::from(peaks.sample_rate().max(1)),
+                    "Detail {DETAIL_SECONDS:.0} s window · track {:.1} s · {} Hz · display gain only (audio unchanged)",
+                    total as f64 / f64::from(peaks.sample_rate().max(1)),
                     peaks.sample_rate()
                 ));
             }

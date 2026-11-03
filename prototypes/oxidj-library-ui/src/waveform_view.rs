@@ -29,7 +29,8 @@ pub enum Style {
     /// One envelope: per column the max of the gained band amplitudes.
     #[default]
     Mono,
-    /// Three overlaid layers, low at the back, high in front.
+    /// Three opaque, mirrored layers: low outermost, mid inside it, high as
+    /// the innermost core.
     ThreeBand,
     /// One envelope coloured per column: gained low/mid/high energy → R/G/B.
     Rgb,
@@ -109,16 +110,27 @@ pub struct Palette {
     pub high: Color32,
     /// Rgb colour of a column with no remaining energy.
     pub silent: Color32,
+    /// Backing plate drawn behind the waveform.
+    pub plate: Color32,
+    /// Hairline through the vertical centre.
+    pub centre: Color32,
 }
 
 impl Palette {
     pub fn from_tokens(t: ColorTokens) -> Self {
         Self {
             mono: t.secondary,
-            low: t.primary,
+            low: t.secondary,
             mid: t.warning,
             high: t.text,
             silent: t.muted_text,
+            plate: t.background,
+            centre: Color32::from_rgba_unmultiplied(
+                t.muted_text.r(),
+                t.muted_text.g(),
+                t.muted_text.b(),
+                48,
+            ),
         }
     }
 }
@@ -215,7 +227,9 @@ pub fn build_layers(
             Style::ThreeBand => {
                 let colors = [palette.low, palette.mid, palette.high];
                 for b in 0..3 {
-                    quad(&mut layers[b], x0, band_amp[b], colors[b]);
+                    // Mirrored about the centre line: the louder side sets the extent.
+                    let m = band_amp[b].0.max(-band_amp[b].1);
+                    quad(&mut layers[b], x0, (m, -m), colors[b]);
                 }
             }
             Style::Mono | Style::Rgb => {
@@ -258,7 +272,19 @@ pub fn waveform_view(
     viewport: Viewport,
     eq: Eq,
 ) -> Response {
-    let response = ui.allocate_response(Vec2::new(viewport.width(), HEIGHT), Sense::hover());
+    waveform_view_sized(ui, peaks, style, viewport, eq, HEIGHT)
+}
+
+/// [`waveform_view`] with an explicit strip `height` (e.g. a slim overview).
+pub fn waveform_view_sized(
+    ui: &mut Ui,
+    peaks: Option<&WaveformPeaks>,
+    style: Style,
+    viewport: Viewport,
+    eq: Eq,
+    height: f32,
+) -> Response {
+    let response = ui.allocate_response(Vec2::new(viewport.width(), height), Sense::hover());
     let Some(peaks) = peaks else {
         return response;
     };
@@ -283,6 +309,12 @@ pub fn waveform_view(
         }
     }
     let painter = ui.painter_at(rect);
+    painter.rect_filled(rect, 3.0, palette.plate);
+    painter.hline(
+        rect.x_range(),
+        rect.center().y,
+        egui::Stroke::new(1.0_f32, palette.centre),
+    );
     for slot in slots.iter() {
         if !slot.is_empty() {
             painter.add(Shape::Mesh(Arc::clone(slot)));
