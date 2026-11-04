@@ -212,8 +212,9 @@ impl Catalog {
         }))
     }
 
-    /// Vendor-derived waveforms of the first imported library track (lowest
-    /// position) whose stored `location` equals one of `locations` exactly, in
+    /// Vendor-derived waveforms of the imported library track matched by
+    /// [`Self::library_position_for_locations`] (exact, else unambiguous
+    /// device-relative suffix), in
     /// [`VendorWaveform`] declaration order. Empty when no such track or none
     /// stored. Never touches computed peaks.
     pub fn vendor_waveforms_for_locations(
@@ -239,12 +240,54 @@ impl Catalog {
         Ok(waveforms)
     }
 
-    /// Position of the first imported library track (lowest position) whose
-    /// stored `location` equals one of `locations` exactly.
+    /// Position of the imported library track for `locations` (one local file:
+    /// its path and/or `file://localhost` URI). The single lookup used by
+    /// [`Self::beat_grid_for_locations`] and [`Self::vendor_waveforms_for_locations`].
+    ///
+    /// 1. Exact: the lowest position whose stored `location` equals one of
+    ///    `locations` byte for byte. Always wins when it finds anything.
+    /// 2. Device-relative fallback: a stored location whose percent-decoded path
+    ///    starts with `/Contents/` (a Rekordbox device export, as the importer
+    ///    stores it; never normalised) matches a local path that ends with that
+    ///    decoded path. Because the stored path begins with `/`, the match is
+    ///    always on a path-component boundary; comparison is case-sensitive
+    ///    bytes. More than one matching library track fails closed (`None`).
+    ///    Drive-qualified or other absolute library locations never take part.
     pub(crate) fn library_position_for_locations(
         &self,
         locations: &[&str],
     ) -> Result<Option<i64>, CatalogError> {
+        if let Some(position) = self.library_position_exact(locations)? {
+            return Ok(Some(position));
+        }
+        let wanted: Vec<Vec<u8>> = locations.iter().filter_map(|l| decoded_path(l)).collect();
+        if wanted.is_empty() {
+            return Ok(None);
+        }
+        let mut statement = self
+            .connection
+            .prepare("SELECT position, location FROM library_tracks ORDER BY position")?;
+        let mut rows = statement.query([])?;
+        let mut found = None;
+        while let Some(row) = rows.next()? {
+            let location: String = row.get(1)?;
+            let Some(stored) = decoded_path(&location) else {
+                continue;
+            };
+            if !stored.starts_with(b"/Contents/") {
+                continue;
+            }
+            if wanted.iter().any(|local| local.ends_with(&stored)) {
+                if found.is_some() {
+                    return Ok(None);
+                }
+                found = Some(row.get::<_, i64>(0)?);
+            }
+        }
+        Ok(found)
+    }
+
+    fn library_position_exact(&self, locations: &[&str]) -> Result<Option<i64>, CatalogError> {
         let mut position = None;
         for location in locations {
             let found: Option<i64> = self
@@ -263,6 +306,37 @@ impl Catalog {
         }
         Ok(position)
     }
+}
+
+/// The path a location names, as raw bytes: `file://localhost/…` URIs are
+/// percent-decoded; plain absolute paths are taken verbatim. `None` for other
+/// forms or malformed escapes.
+fn decoded_path(location: &str) -> Option<Vec<u8>> {
+    let Some(encoded) = location.strip_prefix("file://localhost") else {
+        return location
+            .starts_with('/')
+            .then(|| location.as_bytes().to_vec());
+    };
+    if !encoded.starts_with('/') {
+        return None;
+    }
+    let bytes = encoded.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' {
+            let hex = bytes.get(i + 1..i + 3)?;
+            if !hex.iter().all(u8::is_ascii_hexdigit) {
+                return None;
+            }
+            out.push(u8::from_str_radix(std::str::from_utf8(hex).ok()?, 16).ok()?);
+            i += 3;
+        } else {
+            out.push(bytes[i]);
+            i += 1;
+        }
+    }
+    Some(out)
 }
 
 #[cfg(test)]

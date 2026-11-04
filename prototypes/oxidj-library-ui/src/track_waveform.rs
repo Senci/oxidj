@@ -737,6 +737,67 @@ mod tests {
     }
 
     #[test]
+    fn device_relative_library_grid_matches_a_track_under_a_mounted_root() {
+        // W10: the library stores `/Contents/…` (device-relative); the local file
+        // sits under a fake mount root. The suffix fallback finds its grid.
+        use oxidj_library::LibraryBeat;
+        let root = std::env::temp_dir().join(format!(
+            "oxidj-ui-w10-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let audio = root.join("media/STICK/Contents/Art ist");
+        std::fs::create_dir_all(&audio).unwrap();
+        write_wav(&audio.join("g grid.wav"), 20.0, sine(60.0, 0.8));
+        let db = root.join("catalog.sqlite");
+        let mut catalog = Catalog::open(&db).unwrap();
+        catalog
+            .import_audio_directory(root.join("media").to_str().unwrap())
+            .unwrap();
+        let track = catalog.list_track_details().unwrap()[0].track.clone();
+        oxidj_application::analyze_track_waveform(&mut catalog, track.id).unwrap();
+        let beats: Vec<_> = (0..40u32)
+            .map(|i| LibraryBeat {
+                time_ms: 250 + 500 * i,
+                tempo_hundredths_bpm: 12_000,
+                beat_in_bar: ((i + 2) % 4 + 1) as u8,
+            })
+            .collect();
+        // Stored exactly as the PDB importer encodes a device path.
+        let (location, _) = oxidj_application::location_uri("/Contents/Art ist/g grid.wav");
+        assert_eq!(location, "file://localhost/Contents/Art%20ist/g%20grid.wav");
+        catalog
+            .import_library(&LibrarySnapshot {
+                tracks: vec![LibraryTrack {
+                    title: "synthetic grid".into(),
+                    location,
+                    beat_grid: beats,
+                    ..LibraryTrack::default()
+                }],
+                roots: vec![],
+            })
+            .unwrap();
+        drop(catalog);
+
+        let mut h = Harness {
+            ctx: egui::Context::default(),
+            app: LibraryApp::new(db, ThemeMode::TokyoNight, ThemeMode::TokyoNight.tokens()),
+        };
+        h.app.show_details = true;
+        let first = h.frame(vec![]);
+        let out = h.click(unique_text(&first, "g grid.wav").center());
+        assert_eq!(
+            h.app.track_waveform.layout.grid_window,
+            Some(((5_250.0, 13_250.0), 2))
+        );
+        assert!(has_text(&out, super::GRID_SOURCE_LABEL));
+        assert!(has_text(&out, "Detail 4 bars from Bar 3 of 10"));
+    }
+
+    #[test]
     fn imported_beat_grid_drives_a_four_bar_window_with_lines_and_bar_counter() {
         use oxidj_library::LibraryBeat;
         let root = std::env::temp_dir().join(format!(

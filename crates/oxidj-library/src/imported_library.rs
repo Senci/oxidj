@@ -478,8 +478,9 @@ impl Catalog {
         Ok(LibrarySnapshot { tracks, roots })
     }
 
-    /// Imported (vendor-derived) beat grid of the first library track (lowest
-    /// position) whose stored `location` equals one of `locations` exactly, in
+    /// Imported (vendor-derived) beat grid of the library track matched by
+    /// `library_position_for_locations` (exact, else unambiguous
+    /// device-relative suffix), in
     /// stored beat order. Empty when no such track or no beats. Read-only; never
     /// touches computed peaks.
     pub fn beat_grid_for_locations(
@@ -759,5 +760,83 @@ mod tests {
                 .is_err(),
             "corrupt vendor rows fail closed"
         );
+    }
+
+    #[test]
+    fn device_relative_locations_match_local_files_under_a_mount_and_fail_closed() {
+        // Each library track carries a one-beat grid whose tempo is its index,
+        // so the lookup result identifies exactly which track matched.
+        let locations = [
+            "file://localhost/Contents/Art/a%20b.mp3", // 0 device-relative
+            "file://localhost/Contents/Dup/x.mp3",     // 1 } nested suffix:
+            "file://localhost/Contents/Z/Contents/Dup/x.mp3", // 2 } ambiguous
+            "file://localhost/Contents/Twin/t.mp3",    // 3 } identical
+            "file://localhost/Contents/Twin/t.mp3",    // 4 } duplicate
+            "file://localhost/E:/Contents/Drive/d.mp3", // 5 drive-qualified
+            "file://localhost/home/u/Music/abs.mp3",   // 6 absolute
+            "file://localhost/fake/mnt/Contents/Art/a%20b.mp3", // 7 exact for a mount
+            "file://localhost/Contents2/q.mp3",        // 8 not device-relative
+        ];
+        let snapshot = LibrarySnapshot {
+            tracks: locations
+                .iter()
+                .enumerate()
+                .map(|(i, location)| LibraryTrack {
+                    location: (*location).into(),
+                    beat_grid: vec![LibraryBeat {
+                        time_ms: 0,
+                        tempo_hundredths_bpm: 10_000 + i as u32,
+                        beat_in_bar: 1,
+                    }],
+                    ..track("T")
+                })
+                .collect(),
+            roots: vec![],
+        };
+        let mut catalog = Catalog::open(path()).unwrap();
+        catalog.import_library(&snapshot).unwrap();
+        let hit = |candidates: &[&str]| {
+            let grid = catalog.beat_grid_for_locations(candidates).unwrap();
+            let vendor = catalog.vendor_waveforms_for_locations(candidates).unwrap();
+            assert!(vendor.is_empty());
+            grid.first().map(|b| b.tempo_hundredths_bpm - 10_000)
+        };
+        let uri = |p: &str| {
+            format!(
+                "file://localhost{}",
+                p.replace('%', "%25").replace(' ', "%20")
+            )
+        };
+        // Exact match still wins over a suffix match (track 0 would also fit).
+        let mounted = "/fake/mnt/Contents/Art/a b.mp3";
+        assert_eq!(hit(&[mounted, &uri(mounted)]), Some(7));
+        // Suffix match under another fake mount, by local path or its URI.
+        let stick = "/run/media/user/STICK/Contents/Art/a b.mp3";
+        assert_eq!(hit(&[stick, &uri(stick)]), Some(0));
+        assert_eq!(hit(&[stick]), Some(0));
+        assert_eq!(hit(&[&uri(stick)]), Some(0));
+        // Exact absolute locations still match; nothing else does.
+        assert_eq!(hit(&["file://localhost/home/u/Music/abs.mp3"]), Some(6));
+        for local in [
+            "/m/xContents/Art/a b.mp3",         // partial component name
+            "/m/Contents2/Art/a b.mp3",         // partial component name
+            "/m/Contents2/q.mp3",               // stored location not /Contents/
+            "/m/contents/Art/a b.mp3",          // case-sensitive
+            "/m/Contents/Art/xa b.mp3",         // partial file name
+            "/m/Contents/Art/a%20b.mp3",        // local name is not decoded
+            "/m/Contents/Art",                  // directory, not the file
+            "/m/Contents/Z/Contents/Dup/x.mp3", // matches tracks 1 and 2
+            "/m/Contents/Twin/t.mp3",           // matches tracks 3 and 4
+            "/m/E:/Contents/Drive/d.mp3",       // drive-qualified untouched
+            "/m/Contents/Drive/d.mp3",          // drive-qualified untouched
+            "/mnt/home/u/Music/abs.mp3",        // absolute location untouched
+            "Contents/Art/a b.mp3",             // relative local path
+        ] {
+            assert_eq!(hit(&[local, &uri(local)]), None, "{local}");
+        }
+        // A lone match of the shorter nested suffix is not ambiguous.
+        assert_eq!(hit(&["/m/Contents/Dup/x.mp3"]), Some(1));
+        // Malformed escapes never decode into a match.
+        assert_eq!(hit(&["file://localhost/m/Contents/Art/a%2Gb.mp3"]), None);
     }
 }
