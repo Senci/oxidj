@@ -350,6 +350,44 @@ fn with_overrun(mut bytes: Vec<u8>, overrun: i64) -> Vec<u8> {
     bytes
 }
 
+/// A2: the dominant real-library shape. COMT, COMM, SSND, then an EVEN final
+/// `ID3 ` chunk ending exactly at EOF, with FORM = file length + 1.
+fn even_id3_overrun_one(frames: u32) -> Vec<u8> {
+    let chunks = [
+        chunk(b"COMT", &[0, 0]),
+        comm(2, frames, 16, ext80(44_100), None),
+        ssnd(0, 0, &pcm_data(10, 2, 16, false)),
+        chunk(b"ID3 ", b"ID3tag"),
+    ];
+    with_overrun(form(b"AIFF", &chunks), 1)
+}
+
+#[test]
+fn form_one_byte_longer_than_file_after_even_final_id3_decodes() {
+    let bytes = even_id3_overrun_one(10);
+    assert_eq!(form_overrun(&bytes), 1);
+    assert_eq!(bytes.len() % 2, 0, "even final chunk, no pad, ends at EOF");
+    assert_decodes(
+        &scratch("even-id3.aiff", &bytes),
+        44_100,
+        2,
+        &expected(10, 2, 16),
+    );
+}
+
+#[test]
+fn tagged_layout_with_even_final_id3_and_form_overrun_one_decodes() {
+    // COMT/COMM/AUTH(odd)/NAME(odd)/ANNO/SSND, even `ID3 ` at EOF, FORM + 1.
+    let bytes = with_overrun(form(b"AIFF", &tagged_chunks(10, b"tags")), 1);
+    assert_eq!(form_overrun(&bytes), 1);
+    assert_decodes(
+        &scratch("even-tagged.aiff", &bytes),
+        44_100,
+        2,
+        &expected(10, 2, 16),
+    );
+}
+
 #[test]
 fn ssnd_offset_and_block_size_are_honoured() {
     let data = pcm_data(20, 2, 24, false);
@@ -795,10 +833,65 @@ refusal!(
     Malformed,
     { with_overrun(form(b"AIFF", &tagged_chunks(10, b"tag")), 1) }
 );
+
+// ---- A2 even-final-chunk overrun neighbours: still fail closed --------------
+
 refusal!(
-    refuses_form_overrun_by_one_after_even_final_chunk,
+    refuses_form_overrun_by_two_after_even_final_id3,
     Malformed,
-    { with_overrun(form(b"AIFF", &tagged_chunks(10, b"tags")), 1) }
+    {
+        let b = even_id3_overrun_one(10);
+        with_overrun(b, 2)
+    }
+);
+refusal!(
+    refuses_form_overrun_by_one_with_stray_byte_after_even_final_id3,
+    Malformed,
+    {
+        // The even ID3 chunk ends one byte before EOF; FORM still file + 1.
+        let mut b = form(
+            b"AIFF",
+            &[
+                comm(2, 10, 16, ext80(44_100), None),
+                ssnd(0, 0, &pcm_data(10, 2, 16, false)),
+                chunk(b"ID3 ", b"ID3tag"),
+            ],
+        );
+        b.push(0);
+        with_overrun(b, 1)
+    }
+);
+refusal!(
+    refuses_frames_beyond_data_with_even_final_id3_overrun_one,
+    Malformed,
+    even_id3_overrun_one(11)
+);
+refusal!(
+    refuses_even_final_id3_past_eof_with_overrun_one,
+    Malformed,
+    {
+        // ID3 declares two more bytes than present (even size); FORM file + 1.
+        let mut b = even_id3_overrun_one(10);
+        let at = b.windows(4).rposition(|w| w == b"ID3 ").unwrap();
+        b[at + 4..at + 8].copy_from_slice(&8_u32.to_be_bytes());
+        b
+    }
+);
+refusal!(
+    refuses_even_final_id3_overrun_one_without_ssnd,
+    Malformed,
+    {
+        with_overrun(
+            form(
+                b"AIFF",
+                &[
+                    comm(2, 10, 16, ext80(44_100), None),
+                    chunk(b"ID3 ", b"ID3tag"),
+                ],
+            ),
+            1,
+        )
+    }
 );
 refusal!(
     refuses_final_chunk_body_past_eof_with_overrun_one,
