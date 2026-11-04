@@ -24,8 +24,10 @@ const MIN_FLEX_COLUMNS: f32 = 2.0 * 130.0;
 const COLUMNS: usize = 6;
 /// Columns whose cells and header are right-aligned (numbers).
 const RIGHT_ALIGNED: [bool; COLUMNS] = [false, true, false, false, true, false];
-/// Details panel: fixed key column (W11).
-const DETAILS_LABEL_WIDTH: f32 = 88.0;
+/// Details panel: fixed key column (W11; 104 px fits "BPM (computed)", B2c).
+const DETAILS_LABEL_WIDTH: f32 = 104.0;
+/// B2c details facts key for the OxiDJ-computed tempo.
+pub(crate) const COMPUTED_BPM_LABEL: &str = "BPM (computed)";
 /// Hex digits kept at each end of the middle-truncated SHA-256.
 const SHA_EDGE: usize = 12;
 /// Horizontal text inset of every table cell.
@@ -935,6 +937,8 @@ impl LibraryApp {
             ("Bit depth", item.bit_depth.map(|v| format!("{v} bit")).unwrap_or_else(unavailable)),
             ("Size", format!("{} bytes", item.track.byte_length)),
         ];
+        // B2c: computed BPM (OxiDJ analysis), only when a current grid is stored.
+        let tempo = self.track_waveform.computed_tempo(self.catalog.as_ref().ok(), item);
         ui.add_space(4.0);
         egui::Grid::new("track-facts")
             .num_columns(2)
@@ -949,6 +953,27 @@ impl LibraryApp {
                     // Truncated, not wrapped: row heights must not depend
                     // on the (resizable) panel width or rows overlap.
                     ui.add(egui::Label::new(&value).truncate()).on_hover_text(&value);
+                    ui.end_row();
+                }
+                if let Some((bpm, confidence)) = tempo {
+                    ui.label(egui::RichText::new(COMPUTED_BPM_LABEL).color(tokens.muted_text));
+                    // One body-height row (like Availability), value then badge.
+                    // Zero desired width: the row takes only its content's
+                    // width, so it never widens the panel past its minimum.
+                    let size = egui::vec2(0.0, ui.text_style_height(&egui::TextStyle::Body));
+                    ui.allocate_ui_with_layout(size, egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                        ui.label(format!("{bpm:.2}"));
+                        if confidence < crate::track_waveform::LOW_CONFIDENCE {
+                            StatusBadge {
+                                label: "low",
+                                kind: StatusKind::Muted,
+                            }
+                            .show_inline(ui, tokens)
+                            .on_hover_text(format!(
+                                "Analyser confidence {confidence:.2}: treat this BPM as a rough suggestion"
+                            ));
+                        }
+                    });
                     ui.end_row();
                 }
                 ui.label(egui::RichText::new("Availability").color(tokens.muted_text));
@@ -1317,6 +1342,7 @@ fn kind_color(kind: StatusKind, tokens: theme::ColorTokens) -> egui::Color32 {
         StatusKind::Success => tokens.success,
         StatusKind::Warning => tokens.warning,
         StatusKind::Error => tokens.error,
+        StatusKind::Muted => tokens.muted_text,
     }
 }
 

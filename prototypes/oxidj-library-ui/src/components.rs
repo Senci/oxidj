@@ -64,6 +64,8 @@ pub enum StatusKind {
     Success,
     Warning,
     Error,
+    /// Low-emphasis hint (e.g. a "low" confidence badge): muted-text accent.
+    Muted,
 }
 
 impl StatusKind {
@@ -72,6 +74,7 @@ impl StatusKind {
             Self::Success => tokens.success,
             Self::Warning => tokens.warning,
             Self::Error => tokens.error,
+            Self::Muted => tokens.muted_text,
         }
     }
 }
@@ -250,6 +253,7 @@ mod tests {
             assert_eq!(StatusKind::Success.color(tokens), tokens.success);
             assert_eq!(StatusKind::Warning.color(tokens), tokens.warning);
             assert_eq!(StatusKind::Error.color(tokens), tokens.error);
+            assert_eq!(StatusKind::Muted.color(tokens), tokens.muted_text);
         }
     }
 
@@ -264,7 +268,12 @@ mod tests {
                         title: "Track details",
                     }
                     .show(ui, tokens);
-                    for kind in [StatusKind::Success, StatusKind::Warning, StatusKind::Error] {
+                    for kind in [
+                        StatusKind::Success,
+                        StatusKind::Warning,
+                        StatusKind::Error,
+                        StatusKind::Muted,
+                    ] {
                         StatusBadge {
                             label: "Available",
                             kind,

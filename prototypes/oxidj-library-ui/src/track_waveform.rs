@@ -6,6 +6,12 @@
 //! own labelled strip and never merged with, or substituted for, computed
 //! peaks. Catalog reads happen once per selection (and after a reload), not per
 //! frame.
+//!
+//! B2c: when no usable imported grid exists, an OxiDJ-computed grid
+//! (`track_tempo_grids`, current source digest only) drives the same W6
+//! window and lines. Its downbeat is unknown, so bar lines fall on every 4th
+//! beat counted from the first detected beat, and it is captioned as computed.
+//! An imported grid always wins.
 
 use crate::beat_grid::{self, BeatGrid};
 use crate::components::{SectionHeading, StatusBadge, StatusKind};
@@ -20,6 +26,13 @@ use oxidj_library::{Catalog, TrackDetails, VendorWaveform};
 pub const DETAIL_SECONDS: f64 = 8.0;
 /// Caption shown when the detail window follows an imported beat grid.
 pub const GRID_SOURCE_LABEL: &str = "beat grid: library import (vendor-derived)";
+/// B2c: a computed grid has no downbeat, so bars are counted in fours from
+/// the first detected beat (bar lines every 4th beat); this caption says so.
+pub const COMPUTED_GRID_NOTE: &str = "beats counted from first detected beat";
+/// Below this analyser confidence the computed BPM carries a muted "low"
+/// badge. Confidence is taktus `sure` clamped to 0..=1, not a calibrated
+/// probability, so the badge is only a hint.
+pub const LOW_CONFIDENCE: f32 = 0.5;
 /// Height of the slim whole-track overview.
 pub const OVERVIEW_HEIGHT: f32 = 36.0;
 /// Where the detail window starts on a newly selected track (skips most intros).
@@ -41,9 +54,47 @@ struct Loaded {
     /// `Ok(None)` = not analysed; `Err` = unreadable/stale row (reason shown).
     computed: Result<Option<WaveformPeaks>, String>,
     vendor: Result<Vec<VendorWaveform>, String>,
-    /// Imported beat grid validated against the computed track length;
+    /// Beat grid validated against the computed track length and where it
+    /// came from (an imported grid always wins over a computed one);
     /// `Ok(None)` = none or unusable (fixed-length window).
-    grid: Result<Option<BeatGrid>, String>,
+    grid: Result<Option<(BeatGrid, GridSource)>, String>,
+    /// B2b computed tempo of this exact file (`Err` = stale/unreadable row).
+    tempo: Result<Option<ComputedTempo>, String>,
+}
+
+/// Where the detail window's beat grid came from.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum GridSource {
+    /// Imported library (vendor-derived) grid with real downbeats.
+    Library,
+    /// OxiDJ-computed grid (`track_tempo_grids`): bars counted from the first beat.
+    Computed,
+}
+
+/// A computed tempo grid as read from the catalog.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct ComputedTempo {
+    pub(crate) bpm: f64,
+    pub(crate) confidence: f32,
+    pub(crate) algorithm: String,
+    pub(crate) beats_ms: Vec<u32>,
+}
+
+impl ComputedTempo {
+    /// The computed beats as a 4/4 grid counted from the first detected beat
+    /// (its downbeat is unknown), so [`BeatGrid`] draws them like W6.
+    fn beats(&self) -> Vec<oxidj_library::LibraryBeat> {
+        let tempo = (self.bpm * 100.0).round() as u32;
+        self.beats_ms
+            .iter()
+            .enumerate()
+            .map(|(i, &time_ms)| oxidj_library::LibraryBeat {
+                time_ms,
+                tempo_hundredths_bpm: tempo,
+                beat_in_bar: (i % 4 + 1) as u8,
+            })
+            .collect()
+    }
 }
 
 /// Rects of the last rendered frame (tests drive real pointer input with them).
@@ -101,13 +152,35 @@ impl TrackWaveformPanel {
                 db.vendor_waveforms_for_locations(&[&item.track.path, &uri])
                     .map_err(|e| e.to_string())
             });
+            let tempo = catalog.ok_or_else(unavailable).and_then(|db| {
+                match db.computed_beat_grid(item.track.id) {
+                    Ok(Some(stored)) if stored.source_sha256 == item.track.sha256 => {
+                        Ok(Some(ComputedTempo {
+                            bpm: stored.grid.bpm(),
+                            confidence: stored.grid.confidence(),
+                            algorithm: stored.grid.algorithm().to_owned(),
+                            beats_ms: stored.grid.beats_ms().to_vec(),
+                        }))
+                    }
+                    Ok(Some(_)) => Err("stored grid is out of date (source changed)".into()),
+                    Ok(None) => Ok(None),
+                    Err(e) => Err(e.to_string()),
+                }
+            });
             let grid = match (&computed, catalog) {
                 (Ok(Some(peaks)), Some(db)) => db
                     .beat_grid_for_locations(&[&item.track.path, &uri])
                     .map(|beats| {
                         let ms = peaks.sample_count() as f64 * 1000.0
                             / f64::from(peaks.sample_rate().max(1));
+                        // The imported grid always wins; the computed one
+                        // is only the fallback when no usable import exists.
                         BeatGrid::new(&beats, ms)
+                            .map(|g| (g, GridSource::Library))
+                            .or_else(|| {
+                                let tempo = tempo.as_ref().ok()?.as_ref()?;
+                                Some((BeatGrid::new(&tempo.beats(), ms)?, GridSource::Computed))
+                            })
                     })
                     .map_err(|e| e.to_string()),
                 _ => Ok(None),
@@ -119,9 +192,21 @@ impl TrackWaveformPanel {
                 computed,
                 vendor,
                 grid,
+                tempo,
             });
         }
         self.loaded.as_ref().expect("just loaded")
+    }
+
+    /// Computed `(bpm, confidence)` of the selected `item` for the facts
+    /// row; `None` when no current computed grid is stored.
+    pub(crate) fn computed_tempo(
+        &mut self,
+        catalog: Option<&Catalog>,
+        item: &TrackDetails,
+    ) -> Option<(f64, f32)> {
+        let tempo = self.load(catalog, item).tempo.as_ref().ok()?.as_ref()?;
+        Some((tempo.bpm, tempo.confidence))
     }
 
     /// Waveform section for the selected `item`.
@@ -191,7 +276,8 @@ impl TrackWaveformPanel {
                 let width = ui.available_width();
                 let total = peaks.sample_count();
                 let rate = f64::from(peaks.sample_rate().max(1));
-                let grid = loaded.grid.as_ref().ok().and_then(Option::as_ref);
+                let source = loaded.grid.as_ref().ok().and_then(Option::as_ref);
+                let grid = source.map(|(grid, _)| grid);
                 let (start, window) = match grid {
                     Some(grid) => {
                         // Position moves by whole bars; the window starts on a downbeat.
@@ -227,7 +313,12 @@ impl TrackWaveformPanel {
                 layout.detail = Some(detail);
                 // W9: the detail strip takes the details viewport's spare
                 // height (96..=140 px) but never pushes content below it.
-                let below = below_detail_height(ui, loaded.vendor.as_ref().is_ok_and(|v| !v.is_empty()), grid.is_some());
+                let grid_lines = match source {
+                    Some((_, GridSource::Library)) => 1,
+                    Some((_, GridSource::Computed)) => 2,
+                    None => 0,
+                };
+                let below = below_detail_height(ui, loaded.vendor.as_ref().is_ok_and(|v| !v.is_empty()), grid_lines);
                 let height = detail_height(ui, below);
                 let view = waveform_view_sized(ui, Some(peaks), *style, detail, *eq, height);
                 if let (Some(grid), Some((ms, _))) = (grid, layout.grid_window) {
@@ -272,14 +363,26 @@ impl TrackWaveformPanel {
                     ),
                 };
                 caption(ui, &detail_line, tokens);
-                if grid.is_some() {
-                    caption(ui, GRID_SOURCE_LABEL, tokens);
+                match (source, &loaded.tempo) {
+                    (Some((_, GridSource::Library)), _) => caption(ui, GRID_SOURCE_LABEL, tokens),
+                    (Some((_, GridSource::Computed)), Ok(Some(tempo))) => {
+                        caption(ui, &computed_grid_label(tempo), tokens);
+                        caption(ui, COMPUTED_GRID_NOTE, tokens);
+                    }
+                    _ => {}
                 }
                 caption(ui, GAIN_NOTE, tokens);
                 if let Err(reason) = &loaded.grid {
                     StatusBadge {
                         label: &format!("Imported beat grid unreadable: {reason}"),
                         kind: StatusKind::Error,
+                    }
+                    .show(ui, tokens);
+                }
+                if let (None, Err(reason)) = (source, &loaded.tempo) {
+                    StatusBadge {
+                        label: &format!("Computed beat grid unavailable: {reason}"),
+                        kind: StatusKind::Warning,
                     }
                     .show(ui, tokens);
                 }
@@ -374,6 +477,11 @@ fn position_row(ui: &mut Ui, rail: f32, tokens: ColorTokens, add: impl FnOnce(&m
     .inner
 }
 
+/// "beat grid: computed (taktus 0.1.0), 128.00 BPM".
+pub(crate) fn computed_grid_label(tempo: &ComputedTempo) -> String {
+    format!("beat grid: computed ({}), {:.2} BPM", tempo.algorithm, tempo.bpm)
+}
+
 /// One small muted caption line, wrapped to the panel width.
 fn caption(ui: &mut Ui, text: &str, tokens: ColorTokens) {
     ui.add(egui::Label::new(egui::RichText::new(text).small().color(tokens.muted_text)).wrap());
@@ -381,11 +489,11 @@ fn caption(ui: &mut Ui, text: &str, tokens: ColorTokens) {
 
 /// Height reserved below the detail strip: overview, caption lines (one
 /// spare for wrapping) and, when present, the vendor-derived section.
-fn below_detail_height(ui: &Ui, vendor: bool, grid: bool) -> f32 {
+fn below_detail_height(ui: &Ui, vendor: bool, grid_lines: u8) -> f32 {
     let gap = ui.spacing().item_spacing.y;
     let small = ui.text_style_height(&egui::TextStyle::Small);
     let body = ui.text_style_height(&egui::TextStyle::Body);
-    let lines = if grid { 4.0 } else { 3.0 };
+    let lines = 3.0 + f32::from(grid_lines);
     let mut h = gap + OVERVIEW_HEIGHT + lines * (small + gap);
     if vendor {
         // separator + heading + source line + strip
@@ -990,6 +1098,204 @@ mod tests {
         std::fs::remove_dir_all(root).unwrap();
     }
 
+    /// Kick+click at `bpm` from 250 ms (synthetic click track).
+    fn click(bpm: f32) -> impl Fn(f32) -> f32 {
+        move |t| {
+            if t < 0.25 {
+                return 0.0;
+            }
+            let tau = (t - 0.25) % (60.0 / bpm);
+            0.6 * (std::f32::consts::TAU * 55.0 * tau).sin() * (-tau / 0.06).exp()
+                + 0.3 * (std::f32::consts::TAU * 1_800.0 * tau).sin() * (-tau / 0.004).exp()
+        }
+    }
+
+    /// Layout top (galley origin, not glyph bounds) of the painted text
+    /// `label` inside `panel`.
+    fn top_in(output: &Frame, label: &str, panel: Rect) -> f32 {
+        output
+            .shapes
+            .iter()
+            .find_map(|c| match &c.shape {
+                Shape::Text(t) if t.galley.job.text == label && panel.contains(t.pos) => Some(t.pos.y),
+                _ => None,
+            })
+            .unwrap_or_else(|| panic!("{label:?} not painted in {panel:?}"))
+    }
+
+    /// B2c: a track with only an OxiDJ-computed grid gets the W6 four-bar
+    /// window and lines (bars counted from the first detected beat) with the
+    /// computed caption and a "BPM (computed)" fact; an imported grid always
+    /// wins over a computed one; no grid at all keeps the 8 s window.
+    #[test]
+    fn computed_grid_is_the_fallback_with_its_own_caption_and_bpm_fact() {
+        use oxidj_library::LibraryBeat;
+        let root = std::env::temp_dir().join(format!(
+            "oxidj-ui-b2c-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let audio = root.join("audio");
+        std::fs::create_dir_all(&audio).unwrap();
+        write_wav(&audio.join("c-computed.wav"), 20.0, click(120.0));
+        write_wav(&audio.join("v-both.wav"), 20.0, click(120.0));
+        write_wav(&audio.join("n-none.wav"), 20.0, sine(60.0, 0.8));
+        let db = root.join("catalog.sqlite");
+        let mut catalog = Catalog::open(&db).unwrap();
+        catalog
+            .import_audio_directory(audio.to_str().unwrap())
+            .unwrap();
+        let tracks = catalog.list_track_details().unwrap();
+        let id_of = |name: &str| {
+            tracks
+                .iter()
+                .find(|t| t.track.path.ends_with(name))
+                .unwrap()
+                .track
+                .clone()
+        };
+        for name in ["c-computed.wav", "v-both.wav", "n-none.wav"] {
+            oxidj_application::analyze_track_waveform(&mut catalog, id_of(name).id).unwrap();
+        }
+        for name in ["c-computed.wav", "v-both.wav"] {
+            oxidj_application::analyze_track_tempo(
+                &mut catalog,
+                id_of(name).id,
+                oxidj_application::DEFAULT_TEMPO_RANGE,
+            )
+            .unwrap();
+        }
+        let stored = catalog
+            .computed_beat_grid(id_of("c-computed.wav").id)
+            .unwrap()
+            .expect("click track has a computed grid")
+            .grid;
+        assert!((stored.bpm() - 120.0).abs() < 1.0, "{}", stored.bpm());
+        assert!(catalog.computed_beat_grid(id_of("v-both.wav").id).unwrap().is_some());
+        // v-both also has an imported grid (deliberately offset from the
+        // computed beats so the two are distinguishable).
+        let (location, _) = oxidj_application::location_uri(&id_of("v-both.wav").path);
+        catalog
+            .import_library(&LibrarySnapshot {
+                tracks: vec![LibraryTrack {
+                    title: "synthetic grid".into(),
+                    location,
+                    beat_grid: (0..40u32)
+                        .map(|i| LibraryBeat {
+                            time_ms: 250 + 500 * i,
+                            tempo_hundredths_bpm: 12_000,
+                            beat_in_bar: ((i + 2) % 4 + 1) as u8,
+                        })
+                        .collect(),
+                    ..LibraryTrack::default()
+                }],
+                roots: vec![],
+            })
+            .unwrap();
+        drop(catalog);
+
+        let mut h = Harness {
+            ctx: egui::Context::default(),
+            app: LibraryApp::new(db.clone(), ThemeMode::TokyoNight, ThemeMode::TokyoNight.tokens()),
+        };
+        h.app.show_details = true;
+        let first = h.frame(vec![]);
+
+        // 1. Computed only: W6 window from the computed beats.
+        let out = h.click(unique_text(&first, "c-computed.wav").center());
+        let panel = h.app.shell.details.expect("details panel");
+        let view = h.app.track_waveform.layout.view.expect("detail view");
+        let beats: Vec<f64> = stored.beats_ms().iter().map(|&b| f64::from(b)).filter(|&b| b < 20_000.0).collect();
+        let bars = beats.len().div_ceil(4);
+        let default = ((bars - super::beat_grid::BARS) as f32 * 0.25).round() as usize;
+        let (window, bar) = h.app.track_waveform.layout.grid_window.expect("computed grid used");
+        assert_eq!(bar, default);
+        assert_eq!(window, (beats[4 * bar], beats[4 * (bar + 4)]), "four bars from a counted bar line");
+        let caption = format!("beat grid: computed (taktus 0.1.0), {:.2} BPM", stored.bpm());
+        for label in [caption.as_str(), super::COMPUTED_GRID_NOTE] {
+            let rect = unique_text(&out, label);
+            assert!(panel.contains_rect(rect), "{label:?} inside the panel");
+        }
+        assert!(!has_text(&out, super::GRID_SOURCE_LABEL), "never labelled as an import");
+        assert!(has_text(&out, &format!("Detail 4 bars from Bar {} of {bars}", bar + 1)));
+        assert!(!has_text(&out, "Detail 8 s window"));
+        // Lines at the stored beat times; every 4th beat from the first is a bar line.
+        let lines = grid_lines(&out, view);
+        let first_beat = beats.partition_point(|&b| b < window.0);
+        let expected: Vec<_> = beats.iter().enumerate().filter(|(_, b)| (window.0..window.1).contains(*b)).collect();
+        assert_eq!(lines.len(), expected.len(), "{lines:?}");
+        assert_eq!(expected.len(), 16);
+        for (&(x, is_bar), &(i, &t)) in lines.iter().zip(&expected) {
+            let want = view.left() + ((t - window.0) / (window.1 - window.0)) as f32 * view.width();
+            assert!((x - want).abs() <= 1.01, "beat {i}: {x} vs {want}");
+            assert_eq!(is_bar, i % 4 == 0, "beat {i}");
+        }
+        assert_eq!(first_beat, 4 * bar);
+        for n in bar + 1..=bar + 4 {
+            assert!(view.contains_rect(unique_text(&out, &format!("Bar {n}"))), "Bar {n}");
+        }
+        // Facts row: value with two decimals, in the facts rhythm, no badge
+        // while confident, and a muted "low" badge below the threshold.
+        let value = format!("{:.2}", stored.bpm());
+        let key = unique_text(&out, crate::view::COMPUTED_BPM_LABEL);
+        let value_rect = unique_text(&out, &value);
+        assert!(panel.contains_rect(key) && panel.contains_rect(value_rect));
+        assert!((key.center().y - value_rect.center().y).abs() <= 2.0, "one row");
+        let pitch = top_in(&out, "Size", panel) - top_in(&out, "Bit depth", panel);
+        let bpm_top = top_in(&out, crate::view::COMPUTED_BPM_LABEL, panel);
+        assert!((bpm_top - top_in(&out, "Size", panel) - pitch).abs() <= 1.0, "Size -> BPM rhythm");
+        assert!((top_in(&out, "Availability", panel) - bpm_top - pitch).abs() <= 1.0, "BPM -> Availability rhythm");
+        let confident = stored.confidence() >= super::LOW_CONFIDENCE;
+        assert_eq!(texts(&out).iter().any(|(t, _)| t == "low"), !confident);
+        h.app.track_waveform.loaded.as_mut().unwrap().tempo.as_mut().unwrap().as_mut().unwrap().confidence = 0.1;
+        let out = h.frame(vec![]);
+        let low = unique_text(&out, "low");
+        assert!(panel.contains_rect(low) && low.left() > value_rect.right(), "badge after the value {low:?}");
+        assert!((low.center().y - value_rect.center().y).abs() <= 2.0);
+        let tokens = ThemeMode::TokyoNight.tokens();
+        let badge = out.shapes.iter().find_map(|c| match &c.shape {
+            Shape::Rect(r) if r.rect.contains_rect(low) && r.stroke.color == tokens.muted_text => Some(r.rect),
+            _ => None,
+        });
+        assert!(badge.is_some(), "muted-token badge outline around \"low\"");
+        h.app.track_waveform.loaded.as_mut().unwrap().tempo.as_mut().unwrap().as_mut().unwrap().confidence = 0.9;
+        assert!(!texts(&h.frame(vec![])).iter().any(|(t, _)| t == "low"));
+
+        // 2. Imported and computed grids: the import wins (W6 window).
+        let out = h.click(unique_text(&out, "v-both.wav").center());
+        assert_eq!(h.app.selected, Some(id_of("v-both.wav").id.as_u64()));
+        assert_eq!(h.app.track_waveform.layout.grid_window, Some(((5_250.0, 13_250.0), 2)));
+        assert!(has_text(&out, super::GRID_SOURCE_LABEL));
+        assert!(!has_text(&out, "beat grid: computed"));
+        assert!(!has_text(&out, super::COMPUTED_GRID_NOTE));
+        let view = h.app.track_waveform.layout.view.unwrap();
+        let lines = grid_lines(&out, view);
+        assert_eq!(lines.len(), 16);
+        for (k, &(x, is_bar)) in lines.iter().enumerate() {
+            let want = view.left() + (500.0 * k as f32) / 8_000.0 * view.width();
+            assert!((x - want).abs() <= 1.01 && is_bar == (k % 4 == 0), "imported beat {k}");
+        }
+        // Its computed BPM is still a fact of the file.
+        assert!(has_text(&out, crate::view::COMPUTED_BPM_LABEL));
+
+        // 3. No grid at all: unchanged 8 s window, no BPM fact, no grid captions.
+        let out = h.click(unique_text(&out, "n-none.wav").center());
+        assert_eq!(h.app.selected, Some(id_of("n-none.wav").id.as_u64()));
+        let layout = h.app.track_waveform.layout;
+        assert!(layout.grid_window.is_none());
+        let detail = layout.detail.unwrap();
+        assert_eq!(detail.end_sample - detail.start_sample, 8 * 44_100);
+        assert!(has_text(&out, "Detail 8 s window"));
+        assert!(!has_text(&out, crate::view::COMPUTED_BPM_LABEL));
+        assert!(!has_text(&out, "beat grid:"));
+        assert!(!has_text(&out, super::COMPUTED_GRID_NOTE));
+        assert!(grid_lines(&out, layout.view.unwrap()).is_empty());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
     /// W7 round 3: selection + details + every waveform style at a ~900 px
     /// window, rendered through the production `LibraryApp::ui`. Every gain
     /// and Position slider must be fully inside the viewport with a usable
@@ -1093,13 +1399,22 @@ mod tests {
         let audio = root.join("audio");
         std::fs::create_dir_all(&audio).unwrap();
         write_wav(&audio.join("w9-grid-vendor.wav"), 20.0, sine(60.0, 0.8));
+        // B2c: a computed-grid track (two grid captions, no vendor section).
+        write_wav(&audio.join("w9-computed.wav"), 20.0, click(120.0));
         let db = root.join("catalog.sqlite");
         let mut catalog = Catalog::open(&db).unwrap();
         catalog
             .import_audio_directory(audio.to_str().unwrap())
             .unwrap();
-        let track = catalog.list_track_details().unwrap()[0].track.clone();
+        let details = catalog.list_track_details().unwrap();
+        let by_name = |name: &str| details.iter().find(|t| t.track.path.ends_with(name)).unwrap().track.clone();
+        let track = by_name("w9-grid-vendor.wav");
+        let computed = by_name("w9-computed.wav");
         oxidj_application::analyze_track_waveform(&mut catalog, track.id).unwrap();
+        oxidj_application::analyze_track_waveform(&mut catalog, computed.id).unwrap();
+        oxidj_application::analyze_track_tempo(&mut catalog, computed.id, oxidj_application::DEFAULT_TEMPO_RANGE).unwrap();
+        let tempo = catalog.computed_beat_grid(computed.id).unwrap().expect("computed grid").grid;
+        let computed_label = format!("beat grid: computed ({}), {:.2} BPM", tempo.algorithm(), tempo.bpm());
         let (location, _) = oxidj_application::location_uri(&track.path);
         catalog
             .import_library(&LibrarySnapshot {
@@ -1130,6 +1445,7 @@ mod tests {
             pressed,
             modifiers: egui::Modifiers::default(),
         };
+        for (name, vendor) in [("w9-grid-vendor.wav", true), ("w9-computed.wav", false)] {
         for mode in [ThemeMode::TokyoNight, ThemeMode::TokyoDay] {
             for (w, h) in [(750.0, 900.0), (1440.0, 900.0), (1440.0, 600.0)] {
                 let screen = Rect::from_min_size(Pos2::ZERO, egui::vec2(w, h));
@@ -1151,8 +1467,8 @@ mod tests {
                     frame(app, vec![])
                 };
                 let first = frame(&mut app, vec![]);
-                let out = click(&mut app, unique_text(&first, "w9-grid-vendor.wav").center());
-                let tag = format!("{mode:?} {w}x{h}");
+                let out = click(&mut app, unique_text(&first, name).center());
+                let tag = format!("{name} {mode:?} {w}x{h}");
                 let panel = app.shell.details.expect("details panel");
                 if w == 750.0 {
                     assert_eq!(panel.width(), crate::view::DETAILS_MIN_WIDTH, "{tag}: at the details minimum width");
@@ -1161,13 +1477,24 @@ mod tests {
 
                 // 1. Captions: every caption glyph inside the panel and its clip
                 // (at 600 px they sit below the scroll viewport and are culled).
-                let detail_line = "Detail 4 bars from Bar 3 of 10 · track 20.0 s · 44100 Hz";
-                let captions: &[&str] = if h == 600.0 {
-                    &[]
+                let detail_line = if vendor {
+                    "Detail 4 bars from Bar 3 of 10 · track 20.0 s · 44100 Hz".to_owned()
                 } else {
-                    &[detail_line, super::GRID_SOURCE_LABEL, super::GAIN_NOTE]
+                    texts(&out)
+                        .into_iter()
+                        .map(|(t, _)| t)
+                        .find(|t| t.starts_with("Detail 4 bars from Bar "))
+                        // Culled below the viewport at 600 px (no captions checked there).
+                        .unwrap_or_default()
                 };
-                for &label in captions {
+                let captions: Vec<&str> = match (h == 600.0, vendor) {
+                    (true, _) => vec![],
+                    (false, true) => vec![&detail_line, super::GRID_SOURCE_LABEL, super::GAIN_NOTE],
+                    (false, false) => {
+                        vec![&detail_line, &computed_label, super::COMPUTED_GRID_NOTE, super::GAIN_NOTE]
+                    }
+                };
+                for &label in &captions {
                     let hits: Vec<_> = out
                         .shapes
                         .iter()
@@ -1216,13 +1543,20 @@ mod tests {
 
                 // 3. Strip height follows the details height, never overflows.
                 let view = layout.view.expect("detail strip");
-                let vendor = layout.vendor.expect("vendor strip");
+                // Last content: the vendor strip, else the last caption
+                // (culled below the viewport at 600 px).
+                assert_eq!(layout.vendor.is_some(), vendor, "{tag}");
+                let last = match vendor {
+                    true => layout.vendor,
+                    false => texts(&out).into_iter().find(|(t, _)| t == super::GAIN_NOTE).map(|t| t.1),
+                };
                 if h == 600.0 {
                     assert_eq!(view.height(), super::DETAIL_MIN_HEIGHT, "{tag}");
                 } else {
                     assert!(view.height() > super::DETAIL_MIN_HEIGHT, "{tag}: spare height used {view:?}");
                     assert!(view.height() <= super::DETAIL_MAX_HEIGHT, "{tag}: {view:?}");
-                    assert!(vendor.bottom() <= panel.bottom(), "{tag}: content stays inside {vendor:?} {panel:?}");
+                    let last = last.expect("last content painted");
+                    assert!(last.bottom() <= panel.bottom(), "{tag}: content stays inside {last:?} {panel:?}");
                 }
                 // Stable on later frames (no feedback with its own height).
                 let again = frame(&mut app, vec![]);
@@ -1230,6 +1564,7 @@ mod tests {
                 assert_eq!(app.track_waveform.layout.view, Some(view), "{tag}: stable");
                 assert_eq!(app.shell.details, Some(panel), "{tag}: panel unchanged");
             }
+        }
         }
         std::fs::remove_dir_all(root).unwrap();
     }

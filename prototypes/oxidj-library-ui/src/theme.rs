@@ -436,6 +436,9 @@ mod tests {
                 ("muted on zebra", t.muted_text, zebra),
                 ("muted on hover", t.muted_text, t.surface),
                 ("text on selection", t.text, over(t.primary, SELECTION_TINT, t.background)),
+                // B2c: the muted "low" confidence badge (16 % muted tint).
+                ("text on muted badge", t.text, over(t.muted_text, 0.16, t.background)),
+                ("text on muted badge (surface)", t.text, over(t.muted_text, 0.16, t.surface)),
             ] {
                 let ratio = contrast_ratio(fg, fill);
                 assert!(ratio >= 4.5, "{} {name} {ratio:.2}:1", mode.label());
