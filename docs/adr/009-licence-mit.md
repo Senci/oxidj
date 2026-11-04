@@ -36,6 +36,7 @@ OxiDJ is licensed under the **MIT License**. See `LICENSE` at the repository roo
 - **A permissive-only dependency policy, enforced.** `cargo deny check licenses` must run with an explicit allowlist (MIT, Apache-2.0, BSD-2-Clause, BSD-3-Clause, ISC, Unicode-DFS-2016, Zlib) and must **deny** GPL/LGPL/AGPL/SSPL by default. This is a build gate, not a convention — an accidental copyleft dependency silently changes the licence of the distributed binary. Wired into `M0-08`'s quality gate.
 - Every new dependency needs its licence checked at the point it is added, not at release.
 - `license = "MIT"` belongs in the workspace `Cargo.toml` (M0-08).
+- **Apache-2.0 NOTICE files travel with distributions.** Apache-2.0 §4(d) requires a dependency's NOTICE text to be reproduced in distributed works. `THIRD_PARTY_NOTICES.md` at the repository root carries these; the first entry is `taktus` 0.1.0 (Apache-2.0, admitted by the ADR-004 B2 amendment for tempo/beat-grid analysis). Add an entry whenever a new dependency ships a NOTICE file.
 
 **This resolves the conditional constraint in ADR-001.** The GUI review held that Slint's GPL/commercial terms become decisive only if *both* GPL-compatible distribution and commercial licensing are unacceptable. MIT makes GPL-compatible distribution unacceptable, and no commercial licence is being purchased — so the condition has fired, and **egui/eframe is the framework to prototype**.
 

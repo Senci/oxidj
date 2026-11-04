@@ -4,6 +4,7 @@ use oxidj_analysis::{
     AnalysisError, Crossover, PEAKS_PER_SECOND, WaveformBuilder, samples_per_peak,
 };
 use oxidj_core::waveform::{Band, Peak, WaveformPeaks};
+use taktus as _;
 
 const RATE: u32 = 44_100;
 

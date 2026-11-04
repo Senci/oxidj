@@ -4,14 +4,18 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
-description = "OxiDJ offline analysis: streaming 3-band waveform peaks."
+description = "OxiDJ offline analysis: streaming 3-band waveform peaks and tempo/beat grid."
 publish = false
 
-# Layer 1 (ADR-004). Depends on `oxidj-core` only; `cargo xtask layers` rejects
-# any other dependency (internal or external, any kind). Decoding stays in the
-# library; this crate consumes already-decoded mono samples.
+# Layer 1 (ADR-004). Depends on `oxidj-core` and the admitted `taktus` tempo
+# engine only (ADR-004 B2 amendment); `cargo xtask layers` rejects any other
+# dependency (internal or external, any kind). Decoding stays in the library;
+# this crate consumes already-decoded mono samples.
 [dependencies]
 oxidj-core = { workspace = true }
+# Apache-2.0, zero dependencies; tempo/beat analysis only. NOTICE: see
+# THIRD_PARTY_NOTICES.md (Apache-2.0 section 4(d)).
+taktus = { version = "=0.1.0", default-features = false }
 
 [lints]
 workspace = true

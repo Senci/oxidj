@@ -1,4 +1,8 @@
-//! OxiDJ offline analysis (layer 1; depends only on `oxidj-core`).
+//! OxiDJ offline analysis (layer 1; depends only on `oxidj-core` and the
+//! admitted `taktus` tempo engine, ADR-004 B2 amendment).
+//!
+//! B2a adds streaming tempo/beat-grid analysis: see [`tempo`] and
+//! [`TempoBuilder`].
 //!
 //! W1 scope: a streaming 3-band waveform builder. Callers feed already-decoded
 //! **mono** `f32` samples (mix stereo down before pushing, e.g. `(l + r) / 2`)
@@ -17,6 +21,9 @@
 //! expected count is refused, and a builder that refused input stays failed.
 
 use oxidj_core::waveform::{Peak, WaveformError, WaveformPeaks};
+
+pub mod tempo;
+pub use tempo::{BpmRange, TempoBuilder, TempoError, TempoGate, TempoOptions};
 
 /// Level-0 column rate (columns per second of audio).
 pub const PEAKS_PER_SECOND: u32 = 150;

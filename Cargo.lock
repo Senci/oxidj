@@ -157,6 +157,7 @@ name = "oxidj-analysis"
 version = "0.1.0"
 dependencies = [
  "oxidj-core",
+ "taktus",
 ]
 
 [[package]]
@@ -349,6 +350,12 @@ dependencies = [
  "quote",
  "unicode-ident",
 ]
+
+[[package]]
+name = "taktus"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4cc28ee12b84bae21d8fe44f0ca5af2b9d361009d312fb94ec2e5c666318f089"
 
 [[package]]
 name = "typenum"

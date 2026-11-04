@@ -45,8 +45,32 @@ fn layer_of(name: &str) -> Option<u8> {
     }
 }
 
-/// Offline analysis crate: allowed to depend on `oxidj-core` only.
+/// Offline analysis crate: allowed to depend on `oxidj-core` and the admitted
+/// external crates in [`ANALYSIS_EXTERNAL_ALLOW`] only.
 const ANALYSIS_CRATE: &str = "oxidj-analysis";
+
+/// External crates admitted into `oxidj-analysis` (ADR-004 B2 amendment):
+/// `(name, exact version requirement)`. Normal dependency kind, crates.io
+/// source, no default features and no features only.
+const ANALYSIS_EXTERNAL_ALLOW: &[(&str, &str)] = &[("taktus", "=0.1.0")];
+
+/// Whether `dep` is an accepted dependency of [`ANALYSIS_CRATE`]: the internal
+/// `oxidj-core` path edge, or an exactly pinned allow-listed crates.io crate.
+fn analysis_dep_allowed(dep: &DepInfo) -> bool {
+    if dep.source.is_none() {
+        return dep.name == "oxidj-core";
+    }
+    ANALYSIS_EXTERNAL_ALLOW
+        .iter()
+        .any(|(name, req)| dep.name == *name && dep.req == *req)
+        && dep.source.as_deref().is_some_and(|source| {
+            source == "registry+https://github.com/rust-lang/crates.io-index"
+                || source == "registry+https://index.crates.io/"
+        })
+        && dep.kind.is_none()
+        && !dep.default_features
+        && dep.features.is_empty()
+}
 
 /// Build-tooling crates excluded from the layer + denylist rules.
 const EXEMPT_CRATES: &[&str] = &["xtask"];
@@ -242,13 +266,16 @@ fn check_layers(meta: &serde_json::Value) -> Result<(), Vec<String>> {
 
         for dep in deps {
             let dep_name = &dep.name;
-            // ADR-004: offline analysis depends on the neutral core only — no
-            // other internal crate and no external dependency of any kind.
-            if name == ANALYSIS_CRATE && !(dep_name == "oxidj-core" && dep.source.is_none()) {
-                violations.push(format!(
-                    "{name} (layer {my_layer}) -> {dep_name}: {ANALYSIS_CRATE} may depend \
-                     only on oxidj-core (ADR-004)"
-                ));
+            // ADR-004: offline analysis depends on the neutral core and the
+            // explicitly admitted external crates only (B2: taktus) — no other
+            // internal crate and no other external dependency of any kind.
+            if name == ANALYSIS_CRATE {
+                if !analysis_dep_allowed(dep) {
+                    violations.push(format!(
+                        "{name} (layer {my_layer}) -> {dep_name}: {ANALYSIS_CRATE} may depend \
+                         only on oxidj-core and the admitted [taktus =0.1.0] (ADR-004)"
+                    ));
+                }
                 continue;
             }
             let is_path_dep = dep.source.is_none();
@@ -758,6 +785,7 @@ mod tests {
                         "hound" => ("=3.5.1", false),
                         "claxon" => ("=0.4.3", false),
                         "nanomp3" => ("=0.2.0", false),
+                        "taktus" => ("=0.1.0", false),
                         _ => ("*", true),
                     };
                     json!({
@@ -1016,18 +1044,62 @@ mod tests {
         };
         assert!(check_layers(&meta(vec![("oxidj-core", None)])).is_ok());
         let registry = Some("registry+https://github.com/rust-lang/crates.io-index");
+        // B2: the admitted, exactly pinned taktus edge is accepted.
+        assert!(check_layers(&meta(vec![("oxidj-core", None), ("taktus", registry)])).is_ok());
         for planted in [
             vec![("oxidj-core", None), ("oxidj-application", None)], // upward
             vec![("oxidj-core", None), ("oxidj-library", None)],     // same layer
             vec![("oxidj-core", None), ("serde_json", registry)],    // external
             vec![("oxidj-core", None), ("rustfft", registry)],       // new DSP dep
+            vec![("oxidj-core", None), ("taktus", None)],            // path taktus
+            vec![
+                ("oxidj-core", None),
+                ("taktus", Some("git+https://example.invalid/taktus")),
+            ],
+            vec![
+                ("oxidj-core", None),
+                ("taktus", registry),
+                ("stratum-dsp", registry),
+            ],
         ] {
-            let bad = planted[1].0;
+            let bad = planted.last().unwrap().0;
             let errs = check_layers(&meta(planted)).unwrap_err();
             assert!(
                 errs.iter()
                     .any(|e| e.contains("oxidj-analysis") && e.contains(bad)),
                 "planted oxidj-analysis -> {bad} not flagged: {errs:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn analysis_taktus_must_be_exactly_pinned_normal_without_features() {
+        for (field, invalid_value) in [
+            ("req", json!("^0.1")),
+            ("uses_default_features", json!(true)),
+            ("kind", json!("dev")),
+            ("features", json!(["std"])),
+        ] {
+            let mut meta = json!({
+                "workspace_members": [
+                    "path+file:///root#oxidj-core@0.1.0",
+                    "path+file:///root#oxidj-analysis@0.1.0"
+                ],
+                "packages": [
+                    member("oxidj-core", vec![]),
+                    member("oxidj-analysis", vec![(
+                        "taktus",
+                        Some("registry+https://github.com/rust-lang/crates.io-index")
+                    )]),
+                ]
+            });
+            assert!(check_layers(&meta).is_ok(), "baseline must pass");
+            meta["packages"][1]["dependencies"][0][field] = invalid_value;
+            let errs = check_layers(&meta).unwrap_err();
+            assert!(
+                errs.iter()
+                    .any(|e| e.contains("oxidj-analysis") && e.contains("taktus")),
+                "taktus with bad {field} not flagged: {errs:?}"
             );
         }
     }
