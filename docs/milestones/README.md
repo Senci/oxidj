@@ -18,6 +18,7 @@ v0.2–v0.6 are interoperability evidence (CLI/test oracles rendered as cards), 
 | [v0.10](v10-dense-shell/README.md) | 2026-11-03 | `91144a4` | Dense minimal shell W8: one-row toolbar, full-width sortable track table, toggleable Nav/Details/Decks panels. | <img src="v10-dense-shell/02-after-dense-shell.png" width="240" alt="v0.10 key screenshot"> |
 | [v0.11](v11-waveform-panel-polish/README.md) | 2026-11-03 | `89cd073` | W9 polish: aligned waveform slider rows, taller detail strip, stable decks bar. | <img src="v11-waveform-panel-polish/01-details-decks-mono.png" width="240" alt="v0.11 key screenshot"> |
 | [v0.12](v12-ui-polish/README.md) | 2026-11-04 | `339372b..` | W11 polish: segmented panel toggles, right-aligned numbers, search with clear, compact details, visible Position slider. | <img src="v12-ui-polish/04-after-day.png" width="240" alt="v0.12 key screenshot"> |
+| [v0.13](v13-computed-beat-grid/README.md) | 2026-11-04 | `9a9b96c..` | Computed BPM and beat grid (taktus) in track details when no imported grid exists; import always wins; a suggestion, not Rekordbox parity. | <img src="v13-computed-beat-grid/02-click-track-computed-grid.png" width="240" alt="v0.13 key screenshot"> |
 
 ## Before → after
 

@@ -34,7 +34,7 @@ export const roadmapSnapshot = {
   currentSummary:
     'Synthetic Rekordbox XML fixtures support read-only preview, bounded export of a supported subset to a new file, and exact-value guarded edits. A first run on one real library export carried playlists, track details, beat grids and cues into a catalog and a new XML file.',
   working:
-    'A persistent local catalog, reference-only WAV/FLAC/MP3 import and a provisional viewer with search, sort and track details work today. The library window has a full-width track list with side panels you can show or hide, and draws a smooth computed waveform for the selected track with bar and beat lines from an imported beat grid. From the command line, a Rekordbox USB export can be read into a new catalog and written back out as a checked XML file.',
+    'A persistent local catalog, reference-only WAV/FLAC/MP3 import and a provisional viewer with search, sort and track details work today. The library window has a full-width track list with side panels you can show or hide, and draws a smooth computed waveform for the selected track with bar and beat lines from an imported beat grid, or from its own BPM and beat-grid detection when none was imported. From the command line, a Rekordbox USB export can be read into a new catalog and written back out as a checked XML file.',
   unfinished:
     'Compatibility with real Rekordbox or OneLibrary libraries has not been demonstrated. Production desktop, accessibility and platform testing is still pending, as is performance testing at 500,000 tracks and 60 frames per second.',
   repo,
@@ -105,7 +105,7 @@ export const milestones: readonly Milestone[] = [
     status: 'in-progress',
     statusLabel: 'First slice',
     detail:
-      'Musical and technical analysis workflows. The first piece is a smooth waveform view with mono, 3-band and RGB styles, live per-band EQ gain, and bar and beat lines when the imported library has a beat grid. Tempo and beat-grid detection come next.',
+      'Musical and technical analysis workflows. The first piece is a smooth waveform view with mono, 3-band and RGB styles, live per-band EQ gain, and bar and beat lines when the imported library has a beat grid. OxiDJ now also detects BPM and a beat grid itself and shows them when no imported grid exists; this is a suggestion, not Rekordbox parity (BPM within 2% of Rekordbox on 91% of 90 real tracks).',
     source: { label: 'Priorities', href: `${repo}/blob/master/idea.md#priorities` },
   },
   {
