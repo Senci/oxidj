@@ -13,13 +13,15 @@ mod aiff;
 mod aiff_tests;
 mod imported_library;
 pub mod pcm;
+mod tempo_store;
 mod waveform_store;
 pub use imported_library::{
     LibraryBeat, LibraryCounts, LibraryCue, LibraryNode, LibrarySnapshot, LibraryTrack,
 };
+pub use tempo_store::{StoredBeatGrid, TEMPO_GRID_FORMAT_VERSION, TempoBasis};
 pub use waveform_store::{StoredWaveform, VendorWaveform, WAVEFORM_FORMAT_VERSION};
 
-const SCHEMA_VERSION: i64 = 6;
+const SCHEMA_VERSION: i64 = 7;
 const MIGRATION_LIST: &[M<'static>] = &[
     M::up(
         "CREATE TABLE tracks (\
@@ -130,6 +132,23 @@ const MIGRATION_LIST: &[M<'static>] = &[
             kind TEXT NOT NULL CHECK (kind IN ('rekordbox-anlz-pwv3', 'rekordbox-anlz-pwv5')),\
             data BLOB NOT NULL,\
             PRIMARY KEY (track_position, kind)\
+        );",
+    ),
+    // B2b: computed tempo/beat grid per catalog track; never vendor data. See
+    // tempo_store.rs (beats blob: little-endian u32 ms, strictly ascending).
+    M::up(
+        "CREATE TABLE track_tempo_grids (\
+            track_id INTEGER PRIMARY KEY REFERENCES tracks(id),\
+            format_version INTEGER NOT NULL CHECK (format_version = 1),\
+            algorithm TEXT NOT NULL CHECK (length(algorithm) > 0),\
+            bpm_hundredths INTEGER NOT NULL CHECK (bpm_hundredths > 0),\
+            confidence REAL NOT NULL CHECK (confidence BETWEEN 0 AND 1),\
+            sample_rate INTEGER NOT NULL CHECK (sample_rate > 0),\
+            duration_ms INTEGER NOT NULL CHECK (duration_ms >= 0),\
+            range_min_bpm INTEGER NOT NULL CHECK (range_min_bpm > 0),\
+            range_max_bpm INTEGER NOT NULL CHECK (range_max_bpm >= 2 * range_min_bpm),\
+            source_sha256 BLOB NOT NULL CHECK (length(source_sha256) = 32),\
+            beats BLOB NOT NULL CHECK (length(beats) >= 8 AND length(beats) % 4 = 0)\
         );",
     ),
 ];

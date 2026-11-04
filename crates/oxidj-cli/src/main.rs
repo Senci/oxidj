@@ -1627,6 +1627,9 @@ fn run_catalog(args: &[String]) -> i32 {
     if action == "analyze-waveform" {
         return run_analyze_waveform(&args[1..]);
     }
+    if action == "analyze-tempo" {
+        return run_analyze_tempo(&args[1..]);
+    }
     if action == "import" {
         let Some(dir_index) = args.iter().position(|arg| arg == "--dir") else {
             eprintln!("error: catalog import requires --dir PATH");
@@ -1779,6 +1782,82 @@ fn run_analyze_waveform(args: &[String]) -> i32 {
             }
             println!("Analyzed: {}", report.analyzed());
             println!("Unchanged: {}", report.unchanged());
+            println!("Failed: {}", report.failed());
+            if report.failed() == 0 { OK } else { DOMAIN }
+        }
+        Err(error) => {
+            eprintln!("error: {error}");
+            DOMAIN
+        }
+    }
+}
+
+/// `catalog analyze-tempo --db DB [--track-id ID] [--bpm-range LO-HI]`: compute
+/// and store tempo/beat grids (default range 70-180). Prints one line per track
+/// (ID and outcome, never paths) and a summary; `NoGrid` is not a failure; exits
+/// non-zero when any track failed.
+fn run_analyze_tempo(args: &[String]) -> i32 {
+    const USAGE_TEXT: &str =
+        "error: expected catalog analyze-tempo --db PATH [--track-id ID] [--bpm-range LO-HI]";
+    let (mut db, mut track, mut range) = (None, None, None);
+    let mut rest = args.iter();
+    while let Some(flag) = rest.next() {
+        let Some(value) = rest.next() else {
+            eprintln!("{USAGE_TEXT}");
+            return USAGE;
+        };
+        match flag.as_str() {
+            "--db" if db.is_none() => db = Some(value),
+            "--track-id" if track.is_none() => {
+                match value
+                    .parse::<u64>()
+                    .ok()
+                    .and_then(|n| oxidj_core::TrackId::new(n).ok())
+                {
+                    Some(id) => track = Some(id),
+                    None => {
+                        eprintln!("error: --track-id requires a positive integer");
+                        return USAGE;
+                    }
+                }
+            }
+            "--bpm-range" if range.is_none() => {
+                let parsed = value.split_once('-').and_then(|(lo, hi)| {
+                    let (lo, hi) = (lo.parse::<u32>().ok()?, hi.parse::<u32>().ok()?);
+                    (lo > 0 && u64::from(hi) >= 2 * u64::from(lo)).then_some((lo, hi))
+                });
+                match parsed {
+                    Some(parsed) => range = Some(parsed),
+                    None => {
+                        eprintln!(
+                            "error: --bpm-range requires LO-HI whole BPM with HI >= 2 * LO (e.g. 70-180)"
+                        );
+                        return USAGE;
+                    }
+                }
+            }
+            _ => {
+                eprintln!("{USAGE_TEXT}");
+                return USAGE;
+            }
+        }
+    }
+    let Some(db) = db else {
+        eprintln!("{USAGE_TEXT}");
+        return USAGE;
+    };
+    let range = range.unwrap_or(oxidj_application::DEFAULT_TEMPO_RANGE);
+    match oxidj_application::analyze_catalog_tempo(db, track, range) {
+        Ok(report) => {
+            for (id, outcome) in &report.outcomes {
+                match outcome {
+                    Ok(outcome) => println!("{outcome:?}\t{id}"),
+                    Err(error) => println!("Failed\t{id}\t{error}"),
+                }
+            }
+            println!("Analyzed: {}", report.analyzed());
+            println!("Unchanged: {}", report.unchanged());
+            println!("NoGrid: {}", report.no_grid());
             println!("Failed: {}", report.failed());
             if report.failed() == 0 { OK } else { DOMAIN }
         }
@@ -2076,6 +2155,10 @@ fn print_usage(to_stdout: bool) {
     let _ = writeln!(
         output,
         "  catalog analyze-waveform --db <path> [--track-id <id>]   Compute and store waveform peaks (idempotent; sources only read)"
+    );
+    let _ = writeln!(
+        output,
+        "  catalog analyze-tempo --db <path> [--track-id <id>] [--bpm-range <lo-hi>]   Compute and store tempo/beat grids (default 70-180; idempotent; sources only read)"
     );
     let _ = writeln!(
         output,

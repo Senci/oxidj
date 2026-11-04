@@ -8,6 +8,7 @@ use std::{
 use zeroize::{Zeroize, Zeroizing};
 
 mod library_import;
+mod tempo;
 mod waveform;
 pub use library_import::{
     DriveLetter, LibraryExportReport, LibraryImportReport, LibraryWorkflowError, NotCarried,
@@ -17,6 +18,10 @@ pub use library_import::{
 /// The neutral peak model, re-exported so UI adapters need no direct core edge.
 pub use oxidj_core::waveform::{Band as WaveformBand, Peak as WaveformPeak, WaveformPeaks};
 pub use oxidj_library::{LibraryCounts, LibraryNode, LibrarySnapshot, LibraryTrack};
+pub use tempo::{
+    DEFAULT_TEMPO_RANGE, FileTempo, TempoAnalysisError, TempoOutcome, TempoReport,
+    analyze_catalog_tempo, analyze_tempo_file, analyze_track_tempo,
+};
 pub use waveform::{
     WaveformAnalysisError, WaveformOutcome, WaveformReport, analyze_catalog_waveforms,
     analyze_track_waveform, analyze_waveform_file,
