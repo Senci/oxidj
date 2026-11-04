@@ -38,7 +38,7 @@ oxidj-cli catalog export-library-xml --catalog lib.sqlite --output rekordbox.xml
 2. Copy the XML to a **local** drive — opening it from a network/UNC share fails with "unable to be read properly".
 3. In Rekordbox, set Preferences > Advanced > rekordbox xml to that file and browse it under "rekordbox xml".
 
-The owner has confirmed in Rekordbox that imported tracks, BPM, key, cues and beat grids (including tempo changes and a manual grid edit) display correctly; playlist import, playback and an edit-then-reimport round trip are not yet confirmed, and hardware use is not demonstrated (plan/STATUS.md M7).
+The owner has confirmed in Rekordbox that imported tracks, BPM, key, cues and beat grids (including tempo changes and a manual grid edit) display correctly; playlist import, playback and an edit-then-reimport round trip (two OxiDJ guarded edits) also work; hardware use (CDJ/XDJ) is not demonstrated (plan/STATUS.md M7).
 
 The first major product proof — the MVP (idea.md) — is library-first: import a real DJ library, manage it safely in OxiDJ, export it again, and continue using compatible DJ software/hardware without unexpected metadata loss.
 
