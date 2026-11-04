@@ -25,6 +25,10 @@ M0 is verified complete. The named `local-catalog-alpha-v1` dependency exception
 - M4: complete Rekordbox/OneLibrary interoperability remains unqualified. XML preview, preflight, no-edit export, and guarded edits to selected tempo and position-mark fields cover a bounded synthetic subset only; no vendor application acceptance or undocumented-format compatibility is claimed (interoperability.md §Fixture D).
 - M4+: realtime DJ functionality — decks, mixing, effects, stems, streaming, broad controller support (idea.md §Priorities/MVP).
 
+## Install (Linux, no sudo)
+
+`scripts/install-local.sh` builds a release and installs, for the current user only, `oxidj-cli`, `oxidj-library-ui`, an `oxidj-library` launcher (opens the library at `~/.local/share/oxidj/library.sqlite`, or `$OXIDJ_DB`; created when missing), a desktop entry and an icon under `~/.local`. Re-run it after any change; it never touches library data. Import music with `oxidj-cli catalog import --dir <folder> --db ~/.local/share/oxidj/library.sqlite`. Provisional prototype: see [Status](#status) for maturity.
+
 ## Export a USB library for Rekordbox on Windows
 
 ```sh

@@ -393,7 +393,7 @@ impl TrackWaveformPanel {
                     kind: StatusKind::Warning,
                 }
                 .show(ui, tokens);
-                ui.small("Run `oxidj catalog analyze-waveform --db <catalog>` then Reload.");
+                ui.small("Run `oxidj-cli catalog analyze-waveform --db <catalog>` then Reload.");
             }
             Err(reason) => {
                 StatusBadge {
