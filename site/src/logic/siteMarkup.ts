@@ -65,8 +65,8 @@ export function renderSite(html: string, page: string): string {
     stage: renderShot(screenshots.overview, '(min-width: 1360px) 1200px, 92vw', true),
     shotTrackList: renderShot(screenshots.trackList, '(min-width: 1360px) 760px, 92vw'),
     shotDecks: renderShot(screenshots.decksBar, '(min-width: 1360px) 680px, 92vw'),
-    shotWaveMono: renderShot(screenshots.waveformMono, '359px'),
-    shotWaveBands: renderShot(screenshots.waveformBands, '359px'),
+    shotWaveGrid: renderShot(screenshots.waveformGrid, '359px'),
+    shotWaveClick: renderShot(screenshots.waveformClick, '359px'),
   };
   return html.replace(/<!-- site:(\w+) -->/g, (_, key: string) => {
     if (fragments[key] === undefined) throw new Error(`Unknown site fragment: ${key}`);

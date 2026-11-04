@@ -41,18 +41,18 @@ describe('screenshots', () => {
   it('renders a sized, described figure whose link opens the full-resolution image', () => {
     const html = renderShot(screenshots.overview, '92vw', true);
     expect(html).toContain('href="./images/app-overview.webp" data-lightbox');
-    expect(html).toContain('data-width="1440" data-height="793"');
+    expect(html).toContain('data-width="1440" data-height="791"');
     expect(html).toContain(
       'srcset="./images/app-overview-720.webp 720w, ./images/app-overview.webp 1440w"',
     );
-    expect(html).toContain('width="1440" height="793"');
+    expect(html).toContain('width="1440" height="791"');
     expect(html).toContain('fetchpriority="high"');
     expect(html).not.toContain('loading="lazy"');
     expect(html).toContain(`alt="${screenshots.overview.alt}"`);
     expect(html).toContain('Opens a larger, zoomable view.');
   });
   it('lazy-loads secondary crops without a srcset when there is no half-size copy', () => {
-    const html = renderShot(screenshots.waveformBands, '359px');
+    const html = renderShot(screenshots.waveformGrid, '359px');
     expect(html).toContain('loading="lazy"');
     expect(html).not.toContain('srcset');
   });
@@ -68,6 +68,6 @@ describe('screenshots', () => {
       expect(shot.alt.length).toBeGreaterThan(20);
       expect(home).toContain(`./images/${shot.id}.webp`);
     }
-    expect(home).not.toMatch(/library-prototype|\/home\//);
+    expect(home).not.toMatch(/library-prototype|\/home\/|waveform-mono|waveform-3band/);
   });
 });

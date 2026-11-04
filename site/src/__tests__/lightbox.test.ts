@@ -4,8 +4,8 @@ import { initLightbox, type Lightbox } from '../ui/lightbox';
 
 function markup(): string {
   return `<main><button id="before">Before</button>
-    <a class="shot-link" href="./images/app-overview.webp" data-lightbox data-width="1440" data-height="793"><img src="./images/app-overview-720.webp" width="1440" height="793" alt="Library window" /></a>
-    <a class="shot-link" href="./images/waveform-3band.webp" data-lightbox data-width="359" data-height="405"><img src="./images/waveform-3band.webp" width="359" height="405" alt="3-band waveform" /></a>
+    <a class="shot-link" href="./images/app-overview.webp" data-lightbox data-width="1440" data-height="791"><img src="./images/app-overview-720.webp" width="1440" height="791" alt="Library window" /></a>
+    <a class="shot-link" href="./images/waveform-beat-grid.webp" data-lightbox data-width="359" data-height="438"><img src="./images/waveform-beat-grid.webp" width="359" height="438" alt="Computed beat grid waveform" /></a>
   </main>`;
 }
 
@@ -171,7 +171,7 @@ describe('screenshot lightbox', () => {
     triggers[1]?.click();
     expect(box.state()).toEqual({ scale: 1, x: 0, y: 0 });
     const image = box.element.querySelector<HTMLImageElement>('.lightbox-image');
-    expect(image?.getAttribute('src')).toMatch(/\/images\/waveform-3band\.webp$/);
+    expect(image?.getAttribute('src')).toMatch(/\/images\/waveform-beat-grid\.webp$/);
   });
 
   it('stops page-scrolling keys from scrolling the page behind the dialog', () => {

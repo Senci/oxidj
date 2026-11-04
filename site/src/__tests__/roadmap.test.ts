@@ -31,13 +31,14 @@ describe('static public pages', () => {
     ).toBe(true);
     expect(milestones.find((m) => m.id === 'm6')?.status).toBe('in-progress');
     expect(milestones.find((m) => m.id === 'm7')?.status).toBe('in-progress');
-    expect(roadmapSnapshot.verifiedAt).toBe('2026-11-03');
+    expect(roadmapSnapshot.verifiedAt).toBe('2026-11-04');
     expect(roadmapSnapshot.currentSummary).toMatch(
       /synthetic Rekordbox XML.*read-only preview.*new file.*guarded edits/i,
     );
     expect(roadmapSnapshot.unfinished).toMatch(
-      /real Rekordbox or OneLibrary.*not been demonstrated/i,
+      /one owner-run round trip.*Rekordbox on Windows.*OneLibrary.*hardware.*not been demonstrated/i,
     );
+    expect(roadmapSnapshot.unfinished).toMatch(/suggestion, not Rekordbox parity/i);
     expect(roadmapSnapshot.unfinished).toMatch(
       /desktop, accessibility and platform testing.*pending/i,
     );
@@ -46,11 +47,16 @@ describe('static public pages', () => {
       /synthetic Rekordbox XML fixtures.*read-only preview.*new file.*guarded edits/i,
     );
     expect(milestones.find((m) => m.id === 'm4')?.detail).toMatch(
-      /compatibility with real Rekordbox or OneLibrary.*not been demonstrated/i,
+      /broader compatibility with real Rekordbox or OneLibrary.*not been demonstrated/i,
     );
-    expect(projectUpdates).toHaveLength(6);
-    expect(projectUpdates[0]?.source.href).toMatch(/\/commit\/89cd073$/);
+    expect(projectUpdates).toHaveLength(11);
+    expect(projectUpdates[0]?.source.href).toMatch(/\/commit\/9a9b96c$/);
     expect(projectUpdates.map((u) => u.date)).toEqual([
+      '2026-11-04',
+      '2026-11-04',
+      '2026-11-04',
+      '2026-11-04',
+      '2026-11-04',
       '2026-11-03',
       '2026-11-03',
       '2026-11-03',
@@ -61,8 +67,12 @@ describe('static public pages', () => {
     expect(projectUpdates.every((u) => /\/commit\/[0-9a-f]{7,40}$/.test(u.source.href))).toBe(true);
     expect(roadmapSnapshot.working).toMatch(/show or hide.*bar and beat lines/i);
     expect(milestones.find((m) => m.id === 'm6')?.detail).toMatch(
-      /smooth waveform.*bar and beat lines/i,
+      /smooth vector waveform.*bar and beat lines.*91%.*F70 0\.76/i,
     );
+    expect(milestones.find((m) => m.id === 'm7')?.detail).toMatch(
+      /Rekordbox on Windows.*hardware \(CDJ\/XDJ\) has not been tested/i,
+    );
+    expect(milestones.find((m) => m.id === 'm2')?.detail).toMatch(/AIFF\/AIFF-C/);
     expect(html).not.toMatch(/<dt[^>]*>(Progress|Next)<\/dt>/);
     for (const u of projectUpdates) expect(html).toContain(escapeHtml(u.source.href));
   });

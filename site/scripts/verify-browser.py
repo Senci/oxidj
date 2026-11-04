@@ -123,6 +123,44 @@ def touch_check(browser, failures):
     return r
 
 
+def every_trigger_check(page, failures):
+    """Each lightbox link opens its own full image, zooms, pans, closes on Esc and returns focus to itself."""
+    dialog = page.locator(".lightbox")
+    vw = page.viewport_size
+    results = []
+    for i in range(page.locator("a[data-lightbox]").count()):
+        trigger = page.locator("a[data-lightbox]").nth(i)
+        trigger.scroll_into_view_if_needed()
+        trigger.focus()
+        page.keyboard.press("Enter")
+        dialog.wait_for(state="visible")
+        page.wait_for_timeout(450)
+        href = trigger.get_attribute("href").lstrip("./")
+        r = {"href": href}
+        r["src"] = page.evaluate("document.querySelector('.lightbox-image').getAttribute('src')").endswith(href)
+        r["natural"] = page.evaluate("document.querySelector('.lightbox-image').naturalWidth") == int(trigger.get_attribute("data-width"))
+        page.mouse.move(vw["width"] / 2, vw["height"] / 2)
+        for _ in range(4):
+            page.mouse.wheel(0, -120)
+        page.wait_for_timeout(100)
+        r["zoom"] = page.evaluate(SCALE_JS) > 1.2
+        # Pan on either axis: a tall, narrow crop zoomed at 1440 px may still fit horizontally.
+        shift = "(() => { const m = new DOMMatrix(getComputedStyle(document.querySelector('.lightbox-image')).transform); return [m.e, m.f]; })()"
+        x0, y0 = page.evaluate(shift)
+        page.mouse.down()
+        page.mouse.move(vw["width"] / 2 - 60, vw["height"] / 2 - 60, steps=6)
+        page.mouse.up()
+        x1, y1 = page.evaluate(shift)
+        r["pan"] = max(abs(x1 - x0), abs(y1 - y0)) > 10
+        page.keyboard.press("Escape")
+        r["closed"] = not dialog.is_visible()
+        r["focusReturned"] = page.evaluate(f"document.activeElement === document.querySelectorAll('a[data-lightbox]')[{i}]")
+        results.append(r)
+        if not all(v for k, v in r.items() if k != "href"):
+            failures.append(f"lightbox trigger {vw['width']}: {r}")
+    return results
+
+
 def lightbox_check(page, failures):
     page.evaluate("window.scrollTo(0, 0)")
     trigger = page.locator("a[data-lightbox]").first
@@ -171,6 +209,7 @@ def lightbox_check(page, failures):
     page.mouse.click(8, vw["height"] - 8)
     result["outsideClickCloses"] = not dialog.is_visible()
     result.update(image_click_check(page, trigger, dialog))
+    result["everyTrigger"] = every_trigger_check(page, failures)
     ok = (
         result["opacity"] == "1" and result["role"] == "dialog" and result["modal"] == "true" and result["focusClose"]
         and result["imageFits"] and result["wheelZoom"] != "none" and abs(result["dragPanned"]) > 10

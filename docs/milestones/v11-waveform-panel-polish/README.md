@@ -5,7 +5,7 @@ Date: 2026-11-03 · Evidence commits: `89cd073` · Raw evidence: [`ui-minimal/af
 ## What changed for the user
 
 - Waveform gain sliders share one label column and rail width; the detail strip uses spare height; Play no longer widens and shifts the decks bar; long deck names truncate.
-- These two captures are the source of the public site screenshots (`site/public/images/`).
+- These two captures were the source of the public site screenshots until S2 (2026-11-04); the site now crops `v12-ui-polish` and `v13-computed-beat-grid` (`site/public/images/README.md`).
 
 ## Key screenshots
 
