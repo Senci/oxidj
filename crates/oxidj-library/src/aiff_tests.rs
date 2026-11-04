@@ -295,6 +295,61 @@ fn odd_8_bit_ssnd_as_last_chunk_without_trailing_pad_decodes() {
     assert_decodes(&scratch("nopad.aiff", &bytes), 8_000, 1, &expected(3, 1, 8));
 }
 
+/// The common real-world writer quirk: an odd final chunk whose pad byte the
+/// FORM size counts but the file does not contain (FORM = file length - 7).
+fn missing_final_pad(chunks: &[Vec<u8>]) -> Vec<u8> {
+    let mut bytes = form(b"AIFF", chunks);
+    assert_eq!(bytes.pop(), Some(0), "last chunk must be odd (padded)");
+    bytes
+}
+
+fn form_overrun(bytes: &[u8]) -> i64 {
+    8 + i64::from(u32::from_be_bytes(bytes[4..8].try_into().unwrap())) - bytes.len() as i64
+}
+
+/// Tagged-library layout: COMT, COMM, odd AUTH/NAME, ANNO, SSND, odd `ID3 `.
+fn tagged_chunks(frames: u32, id3: &[u8]) -> Vec<Vec<u8>> {
+    vec![
+        chunk(b"COMT", &[0, 0]),
+        comm(2, frames, 16, ext80(44_100), None),
+        chunk(b"AUTH", b"abc"),
+        chunk(b"NAME", b"x"),
+        chunk(b"ANNO", b"ok"),
+        ssnd(0, 0, &pcm_data(10, 2, 16, false)),
+        chunk(b"ID3 ", id3),
+    ]
+}
+
+#[test]
+fn form_counting_a_missing_final_id3_pad_byte_decodes() {
+    let bytes = missing_final_pad(&tagged_chunks(10, b"ID3ta"));
+    assert_eq!(form_overrun(&bytes), 1);
+    assert_decodes(
+        &scratch("id3.aiff", &bytes),
+        44_100,
+        2,
+        &expected(10, 2, 16),
+    );
+}
+
+#[test]
+fn form_counting_a_missing_final_ssnd_pad_byte_decodes() {
+    // Odd 8-bit SSND as the last chunk; FORM counts its absent pad.
+    let bytes = missing_final_pad(&[
+        comm(1, 3, 8, ext80(8_000), None),
+        ssnd(0, 0, &pcm_data(3, 1, 8, false)),
+    ]);
+    assert_eq!(form_overrun(&bytes), 1);
+    assert_decodes(&scratch("ssnd.aiff", &bytes), 8_000, 1, &expected(3, 1, 8));
+}
+
+/// Set the FORM size so the FORM overruns the file by `overrun` bytes.
+fn with_overrun(mut bytes: Vec<u8>, overrun: i64) -> Vec<u8> {
+    let size = (bytes.len() as i64 - 8 + overrun) as u32;
+    bytes[4..8].copy_from_slice(&size.to_be_bytes());
+    bytes
+}
+
 #[test]
 fn ssnd_offset_and_block_size_are_honoured() {
     let data = pcm_data(20, 2, 24, false);
@@ -702,7 +757,12 @@ fn every_truncation_and_byte_corruption_returns_without_panicking() {
         ],
     );
     let path = scratch("fuzz.aifc", &bytes);
-    for len in 0..bytes.len() {
+    // The final SSND is odd: dropping only its pad byte is the accepted
+    // missing-final-pad shape; every shorter truncation must refuse.
+    assert_eq!(bytes.last(), Some(&0));
+    std::fs::write(&path, &bytes[..bytes.len() - 1]).unwrap();
+    assert!(decode(&path).0.is_ok(), "missing final pad only");
+    for len in 0..bytes.len() - 1 {
         std::fs::write(&path, &bytes[..len]).unwrap();
         let (result, sink) = decode(&path);
         assert!(result.is_err(), "truncated to {len}");
@@ -722,3 +782,45 @@ fn every_truncation_and_byte_corruption_returns_without_panicking() {
         let _ = decode(&path);
     }
 }
+
+// ---- missing-final-pad neighbours: still fail closed -----------------------
+
+refusal!(
+    refuses_form_overrun_by_two_with_missing_final_pad,
+    Malformed,
+    { with_overrun(missing_final_pad(&tagged_chunks(10, b"tag")), 2) }
+);
+refusal!(
+    refuses_form_overrun_by_one_when_final_pad_is_present,
+    Malformed,
+    { with_overrun(form(b"AIFF", &tagged_chunks(10, b"tag")), 1) }
+);
+refusal!(
+    refuses_form_overrun_by_one_after_even_final_chunk,
+    Malformed,
+    { with_overrun(form(b"AIFF", &tagged_chunks(10, b"tags")), 1) }
+);
+refusal!(
+    refuses_final_chunk_body_past_eof_with_overrun_one,
+    Malformed,
+    {
+        // ID3 size claims one more byte than the file holds (even size, no pad).
+        let mut b = form(b"AIFF", &tagged_chunks(10, b"tags"));
+        let at = b.windows(4).rposition(|w| w == b"ID3 ").unwrap();
+        b[at + 4..at + 8].copy_from_slice(&5_u32.to_be_bytes());
+        with_overrun(b, 1)
+    }
+);
+refusal!(refuses_final_ssnd_past_eof_with_overrun_one, Malformed, {
+    // SSND is last and declares one byte more than present.
+    let mut b = form(b"AIFF", &tagged_chunks(10, b"tag")[..6]);
+    let at = b.windows(4).position(|w| w == b"SSND").unwrap();
+    let size = u32::from_be_bytes(b[at + 4..at + 8].try_into().unwrap()) + 1;
+    b[at + 4..at + 8].copy_from_slice(&size.to_be_bytes());
+    with_overrun(b, 1)
+});
+refusal!(
+    refuses_frames_beyond_data_with_missing_final_pad,
+    Malformed,
+    missing_final_pad(&tagged_chunks(11, b"tag"))
+);

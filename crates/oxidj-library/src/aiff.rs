@@ -186,7 +186,13 @@ pub(crate) fn parse<R: Read + Seek>(reader: &mut R, file_len: u64) -> Result<Lay
     }
     let aifc = &header[8..12] == b"AIFC";
     let form_end = 8 + u64::from(be_u32(&header[4..8]));
-    if form_end < 12 || form_end > file_len {
+    // Common writer quirk: the FORM size counts the pad byte of an odd final
+    // chunk that was never written, so the FORM overruns the file by exactly
+    // one byte. Accepted only in that shape: every chunk must still end inside
+    // the file, and the walk below can only reach `form_end` if the last chunk
+    // is odd-sized and ends exactly at EOF (any other layout leaves a 1-byte
+    // tail shorter than a chunk header, which is refused).
+    if form_end < 12 || form_end > file_len + 1 {
         return Err(ImportStatus::Malformed);
     }
     let mut comm = None;
@@ -203,7 +209,7 @@ pub(crate) fn parse<R: Read + Seek>(reader: &mut R, file_len: u64) -> Result<Lay
         let size = u64::from(be_u32(&head[4..8]));
         let body = offset + 8;
         let end = body + size;
-        if end > form_end {
+        if end > form_end || end > file_len {
             return Err(ImportStatus::Malformed);
         }
         match &head[0..4] {
@@ -230,7 +236,8 @@ pub(crate) fn parse<R: Read + Seek>(reader: &mut R, file_len: u64) -> Result<Lay
             _ => {}
         }
         // Odd-length chunks are followed by one pad byte (which a last chunk's
-        // FORM size may omit; the loop then simply ends).
+        // FORM size may omit, or count without it being written; either way
+        // the loop then simply ends).
         offset = end + (size & 1);
     }
     let comm = comm.ok_or(ImportStatus::Malformed)?;

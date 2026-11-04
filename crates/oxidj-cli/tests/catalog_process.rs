@@ -503,7 +503,17 @@ fn analyze_waveform_aiff_and_wav_of_the_same_signal_store_identical_peaks() {
     aiff.extend_from_slice(&body);
 
     std::fs::write(root.join("a.wav"), &wav).unwrap();
+    // Real-library writer quirk: odd final `ID3 ` chunk whose pad byte the
+    // FORM size counts but the file omits (FORM overruns the file by 1).
+    let mut tagged = aiff.clone();
+    tagged.extend_from_slice(b"ID3 ");
+    tagged.extend_from_slice(&3_u32.to_be_bytes());
+    tagged.extend_from_slice(b"tag");
+    let size = (tagged.len() - 8 + 1) as u32;
+    tagged[4..8].copy_from_slice(&size.to_be_bytes());
+
     std::fs::write(root.join("b.aiff"), &aiff).unwrap();
+    std::fs::write(root.join("c.aiff"), &tagged).unwrap();
     let import = run(&[
         "catalog",
         "import",
@@ -517,11 +527,11 @@ fn analyze_waveform_aiff_and_wav_of_the_same_signal_store_identical_peaks() {
     assert_eq!(out.status.code(), Some(0), "{:?}", out.stderr);
     assert_eq!(
         String::from_utf8(out.stdout).unwrap(),
-        "Analyzed\t1\nAnalyzed\t2\nAnalyzed: 2\nUnchanged: 0\nFailed: 0\n"
+        "Analyzed\t1\nAnalyzed\t2\nAnalyzed\t3\nAnalyzed: 3\nUnchanged: 0\nFailed: 0\n"
     );
     let catalog = Catalog::open(&database).unwrap();
     let details = catalog.list_track_details().unwrap();
-    assert_eq!(details.len(), 2);
+    assert_eq!(details.len(), 3);
     for detail in &details {
         assert_eq!(detail.sample_rate, Some(rate));
         assert_eq!(detail.channels, Some(2));
@@ -541,7 +551,9 @@ fn analyze_waveform_aiff_and_wav_of_the_same_signal_store_identical_peaks() {
     let (wav_peaks, aiff_peaks) = (peaks(1), peaks(2));
     assert!(wav_peaks.level_count() > 1);
     assert_eq!(aiff_peaks, wav_peaks);
+    assert_eq!(peaks(3), wav_peaks);
     assert_eq!(std::fs::read(root.join("b.aiff")).unwrap(), aiff);
+    assert_eq!(std::fs::read(root.join("c.aiff")).unwrap(), tagged);
     drop(catalog);
     let _ = std::fs::remove_file(&database);
     let _ = std::fs::remove_dir_all(root);
