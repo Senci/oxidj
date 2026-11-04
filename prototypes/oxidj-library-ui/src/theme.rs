@@ -34,14 +34,38 @@ pub const CONTROL_HEIGHT: f32 = 24.0;
 pub const ROW_HEIGHT: f32 = 24.0;
 /// Track-table header height.
 pub const HEADER_HEIGHT: f32 = 24.0;
-/// Toolbar and status bar padding around one control row (32 px toolbar).
-pub const BAR_MARGIN: egui::Margin = egui::Margin::symmetric(6, 4);
-/// Inner margin of the side and deck panels.
-pub const PANEL_MARGIN: egui::Margin = egui::Margin::symmetric(8, 6);
+/// Toolbar and decks-bar padding around one control row (32 px bars, W11:
+/// 8 px outer inset like the side panels).
+pub const BAR_MARGIN: egui::Margin = egui::Margin::symmetric(8, 4);
+/// Status bar: one 24 px line, no vertical padding (W11).
+pub const STATUS_MARGIN: egui::Margin = egui::Margin::symmetric(8, 0);
+/// Inner margin of the side panels (8 px grid, W11).
+pub const PANEL_MARGIN: egui::Margin = egui::Margin::symmetric(8, 8);
 /// Smallest text size used for captions and badges (egui's default is 9 px).
 pub const SMALL_TEXT: f32 = 11.5;
 /// Opacity of the primary tint behind selected rows; kept low so text stays >= 4.5:1.
 const SELECTION_TINT: f32 = 0.20;
+/// Opacity of the surface tint on odd table rows (W11 zebra, subtler than
+/// the full surface used for hover).
+pub const ZEBRA_TINT: f32 = 0.5;
+/// Opacity of the border token for decorative separators (W11 hairlines);
+/// control outlines keep the full >= 3:1 border.
+const HAIRLINE_TINT: f32 = 0.5;
+
+/// Selected row / active toggle fill: the primary tint egui also uses.
+pub fn selection_fill(t: ColorTokens) -> Color32 {
+    t.primary.linear_multiply(SELECTION_TINT)
+}
+
+/// Decorative separator colour (panel edges, table header rule).
+pub fn hairline(t: ColorTokens) -> Color32 {
+    t.border.linear_multiply(HAIRLINE_TINT)
+}
+
+/// Odd-row zebra fill of the track table.
+pub fn zebra(t: ColorTokens) -> Color32 {
+    t.surface.linear_multiply(ZEBRA_TINT)
+}
 
 impl ThemeMode {
     /// The preset palette (Custom starts from Tokyo Night).
@@ -145,7 +169,7 @@ impl ThemeMode {
         visuals.override_text_color = Some(t.text);
         visuals.weak_text_color = Some(t.muted_text);
         visuals.hyperlink_color = t.secondary;
-        visuals.selection.bg_fill = t.primary.linear_multiply(SELECTION_TINT);
+        visuals.selection.bg_fill = selection_fill(t);
         visuals.selection.stroke = Stroke::new(1.0_f32, t.focus);
         for widget in [
             &mut visuals.widgets.noninteractive,
@@ -172,6 +196,9 @@ impl ThemeMode {
         visuals.widgets.active.bg_stroke.color = t.focus;
         visuals.widgets.open.bg_fill = t.surface;
         visuals.widgets.open.bg_stroke.color = t.focus;
+        // W11: separators and panel edges are one light hairline; they are
+        // decoration, not control boundaries (those keep `border`).
+        visuals.widgets.noninteractive.bg_stroke.color = hairline(t);
         ctx.set_visuals(visuals);
         apply_metrics(ctx);
         publish_tokens(ctx, t);
@@ -389,6 +416,30 @@ mod tests {
             );
             let ratio = contrast_ratio(tokens.text, selected);
             assert!(ratio >= 4.5, "{} selected text {ratio:.2}:1", mode.label());
+        }
+    }
+
+    /// W11: text and muted text stay >= 4.5:1 on the new table fills
+    /// (zebra over the background, hover = surface) and text on the
+    /// selection tint used by selected rows and active toggles.
+    #[test]
+    fn w11_row_fills_keep_text_contrast() {
+        let over = |c: Color32, a: f32, b: Color32| {
+            let m = |c: u8, b: u8| (f32::from(c) * a + f32::from(b) * (1.0 - a)).round() as u8;
+            Color32::from_rgb(m(c.r(), b.r()), m(c.g(), b.g()), m(c.b(), b.b()))
+        };
+        for mode in [ThemeMode::TokyoNight, ThemeMode::TokyoDay] {
+            let t = mode.tokens();
+            let zebra = over(t.surface, ZEBRA_TINT, t.background);
+            for (name, fg, fill) in [
+                ("text on zebra", t.text, zebra),
+                ("muted on zebra", t.muted_text, zebra),
+                ("muted on hover", t.muted_text, t.surface),
+                ("text on selection", t.text, over(t.primary, SELECTION_TINT, t.background)),
+            ] {
+                let ratio = contrast_ratio(fg, fill);
+                assert!(ratio >= 4.5, "{} {name} {ratio:.2}:1", mode.label());
+            }
         }
     }
 

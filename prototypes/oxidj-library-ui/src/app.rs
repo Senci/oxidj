@@ -145,6 +145,9 @@ pub(crate) struct ShellLayout {
     pub(crate) toggles: Option<[egui::Rect; 3]>,
     pub(crate) more: Option<egui::Rect>,
     pub(crate) more_popup: Option<egui::Rect>,
+    /// Search text field and, when there is text, its clear (x) button.
+    pub(crate) search: Option<egui::Rect>,
+    pub(crate) search_clear: Option<egui::Rect>,
 }
 
 impl LibraryApp {
@@ -622,7 +625,11 @@ impl LibraryApp {
                 let custom = ui.selectable_value(&mut selected, ThemeMode::Custom, "Custom");
                 option_rects = Some([night.rect, day.rect, custom.rect]);
             });
-        let label = ui.label(egui::RichText::new("Theme (Ctrl+Alt+1/2/3)").small());
+        // W11: a short muted caption; the shortcuts moved to its tooltip.
+        let tokens = self.active_tokens();
+        let label = ui
+            .label(egui::RichText::new("Theme").small().color(tokens.muted_text))
+            .on_hover_text("Theme: Ctrl+Alt+1 Night · Ctrl+Alt+2 Day · Ctrl+Alt+3 Custom");
         if selected != self.theme {
             self.select_theme(selected);
         }

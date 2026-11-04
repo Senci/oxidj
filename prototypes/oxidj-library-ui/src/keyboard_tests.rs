@@ -5955,7 +5955,8 @@ fn theme_controls_have_accesskit_names_and_control_roles() {
             "missing {role:?} labelled by {name:?}"
         );
     };
-    assert_named("Theme (Ctrl+Alt+1/2/3)", egui::accesskit::Role::ComboBox);
+    // W11: the visible caption is "Theme"; the shortcuts are in its tooltip.
+    assert_named("Theme", egui::accesskit::Role::ComboBox);
     assert_named("Primary", egui::accesskit::Role::TextInput);
     assert_named("Secondary", egui::accesskit::Role::TextInput);
 }

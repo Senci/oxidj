@@ -13,13 +13,21 @@ impl eframe::App for LibraryApp {
 }
 
 
-/// Fixed track-table columns: ID, Duration, Format facts, Availability.
-const ID_COLUMN: f32 = 56.0;
-const DURATION_COLUMN: f32 = 76.0;
-const FORMAT_COLUMN: f32 = 170.0;
-const AVAILABILITY_COLUMN: f32 = 96.0;
-/// Filename and path share the rest; below this the table scrolls sideways.
+/// Fixed track-table columns (W11): availability dot, ID, Duration, Format.
+const STATUS_COLUMN: f32 = 24.0;
+const ID_COLUMN: f32 = 52.0;
+const DURATION_COLUMN: f32 = 72.0;
+const FORMAT_COLUMN: f32 = 150.0;
+/// Filename and folder share the rest; below this the table scrolls sideways.
 const MIN_FLEX_COLUMNS: f32 = 2.0 * 130.0;
+/// Track-table columns, left to right.
+const COLUMNS: usize = 6;
+/// Columns whose cells and header are right-aligned (numbers).
+const RIGHT_ALIGNED: [bool; COLUMNS] = [false, true, false, false, true, false];
+/// Details panel: fixed key column (W11).
+const DETAILS_LABEL_WIDTH: f32 = 88.0;
+/// Hex digits kept at each end of the middle-truncated SHA-256.
+const SHA_EDGE: usize = 12;
 /// Horizontal text inset of every table cell.
 const CELL_INSET: f32 = 6.0;
 /// Width of the "…" popup (label + 240 px field + action button).
@@ -45,6 +53,7 @@ impl LibraryApp {
         self.shell = ShellLayout::default();
         let style = ctx.style();
         let bar = egui::Frame::side_top_panel(&style).inner_margin(theme::BAR_MARGIN);
+        let status_frame = egui::Frame::side_top_panel(&style).inner_margin(theme::STATUS_MARGIN);
         let panel = egui::Frame::side_top_panel(&style).inner_margin(theme::PANEL_MARGIN);
         let toolbar = egui::TopBottomPanel::top("toolbar")
             .frame(bar)
@@ -54,12 +63,12 @@ impl LibraryApp {
         self.show_waveform_demo_window(ctx);
         self.xml_preview_window(ctx, tokens);
         let status = egui::TopBottomPanel::bottom("status-bar")
-            .frame(bar)
+            .frame(status_frame)
             .show(ctx, |ui| self.status_bar(ui, tokens));
         self.shell.status = Some(status.response.rect);
         if self.show_decks {
             let decks = egui::TopBottomPanel::bottom("demo-decks")
-                .frame(panel)
+                .frame(bar)
                 .resizable(false)
                 .show(ctx, |ui| self.demo_decks(ui, tokens));
             self.shell.decks = Some(decks.response.rect);
@@ -147,21 +156,20 @@ impl LibraryApp {
             self.shell.more_popup = popup.map(|popup| popup.response.rect);
             self.theme_selection_ui(ui);
             ui.separator();
+            // W11: one segmented Nav | Details | Decks group (left to right
+            // inside the right-to-left toolbar row).
+            let cells = [("Nav", self.show_nav), ("Details", self.show_details), ("Decks", self.show_decks)];
+            let group = crate::components::segmented_toggles(ui, tokens, &cells);
             let mut toggles = [egui::Rect::NOTHING; 3];
-            for (index, label, shortcut) in [
-                (2, "Decks", "Ctrl+D"),
-                (1, "Details", "Ctrl+I"),
-                (0, "Nav", "Ctrl+B"),
-            ] {
-                let open = match index {
-                    0 => &mut self.show_nav,
-                    1 => &mut self.show_details,
-                    _ => &mut self.show_decks,
-                };
-                let response = ui
-                    .selectable_label(*open, label)
-                    .on_hover_text(format!("Show or hide the {label} panel ({shortcut})"));
+            for (index, (response, shortcut)) in group.into_iter().zip(["Ctrl+B", "Ctrl+I", "Ctrl+D"]).enumerate() {
+                let label = cells[index].0;
+                let response = response.on_hover_text(format!("Show or hide the {label} panel ({shortcut})"));
                 if response.clicked() {
+                    let open = match index {
+                        0 => &mut self.show_nav,
+                        1 => &mut self.show_details,
+                        _ => &mut self.show_decks,
+                    };
                     *open = !*open;
                 }
                 toggles[index] = response.rect;
@@ -170,13 +178,8 @@ impl LibraryApp {
             ui.separator();
             ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
                 ui.label(egui::RichText::new("OxiDJ").strong().color(tokens.text));
-                ui.add(
-                    egui::TextEdit::singleline(&mut self.search)
-                        .hint_text("Search tracks")
-                        .desired_width(ui.available_width().max(120.0))
-                        .min_size(egui::vec2(0.0, theme::CONTROL_HEIGHT))
-                        .vertical_align(egui::Align::Center),
-                );
+                ui.add_space(4.0);
+                self.search_field(ui, tokens);
             });
         });
     }
@@ -251,7 +254,66 @@ impl LibraryApp {
         }
     }
 
-    /// One line: the latest notice (or "Ready"), track count, shortcut legend.
+    /// W11 search: one framed control holding a painted magnifier, the
+    /// frameless text field and (when there is text) a clear (x) button.
+    /// The field and button are 1 px apart, so their hit rects never touch.
+    fn search_field(&mut self, ui: &mut egui::Ui, tokens: theme::ColorTokens) {
+        let h = theme::CONTROL_HEIGHT;
+        let width = ui.available_width().max(160.0);
+        let (outer, _) = ui.allocate_exact_size(egui::vec2(width, h), egui::Sense::hover());
+        let glyph = egui::Rect::from_min_size(outer.min, egui::vec2(h, h));
+        let clear = egui::Rect::from_min_size(egui::pos2(outer.right() - h, outer.top()), egui::vec2(h, h));
+        let field = egui::Rect::from_min_max(egui::pos2(glyph.right(), outer.top()), egui::pos2(clear.left() - 1.0, outer.bottom()));
+        ui.painter().rect_filled(outer, crate::components::CONTROL_RADIUS, tokens.background);
+        let edit = ui.put(
+            field,
+            egui::TextEdit::singleline(&mut self.search)
+                .id_salt("track-search")
+                .hint_text("Search tracks")
+                .frame(false)
+                .margin(egui::Margin::symmetric(0, 2))
+                .desired_width(field.width())
+                .min_size(egui::vec2(0.0, h))
+                .vertical_align(egui::Align::Center),
+        );
+        let stroke = if edit.has_focus() {
+            egui::Stroke::new(2.0_f32, tokens.focus)
+        } else if edit.hovered() {
+            egui::Stroke::new(1.0_f32, tokens.focus)
+        } else {
+            egui::Stroke::new(1.0_f32, tokens.border)
+        };
+        let painter = ui.painter();
+        painter.rect_stroke(outer, crate::components::CONTROL_RADIUS, stroke, egui::StrokeKind::Inside);
+        // Magnifier: a 5 px lens and a short handle, painted (no font glyph).
+        let lens = glyph.center() - egui::vec2(1.5, 1.5);
+        let ink = egui::Stroke::new(1.5_f32, tokens.muted_text);
+        painter.circle_stroke(lens, 4.5, ink);
+        let d = 4.5 / std::f32::consts::SQRT_2;
+        painter.line_segment([lens + egui::vec2(d, d), lens + egui::vec2(d + 3.5, d + 3.5)], ink);
+        self.shell.search = Some(edit.rect);
+        self.shell.search_clear = None;
+        if !self.search.is_empty() {
+            let response = ui.interact(clear, ui.id().with("clear-search"), egui::Sense::click());
+            response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, "Clear search"));
+            let color = if response.hovered() || response.has_focus() { tokens.text } else { tokens.muted_text };
+            if response.has_focus() {
+                ui.painter().rect_stroke(clear.shrink(2.0), crate::components::CONTROL_RADIUS, egui::Stroke::new(2.0_f32, tokens.focus), egui::StrokeKind::Inside);
+            }
+            let c = clear.center();
+            let x = egui::Stroke::new(1.5_f32, color);
+            ui.painter().line_segment([c - egui::vec2(4.0, 4.0), c + egui::vec2(4.0, 4.0)], x);
+            ui.painter().line_segment([c + egui::vec2(-4.0, 4.0), c + egui::vec2(4.0, -4.0)], x);
+            self.shell.search_clear = Some(clear);
+            if response.on_hover_text("Clear search").clicked() {
+                self.search.clear();
+                edit.request_focus();
+            }
+        }
+    }
+
+    /// One 24 px line: the latest notice (or "Ready") in body text on the
+    /// left; track count and shortcut legend as small muted hints (W11).
     fn status_bar(&mut self, ui: &mut egui::Ui, tokens: theme::ColorTokens) {
         ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
         let row = egui::vec2(ui.available_width(), theme::CONTROL_HEIGHT);
@@ -263,7 +325,7 @@ impl LibraryApp {
             ui.separator();
             ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
                 if self.notice.is_empty() {
-                    ui.label(muted("Ready".into()));
+                    ui.label(egui::RichText::new("Ready").color(tokens.text));
                     return;
                 }
                 let kind = if self.notice.starts_with("Import failed:")
@@ -281,7 +343,7 @@ impl LibraryApp {
                     label: &self.notice,
                     kind,
                 }
-                .show(ui, tokens);
+                .show_inline(ui, tokens);
             });
         });
     }
@@ -744,38 +806,31 @@ impl LibraryApp {
         }
     }
 
-    /// Collection and availability filters.
+    /// Collection and availability filters (W11): one heading style, full
+    /// width 24 px rows with the count right-aligned in muted text, and the
+    /// selected filter marked like the selected track row (tint + rail).
     fn navigation(&mut self, ui: &mut egui::Ui, tokens: theme::ColorTokens) {
-        SectionHeading {
-            title: "Collection",
-        }
-        .show(ui, tokens);
-        if ui
-            .selectable_label(
-                self.availability_filter.is_none(),
-                format!("All tracks · {}", self.tracks.len()),
-            )
-            .clicked()
-        {
+        ui.spacing_mut().item_spacing.y = 0.0;
+        SectionHeading { title: "Collection" }.show(ui, tokens);
+        ui.add_space(4.0);
+        let all = nav_row(ui, self.availability_filter.is_none(), "All tracks", self.tracks.len(), tokens);
+        if all.clicked() {
             self.availability_filter = None;
         }
-        ui.add_space(4.0);
-        ui.separator();
-        ui.label(egui::RichText::new("LOCAL FILTERS").small().strong().color(tokens.muted_text));
         let available = self
             .tracks
             .iter()
             .filter(|track| track.availability == TrackAvailability::Available)
             .count();
         let missing = self.tracks.len().saturating_sub(available);
-        for (filter, label) in [
-            (TrackAvailability::Available, format!("Available · {available}")),
-            (TrackAvailability::Missing, format!("Missing · {missing}")),
+        ui.add_space(8.0);
+        SectionHeading { title: "Filters" }.show(ui, tokens);
+        ui.add_space(4.0);
+        for (filter, label, count) in [
+            (TrackAvailability::Available, "Available", available),
+            (TrackAvailability::Missing, "Missing", missing),
         ] {
-            if ui
-                .selectable_label(self.availability_filter == Some(filter), label)
-                .clicked()
-            {
+            if nav_row(ui, self.availability_filter == Some(filter), label, count, tokens).clicked() {
                 self.availability_filter = Some(filter);
             }
         }
@@ -803,7 +858,7 @@ impl LibraryApp {
                     ui.separator();
                 }
                 ui.horizontal(|ui| {
-                    ui.strong(format!("DECK {}", if deck == 0 { "A" } else { "B" }));
+                    ui.label(egui::RichText::new(format!("DECK {}", if deck == 0 { "A" } else { "B" })).small().strong().color(tokens.text));
                     // W9: a fixed, truncated name column (full name on hover):
                     // a long filename pushed Play/Cue past the window edge.
                     ui.allocate_ui_with_layout(
@@ -816,14 +871,18 @@ impl LibraryApp {
                     // W9: a fixed label (the selected fill shows the state):
                     // "Playing · demo" widened the button and shifted Cue and
                     // the other deck on every toggle.
-                    if ui
-                        .selectable_label(self.deck_playing[deck], "Play")
-                        .on_hover_text("Demo toggle only: no audio is played")
-                        .clicked()
-                    {
+                    // W11: Play | Cue as one segmented toggle group.
+                    let mut cells = crate::components::segmented_toggles(
+                        ui,
+                        tokens,
+                        &[("Play", self.deck_playing[deck]), ("Cue", self.deck_cue[deck])],
+                    )
+                    .into_iter();
+                    let (play, cue) = (cells.next().expect("Play"), cells.next().expect("Cue"));
+                    if play.on_hover_text("Demo toggle only: no audio is played").clicked() {
                         self.deck_playing[deck] = !self.deck_playing[deck];
                     }
-                    if ui.selectable_label(self.deck_cue[deck], "Cue").clicked() {
+                    if cue.clicked() {
                         self.deck_cue[deck] = !self.deck_cue[deck];
                     }
                 });
@@ -869,11 +928,14 @@ impl LibraryApp {
             ("Bit depth", item.bit_depth.map(|v| format!("{v} bit")).unwrap_or_else(unavailable)),
             ("Size", format!("{} bytes", item.track.byte_length)),
         ];
+        ui.add_space(4.0);
         egui::Grid::new("track-facts")
             .num_columns(2)
-            .max_col_width(ui.available_width() - 110.0)
+            // W11: a fixed label column, so every value starts at one x.
+            .min_col_width(DETAILS_LABEL_WIDTH)
+            .max_col_width(ui.available_width() - DETAILS_LABEL_WIDTH - 12.0)
             .min_row_height(ui.text_style_height(&egui::TextStyle::Body))
-            .spacing([12.0, 3.0])
+            .spacing([12.0, 4.0])
             .show(ui, |ui| {
                 for (key, value) in facts {
                     ui.label(egui::RichText::new(key).color(tokens.muted_text));
@@ -888,15 +950,24 @@ impl LibraryApp {
                     label: availability,
                     kind,
                 }
-                .show(ui, tokens);
+                .show_inline(ui, tokens);
                 ui.end_row();
                 ui.label(egui::RichText::new("SHA-256").color(tokens.muted_text));
-                // Two fixed 32-hex-digit lines: same height at every width.
-                let (first, second) = hash.split_at(hash.len() / 2);
-                ui.add(egui::Label::new(egui::RichText::new(format!("{first}\n{second}")).monospace().small()).extend());
+                // W11: one middle-truncated line; full digest on hover,
+                // click copies it.
+                let response = ui
+                    .add(
+                        egui::Label::new(egui::RichText::new(truncate_middle(&hash, SHA_EDGE)).monospace())
+                            .sense(egui::Sense::click()),
+                    )
+                    .on_hover_text(format!("{hash}\nClick to copy"));
+                if response.clicked() {
+                    ui.ctx().copy_text(hash.clone());
+                    self.notice = "SHA-256 copied to the clipboard".into();
+                }
                 ui.end_row();
             });
-        ui.add_space(4.0);
+        ui.add_space(8.0);
         self.track_waveform
             .show(ui, self.catalog.as_ref().ok(), item, tokens);
     }
@@ -949,10 +1020,10 @@ impl LibraryApp {
                 order
             }
         });
-        let fixed = ID_COLUMN + DURATION_COLUMN + FORMAT_COLUMN + AVAILABILITY_COLUMN;
+        let fixed = STATUS_COLUMN + ID_COLUMN + DURATION_COLUMN + FORMAT_COLUMN;
         let total = ui.available_width().max(fixed + MIN_FLEX_COLUMNS);
-        let name = ((total - fixed) * 0.45).floor();
-        let widths = [ID_COLUMN, name, total - fixed - name, DURATION_COLUMN, FORMAT_COLUMN, AVAILABILITY_COLUMN];
+        let name = ((total - fixed) * 0.5).floor();
+        let widths = [STATUS_COLUMN, ID_COLUMN, name, total - fixed - name, DURATION_COLUMN, FORMAT_COLUMN];
         // The visible table viewport (wider content scrolls inside it).
         self.shell.table = Some(ui.max_rect());
         ui.spacing_mut().item_spacing = egui::vec2(0.0, 0.0);
@@ -976,6 +1047,16 @@ impl LibraryApp {
                     });
                     return;
                 }
+                // W11: with few rows the zebra continues faintly below the
+                // last row instead of leaving a dead block (no scrolling
+                // then, so the stripes line up with the rows).
+                let body = ui.available_rect_before_wrap();
+                let rows = (body.height() / theme::ROW_HEIGHT).ceil() as usize;
+                for index in (visible.len()..rows).filter(|i| i % 2 == 1) {
+                    let top = body.top() + index as f32 * theme::ROW_HEIGHT;
+                    let stripe = egui::Rect::from_min_size(egui::pos2(body.left(), top), egui::vec2(total, theme::ROW_HEIGHT));
+                    ui.painter().rect_filled(stripe.intersect(body), 0.0, theme::zebra(tokens));
+                }
                 egui::ScrollArea::vertical()
                     .auto_shrink([false, false])
                     .show_rows(ui, theme::ROW_HEIGHT, visible.len(), |ui, range| {
@@ -995,24 +1076,27 @@ impl LibraryApp {
 fn table_header(
     ui: &mut egui::Ui,
     rect: egui::Rect,
-    widths: [f32; 6],
+    widths: [f32; COLUMNS],
     tokens: theme::ColorTokens,
     current: &mut Sort,
     descending: &mut bool,
 ) {
         let painter = ui.painter();
         painter.rect_filled(rect, 0.0, tokens.surface);
-        painter.hline(rect.x_range(), rect.bottom() - 0.5, egui::Stroke::new(1.0_f32, tokens.border));
-        let columns: [(&str, Option<Sort>); 6] = [
+        painter.hline(rect.x_range(), rect.bottom() - 0.5, egui::Stroke::new(1.0_f32, theme::hairline(tokens)));
+        // W11: the availability column is a dot only (state on row hover);
+        // "Folder" replaces "Path", which repeated the filename.
+        let columns: [(&str, Option<Sort>); COLUMNS] = [
+            ("", None),
             ("ID", Some(Sort::Id)),
             ("Filename", Some(Sort::Filename)),
-            ("Path", None),
+            ("Folder", None),
             ("Duration", Some(Sort::Duration)),
             ("Format", None),
-            ("Availability", None),
         ];
         let mut x = rect.left();
-        for ((title, sort), width) in columns.into_iter().zip(widths) {
+        for (column, ((title, sort), width)) in columns.into_iter().zip(widths).enumerate() {
+            let right = RIGHT_ALIGNED[column];
             let cell = egui::Rect::from_min_size(egui::pos2(x, rect.top()), egui::vec2(width, rect.height()));
             x += width;
             let active = sort == Some(*current);
@@ -1024,13 +1108,14 @@ fn table_header(
             };
             let text = title;
             let color = if active { tokens.text } else { tokens.muted_text };
-            let galley = egui::WidgetText::from(egui::RichText::new(text).small().strong()).into_galley(
+            let galley = egui::WidgetText::from(egui::RichText::new(text).small().strong().color(color)).into_galley(
                 ui,
                 Some(egui::TextWrapMode::Truncate),
                 width - 2.0 * CELL_INSET,
                 egui::TextStyle::Small,
             );
-            let pos = egui::pos2(cell.left() + CELL_INSET, cell.center().y - galley.size().y / 2.0);
+            let tx = if right { cell.right() - CELL_INSET - galley.size().x } else { cell.left() + CELL_INSET };
+            let pos = egui::pos2(tx, cell.center().y - galley.size().y / 2.0);
             if let Some(sort) = sort {
                 let response = ui.interact(cell, ui.id().with(("sort-header", title)), egui::Sense::click());
                 response.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, true, active, &name));
@@ -1049,7 +1134,9 @@ fn table_header(
             }
             if active {
                 let size = galley.size();
-                let c = egui::pos2(pos.x + size.x + 8.0, cell.center().y);
+                // Right-aligned titles carry the arrow on their left.
+                let ax = if right { pos.x - 8.0 } else { pos.x + size.x + 8.0 };
+                let c = egui::pos2(ax, cell.center().y);
                 let (tip, base) = if *descending { (3.0, -3.0) } else { (-3.0, 3.0) };
                 ui.painter().add(egui::Shape::convex_polygon(
                     vec![egui::pos2(c.x, c.y + tip), egui::pos2(c.x + 4.0, c.y + base), egui::pos2(c.x - 4.0, c.y + base)],
@@ -1061,16 +1148,19 @@ fn table_header(
         }
     }
 
-/// One full-width selectable row (true when clicked); the selected row
-/// carries a 3 px primary rail (a full-row tint would drop Day muted text
-/// below 4.5:1).
+/// One full-width selectable row (true when clicked), W11 states:
+/// odd rows a faint zebra, hover the full surface, selected the selection
+/// tint plus a 3 px primary rail with every cell in text colour (muted text
+/// on the tint would be below 4.5:1 in Tokyo Day), keyboard focus a 2 px
+/// focus ring. Missing tracks are dimmed (muted text). Numbers are
+/// right-aligned; the availability column is a dot, its word on hover.
 fn track_row(
         ui: &mut egui::Ui,
         item: &TrackDetails,
         selected: Option<u64>,
         index: usize,
         total: f32,
-        widths: [f32; 6],
+        widths: [f32; COLUMNS],
         tokens: theme::ColorTokens,
     ) -> bool {
         let id = item.track.id.as_u64();
@@ -1078,63 +1168,141 @@ fn track_row(
         let filename = file_name(&item.track.path);
         let (rect, response) = ui.allocate_exact_size(egui::vec2(total, theme::ROW_HEIGHT), egui::Sense::click());
         response.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, true, selected, &filename));
-        if index % 2 == 1 {
-            ui.painter().rect_filled(rect, 0.0, tokens.surface);
-        }
+        let painter = ui.painter();
         if selected {
+            painter.rect_filled(rect, 0.0, theme::selection_fill(tokens));
             let rail = egui::Rect::from_x_y_ranges(rect.left()..=rect.left() + 3.0, rect.y_range());
-            ui.painter().rect_filled(rail, 0.0, tokens.primary);
+            painter.rect_filled(rail, 0.0, tokens.primary);
+        } else if response.hovered() {
+            painter.rect_filled(rect, 0.0, tokens.surface);
+        } else if index % 2 == 1 {
+            painter.rect_filled(rect, 0.0, theme::zebra(tokens));
         }
-        if response.hovered() || response.has_focus() {
-            let stroke: f32 = if response.has_focus() { 2.0 } else { 1.0 };
-            ui.painter().rect_stroke(rect.shrink(0.5), 0.0, egui::Stroke::new(stroke, tokens.focus), egui::StrokeKind::Inside);
+        if response.has_focus() {
+            painter.rect_stroke(rect.shrink(0.5), 0.0, egui::Stroke::new(2.0_f32, tokens.focus), egui::StrokeKind::Inside);
         }
-        let format = match (item.sample_rate, item.channels, item.bit_depth) {
-            (Some(r), Some(c), Some(b)) => format!("{r} Hz · {c} ch · {b} bit"),
-            _ => "Facts unavailable".into(),
-        };
-        let duration = item
-            .duration_seconds
-            .map(|v| format!("{v:.2} s"))
-            .unwrap_or_else(|| "—".into());
         let (availability, kind) = availability_status(item.availability);
+        let missing = item.availability == TrackAvailability::Missing;
+        let (primary, secondary) = if selected {
+            (tokens.text, tokens.text)
+        } else if missing {
+            (tokens.muted_text, tokens.muted_text)
+        } else {
+            (tokens.text, tokens.muted_text)
+        };
         let cells = [
-            (id.to_string(), tokens.text, false),
-            (filename, tokens.text, selected),
-            (item.track.path.clone(), tokens.muted_text, false),
-            (duration, tokens.text, false),
-            (format, tokens.text, false),
-            (availability.to_owned(), tokens.text, false),
+            (String::new(), primary, false),
+            (id.to_string(), secondary, false),
+            (filename, primary, selected),
+            (folder_name(&item.track.path), secondary, false),
+            (item.duration_seconds.map(format_duration).unwrap_or_else(|| "—".into()), primary, false),
+            (format_facts(item.sample_rate, item.channels, item.bit_depth), secondary, false),
         ];
+        let dot = egui::pos2(rect.left() + STATUS_COLUMN / 2.0 + 1.0, rect.center().y);
+        ui.painter().circle_filled(dot, 3.5, kind_color(kind, tokens));
         let mut x = rect.left();
-        let mut elided_path = false;
         for (column, ((text, color, strong), width)) in cells.into_iter().zip(widths).enumerate() {
-            let mut inset = CELL_INSET;
-            if column == 5 {
-                // Availability: a semantic dot before plain text-coloured words.
-                let dot = egui::pos2(x + CELL_INSET + 4.0, rect.center().y);
-                ui.painter().circle_filled(dot, 4.0, kind_color(kind, tokens));
-                inset += 12.0;
+            if !text.is_empty() {
+                let rich = egui::RichText::new(text).color(color);
+                let galley = egui::WidgetText::from(if strong { rich.strong() } else { rich }).into_galley(
+                    ui,
+                    Some(egui::TextWrapMode::Truncate),
+                    width - 2.0 * CELL_INSET,
+                    egui::TextStyle::Body,
+                );
+                let left = if RIGHT_ALIGNED[column] {
+                    x + width - CELL_INSET - galley.size().x
+                } else {
+                    x + CELL_INSET
+                };
+                let pos = egui::pos2(left, rect.center().y - galley.size().y / 2.0);
+                ui.painter().galley(pos, galley, color);
             }
-            let rich = egui::RichText::new(text);
-            let galley = egui::WidgetText::from(if strong { rich.strong() } else { rich }).into_galley(
-                ui,
-                Some(egui::TextWrapMode::Truncate),
-                width - inset - CELL_INSET,
-                egui::TextStyle::Body,
-            );
-            elided_path |= column == 2 && galley.elided;
-            let pos = egui::pos2(x + inset, rect.center().y - galley.size().y / 2.0);
-            ui.painter().galley(pos, galley, color);
             x += width;
         }
-        let response = if elided_path {
-            response.on_hover_text(&item.track.path)
-        } else {
-            response
-        };
-        response.clicked()
+        response
+            .on_hover_text(format!("{availability} · {}", item.track.path))
+            .clicked()
 }
+
+/// Track length as `m:ss` (rounded to the second), like DJ library tables.
+fn format_duration(seconds: f64) -> String {
+    let whole = seconds.max(0.0).round() as u64;
+    format!("{}:{:02}", whole / 60, whole % 60)
+}
+
+/// Compact audio facts for the table: "44.1 kHz · 16-bit · mono".
+fn format_facts(rate: Option<u32>, channels: Option<u16>, bits: Option<u16>) -> String {
+    let (Some(rate), Some(channels), Some(bits)) = (rate, channels, bits) else {
+        return "—".into();
+    };
+    let khz = f64::from(rate) / 1000.0;
+    let khz = if rate % 1000 == 0 { format!("{khz:.0}") } else { format!("{khz:.1}") };
+    let layout = match channels {
+        1 => "mono".to_owned(),
+        2 => "stereo".to_owned(),
+        n => format!("{n} ch"),
+    };
+    format!("{khz} kHz · {bits}-bit · {layout}")
+}
+
+/// The containing folder's name (the table's Folder column).
+fn folder_name(path: &str) -> String {
+    PathBuf::from(path)
+        .parent()
+        .and_then(|p| p.file_name())
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default()
+}
+
+/// `first…last` with `edge` characters kept at each end.
+pub(crate) fn truncate_middle(text: &str, edge: usize) -> String {
+    let chars: Vec<char> = text.chars().collect();
+    if chars.len() <= 2 * edge + 1 {
+        return text.to_owned();
+    }
+    let head: String = chars[..edge].iter().collect();
+    let tail: String = chars[chars.len() - edge..].iter().collect();
+    format!("{head}…{tail}")
+}
+
+/// A navigation row (W11): label left, count right-aligned in muted text,
+/// selected = selection tint + 3 px rail; native selectable widget.
+fn nav_row(ui: &mut egui::Ui, selected: bool, label: &str, count: usize, tokens: theme::ColorTokens) -> egui::Response {
+    let (rect, response) = ui.allocate_exact_size(egui::vec2(ui.available_width(), theme::ROW_HEIGHT), egui::Sense::click());
+    let name = format!("{label} · {count}");
+    response.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, true, selected, &name));
+    let painter = ui.painter();
+    if selected {
+        painter.rect_filled(rect, 2.0, theme::selection_fill(tokens));
+        let rail = egui::Rect::from_x_y_ranges(rect.left()..=rect.left() + 3.0, rect.y_range());
+        painter.rect_filled(rail, 0.0, tokens.primary);
+    } else if response.hovered() {
+        painter.rect_filled(rect, 2.0, tokens.surface);
+    }
+    if response.has_focus() {
+        painter.rect_stroke(rect, 2.0, egui::Stroke::new(2.0_f32, tokens.focus), egui::StrokeKind::Inside);
+    }
+    let text = |t: String, color| {
+        egui::WidgetText::from(egui::RichText::new(t).color(color)).into_galley(
+            ui,
+            Some(egui::TextWrapMode::Truncate),
+            rect.width() - 2.0 * NAV_INSET,
+            egui::TextStyle::Body,
+        )
+    };
+    let count = text(count.to_string(), if selected { tokens.text } else { tokens.muted_text });
+    let label = text(label.to_owned(), tokens.text);
+    let y = |g: &std::sync::Arc<egui::Galley>| rect.center().y - g.size().y / 2.0;
+    let count_pos = egui::pos2(rect.right() - NAV_INSET - count.size().x, y(&count));
+    let label_pos = egui::pos2(rect.left() + NAV_INSET, y(&label));
+    ui.painter().galley(label_pos, label, tokens.text);
+    ui.painter().galley(count_pos, count, tokens.muted_text);
+    response
+}
+
+/// Horizontal text inset of navigation rows (8 px grid).
+const NAV_INSET: f32 = 8.0;
 
 /// The semantic token behind a status kind.
 fn kind_color(kind: StatusKind, tokens: theme::ColorTokens) -> egui::Color32 {

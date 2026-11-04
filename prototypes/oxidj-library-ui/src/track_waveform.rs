@@ -56,6 +56,8 @@ pub(crate) struct PanelLayout {
     pub(crate) vendor: Option<Rect>,
     /// Detail-window Position slider.
     pub(crate) position: Option<Rect>,
+    /// Whole-track overview strip.
+    pub(crate) overview: Option<Rect>,
     /// Detail viewport actually drawn.
     pub(crate) detail: Option<Viewport>,
     /// `(start, end)` ms and starting bar index when the beat grid is used.
@@ -149,20 +151,27 @@ impl TrackWaveformPanel {
         let loaded = loaded.as_ref().expect("loaded above");
         match &loaded.computed {
             Ok(Some(peaks)) => {
-                ui.horizontal(|ui| {
-                    ui.label("Style");
-                    layout.styles =
-                        Some(Style::ALL.map(|s| ui.selectable_value(style, s, s.label()).rect));
+                // W11: the style picker is the shared segmented toggle group,
+                // in the slider rows' label column.
+                labelled_row(ui, "Style", |ui| {
+                    let cells = Style::ALL.map(|s| (s.label(), *style == s));
+                    let responses = crate::components::segmented_toggles(ui, tokens, &cells);
+                    let mut rects = [Rect::NOTHING; 3];
+                    for (i, response) in responses.iter().enumerate() {
+                        if response.clicked() {
+                            *style = Style::ALL[i];
+                        }
+                        rects[i] = response.rect;
+                    }
+                    layout.styles = Some(rects);
+                    responses[0].union(responses[2].clone())
                 });
                 // W9: one aligned row per control: fixed label column, rail,
                 // then the value ("Low ━━━━○ 1.00"); every rail starts and ends
                 // at the same x, Position included (it shows no value).
                 let rail = slider_rail_width(ui);
                 ui.vertical(|ui| {
-                    // Full-strength trailing fill: the shared 20 % selection
-                    // tint (kept low for selected-text contrast) left the
-                    // filled rail barely visible in Tokyo Day.
-                    ui.visuals_mut().selection.bg_fill = tokens.primary;
+                    slider_look(ui, tokens);
                     ui.spacing_mut().slider_width = rail;
                     let mut slider = |value: &mut f32, text| {
                         labelled_row(ui, text, |ui| {
@@ -189,8 +198,8 @@ impl TrackWaveformPanel {
                         let max = grid.max_start_bar();
                         let default = (max as f32 * DEFAULT_POSITION).round() as usize;
                         let mut b = bar.unwrap_or(default).min(max);
-                        layout.position = Some(position_row(ui, rail, |ui| {
-                            ui.add(egui::Slider::new(&mut b, 0..=max).show_value(false))
+                        layout.position = Some(position_row(ui, rail, tokens, |ui| {
+                            ui.add(egui::Slider::new(&mut b, 0..=max).trailing_fill(true).show_value(false))
                         }));
                         *bar = Some(b);
                         let ms = grid.window_ms(b);
@@ -203,8 +212,8 @@ impl TrackWaveformPanel {
                         let window = ((rate * DETAIL_SECONDS) as u64).clamp(1, total.max(1));
                         let slack = total.saturating_sub(window);
                         let mut pos = position.unwrap_or(DEFAULT_POSITION).clamp(0.0, 1.0);
-                        layout.position = Some(position_row(ui, rail, |ui| {
-                            ui.add(egui::Slider::new(&mut pos, 0.0..=1.0).show_value(false))
+                        layout.position = Some(position_row(ui, rail, tokens, |ui| {
+                            ui.add(egui::Slider::new(&mut pos, 0.0..=1.0).trailing_fill(true).show_value(false))
                         }));
                         *position = Some(pos);
                         ((slack as f64 * f64::from(pos)) as u64, window)
@@ -241,11 +250,12 @@ impl TrackWaveformPanel {
                     egui::pos2(frac(start + window).max(frac(start) + 2.0), r.bottom()),
                 )
                 .intersect(r);
-                ui.painter_at(r).rect_filled(
-                    marker,
-                    2.0,
-                    tokens.text.gamma_multiply(0.16),
-                );
+                // W11: a visible window marker: light tint plus a 1 px
+                // focus-colour outline (the 16 % tint alone was faint).
+                let painter = ui.painter_at(r);
+                painter.rect_filled(marker, 2.0, tokens.text.gamma_multiply(0.12));
+                painter.rect_stroke(marker, 2.0, egui::Stroke::new(1.0_f32, tokens.focus), egui::StrokeKind::Inside);
+                layout.overview = Some(r);
                 let track_s = total as f64 / rate;
                 // W9: short lines that wrap inside the panel (never clip).
                 let detail_line = match (grid, layout.grid_window) {
@@ -347,9 +357,17 @@ fn labelled_row(ui: &mut Ui, label: &str, add: impl FnOnce(&mut Ui) -> egui::Res
     .inner
 }
 
-/// The Position row: same label column and rail width as the gains.
-fn position_row(ui: &mut Ui, rail: f32, add: impl FnOnce(&mut Ui) -> egui::Response) -> Rect {
+/// The shared slider look: full-strength primary trailing fill (the 20 %
+/// selection tint left the filled rail barely visible in Tokyo Day).
+fn slider_look(ui: &mut Ui, tokens: ColorTokens) {
+    ui.visuals_mut().selection.bg_fill = tokens.primary;
+}
+
+/// The Position row: same label column, rail width and look as the gains
+/// (W11: it was drawn without the fill, so its rail looked nearly invisible).
+fn position_row(ui: &mut Ui, rail: f32, tokens: ColorTokens, add: impl FnOnce(&mut Ui) -> egui::Response) -> Rect {
     ui.scope(|ui| {
+        slider_look(ui, tokens);
         ui.spacing_mut().slider_width = rail;
         labelled_row(ui, "Position", add)
     })
@@ -620,6 +638,25 @@ mod tests {
             .expect("waveform drawn for A");
         let a_mono = waveform_vertices(&out, view);
         assert!(!a_mono.is_empty(), "computed waveform painted");
+        // W11: the overview sits 4 px under the detail strip with the same
+        // left/right inset, and the Position rail carries the same primary
+        // trailing fill as the gain rails (it was drawn without one).
+        let overview = h.app.track_waveform.layout.overview.expect("overview drawn");
+        assert!(
+            (overview.top() - view.bottom() - 4.0).abs() < 0.5,
+            "4 px gap: {view:?} {overview:?}"
+        );
+        assert_eq!(overview.x_range(), view.x_range());
+        let primary = ThemeMode::TokyoNight.tokens().primary;
+        let filled = |rect: Rect| {
+            out.shapes.iter().any(|c| {
+                matches!(&c.shape, egui::Shape::Rect(r)
+                    if r.fill == primary && rect.contains_rect(r.rect) && r.rect.width() > 1.0)
+            })
+        };
+        let position = h.app.track_waveform.layout.position.expect("position slider");
+        assert!(filled(h.app.track_waveform.layout.eq.unwrap()[0]), "gain rail filled");
+        assert!(filled(position), "position rail filled like the gains");
         assert!(has_text(&out, "Waveform · computed by OxiDJ"));
         // Vendor strip: own labelled rect, never overlapping computed peaks.
         assert!(has_text(&out, "Vendor-derived waveform"));

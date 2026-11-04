@@ -559,7 +559,14 @@ fn decks_bar_truncates_long_names_and_keeps_play_cue_reachable() {
             );
             assert!(shell.screen.contains_rect(name), "{width}: {name:?}");
         }
-        let play = find(&tree, "Play").2;
+        // Deck A's Play comes first in reading order (top, then left);
+        // AccessKit node order is not layout order.
+        let play = tree
+            .iter()
+            .filter(|n| n.1.as_deref() == Some("Play"))
+            .min_by(|a, b| (a.2.top(), a.2.left()).partial_cmp(&(b.2.top(), b.2.left())).unwrap())
+            .unwrap()
+            .2;
         let deck_controls = |tree: &[Node]| -> Vec<Rect> {
             tree.iter()
                 .filter(|n| matches!(n.1.as_deref(), Some("Play" | "Cue")))
@@ -579,5 +586,221 @@ fn decks_bar_truncates_long_names_and_keeps_play_cue_reachable() {
             "{width}: deck controls stay put"
         );
     }
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+/// Painted text shapes: (text, visual rect).
+fn texts(output: &egui::FullOutput) -> Vec<(String, Rect)> {
+    output
+        .shapes
+        .iter()
+        .filter_map(|c| match &c.shape {
+            // Layout box (pos + galley size): what the code aligns.
+            egui::Shape::Text(t) => Some((t.galley.job.text.clone(), Rect::from_min_size(t.pos, t.galley.size()))),
+            _ => None,
+        })
+        .collect()
+}
+
+/// W11: ID and Duration cells and their header titles are right-aligned
+/// to one column edge; Folder shows the folder (not the repeated path) and
+/// Format is compact.
+#[test]
+fn numeric_columns_right_align_with_their_headers() {
+    let (root, db) = catalog_root("align");
+    let mut shell = Shell::new(&db, 1440.0);
+    let out = shell.settle();
+    let table = shell.table();
+    let painted: Vec<_> = texts(&out).into_iter().filter(|(_, r)| table.contains_rect(*r)).collect();
+    let header_bottom = table.top() + crate::theme::HEADER_HEIGHT;
+    let header = |title: &str| {
+        painted
+            .iter()
+            .find(|(t, r)| t == title && r.bottom() <= header_bottom)
+            .unwrap_or_else(|| panic!("header {title}"))
+            .1
+    };
+    let cells = |pred: &dyn Fn(&str) -> bool| -> Vec<Rect> {
+        painted
+            .iter()
+            .filter(|(t, r)| r.top() >= header_bottom && pred(t))
+            .map(|(_, r)| *r)
+            .collect()
+    };
+    let ids = cells(&|t| t.chars().all(|c| c.is_ascii_digit()));
+    let durations = cells(&|t| t.starts_with("0:"));
+    assert_eq!((ids.len(), durations.len()), (3, 3), "{painted:?}");
+    for (title, column) in [("ID", &ids), ("Duration", &durations)] {
+        let edge = header(title).right();
+        for cell in column.iter() {
+            assert!(
+                (cell.right() - edge).abs() <= 1.0,
+                "{title} cell {cell:?} right edge != header edge {edge}"
+            );
+        }
+    }
+    // The filename column starts after the whole ID column.
+    let filename = header("Filename").left();
+    assert!(ids.iter().all(|r| r.right() < filename), "{ids:?} {filename}");
+    assert!(painted.iter().any(|(t, _)| t == "audio"), "Folder column shows the folder");
+    assert!(
+        !painted.iter().any(|(t, _)| t.ends_with("tone-a.wav") && t.contains('/')),
+        "no duplicated full path column"
+    );
+    assert!(painted.iter().any(|(t, _)| t == "44.1 kHz · 16-bit · mono"), "compact format");
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+/// W11: the Nav | Details | Decks group paints its "on" cells with the
+/// selection tint and a primary underline, off cells with neither, and
+/// AccessKit reports each cell's selected state.
+#[test]
+fn toggle_group_marks_active_cells() {
+    let (root, db) = catalog_root("segmented");
+    let mut shell = Shell::new(&db, 1440.0);
+    let tokens = ThemeMode::TokyoNight.tokens();
+    let check = |shell: &mut Shell, expected: [bool; 3]| {
+        let out = shell.settle();
+        let toggles = shell.app.shell.toggles.unwrap();
+        for (index, on) in expected.into_iter().enumerate() {
+            let cell = toggles[index];
+            let tinted = out.shapes.iter().any(|c| {
+                matches!(&c.shape, egui::Shape::Rect(r)
+                    if r.fill == crate::theme::selection_fill(tokens) && r.rect == cell)
+            });
+            let underline = out.shapes.iter().any(|c| {
+                matches!(&c.shape, egui::Shape::Rect(r)
+                    if r.fill == tokens.primary && cell.contains_rect(r.rect)
+                        && (r.rect.bottom() - cell.bottom()).abs() < 0.01)
+            });
+            assert_eq!((tinted, underline), (on, on), "cell {index} on={on}");
+            let label = ["Nav", "Details", "Decks"][index];
+            let node = out
+                .platform_output
+                .accesskit_update
+                .as_ref()
+                .unwrap()
+                .nodes
+                .iter()
+                .find(|(_, n)| n.label() == Some(label))
+                .unwrap()
+                .1
+                .clone();
+            let toggled = if on { egui::accesskit::Toggled::True } else { egui::accesskit::Toggled::False };
+            assert_eq!(node.toggled(), Some(toggled), "{label} AccessKit toggled state");
+        }
+        // Cells are 1 px apart: adjacent hit rects never touch.
+        assert!(toggles[0].right() < toggles[1].left() && toggles[1].right() < toggles[2].left());
+    };
+    check(&mut shell, [true, false, false]);
+    shell.click(shell.app.shell.toggles.unwrap()[1].center());
+    check(&mut shell, [true, true, false]);
+    shell.click(shell.app.shell.toggles.unwrap()[0].center());
+    check(&mut shell, [false, true, false]);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+/// W11: typing into the search shows a clear (x) button that empties the
+/// search and brings every row back; there is no button while empty.
+#[test]
+fn search_clear_button_appears_with_text_and_clears_it() {
+    let (root, db) = catalog_root("search");
+    let mut shell = Shell::new(&db, 1440.0);
+    let out = shell.settle();
+    assert!(shell.app.shell.search_clear.is_none());
+    assert!(nodes(&out).iter().all(|n| n.1.as_deref() != Some("Clear search")));
+    let field = shell.app.shell.search.expect("search field");
+    shell.click(field.center());
+    shell.frame(vec![egui::Event::Text("tone-a".into())], Default::default());
+    let out = shell.settle();
+    assert_eq!(shell.app.search, "tone-a");
+    let tree = nodes(&out);
+    assert!(tree.iter().all(|n| n.1.as_deref() != Some("tone-b.wav")), "filtered");
+    let clear = find(&tree, "Clear search");
+    assert_eq!(clear.0, Role::Button);
+    assert!(clear.2.height() >= 24.0 && clear.2.width() >= 24.0, "{clear:?}");
+    assert!(!clear.2.intersects(field), "button beside the field: {clear:?} {field:?}");
+    assert!(shell.app.shell.toolbar.unwrap().contains_rect(clear.2));
+    let out = shell.click(clear.2.center());
+    assert!(shell.app.search.is_empty(), "cleared");
+    assert!(shell.app.shell.search_clear.is_none());
+    let tree = nodes(&out);
+    for name in ["tone-a.wav", "tone-b.wav", "tone-c.wav"] {
+        find(&tree, name);
+    }
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+/// W11: the details SHA-256 is one middle-truncated line; hovering shows
+/// the full digest and clicking copies it.
+#[test]
+fn details_sha256_is_truncated_with_full_hover_and_copy() {
+    let (root, db) = catalog_root("sha");
+    let mut shell = Shell::new(&db, 1440.0);
+    shell.ctx.style_mut(|s| s.interaction.tooltip_delay = 0.0);
+    let item = shell.app.tracks[0].clone();
+    let hash: String = item.track.sha256.iter().map(|b| format!("{b:02x}")).collect();
+    let short = view::truncate_middle(&hash, 12);
+    assert_eq!(short.chars().count(), 25, "{short}");
+    assert!(short.starts_with(&hash[..12]) && short.ends_with(&hash[52..]));
+    shell.app.selected = Some(item.track.id.as_u64());
+    shell.app.show_details = true;
+    let out = shell.settle();
+    let painted = texts(&out);
+    assert!(!painted.iter().any(|(t, _)| t.contains(&hash)), "full hash not painted");
+    let rect = painted.iter().find(|(t, _)| *t == short).expect("short hash painted").1;
+    let details = shell.app.shell.details.unwrap();
+    assert!(details.contains_rect(rect), "{rect:?} in {details:?}");
+    let mut hovered = false;
+    for step in 0..6 {
+        let input = egui::RawInput {
+            screen_rect: Some(shell.screen),
+            time: Some(f64::from(step) * 0.5),
+            events: vec![egui::Event::PointerMoved(rect.center())],
+            ..Default::default()
+        };
+        let app = &mut shell.app;
+        let out = shell.ctx.run(input, |ctx| app.ui(ctx));
+        hovered |= texts(&out).iter().any(|(t, _)| t.contains(&hash));
+    }
+    assert!(hovered, "tooltip shows the full digest");
+    let button = |pressed| egui::Event::PointerButton {
+        pos: rect.center(),
+        button: egui::PointerButton::Primary,
+        pressed,
+        modifiers: Default::default(),
+    };
+    let out = shell.frame(vec![button(true), button(false)], Default::default());
+    let copied = out.platform_output.commands.iter().any(|c| {
+        matches!(c, egui::OutputCommand::CopyText(t) if *t == hash)
+    });
+    assert!(copied, "click copies the full digest: {:?}", out.platform_output.commands);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+/// W11: navigation counts are right-aligned, muted, in full-width rows.
+#[test]
+fn navigation_counts_are_right_aligned_in_full_width_rows() {
+    let (root, db) = catalog_root("nav");
+    let mut shell = Shell::new(&db, 1440.0);
+    let out = shell.settle();
+    let nav = shell.app.shell.nav.unwrap();
+    let tree = nodes(&out);
+    let rows: Vec<_> = ["All tracks · 3", "Available · 3", "Missing · 0"]
+        .into_iter()
+        .map(|l| find(&tree, l).2)
+        .collect();
+    let counts: Vec<Rect> = texts(&out)
+        .into_iter()
+        .filter(|(t, r)| matches!(t.as_str(), "3" | "0") && nav.contains_rect(*r))
+        .map(|(_, r)| r)
+        .collect();
+    assert_eq!(counts.len(), 3, "{counts:?}");
+    for row in &rows {
+        assert!(row.height() >= 24.0 && row.width() >= nav.width() - 17.0, "{row:?} {nav:?}");
+    }
+    let right = counts[0].right();
+    assert!(counts.iter().all(|c| (c.right() - right).abs() <= 1.0), "{counts:?}");
+    assert!(rows.iter().all(|r| (r.right() - 8.0 - right).abs() <= 1.5), "{rows:?} {right}");
     std::fs::remove_dir_all(root).unwrap();
 }

@@ -112,6 +112,117 @@ impl StatusBadge<'_> {
     }
 }
 
+impl StatusBadge<'_> {
+    /// The same badge sized to a body-text row (W11): the control-height
+    /// badge made its details-grid row taller than the rows around it.
+    pub fn show_inline(self, ui: &mut egui::Ui, tokens: ColorTokens) -> egui::Response {
+        let accent = self.kind.color(tokens);
+        ui.horizontal(|ui| {
+            egui::Frame::new()
+                .fill(accent.linear_multiply(0.16))
+                .stroke(Stroke::new(1.0_f32, accent))
+                .corner_radius(3.0)
+                .inner_margin(egui::Margin::symmetric(6, 0))
+                .show(ui, |ui| {
+                    ui.label(RichText::new(self.label).small().color(tokens.text))
+                })
+                .response
+                .on_hover_text(self.label)
+        })
+        .inner
+    }
+}
+
+/// Horizontal padding of a segmented-toggle cell.
+const SEGMENT_PADDING: f32 = 10.0;
+/// Corner radius shared by segmented groups and the search field.
+pub const CONTROL_RADIUS: f32 = 4.0;
+
+/// A segmented toggle group (W11): adjacent cells inside one outline, a
+/// hairline between cells, the "on" cells filled with the selection tint
+/// plus a 2 px primary underline, off cells in muted text. Each cell is a
+/// native egui widget (selectable, keyboard-focusable, AccessKit
+/// `selected`); the caller flips its state on `clicked()`.
+///
+/// Cells are 1 px apart (the separator sits in that gap), so their hit
+/// rects never touch. A full-strength primary fill was not used: text on
+/// it is below 4.5:1 in Tokyo Day (see the v12 README).
+pub fn segmented_toggles(
+    ui: &mut egui::Ui,
+    tokens: ColorTokens,
+    cells: &[(&str, bool)],
+) -> Vec<egui::Response> {
+    let height = crate::theme::CONTROL_HEIGHT;
+    let galleys: Vec<_> = cells
+        .iter()
+        .map(|(label, on)| {
+            // Explicit colour: `override_text_color` would otherwise be baked in.
+            let color = if *on { tokens.text } else { tokens.muted_text };
+            egui::WidgetText::from(RichText::new(*label).color(color)).into_galley(
+                ui,
+                Some(egui::TextWrapMode::Extend),
+                f32::INFINITY,
+                egui::TextStyle::Button,
+            )
+        })
+        .collect();
+    let widths: Vec<f32> = galleys
+        .iter()
+        .map(|g| (g.size().x + 2.0 * SEGMENT_PADDING).ceil())
+        .collect();
+    let total = widths.iter().sum::<f32>() + (cells.len().saturating_sub(1)) as f32;
+    // Unique per call site (two decks both have a "Play" cell).
+    let base = ui.next_auto_id();
+    let (group, _) = ui.allocate_exact_size(egui::vec2(total, height), egui::Sense::hover());
+    let last = cells.len().saturating_sub(1);
+    let mut x = group.left();
+    let mut responses = Vec::with_capacity(cells.len());
+    for (index, (((label, on), galley), width)) in
+        cells.iter().zip(galleys).zip(widths).enumerate()
+    {
+        let rect = egui::Rect::from_min_size(egui::pos2(x, group.top()), egui::vec2(width, height));
+        x += width + 1.0;
+        let id = base.with(("segment", index));
+        let response = ui.interact(rect, id, egui::Sense::click());
+        response.widget_info(|| {
+            egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, true, *on, *label)
+        });
+        let r = CONTROL_RADIUS as u8;
+        let radius = egui::CornerRadius {
+            nw: if index == 0 { r } else { 0 },
+            sw: if index == 0 { r } else { 0 },
+            ne: if index == last { r } else { 0 },
+            se: if index == last { r } else { 0 },
+        };
+        let painter = ui.painter();
+        if *on {
+            painter.rect_filled(rect, radius, crate::theme::selection_fill(tokens));
+            let bar = egui::Rect::from_x_y_ranges(rect.x_range(), rect.bottom() - 2.0..=rect.bottom());
+            painter.rect_filled(bar, 0.0, tokens.primary);
+        } else if response.hovered() {
+            painter.rect_filled(rect, radius, tokens.surface);
+        }
+        if response.has_focus() {
+            painter.rect_stroke(rect, radius, Stroke::new(2.0_f32, tokens.focus), egui::StrokeKind::Inside);
+        } else if response.hovered() {
+            painter.rect_stroke(rect, radius, Stroke::new(1.0_f32, tokens.focus), egui::StrokeKind::Inside);
+        }
+        if index < last {
+            painter.vline(rect.right() + 0.5, group.y_range(), Stroke::new(1.0_f32, tokens.border));
+        }
+        let pos = rect.center() - galley.size() / 2.0;
+        painter.galley(pos, galley, tokens.text);
+        responses.push(response);
+    }
+    ui.painter().rect_stroke(
+        group,
+        CONTROL_RADIUS,
+        Stroke::new(1.0_f32, tokens.border),
+        egui::StrokeKind::Inside,
+    );
+    responses
+}
+
 /// Single-line text field at the shared control height, text vertically
 /// centred: `ui.text_edit_singleline` sizes to the font (~20 px), below the
 /// 24 px target and shorter than the toolbar fields beside it.
