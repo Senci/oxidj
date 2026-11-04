@@ -17,7 +17,7 @@ impl eframe::App for LibraryApp {
 const STATUS_COLUMN: f32 = 24.0;
 const ID_COLUMN: f32 = 52.0;
 const DURATION_COLUMN: f32 = 72.0;
-const FORMAT_COLUMN: f32 = 150.0;
+const FORMAT_COLUMN: f32 = 172.0;
 /// Filename and folder share the rest; below this the table scrolls sideways.
 const MIN_FLEX_COLUMNS: f32 = 2.0 * 130.0;
 /// Track-table columns, left to right.
@@ -39,6 +39,8 @@ pub(crate) const DECK_NAME_WIDTH: f32 = 200.0;
 const DECK_WIDTH: f32 = DECK_NAME_WIDTH + 170.0;
 /// Narrowest details panel (W9).
 pub(crate) const DETAILS_MIN_WIDTH: f32 = 320.0;
+/// Temp-data key: the track whose facts grid was laid out last frame.
+const TRACK_FACTS_SHOWN: &str = "track-facts-shown";
 const PANEL_SHORTCUTS: &str = "Ctrl+B Nav · Ctrl+I Details · Ctrl+D Decks";
 
 impl LibraryApp {
@@ -102,6 +104,11 @@ impl LibraryApp {
                         .show(ui, |ui| self.details(ui, tokens));
                 });
             self.shell.details = Some(details.response.rect);
+        } else {
+            // Re-opening the panel re-lays the facts grid like a new
+            // selection does (W11: the first opened frame showed rows sized
+            // from a stale grid until the next input).
+            ctx.data_mut(|d| d.remove::<u64>(egui::Id::new(TRACK_FACTS_SHOWN)));
         }
         // No inner margin: the table runs edge to edge between the panels'
         // hairline separators.
@@ -906,7 +913,7 @@ impl LibraryApp {
         };
         // The facts grid sizes rows from the previous frame; re-run the
         // frame when the selection changes so it never paints overlapped.
-        let shown = egui::Id::new("track-facts-shown");
+        let shown = egui::Id::new(TRACK_FACTS_SHOWN);
         let previous = ui.ctx().data_mut(|d| {
             let previous = d.get_temp::<u64>(shown);
             d.insert_temp(shown, id);
@@ -1022,7 +1029,7 @@ impl LibraryApp {
         });
         let fixed = STATUS_COLUMN + ID_COLUMN + DURATION_COLUMN + FORMAT_COLUMN;
         let total = ui.available_width().max(fixed + MIN_FLEX_COLUMNS);
-        let name = ((total - fixed) * 0.5).floor();
+        let name = ((total - fixed) * 0.6).floor();
         let widths = [STATUS_COLUMN, ID_COLUMN, name, total - fixed - name, DURATION_COLUMN, FORMAT_COLUMN];
         // The visible table viewport (wider content scrolls inside it).
         self.shell.table = Some(ui.max_rect());

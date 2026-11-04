@@ -17,6 +17,7 @@ v0.2–v0.6 are interoperability evidence (CLI/test oracles rendered as cards), 
 | [v0.9](v09-design-audit/README.md) | 2026-11-03 | `0f49c89..31ed107` | Design audit W7: outlines, contrast, 24 px targets, type scale, stable table and details panel, scrollable XML window. | <img src="v09-design-audit/02-after-populated.png" width="240" alt="v0.9 key screenshot"> |
 | [v0.10](v10-dense-shell/README.md) | 2026-11-03 | `91144a4` | Dense minimal shell W8: one-row toolbar, full-width sortable track table, toggleable Nav/Details/Decks panels. | <img src="v10-dense-shell/02-after-dense-shell.png" width="240" alt="v0.10 key screenshot"> |
 | [v0.11](v11-waveform-panel-polish/README.md) | 2026-11-03 | `89cd073` | W9 polish: aligned waveform slider rows, taller detail strip, stable decks bar. | <img src="v11-waveform-panel-polish/01-details-decks-mono.png" width="240" alt="v0.11 key screenshot"> |
+| [v0.12](v12-ui-polish/README.md) | 2026-11-04 | `339372b..` | W11 polish: segmented panel toggles, right-aligned numbers, search with clear, compact details, visible Position slider. | <img src="v12-ui-polish/04-after-day.png" width="240" alt="v0.12 key screenshot"> |
 
 ## Before → after
 
@@ -24,3 +25,4 @@ v0.2–v0.6 are interoperability evidence (CLI/test oracles rendered as cards), 
 |---|---|---|
 | v0.9 design audit | ![before](v09-design-audit/01-before-populated.png) | ![after](v09-design-audit/02-after-populated.png) |
 | v0.10 dense shell | ![before](v10-dense-shell/01-before-w7-shell.png) | ![after](v10-dense-shell/02-after-dense-shell.png) |
+| v0.12 W11 polish | ![before](v12-ui-polish/01-before-night.png) | ![after](v12-ui-polish/03-after-night.png) |

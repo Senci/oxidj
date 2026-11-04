@@ -751,6 +751,13 @@ fn details_sha256_is_truncated_with_full_hover_and_copy() {
     let rect = painted.iter().find(|(t, _)| *t == short).expect("short hash painted").1;
     let details = shell.app.shell.details.unwrap();
     assert!(details.contains_rect(rect), "{rect:?} in {details:?}");
+    // Even key/value rhythm: the badge and hash rows are no taller than
+    // the plain rows above them (the first W11 build left both too tall).
+    let top = |label: &str| painted.iter().find(|(t, r)| t == label && details.contains_rect(*r)).unwrap().1.top();
+    let pitch = top("Size") - top("Bit depth");
+    for (a, b) in [("Size", "Availability"), ("Availability", "SHA-256")] {
+        assert!((top(b) - top(a) - pitch).abs() <= 1.0, "{a} -> {b}: {} vs {pitch}", top(b) - top(a));
+    }
     let mut hovered = false;
     for step in 0..6 {
         let input = egui::RawInput {

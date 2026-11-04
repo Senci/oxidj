@@ -115,21 +115,25 @@ impl StatusBadge<'_> {
 impl StatusBadge<'_> {
     /// The same badge sized to a body-text row (W11): the control-height
     /// badge made its details-grid row taller than the rows around it.
+    /// Painted at an exact, non-wrapping size, so a grid row never takes a
+    /// stale (wrapped) height from the previous frame.
     pub fn show_inline(self, ui: &mut egui::Ui, tokens: ColorTokens) -> egui::Response {
         let accent = self.kind.color(tokens);
-        ui.horizontal(|ui| {
-            egui::Frame::new()
-                .fill(accent.linear_multiply(0.16))
-                .stroke(Stroke::new(1.0_f32, accent))
-                .corner_radius(3.0)
-                .inner_margin(egui::Margin::symmetric(6, 0))
-                .show(ui, |ui| {
-                    ui.label(RichText::new(self.label).small().color(tokens.text))
-                })
-                .response
-                .on_hover_text(self.label)
-        })
-        .inner
+        let galley = egui::WidgetText::from(RichText::new(self.label).small().color(tokens.text)).into_galley(
+            ui,
+            Some(egui::TextWrapMode::Extend),
+            f32::INFINITY,
+            egui::TextStyle::Small,
+        );
+        let height = ui.text_style_height(&egui::TextStyle::Body);
+        let size = egui::vec2(galley.size().x + 12.0, height);
+        let (rect, response) = ui.allocate_exact_size(size, egui::Sense::hover());
+        response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, self.label));
+        let painter = ui.painter();
+        painter.rect_filled(rect, 3.0, accent.linear_multiply(0.16));
+        painter.rect_stroke(rect, 3.0, Stroke::new(1.0_f32, accent), egui::StrokeKind::Inside);
+        painter.galley(rect.center() - galley.size() / 2.0, galley, tokens.text);
+        response.on_hover_text(self.label)
     }
 }
 
