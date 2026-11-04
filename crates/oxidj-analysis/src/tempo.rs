@@ -131,8 +131,11 @@ impl Default for BpmRange {
 ///
 /// `sure` is how well the onsets keep the period (0–1); `catch` is how much of
 /// what starts falls on the beats (1 = no more than anywhere, sound with no
-/// beat ≈ 0.7). taktus documents `sure ≥ 0.05` and `catch ≥ 1.0` as right 97–99
-/// times in 100; the default is slightly stricter on `catch`.
+/// beat ≈ 0.7). The default gates on `sure ≥ 0.05` (taktus' documented
+/// threshold; white noise reads about 0.007) and not on `catch`: over whole
+/// songs `catch` did not separate right from wrong readings in the B2a
+/// real-library evaluation (correct readings went as low as 0.65, the octave
+/// errors were all above 1.0), so a `catch` floor only discarded good grids.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct TempoGate {
     /// Minimum `Beat::sure`.
@@ -145,7 +148,7 @@ impl TempoGate {
     /// The default gate.
     pub const DEFAULT: Self = Self {
         min_sure: 0.05,
-        min_catch: 1.1,
+        min_catch: 0.0,
     };
 
     fn passes(&self, sure: f64, catch: f64) -> bool {
