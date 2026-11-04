@@ -8,6 +8,9 @@ use std::fmt;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+mod aiff;
+#[cfg(test)]
+mod aiff_tests;
 mod imported_library;
 pub mod pcm;
 mod waveform_store;
@@ -413,7 +416,7 @@ impl Catalog {
             let path_text = path.to_string_lossy().into_owned();
             seen.insert(path_text.clone());
             if !path.extension().is_some_and(|ext| {
-                ["wav", "flac", "mp3"]
+                ["wav", "flac", "mp3", "aiff", "aif", "aifc"]
                     .iter()
                     .any(|supported| ext.eq_ignore_ascii_case(supported))
             }) {
@@ -483,11 +486,11 @@ impl Catalog {
                 .and_then(|ext| ext.to_str())
                 .unwrap_or("")
                 .to_ascii_lowercase();
-            if extension == "flac" || extension == "mp3" {
-                let facts = if extension == "flac" {
-                    decode_flac_facts(&path)
-                } else {
-                    decode_mp3_facts(&path)
+            if matches!(extension.as_str(), "flac" | "mp3" | "aiff" | "aif" | "aifc") {
+                let facts = match extension.as_str() {
+                    "flac" => decode_flac_facts(&path),
+                    "mp3" => decode_mp3_facts(&path),
+                    _ => decode_aiff_facts(&path),
                 };
                 let facts = match facts {
                     Ok(facts) => facts,
@@ -1292,6 +1295,18 @@ fn decode_mp3_facts(path: &Path) -> Result<AudioFacts, ImportStatus> {
         sample_rate: rate,
         channels,
         bit_depth: 16,
+    })
+}
+
+/// AIFF facts come from the validated container: [`aiff::parse`] proves the
+/// declared frames are present, so no sample needs to be read.
+fn decode_aiff_facts(path: &Path) -> Result<AudioFacts, ImportStatus> {
+    let layout = aiff::parse_file(path)?;
+    Ok(AudioFacts {
+        duration: layout.frames as f64 / f64::from(layout.sample_rate),
+        sample_rate: layout.sample_rate,
+        channels: layout.channels,
+        bit_depth: layout.bits,
     })
 }
 

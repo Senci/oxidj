@@ -10,7 +10,7 @@ M0 is verified complete. The named `local-catalog-alpha-v1` dependency exception
 
 - `oxidj-core` — neutral domain types, plus `WaveformPeaks` (3-band u8 peaks with a 2x mipmap) and a no-clobber file publish helper.
 - `oxidj-analysis` — streaming 3-band waveform builder (fixed 2-pole crossover, fail-closed on bad input).
-- `oxidj-library` — local SQLite catalog (versioned schema, 10,000-track cap), reference-only WAV/FLAC/MP3 import, persisted computed waveforms and separate vendor-derived waveforms.
+- `oxidj-library` — local SQLite catalog (versioned schema, 10,000-track cap), reference-only WAV/FLAC/MP3/AIFF/AIFF-C import (AIFF via a hand-rolled parser: 8/16/24/32-bit PCM, AIFF-C `NONE`/`sowt`/`fl32`/`fl64`; M4A/AAC, Ogg, ALAC and other AIFF-C codecs are refused as unsupported), persisted computed waveforms and separate vendor-derived waveforms.
 - `oxidj-rekordbox` / `oxidj-onelibrary` — isolated adapters: Rekordbox XML preview, no-edit export and guarded edits; read-only DeviceSQL PDB, ANLZ (beat grid, cues, waveforms) and OneLibrary previews.
 - `oxidj-application` / `oxidj-cli` — orchestration and commands, including `catalog import-library`, `catalog export-library-xml` and `catalog analyze-waveform`.
 - `prototypes/oxidj-library-ui` — provisional egui library UI: dense shell with a full-width track table and toggleable navigation / details / decks panels, guarded XML editing, and a smooth anti-aliased mono / 3-band / RGB waveform view with live per-band display gain and bar/beat lines from an imported library beat grid.

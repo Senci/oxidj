@@ -1,9 +1,11 @@
 //! Streaming PCM decode (W2): the catalog's supported WAV / FLAC / MP3 decoders
-//! (`hound` / `claxon` / `nanomp3`) feeding **mono** `f32` chunks to a caller sink.
+//! (`hound` / `claxon` / `nanomp3`) and the hand-rolled AIFF / AIFF-C parser
+//! ([`crate::aiff`], A1) feeding **mono** `f32` chunks to a caller sink.
 //!
 //! Nothing is buffered beyond one chunk of [`MONO_CHUNK_FRAMES`] frames, source
 //! files are only opened for reading, and the supported matrix is the importer's
-//! (integer PCM 8/16/24/32 and float32 WAV; FLAC; MPEG layer III). Channels are
+//! (integer PCM 8/16/24/32 and float32 WAV; FLAC; MPEG layer III; AIFF and
+//! AIFF-C `NONE`/`sowt`/`fl32`/`fl64` at 8/16/24/32 bits). Channels are
 //! mixed down by their arithmetic mean; integer samples are scaled by
 //! `1 / 2^(bits - 1)`. Reservoir-dependent leading MP3 frames, whose PCM cannot
 //! be reconstructed, are emitted as silence so frame counts match the importer.
@@ -89,9 +91,11 @@ impl Mixer {
     }
 }
 
-/// Decode `path` (by extension: `.wav`, `.flac`, `.mp3`) into mono chunks.
-/// Returns the format on success; on error the sink may have received a prefix
-/// of the stream and must discard it.
+/// Decode `path` (by extension: `.wav`, `.flac`, `.mp3`, `.aiff`/`.aif`/`.aifc`;
+/// any other extension is sniffed for a `FORM`/`AIFF`|`AIFC` header) into mono
+/// chunks. Returns the format on success; on error the sink may have received a
+/// prefix of the stream and must discard it (AIFF refuses every structural defect
+/// before [`MonoSink::begin`], so only a read failure can leave a prefix).
 pub fn decode_mono<S: MonoSink>(
     path: &Path,
     sink: &mut S,
@@ -104,6 +108,7 @@ pub fn decode_mono<S: MonoSink>(
     match extension.as_str() {
         "wav" => decode_wav(path, sink),
         "flac" => decode_flac(path, sink),
+        "aiff" | "aif" | "aifc" => decode_aiff(path, sink),
         "mp3" => {
             let mut mixer: Option<Mixer> = None;
             let (rate, channels, frames) = crate::mp3_stream(path, &mut |rate, channels, pcm| {
@@ -141,8 +146,50 @@ pub fn decode_mono<S: MonoSink>(
                 frames: Some(frames),
             })
         }
+        _ if has_aiff_magic(path) => decode_aiff(path, sink),
         _ => Err(PcmError::Unsupported),
     }
+}
+
+fn has_aiff_magic(path: &Path) -> bool {
+    use std::io::Read;
+    let mut header = [0_u8; 12];
+    std::fs::File::open(path)
+        .and_then(|mut file| file.read_exact(&mut header))
+        .is_ok()
+        && crate::aiff::is_aiff_magic(&header)
+}
+
+fn decode_aiff<S: MonoSink>(path: &Path, sink: &mut S) -> Result<PcmFormat, PcmError<S::Error>> {
+    use std::io::{Read, Seek, SeekFrom};
+    let mut file = std::fs::File::open(path).map_err(|_| PcmError::Unreadable)?;
+    let len = file.metadata().map_err(|_| PcmError::Unreadable)?.len();
+    let layout = crate::aiff::parse(&mut file, len).map_err(PcmError::status)?;
+    file.seek(SeekFrom::Start(layout.data_start))
+        .map_err(|_| PcmError::Unreadable)?;
+    let format = PcmFormat {
+        sample_rate: layout.sample_rate,
+        channels: layout.channels,
+        frames: Some(layout.frames),
+    };
+    let mut reader = std::io::BufReader::with_capacity(1 << 16, file);
+    let width = layout.sample_width();
+    let mut bytes = [0_u8; 8];
+    let mut mixer = Mixer::new(sink, format)?;
+    for _ in 0..layout.frames {
+        let mut sum = 0.0;
+        for _ in 0..layout.channels {
+            // `parse` proved the data is present; a short read means the file
+            // changed underneath us.
+            reader
+                .read_exact(&mut bytes[..width])
+                .map_err(|_| PcmError::Unreadable)?;
+            sum += layout.sample(&bytes[..width]);
+        }
+        mixer.frame(sink, sum)?;
+    }
+    mixer.flush(sink)?;
+    Ok(format)
 }
 
 fn decode_wav<S: MonoSink>(path: &Path, sink: &mut S) -> Result<PcmFormat, PcmError<S::Error>> {

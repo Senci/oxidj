@@ -448,3 +448,101 @@ fn analyze_waveform_command_stores_peaks_idempotently_and_refuses_bad_input() {
     let _ = std::fs::remove_file(&database);
     let _ = std::fs::remove_dir_all(root);
 }
+
+/// A1: the same 24-bit stereo signal stored as WAV and as AIFF (big-endian, odd
+/// padding-free) yields identical stored peaks through `catalog analyze-waveform`.
+#[test]
+fn analyze_waveform_aiff_and_wav_of_the_same_signal_store_identical_peaks() {
+    let database = database_path();
+    let db = database.to_str().unwrap();
+    let root = database.with_extension("aiff-audio");
+    std::fs::create_dir(&root).unwrap();
+    let (rate, frames) = (22_050_u32, 30_000_usize);
+    let samples: Vec<i32> = (0..frames * 2)
+        .map(|i| {
+            let t = (i / 2) as f64 / f64::from(rate);
+            let hz = if i % 2 == 0 { 440.0 } else { 97.0 };
+            (f64::sin(t * hz * std::f64::consts::TAU) * 8_000_000.0 * (1.0 - t / 2.0)) as i32
+        })
+        .collect();
+    let data_len = (samples.len() * 3) as u32;
+
+    let mut wav = b"RIFF".to_vec();
+    wav.extend_from_slice(&(36 + data_len).to_le_bytes());
+    wav.extend_from_slice(b"WAVEfmt ");
+    wav.extend_from_slice(&16_u32.to_le_bytes());
+    wav.extend_from_slice(&1_u16.to_le_bytes());
+    wav.extend_from_slice(&2_u16.to_le_bytes());
+    wav.extend_from_slice(&rate.to_le_bytes());
+    wav.extend_from_slice(&(rate * 6).to_le_bytes());
+    wav.extend_from_slice(&6_u16.to_le_bytes());
+    wav.extend_from_slice(&24_u16.to_le_bytes());
+    wav.extend_from_slice(b"data");
+    wav.extend_from_slice(&data_len.to_le_bytes());
+    for s in &samples {
+        wav.extend_from_slice(&s.to_le_bytes()[..3]);
+    }
+
+    let mut comm = 2_u16.to_be_bytes().to_vec();
+    comm.extend_from_slice(&(frames as u32).to_be_bytes());
+    comm.extend_from_slice(&24_u16.to_be_bytes());
+    let msb = 31 - rate.leading_zeros();
+    comm.extend_from_slice(&(16_383 + msb as u16).to_be_bytes());
+    comm.extend_from_slice(&(u64::from(rate) << (63 - msb)).to_be_bytes());
+    let mut body = b"AIFFCOMM".to_vec();
+    body.extend_from_slice(&18_u32.to_be_bytes());
+    body.extend_from_slice(&comm);
+    body.extend_from_slice(b"SSND");
+    body.extend_from_slice(&(8 + data_len).to_be_bytes());
+    body.extend_from_slice(&[0; 8]);
+    for s in &samples {
+        body.extend_from_slice(&s.to_be_bytes()[1..]);
+    }
+    let mut aiff = b"FORM".to_vec();
+    aiff.extend_from_slice(&(body.len() as u32).to_be_bytes());
+    aiff.extend_from_slice(&body);
+
+    std::fs::write(root.join("a.wav"), &wav).unwrap();
+    std::fs::write(root.join("b.aiff"), &aiff).unwrap();
+    let import = run(&[
+        "catalog",
+        "import",
+        "--dir",
+        root.to_str().unwrap(),
+        "--db",
+        db,
+    ]);
+    assert_eq!(import.status.code(), Some(0), "{:?}", import.stderr);
+    let out = run(&["catalog", "analyze-waveform", "--db", db]);
+    assert_eq!(out.status.code(), Some(0), "{:?}", out.stderr);
+    assert_eq!(
+        String::from_utf8(out.stdout).unwrap(),
+        "Analyzed\t1\nAnalyzed\t2\nAnalyzed: 2\nUnchanged: 0\nFailed: 0\n"
+    );
+    let catalog = Catalog::open(&database).unwrap();
+    let details = catalog.list_track_details().unwrap();
+    assert_eq!(details.len(), 2);
+    for detail in &details {
+        assert_eq!(detail.sample_rate, Some(rate));
+        assert_eq!(detail.channels, Some(2));
+        assert_eq!(detail.bit_depth, Some(24));
+        assert_eq!(
+            detail.duration_seconds,
+            Some(frames as f64 / f64::from(rate))
+        );
+    }
+    let peaks = |id| {
+        catalog
+            .read_waveform(oxidj_core::TrackId::new(id).unwrap())
+            .unwrap()
+            .expect("peaks stored")
+            .peaks
+    };
+    let (wav_peaks, aiff_peaks) = (peaks(1), peaks(2));
+    assert!(wav_peaks.level_count() > 1);
+    assert_eq!(aiff_peaks, wav_peaks);
+    assert_eq!(std::fs::read(root.join("b.aiff")).unwrap(), aiff);
+    drop(catalog);
+    let _ = std::fs::remove_file(&database);
+    let _ = std::fs::remove_dir_all(root);
+}
