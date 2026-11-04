@@ -347,6 +347,71 @@ fn aiff_is_recognised_by_magic_under_any_extension() {
     );
 }
 
+/// Minimal 16-bit PCM RIFF/WAVE file (for content-vs-extension regressions).
+fn wav16(channels: u16, samples: &[i16]) -> Vec<u8> {
+    let data: Vec<u8> = samples.iter().flat_map(|s| s.to_le_bytes()).collect();
+    let mut out = b"RIFF".to_vec();
+    out.extend_from_slice(&(36 + data.len() as u32).to_le_bytes());
+    out.extend_from_slice(b"WAVEfmt ");
+    out.extend_from_slice(&16_u32.to_le_bytes());
+    out.extend_from_slice(&1_u16.to_le_bytes());
+    out.extend_from_slice(&channels.to_le_bytes());
+    out.extend_from_slice(&44_100_u32.to_le_bytes());
+    out.extend_from_slice(&(44_100 * 2 * u32::from(channels)).to_le_bytes());
+    out.extend_from_slice(&(2 * channels).to_le_bytes());
+    out.extend_from_slice(&16_u16.to_le_bytes());
+    out.extend_from_slice(b"data");
+    out.extend_from_slice(&(data.len() as u32).to_le_bytes());
+    out.extend_from_slice(&data);
+    out
+}
+
+#[test]
+fn aiff_and_aifc_magic_win_over_competing_wav_flac_mp3_extensions() {
+    let aiff_bytes = aiff(2, 10, 24, 48_000);
+    let aifc_bytes = form(
+        b"AIFC",
+        &[
+            comm(2, 10, 24, ext80(48_000), Some(b"sowt")),
+            ssnd(0, 0, &pcm_data(10, 2, 24, true)),
+        ],
+    );
+    let want = expected(10, 2, 24);
+    for bytes in [&aiff_bytes, &aifc_bytes] {
+        for name in ["x.wav", "x.WAV", "x.flac", "x.mp3", "x.aiff"] {
+            assert_decodes(&scratch(name, bytes), 48_000, 2, &want);
+        }
+    }
+}
+
+#[test]
+fn riff_wave_bytes_keep_extension_dispatch() {
+    let samples = [0_i16, 1000, -1000, i16::MAX, i16::MIN];
+    let bytes = wav16(1, &samples);
+    // Named .wav: still the WAV decoder (behaviour unchanged).
+    let (result, sink) = decode(&scratch("w.wav", &bytes));
+    assert_eq!(result.unwrap().sample_rate, 44_100);
+    let want: Vec<f32> = samples.iter().map(|&s| f32::from(s) / 32_768.0).collect();
+    assert_eq!(sink.samples, want);
+    // Named .aiff: extension dispatch to AIFF refuses it, typed, no output.
+    let (result, sink) = decode(&scratch("w.aiff", &bytes));
+    assert_eq!(result, Err(PcmError::Malformed));
+    assert!(sink.format.is_none());
+    assert!(sink.samples.is_empty());
+}
+
+#[test]
+fn truncated_aiff_magic_is_typed_error_under_every_extension() {
+    let whole = aiff(1, 10, 16, 44_100);
+    for cut in [4, 8, 11, 12, 20] {
+        for name in ["t.wav", "t.flac", "t.mp3", "t.aiff", "t.bin"] {
+            let (result, sink) = decode(&scratch(name, &whole[..cut]));
+            assert!(result.is_err(), "{name} cut {cut} must refuse");
+            assert!(sink.samples.is_empty(), "{name} cut {cut} emitted samples");
+        }
+    }
+}
+
 // ---- mutation controls (the golden comparison must notice) ------------------
 
 #[test]

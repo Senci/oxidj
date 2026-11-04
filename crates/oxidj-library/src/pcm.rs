@@ -91,8 +91,8 @@ impl Mixer {
     }
 }
 
-/// Decode `path` (by extension: `.wav`, `.flac`, `.mp3`, `.aiff`/`.aif`/`.aifc`;
-/// any other extension is sniffed for a `FORM`/`AIFF`|`AIFC` header) into mono
+/// Decode `path` (a `FORM`/`AIFF`|`AIFC` header always decodes as AIFF; otherwise
+/// by extension: `.wav`, `.flac`, `.mp3`, `.aiff`/`.aif`/`.aifc`) into mono
 /// chunks. Returns the format on success; on error the sink may have received a
 /// prefix of the stream and must discard it (AIFF refuses every structural defect
 /// before [`MonoSink::begin`], so only a read failure can leave a prefix).
@@ -105,6 +105,11 @@ pub fn decode_mono<S: MonoSink>(
         .and_then(|ext| ext.to_str())
         .unwrap_or("")
         .to_ascii_lowercase();
+    // Content wins for AIFF: `FORM`/`AIFF`|`AIFC` bytes decode as AIFF whatever
+    // the extension says (owner libraries hold mislabelled files).
+    if has_aiff_magic(path) {
+        return decode_aiff(path, sink);
+    }
     match extension.as_str() {
         "wav" => decode_wav(path, sink),
         "flac" => decode_flac(path, sink),
@@ -146,7 +151,6 @@ pub fn decode_mono<S: MonoSink>(
                 frames: Some(frames),
             })
         }
-        _ if has_aiff_magic(path) => decode_aiff(path, sink),
         _ => Err(PcmError::Unsupported),
     }
 }
