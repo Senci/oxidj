@@ -13,7 +13,8 @@ M0 is verified complete. The named `local-catalog-alpha-v1` dependency exception
 - `oxidj-library` — local SQLite catalog (versioned schema, 10,000-track cap), reference-only WAV/FLAC/MP3/AIFF/AIFF-C import (AIFF via a hand-rolled parser: 8/16/24/32-bit PCM, AIFF-C `NONE`/`sowt`/`fl32`/`fl64`; M4A/AAC, Ogg, ALAC and other AIFF-C codecs are refused as unsupported), persisted computed waveforms and separate vendor-derived waveforms.
 - `oxidj-rekordbox` / `oxidj-onelibrary` — isolated adapters: Rekordbox XML preview, no-edit export and guarded edits; read-only DeviceSQL PDB, ANLZ (beat grid, cues, waveforms) and OneLibrary previews.
 - `oxidj-application` / `oxidj-cli` — orchestration and commands, including `catalog import-library`, `catalog export-library-xml`, `catalog analyze-waveform` and `catalog analyze-tempo`.
-- `prototypes/oxidj-library-ui` — provisional egui library UI: dense shell with a full-width track table and toggleable navigation / details / decks panels, guarded XML editing, and a smooth anti-aliased mono / 3-band / RGB waveform view with live per-band display gain and bar/beat lines from an imported library beat grid, or, when none matches, from an OxiDJ-computed grid (taktus; a suggestion, not Rekordbox parity).
+- `prototypes/oxidj-library-ui` — provisional egui library UI: dense shell with a full-width track table and toggleable navigation / details / decks panels, guarded XML editing, and a smooth anti-aliased mono / 3-band / RGB waveform view with live per-band display gain and bar/beat lines from an imported library beat grid, or, when none matches, from an OxiDJ-computed grid (taktus; a suggestion, not Rekordbox parity). Since M8 it also has two playable decks (see below).
+- `oxidj-audio` — realtime audio engine (CPAL output, lock-free command/state queues, decode-on-load): two decks with CDJ-style cue, play/pause, seek, hot cues, loops, tempo fader, key lock (Signalsmith Stretch behind a replaceable trait), SYNC against imported-or-computed beat grids, and an optional in-house mixer (trim, 3-band isolator EQ, filter, faders, crossfader, meters). Owner-confirmed by ear on one machine; one 600 s PipeWire run (1 xrun) is the only latency evidence — club gear and CDJ/XDJ playback are NOT DEMONSTRATED (ADR-008).
 - `xtask` — the repo-owned quality gate: `cargo xtask ci` (Tier 1) and `cargo xtask ci-full` (Tier 1 + tests + UI tests + licence gate, used by CI).
 - Accepted ADRs and the architecture baseline (docs/adr/index.md, docs/architecture.md).
 
@@ -23,7 +24,7 @@ M0 is verified complete. The named `local-catalog-alpha-v1` dependency exception
 - M2: filesystem import (plan/MVP.md).
 - M3: usable library UI — prototype direction only (egui/eframe, ADR-001), not committed to production.
 - M4: complete Rekordbox/OneLibrary interoperability remains unqualified. XML preview, preflight, no-edit export, and guarded edits to selected tempo and position-mark fields cover a bounded synthetic subset only; no vendor application acceptance or undocumented-format compatibility is claimed (interoperability.md §Fixture D).
-- M4+: realtime DJ functionality — decks, mixing, effects, stems, streaming, broad controller support (idea.md §Priorities/MVP).
+- Beyond M8: effects, stems, streaming, headphone cue/PFL, broad controller support, production-grade latency qualification (idea.md §Priorities/MVP).
 
 ## Install (Linux, no sudo)
 

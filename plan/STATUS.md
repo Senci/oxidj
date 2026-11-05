@@ -2,6 +2,12 @@
 
 Condensed 2026-11-02. Full prior text (per-increment evidence, M0-09 verification, decisions, risks, F-09 oracle notes): [docs/history/status-2026-11-02.md](../docs/history/status-2026-11-02.md). Milestone contract: [plan/MVP.md](MVP.md). Live work: Kanban; this file records stages and gates only.
 
+## TL;DR (2026-11-05)
+
+- M8 decks and playback landed on local `master` and pushed (`771f631`..`d92932f`, W12 `2108b79`..`d1e6c21`, all Sol-reviewed): Settings (Ctrl+,), merged two-deck detail waveform (A warm above / B cool below one seam), separate overviews, collapsible sections, CPAL engine (`oxidj-audio`), hot cues/loops, tempo + key lock + SYNC, optional mixer, 3-band deck waveforms with overview auto-gain. Owner listening check: "it works" (2026-11-05, no measurements). NOT DEMONSTRATED: club gear, CDJ/XDJ playback, latency guarantees (ADR-008: one 600 s PipeWire run, 1 xrun; key-lock fader transient < 5 ms for one beat).
+- Real library seeded locally (1,323 audio tracks, 1,331 Rekordbox tracks; computed BPM within 2% of Rekordbox on 97% of tracks, counts only); `scripts/install-local.sh` installs the CLI, UI, launcher and Omarchy entry after each accepted change; `export-library-xml --computed-grids` writes computed grids only for tracks without a Rekordbox grid (Rekordbox check of those 5 tracks pending).
+- Earlier history below (2026-11-03).
+
 ## TL;DR (2026-11-03)
 
 - Sweep S1–S5b landed on local `master` (not pushed): defect fixes with failing-first regressions (S2), one table-driven `prepare_track_attribute_edit` replacing 26 per-field copies (S3), UI split into modules with one generic field-edit workflow and `cargo xtask ui-test` in `ci-full`/CI (S4), one table-driven F-02 TRACK attribute oracle plus a shared XML tree decoder with F-09 provenance still at 50 bindings / 57 artifacts (S5), and one `oxidj_core::publish::publish_no_clobber` for exports without hard links (S5b).
