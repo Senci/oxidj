@@ -19,6 +19,7 @@ v0.2–v0.6 are interoperability evidence (CLI/test oracles rendered as cards), 
 | [v0.11](v11-waveform-panel-polish/README.md) | 2026-11-03 | `89cd073` | W9 polish: aligned waveform slider rows, taller detail strip, stable decks bar. | <img src="v11-waveform-panel-polish/01-details-decks-mono.png" width="240" alt="v0.11 key screenshot"> |
 | [v0.12](v12-ui-polish/README.md) | 2026-11-04 | `339372b..` | W11 polish: segmented panel toggles, right-aligned numbers, search with clear, compact details, visible Position slider. | <img src="v12-ui-polish/04-after-day.png" width="240" alt="v0.12 key screenshot"> |
 | [v0.13](v13-computed-beat-grid/README.md) | 2026-11-04 | `9a9b96c..` | Computed BPM and beat grid (taktus) in track details when no imported grid exists; import always wins; a suggestion, not Rekordbox parity. | <img src="v13-computed-beat-grid/02-click-track-computed-grid.png" width="240" alt="v0.13 key screenshot"> |
+| [v0.14](v14-merged-decks/README.md) | 2026-11-05 | `9b9acbd..` | M8 D1: merged two-deck detail waveform (A warm above, B cool below, one playhead), club-standard control strip, two separate overviews, collapsible sections; silent transport, no audio yet. | <img src="v14-merged-decks/02-after-both-decks-loaded.png" width="240" alt="v0.14 key screenshot"> |
 
 ## Before → after
 
@@ -27,3 +28,4 @@ v0.2–v0.6 are interoperability evidence (CLI/test oracles rendered as cards), 
 | v0.9 design audit | ![before](v09-design-audit/01-before-populated.png) | ![after](v09-design-audit/02-after-populated.png) |
 | v0.10 dense shell | ![before](v10-dense-shell/01-before-w7-shell.png) | ![after](v10-dense-shell/02-after-dense-shell.png) |
 | v0.12 W11 polish | ![before](v12-ui-polish/01-before-night.png) | ![after](v12-ui-polish/03-after-night.png) |
+| v0.14 merged decks | ![before](v14-merged-decks/01-before-library-only.png) | ![after](v14-merged-decks/02-after-both-decks-loaded.png) |
