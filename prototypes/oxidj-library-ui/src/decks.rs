@@ -294,6 +294,10 @@ pub(crate) struct Deck {
     /// CUE button is held by the pointer and owes a release.
     pub(crate) cue_pointer: bool,
     outbox: Vec<Op>,
+    /// The engine still plays the previous track: unload it before anything
+    /// else is sent for this deck (a failed replacement must not leave
+    /// hidden, uncontrollable audio).
+    unload: bool,
     sent_gain: Option<f32>,
     sent_speed: Option<f64>,
 }
@@ -314,6 +318,7 @@ impl Deck {
             volume: self.volume,
             sent_gain: self.sent_gain,
             sent_speed: self.sent_speed,
+            unload: true,
             ..Self::default()
         };
     }
@@ -470,7 +475,11 @@ impl DeckArea {
     /// deck with unapplied commands keeps its optimistic position).
     pub(crate) fn pump(&mut self) {
         self.engine.poll();
+        self.send_unloads();
         for (d, deck) in self.decks.iter_mut().enumerate() {
+            if deck.unload {
+                continue; // ring full: retry next frame, keep Unload before Load
+            }
             let Some(id) = deck.track.as_ref().map(|t| t.id) else { continue };
             if let DeckAudio::Loading(loading) = &deck.audio {
                 match loading.poll() {
@@ -504,6 +513,7 @@ impl DeckArea {
     /// End of a frame: send every queued control, plus gain (the mixer's
     /// volume, or exact unity while the mixer is hidden) and tempo changes.
     pub(crate) fn flush(&mut self, mixer: bool) {
+        self.send_unloads();
         for (d, deck) in self.decks.iter_mut().enumerate() {
             let gain = if mixer { deck.volume.0.clamp(0.0, 1.0) } else { 1.0 };
             if deck.sent_gain != Some(gain) && self.engine.send(Command::Gain { deck: d, gain }) {
@@ -529,6 +539,15 @@ impl DeckArea {
                     Op::LoopScale(f) => Command::LoopScale { deck: d, factor: f },
                 };
                 self.engine.send(command);
+            }
+        }
+    }
+
+    /// Stop and empty the engine deck of every deck that was just replaced.
+    fn send_unloads(&mut self) {
+        for (d, deck) in self.decks.iter_mut().enumerate() {
+            if deck.unload && self.engine.send(Command::Unload { deck: d }) {
+                deck.unload = false;
             }
         }
     }

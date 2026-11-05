@@ -370,3 +370,63 @@ fn silent_engine_reports_reason_and_plays_on() {
     std::thread::sleep(std::time::Duration::from_millis(150));
     assert!(e.deck(0).frame > 0.0);
 }
+
+#[test]
+fn unload_stops_and_empties_one_deck_and_frees_the_track() {
+    let (mut e, mut r) = setup(100_000);
+    let b = ramp(100_000, RATE);
+    assert!(e.send(Command::Load {
+        deck: 1,
+        id: 9,
+        track: b
+    }));
+    e.send(Command::Gain { deck: 0, gain: 0.5 });
+    e.send(Command::TogglePlay { deck: 0 });
+    e.send(Command::TogglePlay { deck: 1 });
+    render(&mut r, 1_000);
+    assert!(e.deck(0).playing && e.deck(1).playing);
+    assert!(e.send(Command::Unload { deck: 0 }));
+    render(&mut r, 100);
+    let a = e.deck(0);
+    assert_eq!(
+        (a.id, a.playing, a.frame, a.loop_range),
+        (None, false, 0.0, None)
+    );
+    let b = e.deck(1);
+    assert_eq!(
+        (b.id, b.playing, b.frame),
+        (Some(9), true, 1_100.0),
+        "deck B unaffected"
+    );
+    // Play on the empty deck stays silent; only deck B is audible.
+    e.send(Command::TogglePlay { deck: 0 });
+    let out = render(&mut r, 4);
+    assert!(!e.deck(0).playing);
+    assert!(
+        (frame_of(out[0]) - 1_100.0).abs() < 1e-2,
+        "output is deck B alone: {}",
+        out[0]
+    );
+    // The callback dropped its reference; poll frees the retired track.
+    e.poll();
+    assert!(e.retired.is_empty());
+    // A new track loads normally and keeps the deck's gain.
+    assert!(e.send(Command::Load {
+        deck: 0,
+        id: 8,
+        track: ramp(10_000, RATE)
+    }));
+    e.send(Command::TogglePlay { deck: 1 });
+    e.send(Command::Seek {
+        deck: 0,
+        frame: 2_000.0,
+    });
+    e.send(Command::TogglePlay { deck: 0 });
+    let out = render(&mut r, 1);
+    assert_eq!(e.deck(0).id, Some(8));
+    assert!(
+        (frame_of(out[0]) - 1_000.0).abs() < 1e-3,
+        "gain 0.5 kept: {}",
+        out[0]
+    );
+}

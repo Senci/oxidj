@@ -109,6 +109,11 @@ pub enum Command {
         id: u64,
         track: Arc<TrackPcm>,
     },
+    /// Stop and empty the deck (a replacement is being decoded); gain and
+    /// speed are kept.
+    Unload {
+        deck: usize,
+    },
     TogglePlay {
         deck: usize,
     },
@@ -155,6 +160,7 @@ impl Command {
     fn deck(&self) -> usize {
         match self {
             Self::Load { deck, .. }
+            | Self::Unload { deck }
             | Self::TogglePlay { deck }
             | Self::CueDown { deck }
             | Self::CueUp { deck }
@@ -222,6 +228,16 @@ impl DeckState {
                 *self = Self {
                     track: Some(track),
                     id,
+                    gain,
+                    speed,
+                    applied,
+                    ..Self::default()
+                };
+            }
+            Command::Unload { .. } => {
+                let (gain, speed, applied) = (self.gain, self.speed, self.applied);
+                // As for Load: the UI's retired list still holds the track.
+                *self = Self {
                     gain,
                     speed,
                     applied,
@@ -619,6 +635,11 @@ impl Engine {
                 Command::Load { id, track, .. } => {
                     if let Some((_, old)) = self.memory.current[deck].replace((*id, track.clone()))
                     {
+                        self.retired.push(old);
+                    }
+                }
+                Command::Unload { .. } => {
+                    if let Some((_, old)) = self.memory.current[deck].take() {
                         self.retired.push(old);
                     }
                 }

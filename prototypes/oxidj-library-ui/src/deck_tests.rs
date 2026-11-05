@@ -827,6 +827,54 @@ fn volume_unity_bypass_decode_failure_and_silent_fallback() {
     std::fs::remove_dir_all(root).unwrap();
 }
 
+/// Sol D2 round 1: replacing a playing deck stops and unloads its old
+/// audio at once, so a failed decode never leaves hidden, uncontrollable
+/// sound; the other deck plays on untouched.
+#[test]
+fn replacing_a_playing_deck_unloads_old_audio_on_success_and_failure() {
+    let (root, mut h) = fresh("replace", 20.0);
+    h.select_and_load("a-120.wav", egui::Key::A);
+    h.select_and_load("b-124.wav", egui::Key::B);
+    let (a_id, b_id, c_id) = (h.id_of("a-120.wav"), h.id_of("b-124.wav"), h.id_of("c-nogrid.wav"));
+    h.app.decks.active = 0;
+    h.tap(egui::Key::Space);
+    h.app.decks.active = 1;
+    h.tap(egui::Key::Space);
+    assert!(h.app.decks.engine.deck(0).playing && h.app.decks.engine.deck(1).playing);
+    assert_eq!(h.app.decks.engine.deck(0).id, Some(a_id));
+    let b_before = h.app.decks.engine.deck(1).frame;
+    // Success: c-nogrid replaces a-120 on A while it plays.
+    h.app.selected = Some(c_id);
+    h.tap(egui::Key::A);
+    let a = h.app.decks.engine.deck(0);
+    assert!(a.id != Some(a_id) && !a.playing, "old audio unloaded at once: {a:?}");
+    h.wait_audio();
+    let a = h.app.decks.engine.deck(0);
+    assert_eq!((a.id, a.playing), (Some(c_id), false), "replacement loaded, stopped");
+    assert!(h.deck(0).ready() && !h.deck(0).playing);
+    let b = h.app.decks.engine.deck(1);
+    assert!(b.playing && b.id == Some(b_id) && b.frame > b_before, "deck B plays on");
+    // Failure: A plays again, then an unreadable file replaces it.
+    h.app.decks.active = 0;
+    h.tap(egui::Key::Space);
+    assert!(h.app.decks.engine.deck(0).playing);
+    let path = h.app.tracks.iter().find(|t| t.track.id.as_u64() == a_id).unwrap().track.path.clone();
+    std::fs::remove_file(&path).unwrap();
+    h.select_and_load("a-120.wav", egui::Key::A);
+    assert!(matches!(&h.deck(0).audio, DeckAudio::Failed(_)));
+    let a = h.app.decks.engine.deck(0);
+    assert!(a.id.is_none() && !a.playing, "no hidden audio after a failed load: {a:?}");
+    assert!(!h.deck(0).playing && !h.deck(0).ready());
+    let b = h.app.decks.engine.deck(1);
+    assert!(b.playing && b.id == Some(b_id), "deck B unaffected by A's failure");
+    // With B paused, the output is silent: nothing left of A.
+    h.app.decks.active = 1;
+    h.tap(egui::Key::Space);
+    assert!(!h.app.decks.engine.deck(1).playing);
+    assert!(h.app.decks.render(4_800).iter().all(|s| *s == 0.0), "output silent");
+    std::fs::remove_dir_all(root).unwrap();
+}
+
 #[test]
 fn imported_cues_and_loops_draw_on_detail_and_overview() {
     let (root, mut h) = fresh("cues", 20.0);
