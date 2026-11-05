@@ -31,16 +31,16 @@ describe('static public pages', () => {
     ).toBe(true);
     expect(milestones.find((m) => m.id === 'm6')?.status).toBe('in-progress');
     expect(milestones.find((m) => m.id === 'm7')?.status).toBe('in-progress');
-    expect(roadmapSnapshot.verifiedAt).toBe('2026-11-05');
+    expect(roadmapSnapshot.verifiedAt).toBe('2026-11-06');
     expect(milestones.find((m) => m.id === 'm8')?.status).toBe('in-progress');
     expect(milestones.find((m) => m.id === 'm8')?.detail).toMatch(
-      /merged waveform.*warm.*cool.*Settings \(Ctrl\+,\).*CPAL.*hot cues and loops.*key lock \(Signalsmith Stretch\).*SYNC.*optional mixer.*owner listening check, club gear.*latency guarantee.*600 s PipeWire run had 1 xrun.*5 ms/,
+      /merged waveform.*warm.*cool.*Settings \(Ctrl\+,\).*CPAL.*hot cues and loops.*key lock \(Signalsmith Stretch\).*SYNC.*optional mixer.*low, mid and high bands.*"it works", with no measurements.*club gear.*CDJ\/XDJ.*latency guarantee.*600 s PipeWire run had 1 xrun.*5 ms/,
     );
     expect(roadmapSnapshot.unfinished).toMatch(
-      /owner listening check.*club gear.*no latency guarantee.*600 s.*1 audio dropout \(xrun\).*5 ms/,
+      /no tempo-change maps.*informal owner listening check.*club gear.*CDJ\/XDJ.*no latency guarantee.*600 s.*1 audio dropout \(xrun\).*5 ms/,
     );
     expect(roadmapSnapshot.working).toMatch(
-      /two decks.*merged waveform.*collapsed.*Settings \(Ctrl\+,\).*CPAL.*key lock.*SYNC.*optional mixer.*install script/,
+      /two decks.*merged waveform.*low, mid and high bands.*collapsed.*Settings \(Ctrl\+,\).*CPAL.*key lock.*SYNC.*optional mixer.*install-local\.sh.*computed beat grids for tracks that have no Rekordbox grid/,
     );
     expect(roadmapSnapshot.currentSummary).toMatch(
       /synthetic Rekordbox XML.*read-only preview.*new file.*guarded edits/i,
@@ -59,9 +59,12 @@ describe('static public pages', () => {
     expect(milestones.find((m) => m.id === 'm4')?.detail).toMatch(
       /broader compatibility with real Rekordbox or OneLibrary.*not been demonstrated/i,
     );
-    expect(projectUpdates).toHaveLength(17);
-    expect(projectUpdates[0]?.source.href).toMatch(/\/commit\/8b6087b$/);
+    expect(projectUpdates).toHaveLength(20);
+    expect(projectUpdates[0]?.source.href).toMatch(/\/commit\/2108b79$/);
     expect(projectUpdates.map((u) => u.date)).toEqual([
+      '2026-11-05',
+      '2026-11-05',
+      '2026-11-05',
       '2026-11-05',
       '2026-11-05',
       '2026-11-05',
@@ -83,7 +86,7 @@ describe('static public pages', () => {
     expect(projectUpdates.every((u) => /\/commit\/[0-9a-f]{7,40}$/.test(u.source.href))).toBe(true);
     expect(roadmapSnapshot.working).toMatch(/show or hide.*bar and beat lines/i);
     expect(milestones.find((m) => m.id === 'm6')?.detail).toMatch(
-      /smooth vector waveform.*bar and beat lines.*91%.*F70 0\.76/i,
+      /smooth vector waveform.*bar and beat lines.*1,317 tracks.*within 2% of Rekordbox on 97%.*F70\) of 0\.84.*not Rekordbox parity/i,
     );
     expect(milestones.find((m) => m.id === 'm7')?.detail).toMatch(
       /Rekordbox on Windows.*hardware \(CDJ\/XDJ\) has not been tested/i,

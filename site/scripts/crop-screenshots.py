@@ -5,7 +5,9 @@ Run from site/:  uv run --no-project --with pillow python scripts/crop-screensho
 Sources are synthetic-catalog Bot Screen captures (1440x900, no private library
 data) under docs/milestones/: v13-computed-beat-grid (computed BPM and beat grid,
 release build of 9a9b96c), v14-merged-decks (M8 D1, release build of ef5c601),
-v15-tempo-keylock-sync (M8 D3, release build of fc46d0f) and v16-mixer (M8 D4).
+v15-tempo-keylock-sync (M8 D3, release build of fc46d0f) and
+v17-waveform-bands (W12 3-band deck waveforms, release build of d1e6c21; its
+01 is a copy of the v16 mixer capture and serves as the "before").
 Each crop keeps only app window content (no desktop bar, title bar, dock or
 pointer badge). Every crop is written as a lossless WebP at native resolution
 (2x and the lightbox); full-width crops also get a half-width lossy WebP for
@@ -23,31 +25,39 @@ MILESTONES = SITE.parent / "docs/milestones"
 OUT = SITE / "public/images"
 LOOP = MILESTONES / "v13-computed-beat-grid/01-ventoy-style-computed-grid.png"
 CLICK = MILESTONES / "v13-computed-beat-grid/02-click-track-computed-grid.png"
-LOADED = MILESTONES / "v14-merged-decks/02-after-both-decks-loaded.png"
 FALLBACK = MILESTONES / "v14-merged-decks/04-grid-fallback-no-grid-and-analysing.png"
 COLLAPSED = MILESTONES / "v14-merged-decks/05-collapsed-detail-library-grows.png"
-SYNCED = MILESTONES / "v15-tempo-keylock-sync/02-after-sync-b-keylock-matched.png"
 REFUSED = MILESTONES / "v15-tempo-keylock-sync/04-sync-refused-no-beat-grid.png"
-MIXER = MILESTONES / "v16-mixer/01-mixer-both-playing-centre.png"
+BANDS = MILESTONES / "v17-waveform-bands"
+BEFORE = BANDS / "01-before-v16-monochrome.png"
+PLAYING = BANDS / "03-after-both-playing-played-dimmed.png"
+SYNCED = BANDS / "04-after-sync-keylock-both-playing.png"
 
 # Waveform section of the details panel: below the details/waveform hairline
 # (y 361), right of the panel edge (x 1080), above the window bottom bar.
 WAVE_PANEL = (1081, 362, 1440, 800)
-# Deck area: below the toolbar (y 97) through the two overviews (end y 486).
+# v14 deck area: below the toolbar (y 97) through the two overviews (end y 486).
 DECK_AREA = (0, 100, 1440, 492)
+# v16/v17 deck area with the mixer: merged detail waveform (from y 130), control
+# strip, mixer and both overviews (end y 550); the pointer sits below y 575.
+BANDS_AREA = (0, 130, 1440, 552)
 
 # name: (source, (left, top, right, bottom)) in source pixels.
 CROPS = {
-    # Toolbar, merged decks, control strip, mixer, overviews and the four
-    # table rows; stops above the pointer badge in the empty table (y 760).
-    "app-overview": (MIXER, (0, 65, 1440, 745)),
-    "decks-merged": (LOADED, DECK_AREA),
+    # Toolbar, merged decks after SYNC, control strip, mixer, overviews and the
+    # four table rows; stops above the pointer in the empty table (y 775).
+    "app-overview": (SYNCED, (0, 65, 1440, 745)),
+    # DECKS row and the merged 3-band detail waveform, both decks playing.
+    "decks-merged": (PLAYING, (0, 100, 1440, 356)),
     # Seam readout, both tempo faders and KEY/SYNC lit on deck B.
     "decks-synced": (SYNCED, (440, 128, 1000, 384)),
     # Deck B's half of the control strip with the visible SYNC refusal.
     "sync-refused": (REFUSED, (720, 356, 1440, 412)),
-    # Control strip and the mixer row (overview A starts at y 478).
-    "decks-mixer": (MIXER, (0, 356, 1440, 476)),
+    # Control strip and the mixer row with live meters (overview A at y 478).
+    "decks-mixer": (SYNCED, (0, 356, 1440, 476)),
+    # Same deck area before (v16 near-monochrome) and after W12 (3 bands).
+    "bands-before": (BEFORE, BANDS_AREA),
+    "bands-after": (PLAYING, BANDS_AREA),
     "grid-fallback": (FALLBACK, DECK_AREA),
     # Detail collapsed: strip and overviews, then the track table grows.
     "decks-collapsed": (COLLAPSED, (0, 100, 1440, 400)),
@@ -55,7 +65,15 @@ CROPS = {
     "waveform-click-grid": (CLICK, WAVE_PANEL),
 }
 
-HALF = {"app-overview", "decks-merged", "decks-mixer", "grid-fallback", "decks-collapsed"}
+HALF = {
+    "app-overview",
+    "decks-merged",
+    "decks-mixer",
+    "bands-before",
+    "bands-after",
+    "grid-fallback",
+    "decks-collapsed",
+}
 SUPERSEDED = (
     "waveform-mono.webp",
     "waveform-3band.webp",
@@ -68,7 +86,7 @@ def save(img: Image.Image, path: Path, lossless: bool = True) -> None:
     if lossless:
         img.save(path, "WEBP", lossless=True, method=6)
     else:
-        img.save(path, "WEBP", quality=84, method=6)
+        img.save(path, "WEBP", quality=80, method=6)
     print(f"{path.relative_to(SITE)} {img.width}x{img.height} {path.stat().st_size} B")
 
 

@@ -61,7 +61,7 @@ describe('screenshots', () => {
       renderRoadmap(readFileSync(new URL('../../index.html', import.meta.url), 'utf8')),
       'index.html',
     );
-    expect(home.match(/data-lightbox/g)).toHaveLength(9);
+    expect(home.match(/data-lightbox/g)).toHaveLength(11);
     expect(home).toContain('class="wave"');
     expect(home.match(/class="rail-stop /g)).toHaveLength(9);
     for (const shot of Object.values(screenshots)) {

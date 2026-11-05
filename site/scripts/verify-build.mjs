@@ -56,7 +56,7 @@ assert.doesNotMatch(home, /on(?:click|load|mouseover)=|javascript:/i);
 assert.ok(home.includes('<details>'));
 assert.ok(home.includes('class="wave"') && home.includes('class="band band-low"'));
 const lightboxLinks = [...home.matchAll(/<a class="shot-link" href="([^"]+)" data-lightbox/g)];
-assert.equal(lightboxLinks.length, 9, 'home has nine zoomable screenshots');
+assert.equal(lightboxLinks.length, 11, 'home has eleven zoomable screenshots');
 for (const command of ['init', 'import', 'list'])
   assert.ok(home.includes(`catalog ${command} --db`));
 const roadmap = readFileSync(new URL('roadmap.html', root), 'utf8');
@@ -68,5 +68,5 @@ const social = readFileSync(new URL('images/social.png', root));
 assert.equal(social.readUInt32BE(16), 1200);
 assert.equal(social.readUInt32BE(20), 630);
 console.log(
-  `Pages build verified: ${entries.length} entries, ${checked} local references under /oxidj/, sized images with alt, nine lightbox links, nine milestone anchors, self-hosted WOFF2 fonts, 1200x630 social image, no private paths.`,
+  `Pages build verified: ${entries.length} entries, ${checked} local references under /oxidj/, sized images with alt, eleven lightbox links, nine milestone anchors, self-hosted WOFF2 fonts, 1200x630 social image, no private paths.`,
 );

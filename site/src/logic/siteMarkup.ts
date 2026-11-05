@@ -68,6 +68,8 @@ export function renderSite(html: string, page: string): string {
     stage: renderShot(screenshots.overview, '(min-width: 1360px) 1200px, 92vw', true),
     shotMerged: renderShot(screenshots.decksMerged, wide),
     shotMixer: renderShot(screenshots.decksMixer, wide),
+    shotBandsBefore: renderShot(screenshots.bandsBefore, wide),
+    shotBandsAfter: renderShot(screenshots.bandsAfter, wide),
     shotFallback: renderShot(screenshots.gridFallback, wide),
     shotCollapsed: renderShot(screenshots.decksCollapsed, wide),
     shotSynced: renderShot(screenshots.decksSynced, narrow),

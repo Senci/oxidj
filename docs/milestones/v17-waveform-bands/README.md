@@ -9,6 +9,7 @@ Real full-screen composited Bot Screen captures (X11, 1440x900) of the release b
 | `01-before-v16-monochrome.png` | Before (copy of the v0.16 capture): detail halves near-monochrome (orange only / blue only), overviews flat cream/white bars, tiny cue marks. |
 | `02-after-three-bands-loaded.png` | After, both decks loaded at 0:00: detail A in warm low/mid/high (red-orange, amber, pale-yellow core), B in cool (deep blue, cyan, ice-white core); overviews in the same three bands with auto-gain, 16-bar phrase ticks, cue flags 1-3 with numbers. |
 | `03-after-both-playing-played-dimmed.png` | Both decks playing (~0:25): played part of each overview dimmed, cue flags drawn over the dimming, view window bracket. |
+| `04-after-sync-keylock-both-playing.png` | Added 2026-11-06 for the site (release build of `d1e6c21`, same synthetic catalog, mixer shown): KEY and SYNC on deck B (tempo -3.2 %, seam readout 0 ms / +0.00 BPM), both decks playing (~0:15), live meters. Inputs were real pointer clicks (Decks, Mixer, rows, Load A/B, KEY B, SYNC B, PLAY A/B). |
 
 ## Acceptance → evidence
 
