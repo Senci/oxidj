@@ -764,7 +764,7 @@ fn playhead_follows_the_engine_not_wall_clock() {
 }
 
 /// Mixer volume reaches the engine only while the mixer is visible; a
-/// hidden mixer is exact unity. A decode failure is shown on its deck and
+/// hidden mixer is exact unity (D4: bit-identical bypass). A decode failure is shown on its deck and
 /// leaves it inert; no device = a visible NO AUDIO status, decks still run.
 #[test]
 fn volume_unity_bypass_decode_failure_and_silent_fallback() {
@@ -792,7 +792,11 @@ fn volume_unity_bypass_decode_failure_and_silent_fallback() {
     h.settle();
     assert!(h.layout().volume[0].is_some() && h.layout().volume[1].is_some());
     let quiet = block(&mut h);
-    assert!(quiet.iter().zip(&unity).all(|(q, u)| *q == u * 0.25), "volume 0.25 scales the output");
+    let rms = |v: &[f32]| (v.iter().map(|s| f64::from(*s).powi(2)).sum::<f64>() / v.len() as f64).sqrt();
+    // D4: the channel goes through the isolator EQ (flat all-pass at 0 dB),
+    // so the fader scales the level, not each sample bit for bit.
+    let ratio = rms(&quiet[2_400..]) / rms(&unity[2_400..]);
+    assert!((ratio - 0.25).abs() < 0.01, "volume 0.25 scales the output: {ratio}");
     let out = h.settle();
     assert_eq!(node(&out, "Deck A volume").role(), accesskit::Role::Slider);
     h.app.settings.sections.mixer = false;
@@ -1216,5 +1220,278 @@ fn sync_refuses_with_exact_visible_reasons() {
     h.click(sync_a.center());
     assert!(!h.deck(0).sync);
     assert!((h.deck(0).speed() - 124.0 * 0.94 / 120.0).abs() < 1e-6);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+// -------------------------------------------------------------------- D4
+
+/// 100 ms of both decks from 4 s, as the device would receive them, with
+/// the mixer state the production frame sent.
+fn mix_block(h: &mut Harness) -> Vec<f32> {
+    for d in 0..2 {
+        h.app.decks.decks[d].seek(4_000.0);
+        h.app.decks.decks[d].toggle_play();
+    }
+    h.settle();
+    let out = h.app.decks.render(4_800);
+    for d in 0..2 {
+        h.app.decks.decks[d].toggle_play();
+    }
+    h.settle();
+    out
+}
+
+fn bits(v: &[f32]) -> Vec<u32> {
+    v.iter().map(|s| s.to_bits()).collect()
+}
+
+/// D4 acceptance 4: the mixer is hidden by default and then exactly out of
+/// the path whatever its knobs say; shown, its knobs change the sound;
+/// hidden again (by its own toggle), bit-identical once more.
+#[test]
+fn hidden_mixer_is_bit_identical_whatever_the_knobs_say() {
+    let (root, mut h) = fresh("mixbypass", 20.0);
+    h.select_and_load("a-120.wav", egui::Key::A);
+    h.select_and_load("b-124.wav", egui::Key::B);
+    assert!(!h.app.settings.sections.mixer, "mixer hidden by default");
+    let reference = mix_block(&mut h);
+    assert!(reference.iter().any(|s| s.abs() > 0.1));
+    // Knobs moved while hidden: no effect at all.
+    {
+        let a = &mut h.app.decks.decks[0];
+        a.volume.0 = 0.2;
+        a.channel.eq_db = [oxidj_audio::EQ_KILL_DB, 6.0, -10.0];
+        a.channel.filter = -0.7;
+        a.channel.trim_db = 9.0;
+    }
+    h.app.decks.crossfader = 1.0;
+    h.app.decks.master = 0.3;
+    assert_eq!(bits(&mix_block(&mut h)), bits(&reference), "hidden mixer: bit-identical");
+    // Shown through its section toggle: the knobs act.
+    let toggle = h.layout().toggles.unwrap()[3];
+    h.click(toggle.center());
+    assert!(h.app.settings.sections.mixer && h.layout().mixer.is_some());
+    let mixed = mix_block(&mut h);
+    assert_ne!(bits(&mixed), bits(&reference));
+    // Hidden again by the same toggle: exact bypass.
+    let toggle = h.layout().toggles.unwrap()[3];
+    h.click(toggle.center());
+    assert!(!h.app.settings.sections.mixer && h.layout().mixer.is_none());
+    assert_eq!(bits(&mix_block(&mut h)), bits(&reference), "hidden again: bit-identical");
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+/// D4 acceptance 1-3 through the production UI: every control exists with
+/// its AccessKit name inside the mixer, pointer input moves it, and the
+/// engine applies it (kill, crossfader, assign, meters); the crossfader's
+/// own icon toggle hides it and takes it out of the path; persisted.
+#[test]
+fn mixer_controls_drive_the_engine_and_meters_through_the_ui() {
+    let (root, mut h) = fresh("mixui", 20.0);
+    h.select_and_load("a-120.wav", egui::Key::A);
+    h.select_and_load("b-124.wav", egui::Key::B);
+    h.app.settings.sections.mixer = true;
+    let out = h.settle();
+    let l = h.layout();
+    let mixer = l.mixer.expect("mixer shown");
+    let mut rects: Vec<Rect> = vec![l.master.unwrap(), l.crossfader.unwrap(), l.crossfader_toggle.unwrap()];
+    for d in 0..2 {
+        rects.extend([l.trim[d].unwrap(), l.filter[d].unwrap(), l.volume[d].unwrap()]);
+        rects.extend(l.eq[d].unwrap());
+        rects.extend(l.assign[d].unwrap());
+    }
+    rects.extend(l.meters.iter().map(|m| m.unwrap()));
+    for r in &rects {
+        assert!(mixer.contains_rect(*r), "{r:?} inside the mixer {mixer:?}");
+    }
+    for (i, a) in rects.iter().enumerate() {
+        for b in &rects[i + 1..] {
+            assert!(!a.shrink(0.5).intersects(b.shrink(0.5)), "{a:?} overlaps {b:?}");
+        }
+    }
+    // Deck A left of the centre, deck B right of it.
+    assert!(l.volume[0].unwrap().right() < l.master.unwrap().left());
+    assert!(l.volume[1].unwrap().left() > l.master.unwrap().right());
+    for letter in ["A", "B"] {
+        for name in ["trim", "EQ high", "EQ mid", "EQ low", "filter", "volume"] {
+            assert_eq!(node(&out, &format!("Deck {letter} {name}")).role(), accesskit::Role::Slider, "{letter} {name}");
+        }
+        for side in ["A", "THRU", "B"] {
+            assert_eq!(node(&out, &format!("Deck {letter} crossfader assign {side}")).role(), accesskit::Role::Button);
+        }
+    }
+    assert_eq!(node(&out, "Master volume").role(), accesskit::Role::Slider);
+    assert_eq!(node(&out, "Crossfader").role(), accesskit::Role::Slider);
+    assert_eq!(node(&out, "Crossfader section").toggled(), Some(accesskit::Toggled::True));
+    // Centre default: both decks at unity; deck A's 120 BPM click track
+    // and deck B both audible.
+    let both = mix_block(&mut h);
+    // Pointer: drag deck A's LOW knob to its left stop = kill.
+    let low = h.layout().eq[0].unwrap()[0];
+    let slider_left = egui::pos2(low.left() + 34.0, low.center().y);
+    h.drag(egui::pos2(low.center().x + 10.0, low.center().y), slider_left - egui::vec2(40.0, 0.0));
+    assert_eq!(h.deck(0).channel.eq_db[0], oxidj_audio::EQ_KILL_DB, "drag to the stop kills");
+    // Crossfader hard right (pointer): deck A (side A) silent, B unchanged.
+    let xf = h.layout().crossfader.unwrap();
+    h.drag(xf.center(), egui::pos2(xf.right() + 30.0, xf.center().y));
+    assert_eq!(h.app.decks.crossfader, 1.0);
+    let b_only = mix_block(&mut h);
+    let reference_b = {
+        // Same block with deck A's fader at 0 instead: only B.
+        h.app.decks.crossfader = 0.5;
+        h.app.decks.decks[0].volume.0 = 0.0;
+        let v = mix_block(&mut h);
+        h.app.decks.decks[0].volume.0 = 1.0;
+        h.app.decks.crossfader = 1.0;
+        v
+    };
+    let diff = b_only.iter().zip(&reference_b).map(|(a, b)| (a - b).abs()).fold(0.0f32, f32::max);
+    assert!(diff < 1e-3, "crossfader right = only deck B ({diff})");
+    assert_ne!(bits(&both), bits(&b_only), "deck A was in the centre mix");
+    // Assign deck A to THRU by click: back in the mix despite the crossfader.
+    let thru = h.layout().assign[0].unwrap()[1];
+    h.click(thru.center());
+    assert_eq!(h.deck(0).channel.assign, oxidj_audio::Assign::Thru);
+    let thru_block = mix_block(&mut h);
+    assert!(thru_block.iter().zip(&b_only).any(|(a, b)| (a - b).abs() > 0.05), "THRU ignores the crossfader");
+    // Meters: deck A meter reads its level; trim +12 dB clips channel and
+    // master; tokens-only drawing inside the meter rects.
+    h.app.decks.decks[0].channel.eq_db = [0.0; 3];
+    h.app.decks.decks[0].channel.trim_db = 12.0;
+    h.app.decks.master = 1.0;
+    for d in 0..2 {
+        h.app.decks.decks[d].seek(4_000.0);
+        h.app.decks.decks[d].toggle_play();
+    }
+    h.settle();
+    h.app.decks.render(4_800);
+    let out = h.settle();
+    let m = h.app.decks.meters;
+    assert!(m[0].level > 0.5 && m[0].clipping(), "deck A meter {:?}", m[0]);
+    assert!(m[2].clipping(), "master clip {:?}", m[2]);
+    let labels: Vec<String> = accesskit_nodes(&out).iter().filter_map(|n| n.label().map(|l| l.to_string())).collect();
+    assert!(labels.iter().any(|t| t.starts_with("Deck A level: ") && t.ends_with(", clip")), "meter name carries the clip state");
+    assert!(labels.iter().any(|t| t.starts_with("Master level: ") && t.ends_with(", clip")));
+    let tokens = ThemeMode::TokyoNight.tokens();
+    let allowed = [tokens.background, tokens.success, tokens.warning, tokens.error, tokens.border, tokens.surface];
+    let meter_r = h.layout().meters[0].unwrap();
+    let mut painted = 0;
+    for c in out.shapes.iter().filter(|c| c.clip_rect == meter_r) {
+        if let Shape::Rect(r) = &c.shape {
+            painted += 1;
+            assert!(meter_r.expand(0.5).contains_rect(r.rect));
+            assert!(allowed.contains(&r.fill) || r.fill == egui::Color32::TRANSPARENT, "token fill {:?}", r.fill);
+        }
+    }
+    assert!(painted >= 3, "meter painted ({painted} shapes)");
+    for d in 0..2 {
+        h.app.decks.decks[d].toggle_play();
+    }
+    h.settle();
+    // The crossfader's own icon toggle: hidden = out of the path, persisted.
+    let icon = h.layout().crossfader_toggle.unwrap();
+    h.click(icon.center());
+    assert!(!h.app.settings.crossfader && h.layout().crossfader.is_none());
+    assert_eq!(h.app.decks.mixer_params().crossfader, None);
+    let mut store = MemStore::default();
+    eframe::App::save(&mut h.app, &mut store);
+    assert!(!Settings::load(Some(&store)).crossfader);
+    // Ctrl+Shift+5 brings it back.
+    let chord = egui::Modifiers { ctrl: true, command: true, shift: true, ..Default::default() };
+    h.key(egui::Key::Num5, chord);
+    assert!(h.app.settings.crossfader && h.layout().crossfader.is_some());
+    // The curve is a Setting (Ctrl+,): Cut reaches the engine's params.
+    let ctrl = egui::Modifiers { ctrl: true, command: true, ..Default::default() };
+    h.key(egui::Key::Comma, ctrl);
+    let cells = h.app.settings_ui.layout.curve.expect("curve row in Settings");
+    assert!(h.app.settings_ui.layout.window.unwrap().contains_rect(cells[2]), "Cut visible");
+    h.click(cells[2].center());
+    assert_eq!(h.app.settings.xfader_curve, oxidj_audio::Curve::Cut);
+    assert_eq!(h.app.decks.mixer_params().curve, oxidj_audio::Curve::Cut);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[derive(Default)]
+struct MemStore(std::collections::HashMap<String, String>);
+impl eframe::Storage for MemStore {
+    fn get_string(&self, key: &str) -> Option<String> {
+        self.0.get(key).cloned()
+    }
+    fn set_string(&mut self, key: &str, value: String) {
+        self.0.insert(key.into(), value);
+    }
+    fn flush(&mut self) {}
+}
+
+/// D4 acceptance 4: the whole mixer is keyboard reachable (Tab reaches
+/// every control) and operable (arrow keys turn a knob to its kill stop,
+/// Space presses an assign button and the crossfader toggle).
+#[test]
+fn mixer_is_fully_keyboard_reachable_and_operable() {
+    let (root, mut h) = fresh("mixkeys", 10.0);
+    h.select_and_load("a-120.wav", egui::Key::A);
+    h.app.settings.sections.mixer = true;
+    h.settle();
+    let l = h.layout();
+    let mut want: Vec<Rect> = vec![l.master.unwrap(), l.crossfader.unwrap(), l.crossfader_toggle.unwrap()];
+    for d in 0..2 {
+        want.extend([l.trim[d].unwrap(), l.filter[d].unwrap(), l.volume[d].unwrap()]);
+        want.extend(l.eq[d].unwrap());
+        want.extend(l.assign[d].unwrap());
+    }
+    let shift = egui::Modifiers { shift: true, ..Default::default() };
+    h.key(egui::Key::Tab, shift);
+    let mut seen = Vec::new();
+    for _ in 0..400 {
+        if let Some(r) = h.focused_rect() {
+            if !seen.contains(&r) {
+                seen.push(r);
+            }
+        }
+        if want.iter().all(|w| seen.iter().any(|s| s.contains_rect(w.shrink(1.0)) || w.contains_rect(s.shrink(1.0)))) {
+            break;
+        }
+        h.key(egui::Key::Tab, Default::default());
+    }
+    for w in &want {
+        assert!(seen.iter().any(|s| s.contains_rect(w.shrink(1.0)) || w.contains_rect(s.shrink(1.0))), "{w:?} not reachable by Tab");
+    }
+    // Focus deck A's LOW knob by Tab and turn it to kill with the arrows.
+    let low = h.layout().eq[0].unwrap()[0];
+    let mut guard = 0;
+    while !h.focused_rect().is_some_and(|r| low.contains_rect(r.shrink(1.0))) {
+        h.key(egui::Key::Tab, Default::default());
+        guard += 1;
+        assert!(guard < 200, "LOW knob reachable");
+    }
+    for _ in 0..40 {
+        h.key(egui::Key::ArrowLeft, Default::default());
+    }
+    assert_eq!(h.deck(0).channel.eq_db[0], oxidj_audio::EQ_KILL_DB, "arrows reach the kill stop");
+    assert_eq!(h.app.decks.mixer_params().channels[0].eq[0], 0.0);
+    h.key(egui::Key::ArrowRight, Default::default());
+    let db = h.deck(0).channel.eq_db[0];
+    assert!(db > oxidj_audio::EQ_KILL_DB && db < -20.0, "one step up from kill: {db}");
+    for _ in 0..19 {
+        h.key(egui::Key::ArrowRight, Default::default());
+    }
+    assert!(h.deck(0).channel.eq_db[0].abs() < 1e-4, "centre detent = 0 dB: {}", h.deck(0).channel.eq_db[0]);
+    // Space on the THRU assign button and on the crossfader toggle.
+    let thru = h.layout().assign[0].unwrap()[1];
+    while h.focused_rect() != Some(thru) {
+        h.key(egui::Key::Tab, Default::default());
+        guard += 1;
+        assert!(guard < 400, "THRU reachable");
+    }
+    h.tap(egui::Key::Space);
+    assert_eq!(h.deck(0).channel.assign, oxidj_audio::Assign::Thru);
+    let icon = h.layout().crossfader_toggle.unwrap();
+    while h.focused_rect() != Some(icon) {
+        h.key(egui::Key::Tab, Default::default());
+        guard += 1;
+        assert!(guard < 600, "crossfader toggle reachable");
+    }
+    h.tap(egui::Key::Space);
+    assert!(!h.app.settings.crossfader, "Space hides the crossfader");
     std::fs::remove_dir_all(root).unwrap();
 }

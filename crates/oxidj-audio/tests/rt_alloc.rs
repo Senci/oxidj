@@ -1,6 +1,7 @@
-//! RT-safety evidence for the callback (ADR-008 D3): `Renderer::render`
+//! RT-safety evidence for the callback (ADR-008 D3, D4): `Renderer::render`
 //! must not allocate or free, in Rust or in the C++ stretch engine, while
-//! key lock, SYNC, seeks, loops, tempo changes and track loads run.
+//! key lock, SYNC, seeks, loops, tempo changes, track loads and the D4
+//! mixer (EQ, filter sweeps, crossfader, meters, show/hide) run.
 //!
 //! Rust: a counting global allocator armed only around `render` on this
 //! thread. C++ (Signalsmith uses `new`/`std::vector`, which bypass Rust's
@@ -11,7 +12,7 @@ use cpal as _;
 use rtrb as _;
 use signalsmith_stretch as _;
 
-use oxidj_audio::{Command, Engine, TrackPcm};
+use oxidj_audio::{Assign, Command, Curve, Engine, MixerParams, TrackPcm, eq_gain};
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;
 use std::sync::Arc;
@@ -96,8 +97,26 @@ fn track(rate: u32, secs: f64, hz: f64) -> Arc<TrackPcm> {
     Arc::new(TrackPcm::new(rate, samples).unwrap())
 }
 
+/// Mixer controls that move with `step` (filter both sides, kills, curves).
+fn mixer(step: u32) -> MixerParams {
+    let mut p = MixerParams::default();
+    let t = (step % 17) as f32 / 16.0;
+    p.channels[0].eq = [eq_gain(-30.0 + 36.0 * t), eq_gain(6.0 - 12.0 * t), 1.0];
+    p.channels[0].filter = t * 2.0 - 1.0;
+    p.channels[1].filter = 1.0 - t * 2.0;
+    p.channels[1].assign = if step.is_multiple_of(2) {
+        Assign::B
+    } else {
+        Assign::Thru
+    };
+    p.crossfader = (!step.is_multiple_of(3)).then_some(t);
+    p.curve = [Curve::Smooth, Curve::Sharp, Curve::Cut][(step % 3) as usize];
+    p.master = 0.5 + t * 0.5;
+    p
+}
+
 #[test]
-fn render_never_allocates_with_key_lock_sync_and_transport() {
+fn render_never_allocates_with_key_lock_sync_transport_and_mixer() {
     let (mut engine, mut renderer) = Engine::manual(48_000);
     let tracks = [
         track(44_100, 30.0, 440.0),
@@ -119,7 +138,7 @@ fn render_never_allocates_with_key_lock_sync_and_transport() {
     engine.send(Command::TogglePlay { deck: 1 });
     let mut out = vec![0.0f32; 512 * 2];
     let mut odd = vec![0.0f32; 333 * 2];
-    let (mut rust_events, mut heap_changes, mut renders) = (0u64, 0u32, 0u32);
+    let (mut rust_events, mut heap_changes, mut renders, mut peaks) = (0u64, 0u32, 0u32, 0u32);
     for step in 0..1_500u32 {
         // UI side (unarmed): a different control every few blocks.
         let command = match step % 40 {
@@ -160,6 +179,9 @@ fn render_never_allocates_with_key_lock_sync_and_transport() {
                 track: tracks[(step as usize / 40) % 3].clone(),
             }),
             36 => Some(Command::TogglePlay { deck: 0 }),
+            // Mixer: on with moving EQ / filter / crossfader, hidden again.
+            1 | 9 | 17 | 33 => Some(Command::Mixer(Some(mixer(step)))),
+            39 if step % 120 == 39 => Some(Command::Mixer(None)),
             _ => None,
         };
         if let Some(command) = command {
@@ -176,9 +198,13 @@ fn render_never_allocates_with_key_lock_sync_and_transport() {
         heap_changes += u32::from(before != after);
         renders += 1;
         engine.poll();
+        peaks += engine.meters().iter().filter(|m| m.peak > 0.0).count() as u32;
     }
     assert!(engine.deck(1).keylock && engine.deck(1).id == Some(2));
-    println!("renders {renders}, Rust alloc/free {rust_events}, heap changes {heap_changes}");
+    println!(
+        "renders {renders}, Rust alloc/free {rust_events}, heap changes {heap_changes}, meter reads with signal {peaks}"
+    );
+    assert!(peaks > 0, "the mixer ran (meters saw signal)");
     assert_eq!(rust_events, 0, "Rust allocations or frees inside render");
     assert_eq!(heap_changes, 0, "C/C++ heap changed inside render");
 

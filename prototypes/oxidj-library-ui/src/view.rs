@@ -135,9 +135,11 @@ impl LibraryApp {
         egui::CentralPanel::default()
             .frame(egui::Frame::central_panel(&style).inner_margin(0))
             .show(ctx, |ui| self.track_table(ui, tokens));
-        // D2: this frame's deck controls go to the audio engine; the mixer
-        // volume applies only while the mixer is visible (else unity).
+        // D2: this frame's deck controls go to the audio engine; D4: the
+        // mixer is in the path only while visible (else exact unity bypass).
         self.decks.range = crate::decks::tempo_range(self.settings.tempo_range);
+        self.decks.crossfader_on = self.settings.crossfader;
+        self.decks.curve = self.settings.xfader_curve;
         self.decks.flush(self.show_decks && self.settings.sections.mixer);
     }
 

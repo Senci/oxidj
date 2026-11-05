@@ -15,6 +15,7 @@ use crate::theme::{self, ThemeMode};
 use crate::waveform_view::Style;
 use crate::{LibraryApp, SectionHeading};
 use eframe::egui;
+use oxidj_audio::Curve;
 
 const SETTINGS_KEY: &str = "ui_settings";
 /// Default-zoom choices in bars (seconds = 2 × bars without a beat grid).
@@ -34,7 +35,7 @@ pub const SHORTCUTS: [(&str, &str); 14] = [
     ("Q / P", "Cue deck A / deck B"),
     ("1 – 8", "Hot-cue pads of the active deck"),
     ("+ / −, wheel", "Zoom the deck waveform (1–8 bars)"),
-    ("Ctrl+Shift+1 – 4", "Show or hide a deck section"),
+    ("Ctrl+Shift+1 – 5", "Show or hide a deck section (5 = crossfader)"),
     ("Ctrl+Alt+1 / 2", "Tokyo Night / Tokyo Day theme"),
     ("Ctrl+Alt+3", "Custom theme"),
 ];
@@ -85,6 +86,10 @@ pub struct Settings {
     pub tempo_range: TempoRange,
     /// D1 deck-area sections (collapsible; the mixer is hidden by default).
     pub sections: DeckSections,
+    /// D4: the crossfader inside the mixer is shown (and in the path).
+    pub crossfader: bool,
+    /// D4 crossfader curve.
+    pub xfader_curve: Curve,
 }
 
 /// Which optional deck-area sections are expanded (D1).
@@ -144,6 +149,8 @@ impl Default for Settings {
             show_phase: true,
             tempo_range: TempoRange::Ten,
             sections: DeckSections::default(),
+            crossfader: true,
+            xfader_curve: Curve::Smooth,
         }
     }
 }
@@ -152,6 +159,7 @@ const STYLES: [(Style, &str); 3] = [(Style::Mono, "mono"), (Style::ThreeBand, "3
 const PALETTES: [(DeckPalette, &str); 2] = [(DeckPalette::WarmCool, "warm-cool"), (DeckPalette::Classic, "classic")];
 const PLAYHEADS: [(Playhead, &str); 2] = [(Playhead::Centre, "centre"), (Playhead::LeftThird, "left-third")];
 const TEMPOS: [(TempoRange, &str); 3] = [(TempoRange::Six, "6"), (TempoRange::Ten, "10"), (TempoRange::Sixteen, "16")];
+const CURVES: [(Curve, &str); 3] = [(Curve::Smooth, "smooth"), (Curve::Sharp, "sharp"), (Curve::Cut, "cut")];
 
 fn name_of<T: PartialEq + Copy>(table: &[(T, &'static str)], value: T) -> &'static str {
     table.iter().find(|(v, _)| *v == value).map_or("", |(_, n)| n)
@@ -177,7 +185,7 @@ impl Settings {
             .map(|i| format!(";{}={}", DeckSections::KEYS[i], b(self.sections.get(i))))
             .collect();
         format!(
-            "style={};smooth={};auto_gain={};beat_lines={};zoom={};deck_palette={};playhead={};phase={};tempo={}",
+            "style={};smooth={};auto_gain={};beat_lines={};zoom={};deck_palette={};playhead={};phase={};tempo={};sec_xfader={};xf_curve={}",
             name_of(&STYLES, self.waveform_style),
             b(self.smooth),
             b(self.auto_gain),
@@ -187,6 +195,8 @@ impl Settings {
             name_of(&PLAYHEADS, self.playhead),
             b(self.show_phase),
             name_of(&TEMPOS, self.tempo_range),
+            b(self.crossfader),
+            name_of(&CURVES, self.xfader_curve),
         ) + &sections
     }
 
@@ -212,6 +222,8 @@ impl Settings {
                 "playhead" => s.playhead = parse_in(&PLAYHEADS, value).unwrap_or(s.playhead),
                 "phase" => s.show_phase = parse_bool(value).unwrap_or(s.show_phase),
                 "tempo" => s.tempo_range = parse_in(&TEMPOS, value).unwrap_or(s.tempo_range),
+                "sec_xfader" => s.crossfader = parse_bool(value).unwrap_or(s.crossfader),
+                "xf_curve" => s.xfader_curve = parse_in(&CURVES, value).unwrap_or(s.xfader_curve),
                 other => {
                     if let Some(i) = DeckSections::KEYS.iter().position(|k| *k == other) {
                         let slot = s.sections.get_mut(i);
@@ -259,6 +271,8 @@ pub(crate) struct SettingsLayout {
     pub(crate) reset: Option<egui::Rect>,
     /// D1 deck-section toggles (detail, overviews, strip, mixer).
     pub(crate) sections: Option<[egui::Rect; 4]>,
+    /// D4 crossfader curve cells (Smooth, Sharp, Cut).
+    pub(crate) curve: Option<[egui::Rect; 3]>,
     pub(crate) first_control: Option<egui::Id>,
 }
 
@@ -395,6 +409,10 @@ impl LibraryApp {
             sections[i] = toggle_row(ui, tokens, &format!("Show {name}"), s.sections.get_mut(i)).rect;
         }
         layout.sections = Some(sections);
+        let mut i = CURVES.iter().position(|(c, _)| *c == s.xfader_curve).unwrap_or(0);
+        let responses = segmented_row(ui, tokens, "Crossfader curve", &["Smooth", "Sharp", "Cut"], &mut i);
+        s.xfader_curve = CURVES[i].0;
+        layout.curve = Some(rects(&responses));
 
         SectionHeading { title: "Keyboard" }.show(ui, tokens);
         egui::Grid::new("settings-shortcuts").num_columns(2).spacing([12.0, 4.0]).show(ui, |ui| {
@@ -453,6 +471,8 @@ mod tests {
             show_phase: false,
             tempo_range: TempoRange::Sixteen,
             sections: DeckSections { detail: false, overviews: false, strip: false, mixer: true },
+            crossfader: false,
+            xfader_curve: Curve::Cut,
         };
         let mut storage = MemoryStorage::default();
         edited.save(&mut storage);
@@ -465,6 +485,12 @@ mod tests {
             let s = Settings { zoom_bars: zoom, ..Settings::default() };
             assert_eq!(Settings::decode(&s.encode()), s);
         }
+        for (curve, _) in CURVES {
+            for crossfader in [false, true] {
+                let s = Settings { xfader_curve: curve, crossfader, ..Settings::default() };
+                assert_eq!(Settings::decode(&s.encode()), s);
+            }
+        }
         for bits in 0..16 {
             let s = Settings { sections: DeckSections::from_bits(bits), ..Settings::default() };
             assert_eq!(Settings::decode(&s.encode()), s, "sections {bits:04b}");
@@ -473,6 +499,10 @@ mod tests {
         let old = "style=mono;smooth=1;auto_gain=1;beat_lines=1;zoom=4;deck_palette=warm-cool;playhead=centre;phase=1;tempo=10";
         assert_eq!(Settings::decode(old).sections, DeckSections::default());
         assert!(!DeckSections::default().mixer);
+        // ...and D4's defaults: crossfader shown, Smooth curve.
+        assert!(Settings::decode(old).crossfader);
+        assert_eq!(Settings::decode(old).xfader_curve, Curve::Smooth);
+        assert_eq!(Settings::decode("xf_curve=wobbly").xfader_curve, Curve::Smooth);
     }
 
     #[test]

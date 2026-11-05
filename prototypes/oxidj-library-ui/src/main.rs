@@ -9,6 +9,7 @@ mod decks;
 #[cfg(test)]
 mod deck_tests;
 mod folder_ops;
+mod mixer_view;
 #[cfg(test)]
 mod keyboard_tests;
 // Addressed by the tests as `super::f02_playlist_member_insert_oracle`.

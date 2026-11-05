@@ -39,12 +39,17 @@
 //! deck's state carried over ([`Engine::poll`]). Tests drive the renderer
 //! by hand ([`Engine::manual`], the fake sink).
 
+mod mixer;
 mod output;
 mod stretch;
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 
+pub use mixer::{
+    Assign, ChannelParams, Curve, EQ_KILL_DB, EQ_MAX_DB, FILTER_DEADZONE, LOW_MID_HZ, MID_HIGH_HZ,
+    MixerParams, TRIM_DB, crossfader_gains, db_to_gain, eq_gain, trim_gain,
+};
 pub use output::OutputKind;
 pub use stretch::{Signalsmith, TimeStretch};
 
@@ -194,6 +199,10 @@ pub enum Command {
         master_beat: f64,
         master_anchor: f64,
     },
+    /// D4 mixer controls for both channels; `None` = mixer hidden: both
+    /// decks sum at unity with no EQ, filter or crossfader in the path
+    /// (bit-identical to the engine without a mixer).
+    Mixer(Option<MixerParams>),
 }
 
 impl Command {
@@ -212,6 +221,8 @@ impl Command {
             | Self::Speed { deck, .. }
             | Self::KeyLock { deck, .. }
             | Self::Sync { deck, .. } => *deck,
+            // Not a deck command (never counted per deck).
+            Self::Mixer(_) => DECKS,
         }
     }
 }
@@ -338,8 +349,8 @@ impl DeckState {
                     self.primed = false;
                 }
             }
-            // Applied by the renderer (it needs the master deck).
-            Command::Sync { .. } => {}
+            // Applied by the renderer (it needs the master deck / owns the mixer).
+            Command::Sync { .. } | Command::Mixer(_) => {}
             Command::Gain { gain, .. } => {
                 if gain.is_finite() {
                     self.gain = gain.max(0.0);
@@ -686,9 +697,25 @@ pub struct StatsSnapshot {
     pub errors: u64,
 }
 
+/// Peak meters: channel A, channel B, master.
+pub const METERS: usize = DECKS + 1;
+
 pub(crate) struct Shared {
     decks: [DeckShared; DECKS],
+    /// Largest |sample| since the UI last read it (`f32` bits; positive
+    /// floats order like their bits, so `fetch_max` keeps the peak).
+    peaks: [AtomicU32; METERS],
+    /// A sample reached full scale since the UI last read it.
+    clips: [AtomicBool; METERS],
     pub(crate) stats: Stats,
+}
+
+/// One level meter reading: the peak (linear, 1.0 = 0 dBFS) since the
+/// previous read, and whether it clipped.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Meter {
+    pub peak: f32,
+    pub clip: bool,
 }
 
 /// The callback side: owns deck state and renders blocks.
@@ -704,6 +731,8 @@ pub struct Renderer {
     /// One deck's chunk and the mix of all decks (interleaved stereo).
     deck_buf: Vec<f32>,
     mix: Vec<f32>,
+    /// D4 mixer (bypassed while its params are `None`).
+    mixer: mixer::Mixer,
 }
 
 impl Renderer {
@@ -712,6 +741,10 @@ impl Renderer {
     /// and publish the deck snapshots. RT-safe: see the crate docs.
     pub fn render(&mut self, out: &mut [f32], channels: usize) {
         while let Ok(command) = self.rx.pop() {
+            if let Command::Mixer(params) = command {
+                self.mixer.set(params);
+                continue;
+            }
             let deck = command.deck();
             if deck >= DECKS {
                 continue;
@@ -747,13 +780,16 @@ impl Renderer {
             input,
             deck_buf,
             mix,
+            mixer,
+            shared,
             ..
         } = self;
+        let mixing = mixer.params.is_some();
         for block in out.chunks_mut(CHUNK * channels) {
             let frames = block.len().div_ceil(channels);
             let mix = &mut mix[..frames * 2];
             mix.fill(0.0);
-            for (deck, stretch) in decks.iter_mut().zip(stretch.iter_mut()) {
+            for (c, (deck, stretch)) in decks.iter_mut().zip(stretch.iter_mut()).enumerate() {
                 let buf = &mut deck_buf[..frames * 2];
                 if deck.keylock && deck.track.is_some() {
                     deck.render_keylock(stretch.as_mut(), input, buf, rate);
@@ -764,9 +800,17 @@ impl Renderer {
                         *f = [l, r];
                     }
                 }
+                if mixing {
+                    let peak = mixer.process_channel(c, buf);
+                    meter(shared, c, peak);
+                }
                 for (m, v) in mix.iter_mut().zip(buf.iter()) {
                     *m += v;
                 }
+            }
+            if mixing {
+                let peak = mixer.process_master(mix);
+                meter(shared, DECKS, peak);
             }
             for (frame, [l, r]) in block.chunks_mut(channels).zip(mix.as_chunks::<2>().0) {
                 let (l, r) = (l.clamp(-1.0, 1.0), r.clamp(-1.0, 1.0));
@@ -791,13 +835,26 @@ impl Renderer {
     }
 }
 
+/// Publish meter `m`'s chunk peak (lock-free; RT-safe).
+fn meter(shared: &Shared, m: usize, peak: f32) {
+    if let (Some(p), Some(c)) = (shared.peaks.get(m), shared.clips.get(m)) {
+        p.fetch_max(peak.max(0.0).to_bits(), Ordering::Relaxed);
+        if peak >= 1.0 {
+            c.store(true, Ordering::Relaxed);
+        }
+    }
+}
+
 fn channel(
     decks: [DeckState; DECKS],
     device_rate: u32,
+    mixer: Option<MixerParams>,
 ) -> (Renderer, rtrb::Producer<Command>, Arc<Shared>) {
     let (tx, rx) = rtrb::RingBuffer::new(COMMAND_CAPACITY);
     let shared = Arc::new(Shared {
         decks: Default::default(),
+        peaks: Default::default(),
+        clips: Default::default(),
         stats: Stats {
             min_block: AtomicU32::new(u32::MAX),
             ..Stats::default()
@@ -823,6 +880,7 @@ fn channel(
         input: vec![0.0; input_frames * 2],
         deck_buf: vec![0.0; CHUNK * 2],
         mix: vec![0.0; CHUNK * 2],
+        mixer: mixer::Mixer::new(device_rate, mixer),
     };
     (renderer, tx, shared)
 }
@@ -835,6 +893,7 @@ struct Memory {
     gains: [Option<f32>; DECKS],
     speeds: [Option<f64>; DECKS],
     keylocks: [bool; DECKS],
+    mixer: Option<MixerParams>,
 }
 
 /// The UI side of the engine.
@@ -870,7 +929,7 @@ impl Engine {
 
     /// Fake sink for tests: the caller renders blocks by hand.
     pub fn manual(device_rate: u32) -> (Self, Renderer) {
-        let (renderer, tx, shared) = channel(Default::default(), device_rate);
+        let (renderer, tx, shared) = channel(Default::default(), device_rate, None);
         let engine = Self {
             tx,
             shared,
@@ -893,7 +952,7 @@ impl Engine {
         // and a fallback renderer continues from the same deck state.
         let attempt = opened.and_then(|device| {
             let rate = device.rate;
-            let (renderer, tx, shared) = channel(decks.clone(), rate);
+            let (renderer, tx, shared) = channel(decks.clone(), rate, memory.mixer);
             device
                 .play(renderer, shared.clone())
                 .map(|output| (output, tx, shared, rate))
@@ -901,7 +960,7 @@ impl Engine {
         let (output, tx, shared, device_rate, error) = match attempt {
             Ok((output, tx, shared, rate)) => (output, tx, shared, rate, None),
             Err(reason) => {
-                let (renderer, tx, shared) = channel(decks, output::SILENT_RATE);
+                let (renderer, tx, shared) = channel(decks, output::SILENT_RATE, memory.mixer);
                 (
                     output::Output::silent(renderer),
                     tx,
@@ -925,6 +984,9 @@ impl Engine {
 
     /// Queue `command`; `false` when the ring is full (command dropped).
     pub fn send(&mut self, command: Command) -> bool {
+        if let Command::Mixer(params) = &command {
+            self.memory.mixer = *params;
+        }
         let deck = command.deck();
         if deck < DECKS {
             match &command {
@@ -966,6 +1028,15 @@ impl Engine {
             .get(deck)
             .map(DeckShared::snapshot)
             .unwrap_or_default()
+    }
+
+    /// Meters A, B and master since the previous call (each read resets
+    /// the peak and the clip flag). All zero while the mixer is hidden.
+    pub fn meters(&self) -> [Meter; METERS] {
+        std::array::from_fn(|m| Meter {
+            peak: f32::from_bits(self.shared.peaks[m].swap(0, Ordering::Relaxed)),
+            clip: self.shared.clips[m].swap(false, Ordering::Relaxed),
+        })
     }
 
     pub fn stats(&self) -> StatsSnapshot {

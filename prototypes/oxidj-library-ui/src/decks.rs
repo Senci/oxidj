@@ -4,7 +4,8 @@
 //! section), ONE merged zoomed detail waveform (deck A above the seam growing
 //! up, deck B below growing down, one time axis, one playhead), a thin
 //! club-standard control strip (A left, B right, CUE/PLAY outermost), an
-//! optional mixer placeholder (D4) and, at the bottom, two SEPARATE
+//! optional D4 mixer (trim, 3-band EQ, filter, faders, crossfader, meters;
+//! see `mixer_view`) and, at the bottom, two SEPARATE
 //! full-track overviews (A first, B second). Every section is optional and
 //! persisted in [`Settings`]; the whole area still toggles with Ctrl+D.
 //!
@@ -29,7 +30,7 @@ use crate::waveform_view::pick_level;
 use crate::LibraryApp;
 use eframe::egui::{self, pos2, vec2, Color32, FontId, Mesh, Pos2, Rect, Sense, Shape, Stroke, Ui};
 use oxidj_application::{WaveformBand, WaveformPeaks};
-use oxidj_audio::{Command, Engine, Renderer};
+use oxidj_audio::{Assign, ChannelParams, Command, Curve, Engine, Meter, MixerParams, Renderer, METERS};
 use oxidj_library::{Catalog, LibraryCue, TrackDetails};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -44,16 +45,14 @@ pub const OVERVIEW_HEIGHT: f32 = 34.0;
 pub const GAP: f32 = 4.0;
 /// One control-strip row (WCAG 24 px targets).
 pub const ROW: f32 = 24.0;
-/// The mixer placeholder row.
-pub const MIXER_HEIGHT: f32 = 28.0;
+/// The mixer section: two control rows plus padding.
+pub const MIXER_HEIGHT: f32 = 2.0 * ROW + GAP + 8.0;
 /// Hot-cue pads per deck.
 pub const PADS: usize = 8;
 /// Detail window per "bar" when a deck has no beat grid (2/4/8/16 s).
 pub const NO_GRID_BAR_MS: f64 = 2000.0;
 /// Quiet caption in a half/overview whose waveform is not analysed yet.
 pub const NOT_READY: &str = "analysing · waveform not ready";
-/// Mixer placeholder text.
-pub const MIXER_NOTE: &str = "EQ, crossfader and meters arrive in D4";
 /// Rail width on each half's / overview's left edge.
 pub const RAIL: f32 = 4.0;
 /// Overview content starts after the rail and the deck chip.
@@ -385,6 +384,60 @@ impl Default for Volume {
     }
 }
 
+/// D4 channel knobs of one deck (UI units; the channel fader is
+/// [`Deck::volume`]). Kept across track loads, like a hardware mixer.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct ChannelUi {
+    /// Trim in dB (±[`oxidj_audio::TRIM_DB`]).
+    pub(crate) trim_db: f32,
+    /// Low, mid, high in dB; at or below [`oxidj_audio::EQ_KILL_DB`] = kill.
+    pub(crate) eq_db: [f32; 3],
+    /// −1 low-pass .. 0 off .. +1 high-pass.
+    pub(crate) filter: f32,
+    pub(crate) assign: Assign,
+}
+
+impl Default for ChannelUi {
+    fn default() -> Self {
+        Self { trim_db: 0.0, eq_db: [0.0; 3], filter: 0.0, assign: Assign::Thru }
+    }
+}
+
+/// A level meter as drawn: decaying peak and clip-indicator hold, fed by
+/// the engine's meter readings once per UI frame.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub(crate) struct MeterLevel {
+    /// Displayed peak (linear, 1.0 = 0 dBFS).
+    pub(crate) level: f32,
+    /// UI frames the clip indicator stays lit.
+    pub(crate) clip_frames: u32,
+}
+
+/// Frames a clip stays lit (~1.5 s at 60 fps).
+pub(crate) const CLIP_HOLD_FRAMES: u32 = 90;
+/// Per-frame decay of the displayed peak.
+const METER_DECAY: f32 = 0.88;
+
+impl MeterLevel {
+    pub(crate) fn update(&mut self, reading: Meter) {
+        let peak = if reading.peak.is_finite() { reading.peak.max(0.0) } else { 0.0 };
+        self.level = peak.max(self.level * METER_DECAY);
+        if self.level < 1e-4 {
+            self.level = 0.0;
+        }
+        self.clip_frames = if reading.clip { CLIP_HOLD_FRAMES } else { self.clip_frames.saturating_sub(1) };
+    }
+
+    pub(crate) fn clipping(&self) -> bool {
+        self.clip_frames > 0
+    }
+
+    /// Still animating (needs repaints).
+    pub(crate) fn active(&self) -> bool {
+        self.level > 0.0 || self.clipping()
+    }
+}
+
 /// One deck: the loaded track, its audio and a mirror of the engine's
 /// state (position, play, cue, loop), refreshed every frame from the audio
 /// callback's snapshot. Controls queue engine commands; only a seek also
@@ -407,8 +460,10 @@ pub(crate) struct Deck {
     sync_speed: Option<f64>,
     /// Why the last SYNC press was refused (shown until the next press or load).
     pub(crate) sync_note: Option<String>,
-    /// Mixer volume; unity whenever the mixer is hidden.
+    /// Channel fader (mixer); out of the path whenever the mixer is hidden.
     pub(crate) volume: Volume,
+    /// D4 channel knobs (trim, EQ, filter, crossfader assign).
+    pub(crate) channel: ChannelUi,
     pub(crate) loop_in: Option<f64>,
     /// Active manual loop `[start, end)`.
     pub(crate) loop_range: Option<(f64, f64)>,
@@ -443,6 +498,7 @@ impl Deck {
             tempo_pct: self.tempo_pct,
             keylock: self.keylock,
             volume: self.volume,
+            channel: self.channel,
             sent_gain: self.sent_gain,
             sent_speed: self.sent_speed,
             sent_keylock: self.sent_keylock,
@@ -554,8 +610,20 @@ pub(crate) struct DeckLayout {
     /// IN, OUT, ½, ×2.
     pub(crate) loops: [Option<[Rect; 4]>; 2],
     pub(crate) mixer: Option<Rect>,
-    /// Mixer volume faders (D2).
+    /// Channel faders.
     pub(crate) volume: [Option<Rect>; 2],
+    pub(crate) trim: [Option<Rect>; 2],
+    /// Low, mid, high EQ knobs.
+    pub(crate) eq: [Option<[Rect; 3]>; 2],
+    pub(crate) filter: [Option<Rect>; 2],
+    /// Crossfader assign A, THRU, B.
+    pub(crate) assign: [Option<[Rect; 3]>; 2],
+    /// Level meters A, B, master.
+    pub(crate) meters: [Option<Rect>; METERS],
+    pub(crate) master: Option<Rect>,
+    pub(crate) crossfader: Option<Rect>,
+    /// The crossfader's own show/hide icon toggle.
+    pub(crate) crossfader_toggle: Option<Rect>,
     /// Deck A overview first, deck B second.
     pub(crate) overviews: Option<[Rect; 2]>,
 }
@@ -574,6 +642,18 @@ pub(crate) struct DeckArea {
     manual: Option<Renderer>,
     /// Tempo fader range ±% (Settings → Decks), set by the app every frame.
     pub(crate) range: f32,
+    /// Crossfader 0 (A) .. 0.5 (centre) .. 1 (B).
+    pub(crate) crossfader: f32,
+    /// Master volume 0..1.
+    pub(crate) master: f32,
+    /// Crossfader shown (Settings), set by the app every frame.
+    pub(crate) crossfader_on: bool,
+    /// Crossfader curve (Settings), set by the app every frame.
+    pub(crate) curve: Curve,
+    /// Last mixer state the engine accepted (`Some(None)` = bypass).
+    sent_mixer: Option<Option<MixerParams>>,
+    /// Meters A, B, master as drawn.
+    pub(crate) meters: [MeterLevel; METERS],
 }
 
 impl Default for DeckArea {
@@ -581,14 +661,23 @@ impl Default for DeckArea {
     /// `main` attaches the device output with [`DeckArea::attach`].
     fn default() -> Self {
         let (engine, renderer) = Engine::manual(48_000);
+        let mut decks: [Deck; 2] = Default::default();
+        decks[0].channel.assign = Assign::A;
+        decks[1].channel.assign = Assign::B;
         Self {
-            decks: Default::default(),
+            decks,
             active: 0,
             pending_tab: false,
             layout: DeckLayout::default(),
             engine,
             manual: Some(renderer),
             range: tempo_range(TempoRange::default()),
+            crossfader: 0.5,
+            master: 1.0,
+            crossfader_on: true,
+            curve: Curve::default(),
+            sent_mixer: None,
+            meters: Default::default(),
         }
     }
 }
@@ -598,6 +687,7 @@ impl DeckArea {
     pub(crate) fn attach(&mut self, engine: Engine) {
         self.engine = engine;
         self.manual = None;
+        self.sent_mixer = None;
         for deck in &mut self.decks {
             (deck.sent_gain, deck.sent_speed, deck.sent_keylock) = (None, None, None);
         }
@@ -618,6 +708,9 @@ impl DeckArea {
     /// deck with unapplied commands keeps its optimistic position).
     pub(crate) fn pump(&mut self) {
         self.engine.poll();
+        for (shown, reading) in self.meters.iter_mut().zip(self.engine.meters()) {
+            shown.update(reading);
+        }
         self.send_unloads();
         for (d, deck) in self.decks.iter_mut().enumerate() {
             if deck.unload {
@@ -693,18 +786,48 @@ impl DeckArea {
         }
     }
 
-    /// End of a frame: send every queued control, plus gain (the mixer's
-    /// volume, or exact unity while the mixer is hidden), tempo and key
-    /// lock changes.
+    /// What the mixer knobs ask of the engine.
+    pub(crate) fn mixer_params(&self) -> MixerParams {
+        MixerParams {
+            channels: [0, 1].map(|d| {
+                let deck = &self.decks[d];
+                let c = deck.channel;
+                ChannelParams {
+                    trim: oxidj_audio::trim_gain(c.trim_db),
+                    eq: c.eq_db.map(oxidj_audio::eq_gain),
+                    filter: c.filter,
+                    fader: deck.volume.0,
+                    assign: c.assign,
+                }
+            }),
+            crossfader: self.crossfader_on.then_some(self.crossfader),
+            curve: self.curve,
+            master: self.master,
+        }
+    }
+
+    /// Any meter still moving (repaint while the mixer is shown).
+    pub(crate) fn meters_active(&self) -> bool {
+        self.meters.iter().any(MeterLevel::active)
+    }
+
+    /// End of a frame: send every queued control, the mixer (D4: its
+    /// knobs while `mixer` is shown, else `None` = exact unity bypass),
+    /// tempo and key lock changes. Deck gain stays at unity: the channel
+    /// fader lives in the mixer.
     pub(crate) fn flush(&mut self, mixer: bool) {
         self.follow_sync();
         self.send_unloads();
+        let params = mixer.then(|| self.mixer_params());
+        if self.sent_mixer != Some(params) && self.engine.send(Command::Mixer(params)) {
+            self.sent_mixer = Some(params);
+        }
         let rates = [0, 1].map(|d| match self.decks[d].audio {
             DeckAudio::Ready { rate } => f64::from(rate),
             _ => 0.0,
         });
         for (d, deck) in self.decks.iter_mut().enumerate() {
-            let gain = if mixer { deck.volume.0.clamp(0.0, 1.0) } else { 1.0 };
+            let gain = 1.0;
             if deck.sent_gain != Some(gain) && self.engine.send(Command::Gain { deck: d, gain }) {
                 deck.sent_gain = Some(gain);
             }
@@ -1041,7 +1164,7 @@ fn paint_cues(painter: &egui::Painter, rect: Rect, window: (f64, f64), deck: &De
 }
 
 /// Deck letter chip (fill + letter) inside `rect`.
-fn chip(painter: &egui::Painter, rect: Rect, letter: &str, colours: DeckColours) {
+pub(crate) fn chip(painter: &egui::Painter, rect: Rect, letter: &str, colours: DeckColours) {
     painter.rect_filled(rect, 3.0, colours.outer);
     let galley = painter.layout_no_wrap(letter.to_owned(), FontId::proportional(12.0), colours.chip_text);
     painter.galley(rect.center() - galley.size() / 2.0, galley, colours.chip_text);
@@ -1067,7 +1190,7 @@ impl LibraryApp {
     }
 
     /// Deck keys (only with the decks shown and Settings closed). Section
-    /// toggles (Ctrl+Shift+1–4) always work; the DJ keys only when no
+    /// toggles (Ctrl+Shift+1–4, 5 = crossfader) always work; the DJ keys only when no
     /// widget has keyboard focus, so focused controls keep Space/Enter.
     pub(crate) fn handle_deck_keys(&mut self, ctx: &egui::Context) {
         if std::mem::take(&mut self.decks.pending_tab) && self.show_decks {
@@ -1093,6 +1216,9 @@ impl LibraryApp {
                     let slot = self.settings.sections.get_mut(s);
                     *slot = !*slot;
                 }
+            }
+            if i.consume_key(chord, egui::Key::Num5) {
+                self.settings.crossfader = !self.settings.crossfader;
             }
         });
         if ctx.memory(|m| m.focused()).is_some() || ctx.wants_keyboard_input() {
@@ -1259,49 +1385,12 @@ impl LibraryApp {
             }
             layout.overviews = Some([a, b]);
         }
-        if self.decks.any_playing() {
+        if self.decks.any_playing() || (sections.mixer && self.decks.meters_active()) {
             ui.ctx().request_repaint();
         } else if self.decks.any_loading() {
             ui.ctx().request_repaint_after(std::time::Duration::from_millis(100));
         }
         self.decks.layout = layout;
-    }
-
-    /// D2 mixer row: one volume fader per deck (A left, B right); the D4
-    /// note in the middle. Hidden mixer = both decks at exact unity.
-    fn mixer(&mut self, ui: &mut Ui, r: Rect, tokens: ColorTokens, colours: [DeckColours; 2], layout: &mut DeckLayout) {
-        ui.painter().rect_filled(r, 3.0, tokens.surface);
-        let galley = ui.painter().layout_no_wrap(MIXER_NOTE.into(), FontId::proportional(11.5), tokens.muted_text);
-        ui.painter().galley(r.center() - galley.size() / 2.0, galley, tokens.muted_text);
-        let note = ui.interact(r.shrink2(vec2(200.0, 0.0)), ui.id().with("mixer-placeholder"), Sense::hover());
-        note.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, MIXER_NOTE));
-        let w = 150.0_f32.min(r.width() / 4.0);
-        for d in 0..2 {
-            let letter = DECKS[d];
-            let x = if d == 0 { r.left() + 8.0 } else { r.right() - 8.0 - w };
-            let slot = Rect::from_min_size(pos2(x, r.center().y - ROW / 2.0), vec2(w, ROW));
-            let label = Rect::from_min_size(slot.min, vec2(34.0, ROW));
-            let g = ui.painter().layout_no_wrap(format!("VOL {letter}"), FontId::proportional(11.0), tokens.text);
-            ui.painter().galley(pos2(label.left(), label.center().y - g.size().y / 2.0), g, tokens.text);
-            let slider_r = Rect::from_min_max(pos2(label.right() + 2.0, slot.top()), slot.max);
-            let mut volume = self.decks.decks[d].volume.0;
-            let slider = ui
-                .scope(|ui| {
-                    crate::track_waveform::slider_look(ui, tokens);
-                    ui.visuals_mut().selection.bg_fill = colours[d].outer;
-                    ui.spacing_mut().slider_width = slider_r.width();
-                    ui.put(slider_r, egui::Slider::new(&mut volume, 0.0..=1.0).show_value(false))
-                })
-                .inner;
-            slider.widget_info(|| egui::WidgetInfo::slider(true, f64::from(volume), format!("Deck {letter} volume")));
-            let slider = slider.on_hover_text(format!("Deck {letter} volume (unity at the top; double-click resets)"));
-            if reset_clicked(&slider) {
-                volume = 1.0;
-            }
-            self.decks.decks[d].volume.0 = volume;
-            layout.volume[d] = Some(slider_r);
-        }
-        layout.mixer = Some(r);
     }
 
     /// Section bar: deck chips with the active deck marked, then the four
@@ -1732,7 +1821,7 @@ impl LibraryApp {
 /// A strip button painted at `rect` (exact size, centred label): `active`
 /// fills it with `accent`; native click/keyboard response and AccessKit name.
 #[allow(clippy::too_many_arguments)]
-fn deck_button(ui: &mut Ui, rect: Rect, text: &str, name: &str, active: bool, enabled: bool, accent: Color32, tokens: ColorTokens) -> egui::Response {
+pub(crate) fn deck_button(ui: &mut Ui, rect: Rect, text: &str, name: &str, active: bool, enabled: bool, accent: Color32, tokens: ColorTokens) -> egui::Response {
     let sense = if enabled { Sense::click() } else { Sense::hover() };
     let response = ui.interact(rect, ui.id().with(("deck-button", name)), sense);
     response.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, enabled, active, name));
@@ -1758,7 +1847,7 @@ fn deck_button(ui: &mut Ui, rect: Rect, text: &str, name: &str, active: bool, en
 
 /// A double click on a fader (egui's `Slider` senses drags only, so its
 /// own `double_clicked()` never fires).
-fn reset_clicked(slider: &egui::Response) -> bool {
+pub(crate) fn reset_clicked(slider: &egui::Response) -> bool {
     slider.hovered() && slider.ctx.input(|i| i.pointer.button_double_clicked(egui::PointerButton::Primary))
 }
 
