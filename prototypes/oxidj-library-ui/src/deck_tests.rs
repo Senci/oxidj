@@ -655,6 +655,40 @@ fn pads_cue_play_tab_and_loops_drive_the_silent_transport() {
 }
 
 #[test]
+fn delayed_frame_advances_by_full_wall_clock() {
+    let (root, mut h) = fresh("delay", 20.0);
+    h.select_and_load("a-120.wav", egui::Key::A);
+    h.tap(egui::Key::Space);
+    assert!(h.deck(0).playing);
+    // A 2 s frame gap (throttled/minimised window) advances 2 s, not a cap.
+    let start = h.deck(0).position_ms;
+    h.time += 2.0;
+    h.frame_with(vec![], Default::default());
+    let moved = h.deck(0).position_ms - start;
+    assert!((2_000.0..=2_040.0).contains(&moved), "2 s gap advanced {moved} ms");
+    // A large gap inside a loop wraps by the full elapsed time.
+    h.app.decks.decks[0].loop_range = Some((4_000.0, 6_000.0));
+    h.app.decks.decks[0].seek(4_000.0);
+    h.frame_with(vec![], Default::default());
+    let start = h.deck(0).position_ms;
+    h.time += 3.0;
+    h.frame_with(vec![], Default::default());
+    let expect = 4_000.0 + (start - 4_000.0 + 3_000.0 + 1_000.0 / 60.0) % 2_000.0;
+    let p = h.deck(0).position_ms;
+    assert!((p - expect).abs() < 1.0, "loop wrap over 3 s gap: {p} vs {expect}");
+    assert!(h.deck(0).playing);
+    // A gap past the end stops exactly at the track end.
+    h.app.decks.decks[0].loop_range = None;
+    h.app.decks.decks[0].seek(15_000.0);
+    h.frame_with(vec![], Default::default());
+    h.time += 30.0;
+    h.frame_with(vec![], Default::default());
+    assert!(!h.deck(0).playing);
+    assert_eq!(h.deck(0).position_ms, h.deck(0).duration());
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn imported_cues_and_loops_draw_on_detail_and_overview() {
     let (root, mut h) = fresh("cues", 20.0);
     h.select_and_load("a-120.wav", egui::Key::A);

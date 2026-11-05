@@ -253,7 +253,7 @@ impl Deck {
         *self = Self { track: Some(track), pads, ..Self::default() };
     }
 
-    fn duration(&self) -> f64 {
+    pub(crate) fn duration(&self) -> f64 {
         self.track.as_ref().map_or(0.0, |t| t.duration_ms)
     }
 
@@ -380,7 +380,9 @@ pub(crate) struct DeckArea {
 impl DeckArea {
     /// Advance both silent transports to `now` (seconds, egui input time).
     pub(crate) fn tick(&mut self, now: f64) {
-        let dt = self.last_time.map_or(0.0, |t| (now - t).clamp(0.0, 0.25));
+        // Wall-clock elapsed time, never capped: a delayed or throttled
+        // frame still advances the playhead by the real time that passed.
+        let dt = self.last_time.map_or(0.0, |t| (now - t).max(0.0));
         self.last_time = Some(now);
         for deck in &mut self.decks {
             deck.advance(dt);
