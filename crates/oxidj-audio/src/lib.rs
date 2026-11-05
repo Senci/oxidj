@@ -22,7 +22,16 @@
 //! reads at a fractional step with linear interpolation (ADR-008: simple,
 //! dependency-free; at equal rates and speed 1 the step is exactly 1.0 and
 //! samples are copied unchanged). The same step carries the deck's tempo
-//! fader as plain varispeed (pitch follows tempo; key lock is D3).
+//! fader as plain varispeed (pitch follows tempo) unless key lock is on:
+//! then the deck is read at the rate-conversion step only and a
+//! [`TimeStretch`] engine (Signalsmith, ADR-008 D3 addendum) changes its
+//! tempo while keeping its pitch. The published position is the *audible*
+//! frame: the stretch latency is compensated (`read head - latency`), so
+//! SYNC and the phase readout see what is heard.
+//!
+//! The callback renders in chunks of [`CHUNK`] frames into buffers
+//! preallocated with the [`Renderer`]; key lock never allocates either
+//! (`tests/rt_alloc.rs` counts Rust and C++ heap use around `render`).
 //!
 //! Output is a CPAL stream ([`Engine::start`]) when a device opens, else a
 //! silent paced thread running the same renderer so decks stay usable; a
@@ -31,11 +40,13 @@
 //! by hand ([`Engine::manual`], the fake sink).
 
 mod output;
+mod stretch;
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 
 pub use output::OutputKind;
+pub use stretch::{Signalsmith, TimeStretch};
 
 /// Decks the engine mixes.
 pub const DECKS: usize = 2;
@@ -45,6 +56,10 @@ pub const COMMAND_CAPACITY: usize = 256;
 pub const MIN_LOOP_MS: f64 = 10.0;
 /// No track loaded on a deck.
 pub const NO_TRACK: u64 = u64::MAX;
+/// Frames the callback renders per inner step (buffers are this size).
+pub const CHUNK: usize = 256;
+/// Fastest key-locked speed (scratch input is sized for it).
+pub const MAX_KEYLOCK_SPEED: f64 = 4.0;
 
 /// Decoded interleaved stereo (`L R L R …`) PCM held in RAM.
 #[derive(Debug)]
@@ -87,8 +102,12 @@ impl TrackPcm {
         }
     }
 
-    /// Linear interpolation at fractional source frame `pos` (`pos >= 0`).
+    /// Linear interpolation at fractional source frame `pos`; silence
+    /// before the start and after the end.
     fn at(&self, pos: f64) -> (f32, f32) {
+        if pos < 0.0 {
+            return (0.0, 0.0);
+        }
         let i = pos as u64;
         let frac = (pos - i as f64) as f32;
         let (l0, r0) = self.frame(i);
@@ -149,10 +168,28 @@ pub enum Command {
         deck: usize,
         gain: f32,
     },
-    /// Playback speed multiplier (1.0 = original tempo; varispeed).
+    /// Playback speed multiplier (1.0 = original tempo).
     Speed {
         deck: usize,
         speed: f64,
+    },
+    /// Key lock (master tempo): speed changes tempo, not pitch.
+    KeyLock {
+        deck: usize,
+        on: bool,
+    },
+    /// SYNC pressed: set `deck`'s speed and move it to the nearest position
+    /// whose beat phase equals `master`'s at the moment the callback applies
+    /// it. Grids are constant-tempo: beat length and one beat's position, in
+    /// each deck's own source frames.
+    Sync {
+        deck: usize,
+        master: usize,
+        speed: f64,
+        beat: f64,
+        anchor: f64,
+        master_beat: f64,
+        master_anchor: f64,
     },
 }
 
@@ -169,7 +206,9 @@ impl Command {
             | Self::LoopOut { deck }
             | Self::LoopScale { deck, .. }
             | Self::Gain { deck, .. }
-            | Self::Speed { deck, .. } => *deck,
+            | Self::Speed { deck, .. }
+            | Self::KeyLock { deck, .. }
+            | Self::Sync { deck, .. } => *deck,
         }
     }
 }
@@ -187,6 +226,14 @@ pub(crate) struct DeckState {
     loop_range: Option<(f64, f64)>,
     gain: f32,
     speed: f64,
+    keylock: bool,
+    /// Key lock: source frame the stretch engine reads next (`pos` + the
+    /// stretch latency); valid while `primed`.
+    read: f64,
+    /// Key lock: the stretch engine holds history continuous with `read`.
+    primed: bool,
+    /// Key lock: fractional input frame carried to the next chunk.
+    carry: f64,
     /// Commands applied to this deck (the UI compares with what it sent).
     applied: u64,
 }
@@ -204,6 +251,10 @@ impl Default for DeckState {
             loop_range: None,
             gain: 1.0,
             speed: 1.0,
+            keylock: false,
+            read: 0.0,
+            primed: false,
+            carry: 0.0,
             applied: 0,
         }
     }
@@ -221,29 +272,53 @@ impl DeckState {
     }
 
     fn apply(&mut self, command: Command) {
+        // Every jump or start restarts the stretch history; tempo, gain and
+        // loop edges at the current position do not.
+        if !matches!(
+            command,
+            Command::Gain { .. }
+                | Command::Speed { .. }
+                | Command::LoopIn { .. }
+                | Command::LoopOut { .. }
+                | Command::KeyLock { .. }
+        ) {
+            self.primed = false;
+        }
         match command {
             Command::Load { id, track, .. } => {
-                let (gain, speed, applied) = (self.gain, self.speed, self.applied);
+                let (gain, speed, keylock, applied) =
+                    (self.gain, self.speed, self.keylock, self.applied);
                 // Dropping the old Arc here only decrements: the UI holds a clone.
                 *self = Self {
                     track: Some(track),
                     id,
                     gain,
                     speed,
+                    keylock,
                     applied,
                     ..Self::default()
                 };
             }
             Command::Unload { .. } => {
-                let (gain, speed, applied) = (self.gain, self.speed, self.applied);
+                let (gain, speed, keylock, applied) =
+                    (self.gain, self.speed, self.keylock, self.applied);
                 // As for Load: the UI's retired list still holds the track.
                 *self = Self {
                     gain,
                     speed,
+                    keylock,
                     applied,
                     ..Self::default()
                 };
             }
+            Command::KeyLock { on, .. } => {
+                if on != self.keylock {
+                    self.keylock = on;
+                    self.primed = false;
+                }
+            }
+            // Applied by the renderer (it needs the master deck).
+            Command::Sync { .. } => {}
             Command::Gain { gain, .. } => {
                 if gain.is_finite() {
                     self.gain = gain.max(0.0);
@@ -319,6 +394,97 @@ impl DeckState {
         }
     }
 
+    /// Key-locked output for `out` (interleaved stereo, at most [`CHUNK`]
+    /// frames): read `speed × frames` device-rate input frames at the plain
+    /// rate-conversion step into `input`, stretch them to `out`, and
+    /// publish the audible position (read head minus the stretch latency).
+    fn render_keylock(
+        &mut self,
+        stretch: &mut dyn TimeStretch,
+        input: &mut [f32],
+        out: &mut [f32],
+        device_rate: f64,
+    ) {
+        let Some(track) = self.track.as_deref().filter(|_| self.playing) else {
+            out.fill(0.0);
+            return;
+        };
+        let step = f64::from(track.sample_rate) / device_rate;
+        let speed = self.speed.min(MAX_KEYLOCK_SPEED);
+        let (in_lat, out_lat) = stretch.latency();
+        let lag = (in_lat as f64 + out_lat as f64 * speed) * step;
+        let capacity = input.len() / 2;
+        if !self.primed {
+            // Start the engine `lag` ahead so what is heard starts at `pos`.
+            stretch.reset();
+            self.read = self.pos + lag;
+            let pre = stretch.preroll_frames().min(capacity);
+            let start = self.read - pre as f64 * step;
+            for (i, f) in input[..pre * 2]
+                .as_chunks_mut::<2>()
+                .0
+                .iter_mut()
+                .enumerate()
+            {
+                let (l, r) = track.at(start + i as f64 * step);
+                *f = [l, r];
+            }
+            stretch.preroll(&input[..pre * 2], speed);
+            self.carry = 0.0;
+            self.primed = true;
+        }
+        let want = (out.len() / 2) as f64 * speed + self.carry;
+        let n_in = (want as usize).min(capacity);
+        self.carry = (want - n_in as f64).min(1.0);
+        for f in input[..n_in * 2].as_chunks_mut::<2>().0 {
+            let (l, r) = track.at(self.read);
+            *f = [l, r];
+            self.read += step;
+            if let Some((start, end)) = self.loop_range
+                && self.read >= end
+                && end > start
+            {
+                self.read = start + (self.read - end) % (end - start);
+            }
+        }
+        stretch.process(&input[..n_in * 2], out);
+        for v in out.iter_mut() {
+            *v *= self.gain;
+        }
+        let mut pos = self.read - lag;
+        if let Some((start, end)) = self.loop_range
+            && pos < start
+            && self.read >= start
+            && end > start
+        {
+            pos += end - start; // the read head wrapped; the ear has not yet
+        }
+        self.pos = pos.max(0.0);
+        let frames = track.frames() as f64;
+        if self.pos >= frames {
+            self.pos = frames;
+            self.playing = false;
+            self.previewing = false;
+            self.primed = false;
+        }
+    }
+
+    /// SYNC: take `speed` and jump to the nearest frame whose beat phase
+    /// equals the master's (`master_phase`, 0..1).
+    fn sync(&mut self, speed: f64, beat: f64, anchor: f64, master_phase: f64) {
+        if !(speed.is_finite() && speed > 0.0 && beat.is_finite() && beat > 0.0) {
+            return;
+        }
+        self.speed = speed;
+        if self.track.is_none() || !(anchor.is_finite() && master_phase.is_finite()) {
+            return;
+        }
+        let phase = ((self.pos - anchor) / beat).rem_euclid(1.0);
+        let delta = (master_phase - phase + 0.5).rem_euclid(1.0) - 0.5;
+        self.pos = (self.pos + delta * beat).clamp(0.0, self.frames());
+        self.primed = false;
+    }
+
     /// Next output frame at `device_rate`, advancing the position.
     fn next(&mut self, device_rate: f64) -> (f32, f32) {
         let Some(track) = self.track.as_deref().filter(|_| self.playing) else {
@@ -344,6 +510,7 @@ impl DeckState {
 
 const PLAYING: u32 = 1;
 const PREVIEWING: u32 = 2;
+const KEYLOCK: u32 = 4;
 
 /// Atomics one deck publishes after every block (`f64` stored as bits; NaN
 /// = none). Fields are individually consistent; a reader may see one block
@@ -393,7 +560,9 @@ impl DeckShared {
         store(&self.loop_in, d.loop_in);
         store(&self.loop_start, d.loop_range.map(|r| r.0));
         store(&self.loop_end, d.loop_range.map(|r| r.1));
-        let flags = (u32::from(d.playing) * PLAYING) | (u32::from(d.previewing) * PREVIEWING);
+        let flags = (u32::from(d.playing) * PLAYING)
+            | (u32::from(d.previewing) * PREVIEWING)
+            | (u32::from(d.keylock) * KEYLOCK);
         self.flags.store(flags, Ordering::Release);
     }
 
@@ -408,6 +577,7 @@ impl DeckShared {
             loop_range: load(&self.loop_start).zip(load(&self.loop_end)),
             playing: flags & PLAYING != 0,
             previewing: flags & PREVIEWING != 0,
+            keylock: flags & KEYLOCK != 0,
             applied: self.applied.load(Ordering::Relaxed),
         }
     }
@@ -424,6 +594,8 @@ pub struct DeckSnapshot {
     pub loop_range: Option<(f64, f64)>,
     pub playing: bool,
     pub previewing: bool,
+    /// Key lock is on (speed changes tempo, not pitch).
+    pub keylock: bool,
     /// Commands the callback has applied to this deck so far.
     pub applied: u64,
 }
@@ -466,6 +638,13 @@ pub struct Renderer {
     decks: [DeckState; DECKS],
     shared: Arc<Shared>,
     device_rate: f64,
+    /// One stretch engine per deck (key lock), built off the callback.
+    stretch: [Box<dyn TimeStretch>; DECKS],
+    /// Key-lock input scratch (interleaved stereo, preallocated).
+    input: Vec<f32>,
+    /// One deck's chunk and the mix of all decks (interleaved stereo).
+    deck_buf: Vec<f32>,
+    mix: Vec<f32>,
 }
 
 impl Renderer {
@@ -474,28 +653,73 @@ impl Renderer {
     /// and publish the deck snapshots. RT-safe: see the crate docs.
     pub fn render(&mut self, out: &mut [f32], channels: usize) {
         while let Ok(command) = self.rx.pop() {
-            if let Some(state) = self.decks.get_mut(command.deck()) {
-                state.applied = state.applied.wrapping_add(1);
-                state.apply(command);
+            let deck = command.deck();
+            if deck >= DECKS {
+                continue;
             }
+            if let Command::Sync {
+                master,
+                speed,
+                beat,
+                anchor,
+                master_beat,
+                master_anchor,
+                ..
+            } = command
+            {
+                let phase = self
+                    .decks
+                    .get(master)
+                    .filter(|m| master != deck && m.track.is_some() && master_beat > 0.0)
+                    .map(|m| ((m.pos - master_anchor) / master_beat).rem_euclid(1.0));
+                if let Some(phase) = phase {
+                    self.decks[deck].sync(speed, beat, anchor, phase);
+                }
+            }
+            let state = &mut self.decks[deck];
+            state.applied = state.applied.wrapping_add(1);
+            state.apply(command);
         }
         let channels = channels.max(1);
-        for frame in out.chunks_mut(channels) {
-            let (mut l, mut r) = (0.0, 0.0);
-            for deck in &mut self.decks {
-                let (dl, dr) = deck.next(self.device_rate);
-                l += dl;
-                r += dr;
-            }
-            let (l, r) = (l.clamp(-1.0, 1.0), r.clamp(-1.0, 1.0));
-            match frame {
-                [mono] => *mono = (l + r) * 0.5,
-                [left, right, rest @ ..] => {
-                    *left = l;
-                    *right = r;
-                    rest.fill(0.0);
+        let rate = self.device_rate;
+        let Self {
+            decks,
+            stretch,
+            input,
+            deck_buf,
+            mix,
+            ..
+        } = self;
+        for block in out.chunks_mut(CHUNK * channels) {
+            let frames = block.len().div_ceil(channels);
+            let mix = &mut mix[..frames * 2];
+            mix.fill(0.0);
+            for (deck, stretch) in decks.iter_mut().zip(stretch.iter_mut()) {
+                let buf = &mut deck_buf[..frames * 2];
+                if deck.keylock && deck.track.is_some() {
+                    deck.render_keylock(stretch.as_mut(), input, buf, rate);
+                } else {
+                    deck.primed = false;
+                    for f in buf.as_chunks_mut::<2>().0 {
+                        let (l, r) = deck.next(rate);
+                        *f = [l, r];
+                    }
                 }
-                [] => {}
+                for (m, v) in mix.iter_mut().zip(buf.iter()) {
+                    *m += v;
+                }
+            }
+            for (frame, [l, r]) in block.chunks_mut(channels).zip(mix.as_chunks::<2>().0) {
+                let (l, r) = (l.clamp(-1.0, 1.0), r.clamp(-1.0, 1.0));
+                match frame {
+                    [mono] => *mono = (l + r) * 0.5,
+                    [left, right, rest @ ..] => {
+                        *left = l;
+                        *right = r;
+                        rest.fill(0.0);
+                    }
+                    [] => {}
+                }
             }
         }
         for (shared, deck) in self.shared.decks.iter().zip(&self.decks) {
@@ -523,11 +747,23 @@ fn channel(
     for (s, d) in shared.decks.iter().zip(&decks) {
         s.publish(d);
     }
+    let stretch: [Box<dyn TimeStretch>; DECKS] =
+        std::array::from_fn(|_| Box::new(Signalsmith::new(device_rate)) as Box<dyn TimeStretch>);
+    let input_frames = stretch
+        .iter()
+        .map(|s| s.preroll_frames())
+        .max()
+        .unwrap_or(0)
+        .max(CHUNK * MAX_KEYLOCK_SPEED as usize + 1);
     let renderer = Renderer {
         rx,
         decks,
         shared: shared.clone(),
         device_rate: f64::from(device_rate.max(1)),
+        stretch,
+        input: vec![0.0; input_frames * 2],
+        deck_buf: vec![0.0; CHUNK * 2],
+        mix: vec![0.0; CHUNK * 2],
     };
     (renderer, tx, shared)
 }
@@ -539,6 +775,7 @@ struct Memory {
     current: [Option<(u64, Arc<TrackPcm>)>; DECKS],
     gains: [Option<f32>; DECKS],
     speeds: [Option<f64>; DECKS],
+    keylocks: [bool; DECKS],
 }
 
 /// The UI side of the engine.
@@ -645,6 +882,8 @@ impl Engine {
                 }
                 Command::Gain { gain, .. } => self.memory.gains[deck] = Some(*gain),
                 Command::Speed { speed, .. } => self.memory.speeds[deck] = Some(*speed),
+                Command::Sync { speed, .. } => self.memory.speeds[deck] = Some(*speed),
+                Command::KeyLock { on, .. } => self.memory.keylocks[deck] = *on,
                 _ => {}
             }
         }
@@ -729,6 +968,10 @@ impl Engine {
                 loop_range: snap.loop_range,
                 gain: memory.gains[d].unwrap_or(1.0),
                 speed: memory.speeds[d].unwrap_or(1.0),
+                keylock: memory.keylocks[d],
+                read: 0.0,
+                primed: false,
+                carry: 0.0,
                 applied: 0,
             }
         });
@@ -745,3 +988,6 @@ impl Engine {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod keylock_tests;

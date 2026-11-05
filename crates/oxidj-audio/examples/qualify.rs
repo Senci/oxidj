@@ -7,6 +7,7 @@
 use cpal as _;
 use oxidj_audio::{Command, Engine, OutputKind, TrackPcm};
 use rtrb as _;
+use signalsmith_stretch as _;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 

@@ -80,7 +80,12 @@ const AUDIO_ENGINE_CRATE: &str = "oxidj-audio";
 /// External crates admitted into [`AUDIO_ENGINE_CRATE`]: `(name, exact
 /// requirement)`. Normal dependency kind, crates.io, no default features and
 /// no features only. Dev-dependencies are refused too.
-const AUDIO_ENGINE_EXTERNAL_ALLOW: &[(&str, &str)] = &[("cpal", "=0.18.2"), ("rtrb", "=0.4.1")];
+const AUDIO_ENGINE_EXTERNAL_ALLOW: &[(&str, &str)] = &[
+    ("cpal", "=0.18.2"),
+    ("rtrb", "=0.4.1"),
+    // Key lock (ADR-008 D3 addendum).
+    ("signalsmith-stretch", "=0.1.3"),
+];
 
 /// Lowest layer allowed to depend on [`AUDIO_ENGINE_CRATE`]: application
 /// orchestration and presentation, never core, library, analysis or adapters.
@@ -119,6 +124,7 @@ const AUDIO_CRATES: &[&str] = &[
     "symphonia",
     "rodio",
     "rubato",
+    "signalsmith-stretch",
     "dasp",
     "fundsp",
     "minimp3",
@@ -314,7 +320,8 @@ fn check_layers(meta: &serde_json::Value) -> Result<(), Vec<String>> {
                 if !audio_engine_dep_allowed(dep) {
                     violations.push(format!(
                         "{name} (layer {my_layer}) -> {dep_name}: {AUDIO_ENGINE_CRATE} may depend \
-                         only on the admitted [cpal =0.18.2, rtrb =0.4.1] (ADR-004 D2)"
+                         only on the admitted [cpal =0.18.2, rtrb =0.4.1, signalsmith-stretch =0.1.3] \
+                         (ADR-004 D2, ADR-008 D3)"
                     ));
                 }
                 continue;
