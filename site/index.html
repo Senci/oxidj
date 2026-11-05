@@ -79,7 +79,7 @@
           <ol class="flow-stages">
             <li><strong>Audio files</strong><span>Stay in place, unchanged.</span></li>
             <li><strong>Local catalog</strong><span>References and technical facts.</span></li>
-            <li><strong>Library window</strong><span>Search, sort, details, waveform.</span></li>
+            <li><strong>Library window</strong><span>Search, sort, details, two decks.</span></li>
           </ol>
           <figcaption id="flow-caption" class="visually-hidden">
             Audio stays in place. The catalog keeps references and technical facts. The library
@@ -104,7 +104,8 @@
               <summary>Library window</summary>
               <p>
                 The provisional window reopens the saved catalog for search, sort, selection, track
-                details, a computed waveform and computed or imported beat grids.
+                details, a computed waveform and computed or imported beat grids. Two decks play
+                tracks from it.
               </p>
             </details>
           </div>
@@ -115,18 +116,25 @@
         <div class="section-head reveal">
           <h2 id="inside">Inside the prototype.</h2>
           <p>
-            Captures of the current build, cropped to the parts that matter. The catalog is
+            Captures of the current build, cropped to the parts that matter: two decks in one merged
+            waveform, SYNC with key lock, the optional mixer and the track details. The catalog is
             synthetic test audio. Click an image to zoom and drag.
           </p>
         </div>
         <div class="gallery">
           <div class="gallery-wide reveal">
-            <!-- site:shotTrackList -->
-            <!-- site:shotDecks -->
+            <!-- site:shotMerged -->
+            <!-- site:shotMixer -->
+            <!-- site:shotFallback -->
+            <!-- site:shotCollapsed -->
           </div>
-          <div class="gallery-pair reveal">
-            <!-- site:shotWaveGrid -->
-            <!-- site:shotWaveClick -->
+          <div class="gallery-wide reveal">
+            <!-- site:shotSynced -->
+            <!-- site:shotRefused -->
+            <div class="gallery-pair">
+              <!-- site:shotWaveGrid -->
+              <!-- site:shotWaveClick -->
+            </div>
           </div>
         </div>
       </section>
@@ -135,8 +143,8 @@
         <div class="section-head reveal">
           <h2 id="path">Where the project stands.</h2>
           <p>
-            Development stages, not release dates. The local library is in place; exchange, analysis
-            and the real-library proof are in progress.
+            Development stages, not release dates. The local library is in place; exchange,
+            analysis, the real-library proof and the first two decks are in progress.
           </p>
         </div>
         <ol class="rail">
@@ -179,7 +187,12 @@
             <p>
               Import leaves original audio unchanged and reports each file's result.
               <code>list</code> prints track IDs, paths, digests and sizes. Embedded DJ tags,
-              artwork, editing and playback are outside this slice.
+              artwork, editing and playback are outside this CLI slice.
+            </p>
+            <p>
+              <code>scripts/install-local.sh</code> builds the CLI and the provisional library
+              window with its two decks, and adds a launcher and desktop entry under
+              <code>~/.local</code>. It never touches library data.
             </p>
             <a
               class="source-link"

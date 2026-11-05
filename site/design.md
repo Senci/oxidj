@@ -15,7 +15,7 @@ Scope: home, roadmap, dossier and styled 404. Preserve the owner-directed dark s
   features, pre-release maturity and unfinished GUI/accessibility/compatibility/scale work.
 - `src/data/roadmap.ts` owns focus and snapshot date. Shared header/footer and metadata
   render through `src/logic/siteMarkup.ts`. The dossier has the same chrome and facts.
-- Stable `#m0` through `#m7` anchors. All eight milestones share one timeline with
+- Stable `#m0` through `#m8` anchors. All nine milestones share one timeline with
   their status label shown; the home page repeats them as a compact rail.
   Recent progress is a short change log with exact source files/sections or commits.
 - Public prose avoids internal gate terminology and distinguishes Rekordbox XML from

@@ -29,14 +29,14 @@ export interface ProjectUpdate {
 const repo = 'https://github.com/Senci/oxidj';
 const closeout = `${repo}/blob/master/plan/MVP.md#bounded-local-m1m3-acceptance-closeout-2026-10-26`;
 export const roadmapSnapshot = {
-  verifiedAt: '2026-11-04',
-  currentFocus: 'M4 and M7: real-library import, manage and export',
+  verifiedAt: '2026-11-05',
+  currentFocus: 'M8: two decks, playback and mixer, then M4 and M7 real-library exchange',
   currentSummary:
-    'Synthetic Rekordbox XML fixtures support read-only preview, bounded export of a supported subset to a new file, and exact-value guarded edits. On one real library, playlists, track details, beat grids and cues went into a catalog and a new XML file, and the owner confirmed in Rekordbox on Windows that the export and an edited re-export load with tracks, BPM, key, cues, beat grids, playlists and the edits intact.',
+    'The library window now has two playable decks: one merged waveform with deck A above and deck B below, an audio engine, hot cues and loops, tempo with key lock, SYNC and an optional mixer. Listening and DJ hardware checks are still open. On the exchange side, synthetic Rekordbox XML fixtures support read-only preview, bounded export of a supported subset to a new file, and exact-value guarded edits. On one real library, playlists, track details, beat grids and cues went into a catalog and a new XML file, and the owner confirmed in Rekordbox on Windows that the export and an edited re-export load with tracks, BPM, key, cues, beat grids, playlists and the edits intact.',
   working:
-    'A persistent local catalog, reference-only WAV/FLAC/MP3/AIFF import and a provisional viewer with search, sort and track details work today. The library window has a full-width track list with side panels you can show or hide, and draws a smooth vector waveform (mono, 3-band or RGB) for the selected track with bar and beat lines from an imported beat grid, or from its own computed BPM and beat grid when none was imported. From the command line, a Rekordbox USB export can be read into a new catalog and written back out as a checked XML file, with Windows drive letters via --drive.',
+    'A persistent local catalog, reference-only WAV/FLAC/MP3/AIFF import and a provisional viewer with search, sort and track details work today. The library window has a full-width track list with side panels you can show or hide, and draws a smooth vector waveform (mono, 3-band or RGB) for the selected track with bar and beat lines from an imported beat grid, or from its own computed BPM and beat grid when none was imported. Tracks load onto two decks shown in one merged waveform (deck A warm, above; deck B cool, below) with a separate overview per deck. Every deck section can be collapsed, and Settings (Ctrl+,) keeps the choices. A CPAL audio engine plays both decks with cue, play, eight hot cues and loops; the tempo fader has key lock, SYNC matches tempo and beat phase, and an optional mixer adds trim, 3-band EQ, filter, faders, a crossfader and meters. A user-local install script adds a launcher and desktop menu entry on Linux. From the command line, a Rekordbox USB export can be read into a new catalog and written back out as a checked XML file, with Windows drive letters via --drive.',
   unfinished:
-    'Beyond one owner-run round trip through Rekordbox on Windows, compatibility with real Rekordbox or OneLibrary libraries and DJ hardware (CDJ/XDJ) has not been demonstrated. Computed BPM is a suggestion, not Rekordbox parity. Production desktop, accessibility and platform testing is still pending, as is performance testing at 500,000 tracks and 60 frames per second.',
+    'Beyond one owner-run round trip through Rekordbox on Windows, compatibility with real Rekordbox or OneLibrary libraries and DJ hardware (CDJ/XDJ) has not been demonstrated. Computed BPM is a suggestion, not Rekordbox parity. The decks have not had an owner listening check, have not been used with club gear or controllers, and make no latency guarantee: one 600 s run through PipeWire had 1 audio dropout (xrun), and moving the tempo fader with key lock on can shift the next beat by up to 5 ms. Production desktop, accessibility and platform testing is still pending, as is performance testing at 500,000 tracks and 60 frames per second.',
   repo,
 } as const;
 export const milestones: readonly Milestone[] = [
@@ -117,8 +117,59 @@ export const milestones: readonly Milestone[] = [
       'Import, manage and export a real library with supported metadata intact. The first import and checked XML export has run on one private library. The owner then loaded the export in Rekordbox on Windows (tracks, BPM, key, cues and beat grids), reimported an export with two OxiDJ edits, imported a playlist and played a track. DJ hardware (CDJ/XDJ) has not been tested.',
     source: { label: 'MVP objective', href: `${repo}/blob/master/idea.md#mvp` },
   },
+  {
+    id: 'm8',
+    title: 'Decks and playback',
+    status: 'in-progress',
+    statusLabel: 'First version',
+    detail:
+      'Two decks in the library window: one merged waveform (deck A warm, above the centre line; deck B cool, below) with a separate overview per deck, collapsible sections and Settings (Ctrl+,). A CPAL audio engine plays both decks with cue, play, eight hot cues and loops. Tempo has key lock (Signalsmith Stretch), SYNC matches tempo and beat phase and refuses visibly when a deck has no beat grid, and an optional mixer adds trim, 3-band EQ, filter, faders, a crossfader and meters; when hidden it passes audio through unchanged. Not yet demonstrated: an owner listening check, club gear and controllers, and any latency guarantee. One 600 s PipeWire run had 1 xrun; a key-locked tempo move can shift the next beat by up to 5 ms.',
+    source: { label: 'Decks plan', href: `${repo}/blob/master/plan/MVP.md` },
+  },
 ];
 export const projectUpdates: readonly ProjectUpdate[] = [
+  {
+    date: '2026-11-05',
+    title: 'Optional mixer.',
+    detail:
+      'Trim, 3-band isolator EQ, filter, channel and master faders, a crossfader with three curves and peak meters. Hidden by default; hidden means audio passes through unchanged.',
+    source: { label: 'Optional mixer', href: `${repo}/commit/8b6087b` },
+  },
+  {
+    date: '2026-11-05',
+    title: 'Key lock and SYNC.',
+    detail:
+      'The tempo fader keeps pitch with key lock (Signalsmith Stretch). SYNC matches tempo and beat phase, and says why when it cannot, for example a deck without a beat grid.',
+    source: { label: 'Key lock and SYNC', href: `${repo}/commit/bdeecf5` },
+  },
+  {
+    date: '2026-11-05',
+    title: 'Decks play audio.',
+    detail:
+      'A CPAL audio engine plays both decks with cue, play, seek, hot cues and loops. One 600 s PipeWire run had 1 xrun; listening is still an owner check.',
+    source: { label: 'Audio engine', href: `${repo}/commit/0906ddb` },
+  },
+  {
+    date: '2026-11-05',
+    title: 'Two decks in one merged waveform.',
+    detail:
+      'Deck A warm above the centre line, deck B cool below, one playhead and a separate overview per deck. Every section collapses; Settings opens with Ctrl+,.',
+    source: { label: 'Merged decks', href: `${repo}/commit/9b9acbd` },
+  },
+  {
+    date: '2026-11-05',
+    title: 'Computed grids can go into the XML export.',
+    detail:
+      'An opt-in flag writes a computed beat grid for tracks that have none from Rekordbox. Rekordbox loading these is not yet owner-checked.',
+    source: { label: 'Computed grids in export', href: `${repo}/commit/d295fc4` },
+  },
+  {
+    date: '2026-11-04',
+    title: 'Install script for Linux.',
+    detail:
+      'scripts/install-local.sh builds release binaries and adds a launcher, desktop entry and icon under ~/.local, without touching library data.',
+    source: { label: 'Install script', href: `${repo}/commit/21d652c` },
+  },
   {
     date: '2026-11-04',
     title: 'Computed BPM and beat grid when none was imported.',
@@ -203,24 +254,56 @@ export const screenshots = {
   overview: {
     id: 'app-overview',
     width: 1440,
-    height: 791,
+    height: 680,
     halfWidth: 720,
-    alt: 'OxiDJ library window: a toolbar with search and Nav, Details and Decks toggles, a navigation panel, a full-width list of ten synthetic tracks with status dots, track details with a mono waveform over bar lines, and a decks bar.',
-    caption: 'Provisional prototype with a synthetic catalog. Click to zoom.',
+    alt: 'OxiDJ library window with both decks playing: a toolbar with search and panel toggles, one merged waveform with deck A in orange above the centre line and deck B in blue below, a control strip with cue, pause, eight hot cues, loops, tempo faders, SYNC and KEY per deck, a mixer row, two overview strips and a list of four synthetic tracks with A and B badges.',
+    caption: 'Provisional prototype with synthetic audio. Click to zoom.',
   },
-  trackList: {
-    id: 'track-list',
-    width: 904,
-    height: 265,
-    alt: 'Track list with a status dot, right-aligned ID and duration, filename, folder and format columns; one synthetic file that was removed on purpose has an amber dot.',
-    caption: 'The full-width track list. One file was removed on purpose.',
+  decksMerged: {
+    id: 'decks-merged',
+    width: 1440,
+    height: 392,
+    halfWidth: 720,
+    alt: 'Merged two-deck waveform: deck A at 120 BPM in orange above the centre line, deck B at 123.97 BPM in blue below, numbered hot cues, a readout of the beat offset and BPM difference at the playhead, the control strip and one overview strip per deck.',
+    caption: 'Both decks loaded: one merged waveform, two overviews.',
   },
-  decksBar: {
-    id: 'decks-bar',
-    width: 828,
-    height: 31,
-    alt: 'Decks bar: a local demo note, then Deck A and Deck B, each with the loaded synthetic filename and Play and Cue buttons.',
-    caption: 'The demo decks bar. No audio is connected yet.',
+  decksSynced: {
+    id: 'decks-synced',
+    width: 560,
+    height: 256,
+    alt: 'Centre of the merged waveform after SYNC: KEY and SYNC lit on deck B, its tempo fader at minus 3.2 percent and the readout showing plus 0 ms and plus 0.00 BPM, with the beats of both decks lined up.',
+    caption: 'SYNC with key lock on deck B: tempo and beats matched.',
+  },
+  syncRefused: {
+    id: 'sync-refused',
+    width: 720,
+    height: 56,
+    alt: 'Deck B control strip showing the message SYNC: deck B has no beat grid, next to the loaded synthetic file name.',
+    caption: 'SYNC says why it cannot run.',
+  },
+  decksMixer: {
+    id: 'decks-mixer',
+    width: 1440,
+    height: 120,
+    halfWidth: 720,
+    alt: 'Control strip above the optional mixer row: trim, high, mid and low EQ, filter and volume with a level meter per deck, crossfader assign buttons, master volume and meter, and the crossfader in the centre.',
+    caption: 'The optional mixer, hidden by default.',
+  },
+  gridFallback: {
+    id: 'grid-fallback',
+    width: 1440,
+    height: 392,
+    halfWidth: 720,
+    alt: 'Deck A shows a waveform without a beat grid over a minutes and seconds time grid; deck B shows only the time grid with the note analysing, waveform not ready.',
+    caption: 'No beat grid or no waveform yet: a time grid instead.',
+  },
+  decksCollapsed: {
+    id: 'decks-collapsed',
+    width: 1440,
+    height: 300,
+    halfWidth: 720,
+    alt: 'Deck area with the detail waveform collapsed: the control strip and two overview strips remain, and the track list moves up to use the space.',
+    caption: 'Collapse any section; the library takes the space.',
   },
   waveformGrid: {
     id: 'waveform-beat-grid',

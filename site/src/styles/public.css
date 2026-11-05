@@ -745,11 +745,12 @@ code {
   gap: var(--gap-columns);
   align-items: start;
 }
-.shot-decks-bar .shot-link {
+/* Thin strip crops: keep a 56 px tap target when the image is only ~30 px tall. */
+.shot-decks-mixer .shot-link,
+.shot-sync-refused .shot-link {
   display: grid;
   align-items: center;
   min-height: 56px;
-  padding-inline: var(--space-sm);
 }
 .gallery-wide {
   display: grid;
@@ -764,7 +765,7 @@ code {
 /* ---------- Home milestone rail ---------- */
 .rail {
   display: grid;
-  grid-template-columns: repeat(8, minmax(0, 1fr));
+  grid-template-columns: repeat(9, minmax(0, 1fr));
   margin: 0;
   padding: 0;
   list-style: none;
@@ -832,6 +833,8 @@ code {
 .rail-title {
   font-weight: 600;
   line-height: 1.25;
+  /* Nine stops share one row on wide screens: keep long titles inside their column. */
+  font-size: var(--text-sm);
 }
 .rail-status {
   color: var(--color-muted);
@@ -1373,10 +1376,10 @@ html.io-reveal .stage:not(.is-in) .shot {
     justify-content: start;
   }
   .rail {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     row-gap: var(--space-xl);
   }
-  .rail-stop:nth-child(4)::before {
+  .rail-stop:nth-child(3n)::before {
     display: none;
   }
 }
@@ -1417,7 +1420,7 @@ html.io-reveal .stage:not(.is-in) .shot {
     row-gap: 0;
   }
   .rail-stop::before,
-  .rail-stop:nth-child(4)::before {
+  .rail-stop:nth-child(3n)::before {
     display: block;
     top: 24px;
     bottom: 0;

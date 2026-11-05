@@ -41,11 +41,11 @@ describe('screenshots', () => {
   it('renders a sized, described figure whose link opens the full-resolution image', () => {
     const html = renderShot(screenshots.overview, '92vw', true);
     expect(html).toContain('href="./images/app-overview.webp" data-lightbox');
-    expect(html).toContain('data-width="1440" data-height="791"');
+    expect(html).toContain('data-width="1440" data-height="680"');
     expect(html).toContain(
       'srcset="./images/app-overview-720.webp 720w, ./images/app-overview.webp 1440w"',
     );
-    expect(html).toContain('width="1440" height="791"');
+    expect(html).toContain('width="1440" height="680"');
     expect(html).toContain('fetchpriority="high"');
     expect(html).not.toContain('loading="lazy"');
     expect(html).toContain(`alt="${screenshots.overview.alt}"`);
@@ -61,13 +61,15 @@ describe('screenshots', () => {
       renderRoadmap(readFileSync(new URL('../../index.html', import.meta.url), 'utf8')),
       'index.html',
     );
-    expect(home.match(/data-lightbox/g)).toHaveLength(5);
+    expect(home.match(/data-lightbox/g)).toHaveLength(9);
     expect(home).toContain('class="wave"');
-    expect(home.match(/class="rail-stop /g)).toHaveLength(8);
+    expect(home.match(/class="rail-stop /g)).toHaveLength(9);
     for (const shot of Object.values(screenshots)) {
       expect(shot.alt.length).toBeGreaterThan(20);
       expect(home).toContain(`./images/${shot.id}.webp`);
     }
-    expect(home).not.toMatch(/library-prototype|\/home\/|waveform-mono|waveform-3band/);
+    expect(home).not.toMatch(
+      /library-prototype|\/home\/|waveform-mono|waveform-3band|track-list\.webp|decks-bar\.webp/,
+    );
   });
 });

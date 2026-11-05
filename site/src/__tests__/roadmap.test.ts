@@ -9,7 +9,7 @@ describe('static public pages', () => {
   it('renders every milestone on one timeline with its status label shown', () => {
     const html = renderRoadmap(template);
     expect(html).not.toContain('<!-- roadmap:');
-    expect(html.match(/class="milestone milestone-/g)).toHaveLength(8);
+    expect(html.match(/class="milestone milestone-/g)).toHaveLength(9);
     for (const m of milestones)
       expect(html).toContain(
         `<p class="status-label status-${m.status}">${escapeHtml(m.statusLabel)}</p>`,
@@ -31,7 +31,17 @@ describe('static public pages', () => {
     ).toBe(true);
     expect(milestones.find((m) => m.id === 'm6')?.status).toBe('in-progress');
     expect(milestones.find((m) => m.id === 'm7')?.status).toBe('in-progress');
-    expect(roadmapSnapshot.verifiedAt).toBe('2026-11-04');
+    expect(roadmapSnapshot.verifiedAt).toBe('2026-11-05');
+    expect(milestones.find((m) => m.id === 'm8')?.status).toBe('in-progress');
+    expect(milestones.find((m) => m.id === 'm8')?.detail).toMatch(
+      /merged waveform.*warm.*cool.*Settings \(Ctrl\+,\).*CPAL.*hot cues and loops.*key lock \(Signalsmith Stretch\).*SYNC.*optional mixer.*owner listening check, club gear.*latency guarantee.*600 s PipeWire run had 1 xrun.*5 ms/,
+    );
+    expect(roadmapSnapshot.unfinished).toMatch(
+      /owner listening check.*club gear.*no latency guarantee.*600 s.*1 audio dropout \(xrun\).*5 ms/,
+    );
+    expect(roadmapSnapshot.working).toMatch(
+      /two decks.*merged waveform.*collapsed.*Settings \(Ctrl\+,\).*CPAL.*key lock.*SYNC.*optional mixer.*install script/,
+    );
     expect(roadmapSnapshot.currentSummary).toMatch(
       /synthetic Rekordbox XML.*read-only preview.*new file.*guarded edits/i,
     );
@@ -49,9 +59,15 @@ describe('static public pages', () => {
     expect(milestones.find((m) => m.id === 'm4')?.detail).toMatch(
       /broader compatibility with real Rekordbox or OneLibrary.*not been demonstrated/i,
     );
-    expect(projectUpdates).toHaveLength(11);
-    expect(projectUpdates[0]?.source.href).toMatch(/\/commit\/9a9b96c$/);
+    expect(projectUpdates).toHaveLength(17);
+    expect(projectUpdates[0]?.source.href).toMatch(/\/commit\/8b6087b$/);
     expect(projectUpdates.map((u) => u.date)).toEqual([
+      '2026-11-05',
+      '2026-11-05',
+      '2026-11-05',
+      '2026-11-05',
+      '2026-11-05',
+      '2026-11-04',
       '2026-11-04',
       '2026-11-04',
       '2026-11-04',
