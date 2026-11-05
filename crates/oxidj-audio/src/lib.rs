@@ -227,9 +227,13 @@ pub(crate) struct DeckState {
     gain: f32,
     speed: f64,
     keylock: bool,
-    /// Key lock: source frame the stretch engine reads next (`pos` + the
-    /// stretch latency); valid while `primed`.
+    /// Key lock: source frame the stretch engine reads next; valid while
+    /// `primed`.
     read: f64,
+    /// Key lock: playback-path distance (source frames, loop wraps
+    /// unrolled) from the audible `pos` to `read`; converges on the stretch
+    /// latency after a tempo change.
+    ahead: f64,
     /// Key lock: the stretch engine holds history continuous with `read`.
     primed: bool,
     /// Key lock: fractional input frame carried to the next chunk.
@@ -253,6 +257,7 @@ impl Default for DeckState {
             speed: 1.0,
             keylock: false,
             read: 0.0,
+            ahead: 0.0,
             primed: false,
             carry: 0.0,
             applied: 0,
@@ -369,8 +374,11 @@ impl DeckState {
             }
             Command::LoopIn { .. } => self.loop_in = Some(self.pos),
             Command::LoopOut { .. } => {
-                if self.loop_range.take().is_none()
-                    && let Some(start) = self.loop_in
+                if self.loop_range.take().is_some() {
+                    // Leaving a loop: the key-lock read head is inside the
+                    // loop but playback continues past its end.
+                    self.primed = false;
+                } else if let Some(start) = self.loop_in
                     && self.pos - start >= self.min_loop()
                 {
                     self.loop_range = Some((start, self.pos));
@@ -414,58 +422,72 @@ impl DeckState {
         let (in_lat, out_lat) = stretch.latency();
         let lag = (in_lat as f64 + out_lat as f64 * speed) * step;
         let capacity = input.len() / 2;
+        let wrap = self.loop_wrap();
         if !self.primed {
-            // Start the engine `lag` ahead so what is heard starts at `pos`.
+            // Start the engine `lag` ahead (along the loop, if any) so what
+            // is heard starts at `pos`.
             stretch.reset();
-            self.read = self.pos + lag;
+            self.read = wrap(self.pos + lag);
+            self.ahead = lag;
             let pre = stretch.preroll_frames().min(capacity);
-            let start = self.read - pre as f64 * step;
+            let start = self.pos + lag - pre as f64 * step;
             for (i, f) in input[..pre * 2]
                 .as_chunks_mut::<2>()
                 .0
                 .iter_mut()
                 .enumerate()
             {
-                let (l, r) = track.at(start + i as f64 * step);
+                let (l, r) = track.at(wrap(start + i as f64 * step));
                 *f = [l, r];
             }
             stretch.preroll(&input[..pre * 2], speed);
             self.carry = 0.0;
             self.primed = true;
         }
-        let want = (out.len() / 2) as f64 * speed + self.carry;
+        let out_frames = (out.len() / 2) as f64;
+        let want = out_frames * speed + self.carry;
         let n_in = (want as usize).min(capacity);
         self.carry = (want - n_in as f64).min(1.0);
         for f in input[..n_in * 2].as_chunks_mut::<2>().0 {
             let (l, r) = track.at(self.read);
             *f = [l, r];
-            self.read += step;
-            if let Some((start, end)) = self.loop_range
-                && self.read >= end
-                && end > start
-            {
-                self.read = start + (self.read - end) % (end - start);
-            }
+            self.read = wrap(self.read + step);
         }
+        self.ahead += n_in as f64 * step;
         stretch.process(&input[..n_in * 2], out);
         for v in out.iter_mut() {
             *v *= self.gain;
         }
-        let mut pos = self.read - lag;
-        if let Some((start, end)) = self.loop_range
-            && pos < start
-            && self.read >= start
-            && end > start
-        {
-            pos += end - start; // the read head wrapped; the ear has not yet
-        }
-        self.pos = pos.max(0.0);
+        // The ear advances at the tempo the emerging audio was fed at: the
+        // nominal advance, plus a correction that drains the difference to
+        // the current latency over one output latency (after a tempo change
+        // the pipeline still holds audio fed at the old tempo). Never
+        // backwards.
+        let nominal = out_frames * speed * step;
+        let drain = if out_lat == 0 {
+            1.0
+        } else {
+            (out_frames / out_lat as f64).min(1.0)
+        };
+        let advance = (nominal + (self.ahead - nominal - lag) * drain).max(0.0);
+        self.ahead -= advance;
+        self.pos = wrap(self.pos + advance).max(0.0);
         let frames = track.frames() as f64;
         if self.pos >= frames {
             self.pos = frames;
             self.playing = false;
             self.previewing = false;
             self.primed = false;
+        }
+    }
+
+    /// Maps a playback-path frame into the active loop (any number of loop
+    /// lengths past its end); identity without a loop.
+    fn loop_wrap(&self) -> impl Fn(f64) -> f64 + use<> {
+        let range = self.loop_range.filter(|(start, end)| end > start);
+        move |x| match range {
+            Some((start, end)) if x >= end => start + (x - end) % (end - start),
+            _ => x,
         }
     }
 
@@ -970,6 +992,7 @@ impl Engine {
                 speed: memory.speeds[d].unwrap_or(1.0),
                 keylock: memory.keylocks[d],
                 read: 0.0,
+                ahead: 0.0,
                 primed: false,
                 carry: 0.0,
                 applied: 0,

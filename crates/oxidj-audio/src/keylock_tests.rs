@@ -258,6 +258,139 @@ fn key_lock_toggle_keeps_position() {
     assert!((e.deck(0).frame - after - 512.0 * 44_100.0 / 48_000.0).abs() < 2.0);
 }
 
+/// Published position after each 256-frame callback block, and the output.
+fn render_tracked(
+    r: &mut Renderer,
+    e: &Engine,
+    deck: usize,
+    frames: usize,
+) -> (Vec<f64>, Vec<f32>) {
+    let mut out = vec![0.0; frames * 2];
+    let mut pos = vec![];
+    for block in out.chunks_mut(CHUNK * 2) {
+        r.render(block, 2);
+        pos.push(e.deck(deck).frame);
+    }
+    (pos, out)
+}
+
+/// Output time (ms) at which the published position first reaches `frame`,
+/// interpolated between block ends.
+fn heard_at(pos: &[f64], start: f64, frame: f64) -> Option<f64> {
+    let block_ms = CHUNK as f64 * 1000.0 / f64::from(RATE);
+    let mut prev = start;
+    for (i, &p) in pos.iter().enumerate() {
+        if prev < frame && p >= frame {
+            let frac = (frame - prev) / (p - prev);
+            return Some((i as f64 + frac) * block_ms);
+        }
+        prev = p;
+    }
+    None
+}
+
+/// Moving the tempo fader during key-locked playback never moves the
+/// position backwards, advances it at the new tempo, and the published
+/// position stays aligned (< 1 ms) with the clicks actually rendered —
+/// before, through and after the change, up and down.
+#[test]
+fn key_lock_tempo_change_keeps_position_monotonic_and_on_the_clicks() {
+    for new_speed in [1.16, 0.84, 1.08] {
+        // 120 BPM at 48 kHz: a click every 24 000 frames.
+        let (mut e, mut r) = deck_with(clicks(RATE, 30.0, 120.0, 0.0, 0.9, Side::Both), 0);
+        e.send(Command::KeyLock { deck: 0, on: true });
+        e.send(Command::TogglePlay { deck: 0 });
+        render(&mut r, 100 * 512);
+        let before = e.deck(0).frame;
+        assert!((before - 51_200.0).abs() < 1.0, "before {before}");
+        e.send(Command::Speed {
+            deck: 0,
+            speed: new_speed,
+        });
+        let (pos, out) = render_tracked(&mut r, &e, 0, RATE as usize * 4);
+        let label = format!("speed 1.0 -> {new_speed}");
+        let mut prev = before;
+        for &p in &pos {
+            let step = p - prev;
+            assert!(
+                step > 0.0 && step < 2.0 * CHUNK as f64 * new_speed.max(1.0),
+                "{label}: block advance {step}"
+            );
+            prev = p;
+        }
+        // First block after the change already moves forward by roughly the
+        // tempo (the old one is still draining), not backwards.
+        assert!(
+            pos[0] - before > CHUNK as f64 * 0.5,
+            "{label}: {}",
+            pos[0] - before
+        );
+        // Settled advance rate is the new tempo.
+        let rate = (pos[pos.len() - 1] - pos[pos.len() - 101]) / (100.0 * CHUNK as f64);
+        assert!((rate - new_speed).abs() < 1e-3, "{label}: rate {rate}");
+        // Each rendered click is heard when the published position says.
+        let times = onsets(&channel(&out, 0));
+        assert!(times.len() >= 6, "{label}: {} clicks", times.len());
+        for t in &times {
+            let frame = ((before + t * 48.0 * new_speed) / 24_000.0).round() * 24_000.0;
+            let at = heard_at(&pos, before, frame).expect("click frame reached");
+            assert!(
+                (at - t).abs() < 1.0,
+                "{label}: click {frame} rendered at {t:.3} ms, published at {at:.3} ms"
+            );
+        }
+    }
+}
+
+/// A key-locked loop shorter than the stretch latency keeps the published
+/// position inside the loop across many wraps, and the rendered output
+/// repeats with the loop period.
+#[test]
+fn key_lock_short_loop_stays_in_range_and_repeats() {
+    // A click every 480 frames (6000 BPM) so a 960-frame loop holds two.
+    let (mut e, mut r) = deck_with(clicks(RATE, 20.0, 6000.0, 0.0, 0.9, Side::Both), 0);
+    e.send(Command::KeyLock { deck: 0, on: true });
+    e.send(Command::TogglePlay { deck: 0 });
+    render(&mut r, 100 * 512);
+    e.send(Command::Seek {
+        deck: 0,
+        frame: 48_000.0,
+    });
+    e.send(Command::LoopIn { deck: 0 });
+    e.send(Command::Seek {
+        deck: 0,
+        frame: 48_960.0,
+    });
+    e.send(Command::LoopOut { deck: 0 });
+    let (pos, out) = render_tracked(&mut r, &e, 0, RATE as usize * 2);
+    assert_eq!(e.deck(0).loop_range, Some((48_000.0, 48_960.0)));
+    for (i, p) in pos.iter().enumerate() {
+        assert!(
+            (48_000.0..48_960.0).contains(p),
+            "block {i}: position {p} outside the loop"
+        );
+    }
+    // Output repeats with the 960-frame loop period once the pipeline is full.
+    let left = channel(&out, 0);
+    let (a, b) = (
+        &left[RATE as usize..RATE as usize + 960],
+        &left[RATE as usize + 960..RATE as usize + 1920],
+    );
+    let energy: f32 = a.iter().map(|v| v * v).sum();
+    let diff: f32 = a.iter().zip(b).map(|(x, y)| (x - y) * (x - y)).sum();
+    assert!(energy > 1.0, "loop is audible: {energy}");
+    assert!(
+        diff < energy * 0.1,
+        "loop repeats: diff {diff} vs energy {energy}"
+    );
+    // Leaving the loop continues past its end.
+    e.send(Command::LoopOut { deck: 0 });
+    render(&mut r, 512);
+    let after = e.deck(0).frame;
+    assert!(e.deck(0).loop_range.is_none());
+    assert!(render_tracked(&mut r, &e, 0, 512 * 10).0.last().unwrap() > &after);
+}
+
 // ----------------------------------------------------------------- sync
 
 /// Deck A (left channel) 120 BPM at 44.1 kHz, deck B (right) 126 BPM at
