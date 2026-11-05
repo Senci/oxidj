@@ -183,6 +183,105 @@ pub struct LibraryExportReport {
     pub not_carried: NotCarried,
     /// The written bytes re-parsed with the XML preview and matched the catalog.
     pub preview_verified: bool,
+    /// With `computed_grids`: one decision per library track, in collection
+    /// order; empty otherwise. Carries no names or paths.
+    pub computed_grids: Vec<ComputedGridDecision>,
+}
+
+/// Below this analyser confidence a computed grid is not exported; the same
+/// threshold as the library UI's "low" confidence badge.
+pub const COMPUTED_GRID_MIN_CONFIDENCE: f32 = 0.5;
+
+/// What `--computed-grids` did for one library track.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ComputedGridDecision {
+    /// The track has a vendor (Rekordbox) grid; it is exported unchanged.
+    VendorKept,
+    /// One constant `TEMPO` from the computed grid was written.
+    Written,
+    /// The computed grid's confidence is below [`COMPUTED_GRID_MIN_CONFIDENCE`].
+    LowConfidence,
+    /// The matching local track has no computed grid.
+    NotAnalyzed,
+    /// No local track matches the library location.
+    NoMatch,
+    /// More than one local track (or library location) matches.
+    Ambiguous,
+}
+
+impl ComputedGridDecision {
+    /// Every decision, in report order.
+    pub const ALL: [Self; 6] = [
+        Self::Written,
+        Self::VendorKept,
+        Self::LowConfidence,
+        Self::NotAnalyzed,
+        Self::NoMatch,
+        Self::Ambiguous,
+    ];
+
+    /// Stable report label.
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::VendorKept => "VendorGridKept",
+            Self::Written => "ComputedGridWritten",
+            Self::LowConfidence => "SkippedLowConfidence",
+            Self::NotAnalyzed => "SkippedNotAnalyzed",
+            Self::NoMatch => "SkippedNoMatch",
+            Self::Ambiguous => "SkippedAmbiguous",
+        }
+    }
+}
+
+/// Fill the empty beat grids of `snapshot` from computed grids (M7 slice 5):
+/// one constant beat at the first computed beat, `beat_in_bar` 1, and the
+/// computed BPM as the average BPM when the track has none. Vendor grids are
+/// never replaced or merged.
+fn add_computed_grids(
+    catalog: &Catalog,
+    snapshot: &mut LibrarySnapshot,
+) -> Result<Vec<ComputedGridDecision>, LibraryWorkflowError> {
+    use oxidj_library::LibraryComputedGrid as Lookup;
+    snapshot
+        .tracks
+        .iter_mut()
+        .map(|track| {
+            if !track.beat_grid.is_empty() {
+                return Ok(ComputedGridDecision::VendorKept);
+            }
+            let lookup = catalog
+                .computed_beat_grid_for_library_location(&track.location)
+                .map_err(|e| LibraryWorkflowError(e.to_string()))?;
+            Ok(match lookup {
+                Lookup::NoMatch => ComputedGridDecision::NoMatch,
+                Lookup::Ambiguous => ComputedGridDecision::Ambiguous,
+                Lookup::NotAnalyzed => ComputedGridDecision::NotAnalyzed,
+                Lookup::Found(stored)
+                    if stored.grid.confidence() < COMPUTED_GRID_MIN_CONFIDENCE =>
+                {
+                    ComputedGridDecision::LowConfidence
+                }
+                Lookup::Found(stored) => {
+                    let bpm = (stored.grid.bpm() * 100.0).round();
+                    let first = stored.grid.beats_ms().first().copied();
+                    let (Some(time_ms), true) = (first, (1.0..=f64::from(u32::MAX)).contains(&bpm))
+                    else {
+                        return Err(fail("stored computed grid is invalid"));
+                    };
+                    let tempo_hundredths_bpm = bpm as u32;
+                    track.beat_grid = vec![LibraryBeat {
+                        time_ms,
+                        tempo_hundredths_bpm,
+                        beat_in_bar: 1,
+                    }];
+                    if track.tempo_hundredths_bpm == 0 {
+                        track.tempo_hundredths_bpm = tempo_hundredths_bpm;
+                    }
+                    ComputedGridDecision::Written
+                }
+            })
+        })
+        .collect()
 }
 
 /// The `file://localhost/…` location an imported library track records for a
@@ -697,10 +796,14 @@ fn verify_export(
 /// The bytes are re-parsed and verified before publication; nothing is written on
 /// failure and an existing output is never replaced. `drive` qualifies device-relative
 /// locations for Windows Rekordbox (see [`drive_qualified_location`]).
+/// `computed_grids` (opt-in) writes OxiDJ's computed grid for tracks without a
+/// vendor grid (see [`ComputedGridDecision`]); when `false` the bytes are
+/// exactly those of a plain export.
 pub fn export_library_xml(
     catalog: impl AsRef<Path>,
     output: impl AsRef<Path>,
     drive: Option<DriveLetter>,
+    computed_grids: bool,
 ) -> Result<LibraryExportReport, LibraryWorkflowError> {
     let catalog = catalog.as_ref();
     if !catalog.is_file() {
@@ -709,12 +812,19 @@ pub fn export_library_xml(
     if output.as_ref().symlink_metadata().is_ok() {
         return Err(fail("refusing to overwrite existing output"));
     }
-    let snapshot = Catalog::open(catalog)
-        .and_then(|c| c.library_snapshot())
+    let opened = Catalog::open(catalog).map_err(|e| LibraryWorkflowError(e.to_string()))?;
+    let mut snapshot = opened
+        .library_snapshot()
         .map_err(|e| LibraryWorkflowError(e.to_string()))?;
     if snapshot.tracks.is_empty() && snapshot.roots.is_empty() {
         return Err(fail("catalog holds no imported library"));
     }
+    let decisions = if computed_grids {
+        add_computed_grids(&opened, &mut snapshot)?
+    } else {
+        Vec::new()
+    };
+    drop(opened);
     let (tracks, roots) = xml_library(&snapshot, drive)?;
     let bytes = oxidj_rekordbox::write_library_xml(&tracks, &roots)
         .map_err(|e| LibraryWorkflowError(e.to_string()))?;
@@ -729,6 +839,7 @@ pub fn export_library_xml(
         counts: snapshot.counts(),
         not_carried: NotCarried::of(&snapshot),
         preview_verified: true,
+        computed_grids: decisions,
     })
 }
 
@@ -1011,6 +1122,152 @@ mod tests {
         std::fs::write(dir.join("bad.pdb"), b"not a pdb").unwrap();
         assert!(import_library_with(&dir.join("bad.pdb"), &catalog, |_| Ok(None)).is_err());
         assert!(!catalog.exists());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// M7 slice 5: `computed_grids` adds exactly one constant TEMPO to a no-grid
+    /// track with a confident unique computed grid; vendor grids, low
+    /// confidence, not analysed, no match and ambiguous matches all leave their
+    /// track's bytes as in the plain export, with the exact decision reported.
+    #[test]
+    fn computed_grids_fill_only_confident_unique_no_grid_tracks() {
+        use oxidj_core::tempo::TempoGrid;
+        use oxidj_library::TempoBasis;
+        let dir = std::env::temp_dir().join(format!(
+            "oxidj-computed-grid-export-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir(&dir).unwrap();
+        let path = dir.join("catalog.sqlite");
+        let mut catalog = Catalog::open(&path).unwrap();
+        let basis = TempoBasis {
+            sample_rate: 44_100,
+            duration_ms: 30_000,
+            range_min_bpm: 70,
+            range_max_bpm: 180,
+        };
+        let mut analysed = |name: &str, bpm: f64, confidence: f32| {
+            let op = format!("op-{name}");
+            let id = catalog
+                .insert_track(&op, &format!("/m/Contents/{name}"), [1; 32], 1)
+                .unwrap()
+                .id;
+            if bpm > 0.0 {
+                let grid =
+                    TempoGrid::new(bpm, vec![300, 769, 1_238], confidence, "taktus 0.1.0").unwrap();
+                catalog
+                    .store_computed_beat_grid(id, [1; 32], basis, &grid)
+                    .unwrap();
+            }
+        };
+        analysed("V.wav", 128.0, 0.9);
+        analysed("W.wav", 128.0, 0.5);
+        analysed("L.wav", 128.0, 0.49);
+        analysed("N.wav", 0.0, 0.0);
+        analysed("A.wav", 126.5, 0.95);
+        catalog
+            .insert_track("twin-2", "/n/Contents/Twin/t.wav", [1; 32], 1)
+            .unwrap();
+        catalog
+            .insert_track("twin-1", "/m/Contents/Twin/t.wav", [1; 32], 1)
+            .unwrap();
+        let track = |name: &str, tempo: u32, grid: bool| LibraryTrack {
+            title: name.into(),
+            tempo_hundredths_bpm: tempo,
+            duration_seconds: 30,
+            location: format!("file://localhost/Contents/{name}"),
+            beat_grid: if grid {
+                vec![LibraryBeat {
+                    time_ms: 11,
+                    tempo_hundredths_bpm: 12_345,
+                    beat_in_bar: 3,
+                }]
+            } else {
+                vec![]
+            },
+            ..LibraryTrack::default()
+        };
+        catalog
+            .import_library(&LibrarySnapshot {
+                tracks: vec![
+                    track("V.wav", 12_345, true),
+                    track("W.wav", 0, false),
+                    track("L.wav", 0, false),
+                    track("N.wav", 0, false),
+                    track("Twin/t.wav", 0, false),
+                    track("missing.wav", 0, false),
+                    track("A.wav", 12_000, false),
+                ],
+                roots: vec![LibraryNode::Playlist {
+                    name: "P".into(),
+                    members: vec![1, 0],
+                }],
+            })
+            .unwrap();
+        drop(catalog);
+        let export = |name: &str, computed: bool| {
+            let out = dir.join(name);
+            let report = export_library_xml(&path, &out, None, computed).unwrap();
+            (report, std::fs::read_to_string(out).unwrap())
+        };
+        let (plain_report, plain) = export("plain.xml", false);
+        assert!(plain_report.computed_grids.is_empty());
+        let (report, computed) = export("computed.xml", true);
+        use ComputedGridDecision as D;
+        assert_eq!(
+            report.computed_grids,
+            [
+                D::VendorKept,
+                D::Written,
+                D::LowConfidence,
+                D::NotAnalyzed,
+                D::Ambiguous,
+                D::NoMatch,
+                D::Written
+            ]
+        );
+        // Expected bytes: the plain export with exactly two tracks gaining one
+        // TEMPO each (W: AverageBpm filled; A: its own AverageBpm kept).
+        let tempo = |bpm: &str| {
+            format!(
+                "      <TEMPO Inizio=\"0.300\" Bpm=\"{bpm}\" Metro=\"4/4\" Battito=\"1\"/>\n    </TRACK>"
+            )
+        };
+        let w_plain =
+            "TotalTime=\"30\" AverageBpm=\"0.00\" Location=\"file://localhost/Contents/W.wav\"/>";
+        let a_plain =
+            "TotalTime=\"30\" AverageBpm=\"120.00\" Location=\"file://localhost/Contents/A.wav\"/>";
+        assert_eq!(plain.matches(w_plain).count(), 1, "{plain}");
+        assert_eq!(plain.matches(a_plain).count(), 1, "{plain}");
+        let expected = plain
+            .replace(
+                w_plain,
+                &format!(
+                    "TotalTime=\"30\" AverageBpm=\"128.00\" Location=\"file://localhost/Contents/W.wav\">\n{}",
+                    tempo("128.00")
+                ),
+            )
+            .replace(
+                a_plain,
+                &format!(
+                    "TotalTime=\"30\" AverageBpm=\"120.00\" Location=\"file://localhost/Contents/A.wav\">\n{}",
+                    tempo("126.50")
+                ),
+            );
+        assert_eq!(computed, expected);
+        // Vendor track: unchanged even though a confident computed grid exists.
+        assert!(
+            computed
+                .contains("<TEMPO Inizio=\"0.011\" Bpm=\"123.45\" Metro=\"4/4\" Battito=\"3\"/>")
+        );
+        assert_eq!(computed.matches("<TEMPO ").count(), 3);
+        // The catalog is only read: a later plain export is byte-identical.
+        let (_, again) = export("again.xml", false);
+        assert_eq!(again, plain);
         std::fs::remove_dir_all(dir).unwrap();
     }
 }

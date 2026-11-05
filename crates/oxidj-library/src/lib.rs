@@ -18,7 +18,7 @@ mod waveform_store;
 pub use imported_library::{
     LibraryBeat, LibraryCounts, LibraryCue, LibraryNode, LibrarySnapshot, LibraryTrack,
 };
-pub use tempo_store::{StoredBeatGrid, TEMPO_GRID_FORMAT_VERSION, TempoBasis};
+pub use tempo_store::{LibraryComputedGrid, StoredBeatGrid, TEMPO_GRID_FORMAT_VERSION, TempoBasis};
 pub use waveform_store::{StoredWaveform, VendorWaveform, WAVEFORM_FORMAT_VERSION};
 
 const SCHEMA_VERSION: i64 = 7;

@@ -1946,34 +1946,65 @@ fn run_import_library(args: &[String]) -> i32 {
     }
 }
 
-/// `catalog export-library-xml --catalog DB --output NEW [--drive X]`: no-edit,
-/// new-file-only. `--drive` qualifies device-relative locations for Windows.
+/// `catalog export-library-xml --catalog DB --output NEW [--drive X] [--computed-grids]`:
+/// no-edit, new-file-only. `--drive` qualifies device-relative locations for
+/// Windows; `--computed-grids` writes OxiDJ's computed grid for tracks without a
+/// vendor grid and prints per-decision counts only.
 fn run_export_library_xml(args: &[String]) -> i32 {
-    const EXPECTED: &str =
-        "error: expected catalog export-library-xml --catalog DB --output NEW [--drive X]";
-    let (catalog, output, drive) = match args {
-        [a, catalog, b, output] if a == "--catalog" && b == "--output" => (catalog, output, None),
-        [a, catalog, b, output, c, drive]
-            if a == "--catalog" && b == "--output" && c == "--drive" =>
-        {
-            let Some(letter) = oxidj_application::DriveLetter::parse(drive) else {
-                eprintln!(
-                    "error: --drive expects a single drive letter A-Z (e.g. D), got {drive:?}"
-                );
+    const EXPECTED: &str = "error: expected catalog export-library-xml --catalog DB --output NEW [--drive X] [--computed-grids]";
+    let (mut catalog, mut output, mut drive, mut computed) = (None, None, None, false);
+    let mut rest = args.iter();
+    while let Some(flag) = rest.next() {
+        match flag.as_str() {
+            "--computed-grids" if !computed => computed = true,
+            "--catalog" | "--output" | "--drive" => {
+                let Some(value) = rest.next() else {
+                    eprintln!("{EXPECTED}");
+                    return USAGE;
+                };
+                match flag.as_str() {
+                    "--catalog" if catalog.is_none() => catalog = Some(value),
+                    "--output" if output.is_none() => output = Some(value),
+                    "--drive" if drive.is_none() => {
+                        let Some(letter) = oxidj_application::DriveLetter::parse(value) else {
+                            eprintln!(
+                                "error: --drive expects a single drive letter A-Z (e.g. D), got {value:?}"
+                            );
+                            return USAGE;
+                        };
+                        drive = Some(letter);
+                    }
+                    _ => {
+                        eprintln!("{EXPECTED}");
+                        return USAGE;
+                    }
+                }
+            }
+            _ => {
+                eprintln!("{EXPECTED}");
                 return USAGE;
-            };
-            (catalog, output, Some(letter))
+            }
         }
-        _ => {
-            eprintln!("{EXPECTED}");
-            return USAGE;
-        }
+    }
+    let (Some(catalog), Some(output)) = (catalog, output) else {
+        eprintln!("{EXPECTED}");
+        return USAGE;
     };
-    match oxidj_application::export_library_xml(catalog, output, drive) {
+    match oxidj_application::export_library_xml(catalog, output, drive, computed) {
         Ok(report) => {
             print_counts(&report.counts);
             println!("PreviewVerified: {}", report.preview_verified);
             print_not_carried(&report.not_carried, report.counts.tracks);
+            if computed {
+                for decision in oxidj_application::ComputedGridDecision::ALL {
+                    let count = report
+                        .computed_grids
+                        .iter()
+                        .filter(|d| **d == decision)
+                        .count();
+                    println!("{}: {count}", decision.label());
+                }
+            }
             OK
         }
         Err(error) => {
@@ -1997,7 +2028,7 @@ fn print_usage(to_stdout: bool) {
   rekordbox preview --xml <path>   Read-only Rekordbox XML preview
   rekordbox pdb-preview --pdb <path> Read-only legacy DeviceSQL PDB preview
   catalog import-library --pdb <src> --catalog <new> [--onelibrary-db <db> --key-stdin]   Import a PDB library into a new catalog (aggregate-only report)
-  catalog export-library-xml --catalog <db> --output <new> [--drive <X>]   Export the imported library as new Rekordbox XML (no edits); --drive prefixes device-relative locations with X: for Windows Rekordbox",
+  catalog export-library-xml --catalog <db> --output <new> [--drive <X>] [--computed-grids]   Export the imported library as new Rekordbox XML (no edits); --drive prefixes device-relative locations with X: for Windows Rekordbox; --computed-grids adds one TEMPO from OxiDJ's computed grid (confidence >= 0.5) to tracks without a Rekordbox grid",
     );
     let _ = writeln!(
         output,

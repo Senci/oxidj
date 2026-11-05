@@ -311,7 +311,7 @@ impl Catalog {
 /// The path a location names, as raw bytes: `file://localhost/…` URIs are
 /// percent-decoded; plain absolute paths are taken verbatim. `None` for other
 /// forms or malformed escapes.
-fn decoded_path(location: &str) -> Option<Vec<u8>> {
+pub(crate) fn decoded_path(location: &str) -> Option<Vec<u8>> {
     let Some(encoded) = location.strip_prefix("file://localhost") else {
         return location
             .starts_with('/')

@@ -172,6 +172,11 @@ fn entry_row(index: u32, track_id: u32, playlist_id: u32) -> Vec<u8> {
 /// unresolved, none written); "Song C" has no values and a label id naming an empty
 /// label (absent, not an empty attribute).
 fn synthetic_pdb(extra_entry: Option<Vec<u8>>) -> Vec<u8> {
+    synthetic_pdb_with(extra_entry, "/Contents/C.flac")
+}
+
+/// `synthetic_pdb` with "Song C" (no beat grid) located at `c_path`.
+fn synthetic_pdb_with(extra_entry: Option<Vec<u8>>, c_path: &str) -> Vec<u8> {
     let mut bytes = vec![0u8; 8 * 4096];
     bytes[4..8].copy_from_slice(&4096u32.to_le_bytes());
     bytes[8..12].copy_from_slice(&7u32.to_le_bytes());
@@ -226,7 +231,7 @@ fn synthetic_pdb(extra_entry: Option<Vec<u8>>) -> Vec<u8> {
                 0,
                 0,
                 "Song C",
-                "/Contents/C.flac",
+                c_path,
                 &Meta {
                     label_id: 5,
                     ..Meta::default()
@@ -1092,5 +1097,165 @@ fn invalid_drive_is_a_usage_error_without_output() {
         assert_eq!(out.status.code(), Some(2), "{extra:?}");
         assert!(!xml.exists());
     }
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+/// 30 s mono 16-bit WAV with a click train at `bpm` (first click at 0.3 s).
+fn click_wav(bpm: f64) -> Vec<u8> {
+    const RATE: u32 = 22_050;
+    let n = 30 * RATE as usize;
+    let mut out = vec![0.0f64; n];
+    let len = (0.25 * f64::from(RATE)) as usize;
+    let mut hit = 0.3;
+    while hit < 30.0 {
+        let start = (hit * f64::from(RATE)).round() as usize;
+        for (i, slot) in out.iter_mut().skip(start).take(len).enumerate() {
+            let t = i as f64 / f64::from(RATE);
+            *slot += 0.6 * (std::f64::consts::TAU * 55.0 * t).sin() * (-t / 0.06).exp()
+                + 0.3 * (std::f64::consts::TAU * 1_800.0 * t).sin() * (-t / 0.004).exp();
+        }
+        hit += 60.0 / bpm;
+    }
+    let data: Vec<u8> = out
+        .iter()
+        .flat_map(|s| ((s * 32_000.0) as i16).to_le_bytes())
+        .collect();
+    let mut wav = b"RIFF".to_vec();
+    wav.extend((36 + data.len() as u32).to_le_bytes());
+    wav.extend(b"WAVEfmt ");
+    wav.extend(16u32.to_le_bytes());
+    wav.extend(1u16.to_le_bytes());
+    wav.extend(1u16.to_le_bytes());
+    wav.extend(RATE.to_le_bytes());
+    wav.extend((RATE * 2).to_le_bytes());
+    wav.extend(2u16.to_le_bytes());
+    wav.extend(16u16.to_le_bytes());
+    wav.extend(b"data");
+    wav.extend((data.len() as u32).to_le_bytes());
+    wav.extend(data);
+    wav
+}
+
+/// M7 slice 5 end to end: a click-track WAV under a local `Contents/` tree is
+/// imported and analysed; `--computed-grids` writes exactly one constant TEMPO
+/// (first computed beat, computed BPM, 4/4, beat 1) for the library track that
+/// has no Rekordbox grid, fills its missing AverageBpm, keeps the vendor grid, and reports counts only. Without the flag the export is unchanged.
+#[test]
+fn computed_grids_option_writes_one_tempo_for_the_grid_less_track_only() {
+    let dir = scratch();
+    let device = dir.join("device");
+    std::fs::create_dir_all(device.join("PIONEER/rekordbox")).unwrap();
+    let pdb = device.join("PIONEER/rekordbox/export.pdb");
+    std::fs::write(&pdb, synthetic_pdb_with(None, "/Contents/C.wav")).unwrap();
+    write_analysis(&device);
+    let local = dir.join("local");
+    std::fs::create_dir_all(local.join("Contents")).unwrap();
+    let wav = click_wav(128.0);
+    std::fs::write(local.join("Contents/C.wav"), &wav).unwrap();
+    let catalog = dir.join("catalog.sqlite");
+    stdout(&cli(&[
+        s("catalog"),
+        s("import-library"),
+        s("--pdb"),
+        pdb.as_os_str(),
+        s("--catalog"),
+        catalog.as_os_str(),
+    ]));
+    stdout(&cli(&[
+        s("catalog"),
+        s("import"),
+        s("--dir"),
+        local.as_os_str(),
+        s("--db"),
+        catalog.as_os_str(),
+    ]));
+    let analysed = stdout(&cli(&[
+        s("catalog"),
+        s("analyze-tempo"),
+        s("--db"),
+        catalog.as_os_str(),
+    ]));
+    assert!(analysed.contains("Analyzed: 1"), "{analysed}");
+
+    // Oracle values straight from the stored computed grid.
+    let stored = oxidj_library::Catalog::open(&catalog)
+        .unwrap()
+        .computed_beat_grid(oxidj_core::TrackId::new(1).unwrap())
+        .unwrap()
+        .expect("click track analysed");
+    assert!(
+        (stored.grid.bpm() - 128.0).abs() <= 0.5,
+        "{}",
+        stored.grid.bpm()
+    );
+    assert!(
+        stored.grid.confidence() >= 0.5,
+        "{}",
+        stored.grid.confidence()
+    );
+    let first = stored.grid.beats_ms()[0];
+    let start = format!("{}.{:03}", first / 1000, first % 1000);
+    let bpm = format!("{:.2}", stored.grid.bpm());
+
+    let mut oracle = expected();
+    oracle.tracks[2]
+        .iter_mut()
+        .find(|(k, _)| k == "Location")
+        .unwrap()
+        .1 = "file://localhost/Contents/C.wav".into();
+    let plain = dir.join("plain.xml");
+    let plain_report = stdout(&export_with(&catalog, &plain, &[]));
+    assert!(!plain_report.contains("ComputedGrid"), "{plain_report}");
+    let plain_bytes = std::fs::read(&plain).unwrap();
+    assert_eq!(decode(&plain_bytes), oracle, "no flag: unchanged export");
+
+    let xml = dir.join("computed.xml");
+    let report = stdout(&export_with(&catalog, &xml, &["--computed-grids"]));
+    assert_aggregate_only(&report);
+    for line in [
+        "ComputedGridWritten: 1",
+        // Song B's grid is unresolved in the source (empty) and its absolute
+        // location has no local file: refused as no match.
+        "VendorGridKept: 1",
+        "SkippedLowConfidence: 0",
+        "SkippedNotAnalyzed: 0",
+        "SkippedNoMatch: 1",
+        "SkippedAmbiguous: 0",
+        "PreviewVerified: true",
+    ] {
+        assert!(report.lines().any(|l| l == line), "{line}: {report}");
+    }
+    oracle.tracks[2]
+        .iter_mut()
+        .find(|(k, _)| k == "AverageBpm")
+        .unwrap()
+        .1 = bpm.clone();
+    oracle.children[2] = vec![tempo(&start, &bpm, "1")];
+    assert_eq!(decode(&std::fs::read(&xml).unwrap()), oracle);
+
+    // Combined with --drive (either order): only Location prefixes differ.
+    let drive = dir.join("drive.xml");
+    stdout(&export_with(
+        &catalog,
+        &drive,
+        &["--computed-grids", "--drive", "D"],
+    ));
+    let want = String::from_utf8(std::fs::read(&xml).unwrap())
+        .unwrap()
+        .replace(
+            "file://localhost/Contents/",
+            "file://localhost/D:/Contents/",
+        );
+    assert_eq!(
+        String::from_utf8(std::fs::read(&drive).unwrap()).unwrap(),
+        want
+    );
+    // Repeating the flag is a usage error and writes nothing.
+    let twice = dir.join("twice.xml");
+    let out = export_with(&catalog, &twice, &["--computed-grids", "--computed-grids"]);
+    assert_eq!(out.status.code(), Some(2));
+    assert!(!twice.exists());
+    // Sources are only read.
+    assert_eq!(std::fs::read(local.join("Contents/C.wav")).unwrap(), wav);
     std::fs::remove_dir_all(dir).unwrap();
 }

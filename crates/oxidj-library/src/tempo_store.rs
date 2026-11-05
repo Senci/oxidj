@@ -44,6 +44,22 @@ pub struct StoredBeatGrid {
     pub grid: TempoGrid,
 }
 
+/// The computed grid for an imported library track's `location` (M7 slice 5),
+/// found by the reverse of the device-relative lookup used by
+/// [`Catalog::beat_grid_for_locations`].
+#[derive(Clone, Debug, PartialEq)]
+pub enum LibraryComputedGrid {
+    /// Exactly one local track matches and it has a stored computed grid.
+    Found(StoredBeatGrid),
+    /// Exactly one local track matches but it has no computed grid.
+    NotAnalyzed,
+    /// No local track matches the location.
+    NoMatch,
+    /// More than one local track matches, or the matching local file also
+    /// matches a different library location: refused (fail closed).
+    Ambiguous,
+}
+
 fn track_key(id: TrackId) -> Result<i64, CatalogError> {
     i64::try_from(id.as_u64())
         .map_err(|_| CatalogError::InvalidRecord("track ID exceeds SQLite range"))
@@ -130,6 +146,86 @@ impl Catalog {
             [track_key(id)?],
         )?;
         Ok(removed > 0)
+    }
+
+    /// The computed grid of the local track that an imported library `location`
+    /// names. Read-only.
+    ///
+    /// 1. Exact: a local track whose path equals the location's (percent-decoded)
+    ///    path.
+    /// 2. Device-relative: when the decoded path starts with `/Contents/`, the
+    ///    local tracks whose path ends with it (a component-boundary suffix,
+    ///    case-sensitive bytes). Zero → [`LibraryComputedGrid::NoMatch`]; more
+    ///    than one, or a match that also ends with a *different* library
+    ///    `/Contents/` path (nested suffixes) → [`LibraryComputedGrid::Ambiguous`].
+    ///
+    /// Any other location form is [`LibraryComputedGrid::NoMatch`].
+    pub fn computed_beat_grid_for_library_location(
+        &self,
+        location: &str,
+    ) -> Result<LibraryComputedGrid, CatalogError> {
+        let Some(wanted) = super::waveform_store::decoded_path(location) else {
+            return Ok(LibraryComputedGrid::NoMatch);
+        };
+        let mut statement = self
+            .connection
+            .prepare("SELECT id, path FROM tracks ORDER BY id")?;
+        let locals = statement
+            .query_map([], |row| {
+                Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        let pick = |hits: Vec<i64>| match hits.as_slice() {
+            [] => None,
+            [one] => Some(Some(*one)),
+            _ => Some(None),
+        };
+        let exact: Vec<i64> = locals
+            .iter()
+            .filter(|(_, path)| path.as_bytes() == wanted.as_slice())
+            .map(|(id, _)| *id)
+            .collect();
+        let found = match pick(exact) {
+            Some(found) => found,
+            None if wanted.starts_with(b"/Contents/") => {
+                let hits: Vec<&(i64, String)> = locals
+                    .iter()
+                    .filter(|(_, path)| path.as_bytes().ends_with(&wanted))
+                    .collect();
+                match hits.as_slice() {
+                    [] => return Ok(LibraryComputedGrid::NoMatch),
+                    [(id, path)] => {
+                        let mut rivals = self
+                            .connection
+                            .prepare("SELECT location FROM library_tracks")?;
+                        let mut rows = rivals.query([])?;
+                        let mut rival = false;
+                        while let Some(row) = rows.next()? {
+                            let other: String = row.get(0)?;
+                            if let Some(other) = super::waveform_store::decoded_path(&other)
+                                && other != wanted
+                                && other.starts_with(b"/Contents/")
+                                && path.as_bytes().ends_with(&other)
+                            {
+                                rival = true;
+                                break;
+                            }
+                        }
+                        (!rival).then_some(*id)
+                    }
+                    _ => None,
+                }
+            }
+            None => return Ok(LibraryComputedGrid::NoMatch),
+        };
+        let Some(id) = found else {
+            return Ok(LibraryComputedGrid::Ambiguous);
+        };
+        let id = TrackId::new(u64::try_from(id).map_err(|_| bad())?).map_err(|_| bad())?;
+        Ok(match self.computed_beat_grid(id)? {
+            Some(stored) => LibraryComputedGrid::Found(stored),
+            None => LibraryComputedGrid::NotAnalyzed,
+        })
     }
 
     /// The computed grid of track `id`; `None` when none is stored. A row with
@@ -325,6 +421,82 @@ mod tests {
         assert!(catalog.remove_computed_beat_grid(track.id).unwrap());
         assert!(!catalog.remove_computed_beat_grid(track.id).unwrap());
         assert_eq!(catalog.computed_beat_grid(track.id).unwrap(), None);
+        drop(catalog);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// M7 slice 5: library location → local computed grid, the reverse of the
+    /// W10 device-relative rule. Unique match only; every refusal is exact.
+    #[test]
+    fn library_location_finds_unique_local_computed_grid_or_refuses() {
+        use crate::{LibrarySnapshot, LibraryTrack};
+        let path = db();
+        let mut catalog = Catalog::open(&path).unwrap();
+        let mut local = |op: &str, p: &str| catalog.insert_track(op, p, [7; 32], 10).unwrap().id;
+        let song = local("1", "/m/Contents/Art/a b.wav");
+        let plain = local("2", "/m/Contents/Art/plain.wav");
+        local("3", "/x/Contents/Twin/t.wav");
+        local("4", "/y/Contents/Twin/t.wav");
+        let nested = local("5", "/m/Contents/Z/Contents/Dup/x.wav");
+        let absolute = local("6", "/abs/q.wav");
+        let library = |locations: &[&str]| LibrarySnapshot {
+            tracks: locations
+                .iter()
+                .map(|l| LibraryTrack {
+                    title: "T".into(),
+                    location: (*l).into(),
+                    ..LibraryTrack::default()
+                })
+                .collect(),
+            roots: vec![],
+        };
+        catalog
+            .import_library(&library(&[
+                "file://localhost/Contents/Art/a%20b.wav",
+                "file://localhost/Contents/Dup/x.wav",
+                "file://localhost/Contents/Z/Contents/Dup/x.wav",
+            ]))
+            .unwrap();
+        for id in [song, nested, absolute] {
+            catalog
+                .store_computed_beat_grid(id, [7; 32], BASIS, &grid(128.0))
+                .unwrap();
+        }
+        let found = |g: &LibraryComputedGrid| matches!(g, LibraryComputedGrid::Found(s) if s.grid == grid(128.0));
+        let look = |l: &str| catalog.computed_beat_grid_for_library_location(l).unwrap();
+        assert!(found(&look("file://localhost/Contents/Art/a%20b.wav")));
+        assert!(found(&look("file://localhost/abs/q.wav")), "exact path");
+        assert!(found(&look("/abs/q.wav")), "exact plain path");
+        assert_eq!(
+            look("file://localhost/Contents/Art/plain.wav"),
+            LibraryComputedGrid::NotAnalyzed
+        );
+        let _ = plain;
+        assert_eq!(
+            look("file://localhost/Contents/Twin/t.wav"),
+            LibraryComputedGrid::Ambiguous,
+            "two local files share the suffix"
+        );
+        // The nested local file ends with both library paths: refused for both.
+        assert_eq!(
+            look("file://localhost/Contents/Dup/x.wav"),
+            LibraryComputedGrid::Ambiguous
+        );
+        assert_eq!(
+            look("file://localhost/Contents/Z/Contents/Dup/x.wav"),
+            LibraryComputedGrid::Ambiguous
+        );
+        for none in [
+            "file://localhost/Contents/Art/missing.wav",
+            "file://localhost/Contents/Art/A%20B.wav", // case-sensitive
+            "file://localhost/Contents/Art/b.wav",     // partial file name
+            "file://localhost/D:/Contents/Art/a%20b.wav", // drive-qualified
+            "file://localhost/Art/a%20b.wav",          // not device-relative
+            "file://localhost/Contents/Art/a%2Gb.wav", // malformed escape
+            "Contents/Art/a b.wav",                    // relative
+        ] {
+            assert_eq!(look(none), LibraryComputedGrid::NoMatch, "{none}");
+        }
         drop(catalog);
         let _ = std::fs::remove_file(&path);
     }

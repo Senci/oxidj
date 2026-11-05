@@ -36,7 +36,7 @@ oxidj-cli catalog import-library --pdb /media/USB/PIONEER/rekordbox/export.pdb -
 oxidj-cli catalog export-library-xml --catalog lib.sqlite --output rekordbox.xml --drive D
 ```
 
-`--drive D` writes device-relative locations as `file://localhost/D:/Contents/…` (one letter A–Z, case-insensitive; other locations are unchanged; without it the export is unchanged). Owner-verified in real Rekordbox on Windows (2026-11-04): the export loads all tracks with BPM, key and CUE markers. Steps:
+`--drive D` writes device-relative locations as `file://localhost/D:/Contents/…` (one letter A–Z, case-insensitive; other locations are unchanged; without it the export is unchanged). Opt-in `--computed-grids` gives tracks without a Rekordbox beat grid one constant `TEMPO` from OxiDJ's computed grid (run `catalog import --dir <copy of the stick> --db lib.sqlite` and `catalog analyze-tempo --db lib.sqlite` first; the local file must uniquely match the track's `/Contents/…` path and the analyser confidence must be at least 0.5); Rekordbox grids are never replaced, and the report prints counts only. Owner-verified in real Rekordbox on Windows (2026-11-04): the export loads all tracks with BPM, key and CUE markers. Steps:
 
 1. Use the drive letter Windows gives the USB stick for `--drive`.
 2. Copy the XML to a **local** drive — opening it from a network/UNC share fails with "unable to be read properly".
