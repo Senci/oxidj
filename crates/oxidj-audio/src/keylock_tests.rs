@@ -355,7 +355,8 @@ fn key_lock_tempo_change_keeps_position_monotonic_and_on_the_clicks() {
 fn key_lock_tempo_change_just_before_a_beat_stays_on_the_click() {
     for new_speed in [0.84, 1.16] {
         for ahead_of_beat in [
-            2400.0, 2700.0, 3000.0, 3300.0, 3728.0, 4100.0, 4500.0, 4850.0, 5200.0, 5600.0, 6000.0,
+            600.0, 1200.0, 1800.0, 2400.0, 2700.0, 3000.0, 3300.0, 3728.0, 4100.0, 4500.0, 4850.0,
+            5200.0, 5600.0, 6000.0,
         ] {
             let (mut e, mut r) = deck_with(clicks(RATE, 30.0, 120.0, 0.0, 0.9, Side::Both), 0);
             // Play 37 blocks of 256 up to `ahead_of_beat` before the click
@@ -382,8 +383,18 @@ fn key_lock_tempo_change_just_before_a_beat_stays_on_the_click() {
             assert!(times.len() >= 2, "{label}: {} clicks", times.len());
             let first = times[0];
             let at = heard_at(&pos, before, 48_000.0).expect("click frame reached");
-            eprintln!("DIAG {label}: err {:.3}", at - first);
-            eprintln!("LAT {:?}", 0);
+            // ADR-008 D3 addendum: a fader move 2400..=5800 frames before a
+            // beat may place that one beat up to 5 ms off (block-quantised
+            // stretcher placement); everywhere else it stays under 1 ms.
+            let bound = if (2400.0..=5800.0).contains(&ahead_of_beat) {
+                5.0
+            } else {
+                1.0
+            };
+            assert!(
+                (at - first).abs() < bound,
+                "{label}: click 48000 rendered at {first:.3} ms, published at {at:.3} ms (bound {bound} ms)"
+            );
             let at = heard_at(&pos, before, 72_000.0).expect("next click reached");
             assert!(
                 (at - times[1]).abs() < 1.0,
