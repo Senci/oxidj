@@ -121,7 +121,8 @@ fn to_i64(value: usize) -> Result<i64, CatalogError> {
     i64::try_from(value).map_err(|_| CatalogError::InvalidRecord("library index exceeds range"))
 }
 
-/// Playlist names must be nonblank XML 1.0 text so the catalog remains exportable.
+/// Playlist names must be nonblank XML 1.0 text supported by the library exporter.
+/// Like the exporter, reject controls other than TAB/LF/CR before mutation.
 /// Valid names are retained verbatim (including leading/trailing whitespace).
 pub fn validate_library_playlist_name(name: &str) -> Result<(), CatalogError> {
     if name.trim().is_empty() {
@@ -130,10 +131,11 @@ pub fn validate_library_playlist_name(name: &str) -> Result<(), CatalogError> {
         ));
     }
     if !name.chars().all(|c| {
-        matches!(c,
-            '\u{9}' | '\u{a}' | '\u{d}' | '\u{20}'..='\u{d7ff}' |
-            '\u{e000}'..='\u{fffd}' | '\u{10000}'..='\u{10ffff}'
-        )
+        (!c.is_control() || matches!(c, '\t' | '\n' | '\r'))
+            && matches!(c,
+                '\u{9}' | '\u{a}' | '\u{d}' | '\u{20}'..='\u{d7ff}' |
+                '\u{e000}'..='\u{fffd}' | '\u{10000}'..='\u{10ffff}'
+            )
     }) {
         return Err(CatalogError::InvalidRecord(
             "playlist name contains invalid XML 1.0 text",
@@ -808,12 +810,12 @@ mod tests {
             .unwrap();
         assert_eq!(
             catalog
-                .create_library_playlist(" Mix & <set> ", &[2, 0, 2])
+                .create_library_playlist(" Mix & <set> \t\n\r Café 音 🎵 ", &[2, 0, 2])
                 .unwrap(),
             3
         );
         expected.roots.push(LibraryNode::Playlist {
-            name: " Mix & <set> ".into(),
+            name: " Mix & <set> \t\n\r Café 音 🎵 ".into(),
             members: vec![2, 0, 2],
         });
         drop(catalog);
@@ -858,6 +860,16 @@ mod tests {
             (" \n\t", vec![0], "playlist name must not be blank"),
             (
                 "bad\u{1}",
+                vec![0],
+                "playlist name contains invalid XML 1.0 text",
+            ),
+            (
+                "bad\u{7f}",
+                vec![0],
+                "playlist name contains invalid XML 1.0 text",
+            ),
+            (
+                "bad\u{85}",
                 vec![0],
                 "playlist name contains invalid XML 1.0 text",
             ),

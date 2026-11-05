@@ -965,6 +965,16 @@ fn catalog_playlist_creation_persists_order_and_preserves_the_exported_library()
             "playlist name contains invalid XML 1.0 text",
         ),
         (
+            "bad\u{7f}",
+            "1",
+            "playlist name contains invalid XML 1.0 text",
+        ),
+        (
+            "bad\u{85}",
+            "1",
+            "playlist name contains invalid XML 1.0 text",
+        ),
+        (
             "bad\u{ffff}",
             "1",
             "playlist name contains invalid XML 1.0 text",
@@ -997,6 +1007,10 @@ fn catalog_playlist_creation_persists_order_and_preserves_the_exported_library()
             original
         );
     }
+    // Refused names must not poison the next fresh-process export.
+    let after_refusals = dir.join("after-refusals.xml");
+    stdout(&export(&after_refusals));
+    assert_eq!(decode(&std::fs::read(after_refusals).unwrap()), baseline);
     for tail in [
         vec![s("--unknown"), s("value")],
         vec![s("--name"), s("Again")],
@@ -1034,7 +1048,7 @@ fn catalog_playlist_creation_persists_order_and_preserves_the_exported_library()
         s("--catalog"),
         catalog.as_os_str(),
         s("--name"),
-        s("New & <ordered> \"mix\""),
+        s("New & <ordered> \"mix\"\t\n\r Café 音 🎵"),
         s("--track-ids"),
         s("3,1,3"),
     ]);
@@ -1050,7 +1064,7 @@ fn catalog_playlist_creation_persists_order_and_preserves_the_exported_library()
         s("--catalog"),
         catalog.as_os_str(),
         s("--name"),
-        s("New & <ordered> \"mix\""),
+        s("New & <ordered> \"mix\"\t\n\r Café 音 🎵"),
         s("--track-ids"),
         s("3,1,3"),
     ]);
@@ -1074,7 +1088,7 @@ fn catalog_playlist_creation_persists_order_and_preserves_the_exported_library()
         panic!("missing root")
     };
     roots.push(Node::Playlist(
-        "New & <ordered> \"mix\"".into(),
+        "New & <ordered> \"mix\"\t\n\r Café 音 🎵".into(),
         vec!["3".into(), "1".into(), "3".into()],
     ));
     let bytes = std::fs::read(&xml).unwrap();
