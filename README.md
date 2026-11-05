@@ -47,6 +47,34 @@ The owner has confirmed in Rekordbox that imported tracks, BPM, key, cues and be
 
 The first major product proof — the MVP (idea.md) — is library-first: import a real DJ library, manage it safely in OxiDJ, export it again, and continue using compatible DJ software/hardware without unexpected metadata loss.
 
+## Create an ordered playlist in an imported catalog
+
+First export the catalog, then select the `TrackID` values from that export's
+`COLLECTION/TRACK` entries (use `Name`/`Location` to identify the tracks):
+
+```sh
+oxidj-cli catalog export-library-xml --catalog lib.sqlite --output before.xml --drive D
+oxidj-cli catalog create-library-playlist --catalog lib.sqlite --name 'New set' --track-ids 3,1,3
+oxidj-cli catalog export-library-xml --catalog lib.sqlite --output with-playlist.xml --drive D
+```
+
+IDs here are **this catalog's exported XML TrackIDs** (imported track position + 1),
+not local-audio `TrackId`s, original PDB IDs, or IDs from another catalog/XML file.
+The command commits one new root playlist after all existing root nodes; member
+order and duplicates are retained. It refuses an empty membership, malformed,
+zero or missing track IDs, blank/XML-invalid names, and any existing same-name
+root folder or playlist (including an identical retry). Success prints only
+`CreatedPlaylists: 1` and the membership count, after commit. The catalog must
+already exist and contain imported tracks; a missing path is never initialized.
+
+This edits **only the OxiDJ catalog**, not the source PDB/ANLZ, vendor database,
+media files, or an existing XML. Export always requires a new output filename.
+The synthetic import → create → fresh-process export regression verifies the
+original library plus exactly one final playlist. This operation has not been
+verified in Rekordbox or on hardware; the historical round trip above is not
+qualification of playlist creation. ADR-005/A3, accessibility/platform and scale
+gates remain unverified. GUI playlist management is not included.
+
 ## Documentation
 
 - [docs/index.md](docs/index.md) — curated guide to key project documents, grouped by purpose.

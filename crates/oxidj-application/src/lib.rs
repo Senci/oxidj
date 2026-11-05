@@ -13,7 +13,7 @@ mod waveform;
 pub use library_import::{
     COMPUTED_GRID_MIN_CONFIDENCE, ComputedGridDecision, DriveLetter, LibraryExportReport,
     LibraryImportReport, LibraryWorkflowError, NotCarried, OneLibraryCrossCheck,
-    drive_qualified_location, export_library_xml, import_library_from_pdb,
+    create_library_playlist, drive_qualified_location, export_library_xml, import_library_from_pdb,
     library_from_pdb_preview, location_uri, onelibrary_cross_check,
 };
 /// The neutral peak model, re-exported so UI adapters need no direct core edge.

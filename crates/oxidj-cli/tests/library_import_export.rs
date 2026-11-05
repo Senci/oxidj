@@ -880,6 +880,256 @@ fn pdb_library_imports_into_new_catalog_and_exports_verified_xml_without_touchin
 }
 
 #[test]
+fn catalog_playlist_creation_persists_order_and_preserves_the_exported_library() {
+    let dir = scratch();
+    let device = dir.join("device");
+    std::fs::create_dir_all(device.join("PIONEER/rekordbox")).unwrap();
+    let pdb = device.join("PIONEER/rekordbox/export.pdb");
+    let source = synthetic_pdb(None);
+    std::fs::write(&pdb, &source).unwrap();
+    let analysis = write_analysis(&device);
+    let catalog = dir.join("catalog.sqlite");
+    stdout(&cli(&[
+        s("catalog"),
+        s("import-library"),
+        s("--pdb"),
+        pdb.as_os_str(),
+        s("--catalog"),
+        catalog.as_os_str(),
+    ]));
+    let baseline_xml = dir.join("baseline.xml");
+    let export = |path: &Path| {
+        cli(&[
+            s("catalog"),
+            s("export-library-xml"),
+            s("--catalog"),
+            catalog.as_os_str(),
+            s("--output"),
+            path.as_os_str(),
+        ])
+    };
+    stdout(&export(&baseline_xml));
+    let mut baseline = decode(&std::fs::read(&baseline_xml).unwrap());
+    assert_eq!(baseline, expected());
+    let original = oxidj_library::Catalog::open(&catalog)
+        .unwrap()
+        .library_snapshot()
+        .unwrap();
+    for (name, ids, reason) in [
+        ("New", "", "playlist membership must not be empty"),
+        (
+            "New",
+            "1,nope,3",
+            "track IDs must be comma-separated positive integers",
+        ),
+        (
+            "New",
+            "1,,3",
+            "track IDs must be comma-separated positive integers",
+        ),
+        (
+            "New",
+            "1,",
+            "track IDs must be comma-separated positive integers",
+        ),
+        (
+            "New",
+            "-1",
+            "track IDs must be comma-separated positive integers",
+        ),
+        (
+            "New",
+            "+1",
+            "track IDs must be comma-separated positive integers",
+        ),
+        (
+            "New",
+            "1, 2",
+            "track IDs must be comma-separated positive integers",
+        ),
+        (
+            "New",
+            "0",
+            "track IDs must be positive integers within range",
+        ),
+        (
+            "New",
+            "184467440737095516160",
+            "track IDs must be positive integers within range",
+        ),
+        ("New", "3,1,4", "playlist member references a missing track"),
+        ("  \t", "1", "playlist name must not be blank"),
+        (
+            "bad\u{1}",
+            "1",
+            "playlist name contains invalid XML 1.0 text",
+        ),
+        (
+            "bad\u{ffff}",
+            "1",
+            "playlist name contains invalid XML 1.0 text",
+        ),
+        ("Top", "1", "a root node with this name already exists"),
+        ("Folder", "1", "a root node with this name already exists"),
+    ] {
+        let refused = cli(&[
+            s("catalog"),
+            s("create-library-playlist"),
+            s("--catalog"),
+            catalog.as_os_str(),
+            s("--name"),
+            s(name),
+            s("--track-ids"),
+            s(ids),
+        ]);
+        assert!(!refused.status.success());
+        assert!(
+            refused.stdout.is_empty(),
+            "must not acknowledge failed commit"
+        );
+        let stderr = String::from_utf8_lossy(&refused.stderr);
+        assert!(stderr.contains(reason), "{stderr}");
+        assert_eq!(
+            oxidj_library::Catalog::open(&catalog)
+                .unwrap()
+                .library_snapshot()
+                .unwrap(),
+            original
+        );
+    }
+    for tail in [
+        vec![s("--unknown"), s("value")],
+        vec![s("--name"), s("Again")],
+        vec![s("--track-ids")],
+    ] {
+        let mut args = vec![
+            s("catalog"),
+            s("create-library-playlist"),
+            s("--catalog"),
+            catalog.as_os_str(),
+            s("--name"),
+            s("New"),
+            s("--track-ids"),
+            s("3,1,3"),
+        ];
+        args.extend(tail);
+        let refused = cli(&args);
+        assert!(!refused.status.success());
+        assert!(refused.stdout.is_empty());
+        assert!(
+            String::from_utf8_lossy(&refused.stderr)
+                .contains("expected catalog create-library-playlist")
+        );
+        assert_eq!(
+            oxidj_library::Catalog::open(&catalog)
+                .unwrap()
+                .library_snapshot()
+                .unwrap(),
+            original
+        );
+    }
+    let created = cli(&[
+        s("catalog"),
+        s("create-library-playlist"),
+        s("--catalog"),
+        catalog.as_os_str(),
+        s("--name"),
+        s("New & <ordered> \"mix\""),
+        s("--track-ids"),
+        s("3,1,3"),
+    ]);
+    assert_eq!(stdout(&created), "CreatedPlaylists: 1\nMemberships: 3\n");
+    assert!(created.stderr.is_empty());
+    let committed = oxidj_library::Catalog::open(&catalog)
+        .unwrap()
+        .library_snapshot()
+        .unwrap();
+    let repeated = cli(&[
+        s("catalog"),
+        s("create-library-playlist"),
+        s("--catalog"),
+        catalog.as_os_str(),
+        s("--name"),
+        s("New & <ordered> \"mix\""),
+        s("--track-ids"),
+        s("3,1,3"),
+    ]);
+    assert!(!repeated.status.success());
+    assert!(repeated.stdout.is_empty());
+    assert!(
+        String::from_utf8_lossy(&repeated.stderr)
+            .contains("a root node with this name already exists")
+    );
+    assert_eq!(
+        oxidj_library::Catalog::open(&catalog)
+            .unwrap()
+            .library_snapshot()
+            .unwrap(),
+        committed
+    );
+    // Each CLI invocation is a fresh process; export must observe committed data.
+    let xml = dir.join("after.xml");
+    stdout(&export(&xml));
+    let Node::Folder(_, roots) = &mut baseline.root else {
+        panic!("missing root")
+    };
+    roots.push(Node::Playlist(
+        "New & <ordered> \"mix\"".into(),
+        vec!["3".into(), "1".into(), "3".into()],
+    ));
+    let bytes = std::fs::read(&xml).unwrap();
+    assert_eq!(decode(&bytes), baseline);
+    let again = export(&xml);
+    assert!(!again.status.success());
+    assert!(
+        String::from_utf8_lossy(&again.stderr).contains("refusing to overwrite existing output")
+    );
+    assert_eq!(std::fs::read(&xml).unwrap(), bytes);
+    assert_eq!(std::fs::read(&pdb).unwrap(), source);
+    for (path, bytes) in analysis {
+        assert_eq!(std::fs::read(path).unwrap(), bytes);
+    }
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn catalog_playlist_creation_requires_an_existing_imported_catalog() {
+    let dir = scratch();
+    let catalog = dir.join("catalog.sqlite");
+    let create = || {
+        cli(&[
+            s("catalog"),
+            s("create-library-playlist"),
+            s("--catalog"),
+            catalog.as_os_str(),
+            s("--name"),
+            s("New"),
+            s("--track-ids"),
+            s("1"),
+        ])
+    };
+    let missing = create();
+    assert!(!missing.status.success());
+    assert!(missing.stdout.is_empty());
+    assert!(String::from_utf8_lossy(&missing.stderr).contains("catalog does not exist"));
+    assert!(!catalog.exists());
+    assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 0);
+    drop(oxidj_library::Catalog::open(&catalog).unwrap());
+    let empty = create();
+    assert!(!empty.status.success());
+    assert!(empty.stdout.is_empty());
+    assert!(String::from_utf8_lossy(&empty.stderr).contains("catalog holds no imported tracks"));
+    assert_eq!(
+        oxidj_library::Catalog::open(&catalog)
+            .unwrap()
+            .library_snapshot()
+            .unwrap(),
+        oxidj_library::LibrarySnapshot::default()
+    );
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
 fn import_and_export_fail_closed_without_creating_or_replacing_files() {
     let dir = scratch();
     let pdb = dir.join("export.pdb");

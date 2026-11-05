@@ -1621,6 +1621,9 @@ fn run_catalog(args: &[String]) -> i32 {
     if action == "import-library" {
         return run_import_library(&args[1..]);
     }
+    if action == "create-library-playlist" {
+        return run_create_library_playlist(&args[1..]);
+    }
     if action == "export-library-xml" {
         return run_export_library_xml(&args[1..]);
     }
@@ -1946,6 +1949,47 @@ fn run_import_library(args: &[String]) -> i32 {
     }
 }
 
+/// Create in the catalog, never in the original vendor database. No SQL here.
+fn run_create_library_playlist(args: &[String]) -> i32 {
+    const EXPECTED: &str = "error: expected catalog create-library-playlist --catalog DB --name NAME --track-ids 3,1,3 (exported XML TrackIDs)";
+    let (mut catalog, mut name, mut ids) = (None, None, None);
+    let mut rest = args.iter();
+    while let Some(flag) = rest.next() {
+        let Some(value) = rest.next() else {
+            eprintln!("{EXPECTED}");
+            return USAGE;
+        };
+        let slot = match flag.as_str() {
+            "--catalog" => &mut catalog,
+            "--name" => &mut name,
+            "--track-ids" => &mut ids,
+            _ => {
+                eprintln!("{EXPECTED}");
+                return USAGE;
+            }
+        };
+        if slot.replace(value).is_some() {
+            eprintln!("{EXPECTED}");
+            return USAGE;
+        }
+    }
+    let (Some(catalog), Some(name), Some(ids)) = (catalog, name, ids) else {
+        eprintln!("{EXPECTED}");
+        return USAGE;
+    };
+    match oxidj_application::create_library_playlist(catalog, name, ids) {
+        Ok(memberships) => {
+            println!("CreatedPlaylists: 1");
+            println!("Memberships: {memberships}");
+            OK
+        }
+        Err(error) => {
+            eprintln!("error: create-library-playlist refused: {error}");
+            DOMAIN
+        }
+    }
+}
+
 /// `catalog export-library-xml --catalog DB --output NEW [--drive X] [--computed-grids]`:
 /// no-edit, new-file-only. `--drive` qualifies device-relative locations for
 /// Windows; `--computed-grids` writes OxiDJ's computed grid for tracks without a
@@ -2028,6 +2072,7 @@ fn print_usage(to_stdout: bool) {
   rekordbox preview --xml <path>   Read-only Rekordbox XML preview
   rekordbox pdb-preview --pdb <path> Read-only legacy DeviceSQL PDB preview
   catalog import-library --pdb <src> --catalog <new> [--onelibrary-db <db> --key-stdin]   Import a PDB library into a new catalog (aggregate-only report)
+  catalog create-library-playlist --catalog <db> --name <name> --track-ids <3,1,3>   Append an ordered root playlist in the catalog; IDs are exported XML TrackIDs, not audio/vendor IDs
   catalog export-library-xml --catalog <db> --output <new> [--drive <X>] [--computed-grids]   Export the imported library as new Rekordbox XML (no edits); --drive prefixes device-relative locations with X: for Windows Rekordbox; --computed-grids adds one TEMPO from OxiDJ's computed grid (confidence >= 0.5) to tracks without a Rekordbox grid",
     );
     let _ = writeln!(

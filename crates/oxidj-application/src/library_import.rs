@@ -792,6 +792,40 @@ fn verify_export(
         && actual_playlists == playlists
 }
 
+/// Append a root playlist to an existing imported catalog. `track_ids` is a
+/// comma-separated list of this catalog's exported XML TrackIDs (position + 1),
+/// not audio TrackIds or vendor IDs. Returns committed membership count only.
+pub fn create_library_playlist(
+    catalog: impl AsRef<Path>,
+    name: &str,
+    track_ids: &str,
+) -> Result<usize, LibraryWorkflowError> {
+    oxidj_library::validate_library_playlist_name(name)
+        .map_err(|e| LibraryWorkflowError(e.to_string()))?;
+    if track_ids.is_empty() {
+        return Err(fail("playlist membership must not be empty"));
+    }
+    let members: Vec<usize> = track_ids
+        .split(',')
+        .map(|id| {
+            if id.is_empty() || !id.bytes().all(|c| c.is_ascii_digit()) {
+                return Err(fail("track IDs must be comma-separated positive integers"));
+            }
+            id.parse::<usize>()
+                .ok()
+                .and_then(|id| id.checked_sub(1))
+                .ok_or_else(|| fail("track IDs must be positive integers within range"))
+        })
+        .collect::<Result<_, _>>()?;
+    if !catalog.as_ref().is_file() {
+        return Err(fail("catalog does not exist"));
+    }
+    let mut opened = Catalog::open(catalog).map_err(|e| LibraryWorkflowError(e.to_string()))?;
+    opened
+        .create_library_playlist(name, &members)
+        .map_err(|e| LibraryWorkflowError(e.to_string()))
+}
+
 /// Export a catalog's imported library as a NEW Rekordbox XML file, without edits.
 /// The bytes are re-parsed and verified before publication; nothing is written on
 /// failure and an existing output is never replaced. `drive` qualifies device-relative
