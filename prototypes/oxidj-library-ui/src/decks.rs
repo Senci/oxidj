@@ -45,8 +45,6 @@ pub const OVERVIEW_HEIGHT: f32 = 34.0;
 pub const GAP: f32 = 4.0;
 /// One control-strip row (WCAG 24 px targets).
 pub const ROW: f32 = 24.0;
-/// The mixer section: two control rows plus padding.
-pub const MIXER_HEIGHT: f32 = 2.0 * ROW + GAP + 8.0;
 /// Hot-cue pads per deck.
 pub const PADS: usize = 8;
 /// Detail window per "bar" when a deck has no beat grid (2/4/8/16 s).
@@ -1325,8 +1323,9 @@ const PADS_W: f32 = PADS as f32 * PAD_W + (PADS as f32 - 1.0) * PAD_GAP;
 const LOOPS_W: f32 = 4.0 * LOOP_W + 3.0 * BTN_GAP;
 const ROW2_WIDTH: f32 = CUE_W + BTN_GAP + PLAY_W + GROUP_GAP + PADS_W + GROUP_GAP + LOOPS_W;
 
-/// Total deck-area height for `sections` at window `screen` size.
-pub(crate) fn area_height(sections: DeckSections, screen: Rect) -> f32 {
+/// Total deck-area height for `sections` at window `screen` size, for a
+/// deck area `width` wide.
+pub(crate) fn area_height(sections: DeckSections, screen: Rect, width: f32) -> f32 {
     let column = (screen.width() - 16.0 - 12.0) / 2.0;
     let mut h = SECTION_BAR_HEIGHT;
     if sections.detail {
@@ -1336,7 +1335,7 @@ pub(crate) fn area_height(sections: DeckSections, screen: Rect) -> f32 {
         h += GAP + strip_height(column);
     }
     if sections.mixer {
-        h += GAP + MIXER_HEIGHT;
+        h += GAP + crate::mixer_view::mixer_height(width);
     }
     if sections.overviews {
         h += GAP + 2.0 * OVERVIEW_HEIGHT + 2.0;
@@ -1351,7 +1350,7 @@ impl LibraryApp {
         let width = ui.available_width();
         let screen = ui.ctx().screen_rect();
         let sections = self.settings.sections;
-        let height = area_height(sections, screen);
+        let height = area_height(sections, screen, width);
         let (area, _) = ui.allocate_exact_size(vec2(width, height), Sense::hover());
         layout.area = Some(area);
         let colours = [0, 1].map(|d| deck_colours(self.settings.deck_palette, d, tokens));
@@ -1373,7 +1372,7 @@ impl LibraryApp {
             self.control_strip(ui, r, tokens, colours, &mut layout);
         }
         if sections.mixer {
-            let r = take(MIXER_HEIGHT, &mut y);
+            let r = take(crate::mixer_view::mixer_height(width), &mut y);
             self.mixer(ui, r, tokens, colours, &mut layout);
         }
         if sections.overviews {

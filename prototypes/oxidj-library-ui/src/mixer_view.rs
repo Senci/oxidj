@@ -4,7 +4,11 @@
 //! right (each: deck chip, TRIM, HI, MID, LOW on the first row; FILTER,
 //! channel fader, level meter and the crossfader assign A / THRU / B on
 //! the second), the master volume with its meter and the crossfader in
-//! the centre. The crossfader has its own small icon toggle (also
+//! the centre. Narrower windows reflow instead of squeezing the knobs
+//! (see [`MixerFit`]): first the centre moves to a row below both
+//! channels, then the channels stack (A, centre, B), so every slider
+//! keeps at least [`SLIDER_MIN_W`] of travel and nothing overlaps.
+//! The crossfader has its own small icon toggle (also
 //! Ctrl+Shift+5 and Settings); hidden, it is out of the audio path.
 //!
 //! Every control is a native egui widget (sliders take arrow keys, the
@@ -33,6 +37,24 @@ const ASSIGN_W: f32 = 34.0;
 const CELL_GAP: f32 = 6.0;
 /// Crossfader icon toggle.
 const ICON_W: f32 = 24.0;
+/// Least slider travel a mixer knob keeps at any supported width.
+pub(crate) const SLIDER_MIN_W: f32 = 40.0;
+/// Least knob cell (label column for "FILTER" + travel).
+const CELL_MIN_W: f32 = 40.0 + SLIDER_MIN_W;
+/// Deck chip column before a channel's first knob.
+const CHIP_W: f32 = 24.0;
+/// Least channel-strip width: the wider of its two rows at minimum cells.
+const CHANNEL_MIN_W: f32 = {
+    let top = CHIP_W + 4.0 * CELL_MIN_W + 3.0 * CELL_GAP;
+    let bottom = CHIP_W + 2.0 * CELL_MIN_W + 3.0 * CELL_GAP + METER_W + 3.0 * ASSIGN_W + 4.0;
+    if top > bottom { top } else { bottom }
+};
+/// Least centre column (master + meter) in the wide layout.
+const CENTRE_MIN_W: f32 = 180.0;
+/// Gap between a channel strip and its neighbour.
+const SPLIT: f32 = 10.0;
+/// Inset of the controls inside the section outline.
+const INSET: f32 = 4.0;
 /// Arrow-key step of the trim knob (dB).
 pub(crate) const KNOB_DB_STEP: f64 = 1.0;
 /// Arrow-key step of the EQ knobs (position), filter, faders and crossfader.
@@ -137,7 +159,61 @@ pub(crate) fn level_meter(ui: &mut Ui, rect: Rect, meter: MeterLevel, name: &str
 }
 
 fn row(rect: Rect, k: usize) -> Rect {
-    Rect::from_min_size(pos2(rect.left(), rect.top() + k as f32 * (ROW + GAP)), vec2(rect.width(), ROW))
+    rows(rect, k, 1)
+}
+
+/// Rows `k .. k + n` of `rect` (ROW high, GAP apart).
+fn rows(rect: Rect, k: usize, n: usize) -> Rect {
+    let top = rect.top() + k as f32 * (ROW + GAP);
+    Rect::from_min_size(pos2(rect.left(), top), vec2(rect.width(), n as f32 * ROW + (n as f32 - 1.0) * GAP))
+}
+
+/// How the mixer arranges itself for a section `width` wide.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum MixerFit {
+    /// A | master + crossfader | B, two rows.
+    Wide,
+    /// A | B on two rows, crossfader + master on a third row below.
+    CentreBelow,
+    /// A (two rows), crossfader + master, B (two rows): five rows.
+    Stacked,
+}
+
+impl MixerFit {
+    pub(crate) fn of(width: f32) -> Self {
+        let inner = width - 2.0 * INSET;
+        let centre = (inner * 0.24).clamp(CENTRE_MIN_W, 300.0);
+        if (inner - centre - 2.0 * SPLIT) / 2.0 >= CHANNEL_MIN_W {
+            Self::Wide
+        } else if (inner - SPLIT) / 2.0 >= CHANNEL_MIN_W {
+            Self::CentreBelow
+        } else {
+            Self::Stacked
+        }
+    }
+
+    fn rows(self) -> usize {
+        match self {
+            Self::Wide => 2,
+            Self::CentreBelow => 3,
+            Self::Stacked => 5,
+        }
+    }
+}
+
+/// Mixer section height for a section `width` wide.
+pub(crate) fn mixer_height(width: f32) -> f32 {
+    let n = MixerFit::of(width).rows() as f32;
+    n * ROW + (n - 1.0) * GAP + 2.0 * INSET
+}
+
+/// One centre row split into (master + meter on the right, crossfader on
+/// the left), the master keeping a full-size knob.
+fn split_centre(r: Rect) -> (Rect, Rect) {
+    let master_w = (r.width() * 0.4).max(CELL_MIN_W + CELL_GAP + METER_W);
+    let master = Rect::from_min_max(pos2(r.right() - master_w, r.top()), r.max);
+    let xf = Rect::from_min_max(r.min, pos2(master.left() - 2.0 * CELL_GAP, r.bottom()));
+    (master, xf)
 }
 
 impl LibraryApp {
@@ -145,16 +221,33 @@ impl LibraryApp {
     pub(crate) fn mixer(&mut self, ui: &mut Ui, r: Rect, tokens: ColorTokens, colours: [DeckColours; 2], layout: &mut DeckLayout) {
         // Outline only: a surface fill would hide the slider rails.
         ui.painter().rect_stroke(r, 3.0, Stroke::new(1.0_f32, tokens.border), egui::StrokeKind::Inside);
-        let inner = r.shrink(4.0);
-        let centre_w = (inner.width() * 0.24).clamp(180.0, 300.0);
-        let centre = Rect::from_center_size(inner.center(), vec2(centre_w, inner.height()));
-        let cols = [
-            Rect::from_min_max(inner.min, pos2(centre.left() - 10.0, inner.bottom())),
-            Rect::from_min_max(pos2(centre.right() + 10.0, inner.top()), inner.max),
-        ];
-        // Creation order = Tab order: A, centre, B (left to right).
+        let inner = r.shrink(INSET);
+        let halves = |band: Rect| {
+            let w = (band.width() - SPLIT) / 2.0;
+            [Rect::from_min_size(band.min, vec2(w, band.height())), Rect::from_min_max(pos2(band.right() - w, band.top()), band.max)]
+        };
+        let (cols, master_row, xf_row) = match MixerFit::of(r.width()) {
+            MixerFit::Wide => {
+                let centre_w = (inner.width() * 0.24).clamp(CENTRE_MIN_W, 300.0);
+                let centre = Rect::from_center_size(inner.center(), vec2(centre_w, inner.height()));
+                let cols = [
+                    Rect::from_min_max(inner.min, pos2(centre.left() - SPLIT, inner.bottom())),
+                    Rect::from_min_max(pos2(centre.right() + SPLIT, inner.top()), inner.max),
+                ];
+                (cols, row(centre, 0), row(centre, 1))
+            }
+            MixerFit::CentreBelow => {
+                let (m, x) = split_centre(row(inner, 2));
+                (halves(rows(inner, 0, 2)), m, x)
+            }
+            MixerFit::Stacked => {
+                let (m, x) = split_centre(row(inner, 2));
+                ([rows(inner, 0, 2), rows(inner, 3, 2)], m, x)
+            }
+        };
+        // Creation order = Tab order: A, centre, B (left to right / top down).
         self.channel_strip(ui, 0, cols[0], tokens, colours[0], layout);
-        self.mixer_centre(ui, centre, tokens, layout);
+        self.mixer_centre(ui, master_row, xf_row, tokens, layout);
         self.channel_strip(ui, 1, cols[1], tokens, colours[1], layout);
         layout.mixer = Some(r);
     }
@@ -166,7 +259,7 @@ impl LibraryApp {
         let deck = &mut self.decks.decks[d];
         let top = row(col, 0);
         chip(ui.painter(), Rect::from_min_size(top.min + vec2(0.0, 3.0), vec2(18.0, 18.0)), letter, c);
-        let x0 = top.left() + 24.0;
+        let x0 = top.left() + CHIP_W;
         let cw = ((top.right() - x0) - 3.0 * CELL_GAP) / 4.0;
         let cell = |k: usize, rr: Rect| Rect::from_min_size(pos2(x0 + k as f32 * (cw + CELL_GAP), rr.top()), vec2(cw, ROW));
         let ch = &mut deck.channel;
@@ -226,8 +319,8 @@ impl LibraryApp {
         layout.assign[d] = Some(rects);
     }
 
-    fn mixer_centre(&mut self, ui: &mut Ui, centre: Rect, tokens: ColorTokens, layout: &mut DeckLayout) {
-        let top = row(centre, 0);
+    /// Master volume + meter in `top`, crossfader toggle + rail in `bottom`.
+    fn mixer_centre(&mut self, ui: &mut Ui, top: Rect, bottom: Rect, tokens: ColorTokens, layout: &mut DeckLayout) {
         let meter_r = Rect::from_min_size(pos2(top.right() - METER_W, top.top()), vec2(METER_W, ROW));
         let master_r = Rect::from_min_max(top.min, pos2(meter_r.left() - CELL_GAP, top.bottom()));
         let hover = format!("Master volume {:.0} % (double-click resets)", self.decks.master * 100.0);
@@ -235,8 +328,7 @@ impl LibraryApp {
         layout.master = Some(master_r);
         level_meter(ui, meter_r, self.decks.meters[2], "Master level", tokens);
         layout.meters[2] = Some(meter_r);
-        // Row 2: crossfader icon toggle, then the crossfader.
-        let bottom = row(centre, 1);
+        // Crossfader icon toggle, then the crossfader.
         let icon_r = Rect::from_min_size(bottom.min, vec2(ICON_W, ROW));
         let on = self.settings.crossfader;
         let response = ui.interact(icon_r, ui.id().with("crossfader-toggle"), Sense::click());

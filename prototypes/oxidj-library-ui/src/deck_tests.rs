@@ -1423,6 +1423,101 @@ impl eframe::Storage for MemStore {
     fn flush(&mut self) {}
 }
 
+/// D4 review round 1: the mixer reflows instead of squeezing. At every
+/// supported window size each slider (actual AccessKit bounds) keeps
+/// usable travel inside the mixer and the window, no control overlaps
+/// another, a real pointer drag reaches both ends of FILTER and VOL with
+/// the right sign, and the arrow keys reach the filter's stops.
+#[test]
+fn mixer_keeps_usable_non_overlapping_controls_at_narrow_windows() {
+    use crate::mixer_view::{MixerFit, SLIDER_MIN_W};
+    let (root, mut h) = fresh("mixnarrow", 10.0);
+    h.select_and_load("a-120.wav", egui::Key::A);
+    h.app.settings.sections.mixer = true;
+    let sliders = |letter: &str| ["trim", "EQ high", "EQ mid", "EQ low", "filter", "volume"].map(|n| format!("Deck {letter} {n}"));
+    let mut fits = Vec::new();
+    for (w, ht) in [(1440.0, 900.0), (1024.0, 768.0), (800.0, 600.0), (640.0, 480.0)] {
+        h.viewport = egui::vec2(w, ht);
+        let out = h.settle();
+        let l = h.layout();
+        let mixer = l.mixer.expect("mixer shown");
+        fits.push(MixerFit::of(mixer.width()));
+        assert!(mixer.bottom() <= ht && mixer.right() <= w, "{w}x{ht}: mixer {mixer:?} inside the window");
+        // Slider bounds as the platform sees them.
+        let mut names: Vec<String> = sliders("A").into_iter().chain(sliders("B")).collect();
+        names.extend(["Master volume".to_owned(), "Crossfader".to_owned()]);
+        let mut rects: Vec<(String, Rect)> = names
+            .iter()
+            .map(|n| {
+                let b = node(&out, n).bounds().unwrap_or_else(|| panic!("{n} has bounds"));
+                (n.clone(), Rect::from_min_max(egui::pos2(b.x0 as f32, b.y0 as f32), egui::pos2(b.x1 as f32, b.y1 as f32)))
+            })
+            .collect();
+        for (n, r) in &rects {
+            assert!(r.width() >= SLIDER_MIN_W, "{w}x{ht}: {n} travel {} px", r.width());
+            assert!(mixer.contains_rect(*r), "{w}x{ht}: {n} {r:?} inside the mixer {mixer:?}");
+        }
+        // Controls and their labelled cells never overlap each other.
+        for d in 0..2 {
+            rects.extend([("trim".into(), l.trim[d].unwrap()), ("filter".into(), l.filter[d].unwrap()), ("vol".into(), l.volume[d].unwrap())]);
+            rects.extend(l.eq[d].unwrap().map(|r| ("eq".into(), r)));
+            rects.extend(l.assign[d].unwrap().map(|r| ("assign".into(), r)));
+        }
+        rects.extend(l.meters.iter().map(|m| ("meter".into(), m.unwrap())));
+        rects.extend([("master".into(), l.master.unwrap()), ("xf".into(), l.crossfader.unwrap()), ("xf toggle".into(), l.crossfader_toggle.unwrap())]);
+        for (i, (na, a)) in rects.iter().enumerate() {
+            assert!(mixer.contains_rect(*a), "{w}x{ht}: {na} {a:?} inside the mixer");
+            for (nb, b) in &rects[i + 1..] {
+                // A slider sits inside its own labelled cell.
+                if a.contains_rect(b.shrink(0.5)) || b.contains_rect(a.shrink(0.5)) {
+                    continue;
+                }
+                assert!(!a.shrink(0.5).intersects(b.shrink(0.5)), "{w}x{ht}: {na} {a:?} overlaps {nb} {b:?}");
+            }
+        }
+        // Real pointer drags from the actual slider centre reach both ends.
+        for (d, letter) in decks::DECKS.iter().enumerate() {
+            let at = |out: &Frame, n: &str| {
+                let b = node(out, &format!("Deck {letter} {n}")).bounds().unwrap();
+                egui::pos2(((b.x0 + b.x1) / 2.0) as f32, ((b.y0 + b.y1) / 2.0) as f32)
+            };
+            let c = at(&out, "filter");
+            h.drag(c, c - egui::vec2(200.0, 0.0));
+            assert_eq!(h.deck(d).channel.filter, -1.0, "{w}x{ht}: deck {letter} filter dragged left = low-pass end");
+            h.drag(c, c + egui::vec2(200.0, 0.0));
+            assert_eq!(h.deck(d).channel.filter, 1.0, "{w}x{ht}: deck {letter} filter dragged right = high-pass end");
+            let out = h.settle();
+            let c = at(&out, "volume");
+            h.drag(c, c - egui::vec2(200.0, 0.0));
+            assert_eq!(h.deck(d).volume.0, 0.0, "{w}x{ht}: deck {letter} fader dragged left = closed");
+            h.drag(c, c + egui::vec2(200.0, 0.0));
+            assert_eq!(h.deck(d).volume.0, 1.0, "{w}x{ht}: deck {letter} fader dragged right = unity");
+            h.app.decks.decks[d].channel.filter = 0.0;
+        }
+        // Keyboard: Tab to deck A's filter, arrows reach both stops.
+        let filter = h.layout().filter[0].unwrap();
+        // Enter the focus chain (as a fresh window does), then Tab.
+        h.key(egui::Key::Tab, egui::Modifiers { shift: true, ..Default::default() });
+        let mut guard = 0;
+        while !h.focused_rect().is_some_and(|r| filter.contains_rect(r.shrink(1.0))) {
+            h.key(egui::Key::Tab, Default::default());
+            guard += 1;
+            assert!(guard < 200, "{w}x{ht}: filter reachable by Tab");
+        }
+        for _ in 0..45 {
+            h.key(egui::Key::ArrowLeft, Default::default());
+        }
+        assert_eq!(h.deck(0).channel.filter, -1.0, "{w}x{ht}: arrows reach the low-pass stop");
+        for _ in 0..45 {
+            h.key(egui::Key::ArrowRight, Default::default());
+        }
+        assert_eq!(h.deck(0).channel.filter, 1.0, "{w}x{ht}: arrows reach the high-pass stop");
+        h.app.decks.decks[0].channel.filter = 0.0;
+    }
+    assert_eq!(fits, [MixerFit::Wide, MixerFit::CentreBelow, MixerFit::CentreBelow, MixerFit::Stacked], "every arrangement exercised");
+    std::fs::remove_dir_all(root).unwrap();
+}
+
 /// D4 acceptance 4: the whole mixer is keyboard reachable (Tab reaches
 /// every control) and operable (arrow keys turn a knob to its kill stop,
 /// Space presses an assign button and the crossfader toggle).
