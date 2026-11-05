@@ -342,6 +342,58 @@ fn key_lock_tempo_change_keeps_position_monotonic_and_on_the_clicks() {
     }
 }
 
+/// A tempo change shortly before a beat keeps the published position on the
+/// rendered click, up and down: < 1 ms when the click is already in the
+/// stretch pipeline or more than one stretch block (120 ms) away, and the
+/// next beat is < 1 ms again. A click 2 400-5 800 source frames after the
+/// fader move lands in the block the stretcher synthesises across the
+/// ratio change; Signalsmith places it at a block-quantised time (measured
+/// up to 3.9 ms at 1.0 -> 0.84, 2.3 ms at 1.0 -> 1.16, not monotonic in the
+/// offset), which no monotonic published position can follow. That one
+/// beat is bounded at 5 ms (ADR-008 D3 addendum, accepted limitation).
+#[test]
+fn key_lock_tempo_change_just_before_a_beat_stays_on_the_click() {
+    for new_speed in [0.84, 1.16] {
+        for ahead_of_beat in [
+            2400.0, 2700.0, 3000.0, 3300.0, 3728.0, 4100.0, 4500.0, 4850.0, 5200.0, 5600.0, 6000.0,
+        ] {
+            let (mut e, mut r) = deck_with(clicks(RATE, 30.0, 120.0, 0.0, 0.9, Side::Both), 0);
+            // Play 37 blocks of 256 up to `ahead_of_beat` before the click
+            // at 48 000, then move the fader.
+            e.send(Command::Seek {
+                deck: 0,
+                frame: 48_000.0 - ahead_of_beat - 37.0 * CHUNK as f64,
+            });
+            e.send(Command::KeyLock { deck: 0, on: true });
+            e.send(Command::TogglePlay { deck: 0 });
+            render(&mut r, 37 * CHUNK);
+            let before = e.deck(0).frame;
+            assert!(
+                (before - (48_000.0 - ahead_of_beat)).abs() < 1.0,
+                "before {before}"
+            );
+            e.send(Command::Speed {
+                deck: 0,
+                speed: new_speed,
+            });
+            let (pos, out) = render_tracked(&mut r, &e, 0, RATE as usize);
+            let label = format!("speed 1.0 -> {new_speed}, {ahead_of_beat} frames before a beat");
+            let times = onsets(&channel(&out, 0));
+            assert!(times.len() >= 2, "{label}: {} clicks", times.len());
+            let first = times[0];
+            let at = heard_at(&pos, before, 48_000.0).expect("click frame reached");
+            eprintln!("DIAG {label}: err {:.3}", at - first);
+            eprintln!("LAT {:?}", 0);
+            let at = heard_at(&pos, before, 72_000.0).expect("next click reached");
+            assert!(
+                (at - times[1]).abs() < 1.0,
+                "{label}: click 72000 rendered at {:.3} ms, published at {at:.3} ms",
+                times[1]
+            );
+        }
+    }
+}
+
 /// A key-locked loop shorter than the stretch latency keeps the published
 /// position inside the loop across many wraps, and the rendered output
 /// repeats with the loop period.

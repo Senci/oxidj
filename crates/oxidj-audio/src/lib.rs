@@ -58,6 +58,9 @@ pub const MIN_LOOP_MS: f64 = 10.0;
 pub const NO_TRACK: u64 = u64::MAX;
 /// Frames the callback renders per inner step (buffers are this size).
 pub const CHUNK: usize = 256;
+
+/// Key lock: tempo segments remembered across one stretch output latency.
+const SEGMENTS: usize = 32;
 /// Fastest key-locked speed (scratch input is sized for it).
 pub const MAX_KEYLOCK_SPEED: f64 = 4.0;
 
@@ -230,10 +233,19 @@ pub(crate) struct DeckState {
     /// Key lock: source frame the stretch engine reads next; valid while
     /// `primed`.
     read: f64,
+    /// Key lock: output frames rendered since priming.
+    clock: f64,
     /// Key lock: playback-path distance (source frames, loop wraps
-    /// unrolled) from the audible `pos` to `read`; converges on the stretch
-    /// latency after a tempo change.
-    ahead: f64,
+    /// unrolled) the read head has travelled since priming.
+    path: f64,
+    /// Key lock: playback-path distance heard so far (same origin).
+    heard: f64,
+    /// Key lock: tempo segments `(clock, path, source frames per output
+    /// frame)` of the read head, newest last, so the audible position can
+    /// be read off where the read head was one output latency ago.
+    segments: [(f64, f64, f64); SEGMENTS],
+    /// Number of valid entries in `segments` (at least 1 while primed).
+    seg_len: usize,
     /// Key lock: the stretch engine holds history continuous with `read`.
     primed: bool,
     /// Key lock: fractional input frame carried to the next chunk.
@@ -257,7 +269,11 @@ impl Default for DeckState {
             speed: 1.0,
             keylock: false,
             read: 0.0,
-            ahead: 0.0,
+            clock: 0.0,
+            path: 0.0,
+            heard: 0.0,
+            segments: [(0.0, 0.0, 0.0); SEGMENTS],
+            seg_len: 0,
             primed: false,
             carry: 0.0,
             applied: 0,
@@ -428,7 +444,12 @@ impl DeckState {
             // is heard starts at `pos`.
             stretch.reset();
             self.read = wrap(self.pos + lag);
-            self.ahead = lag;
+            self.clock = 0.0;
+            self.path = lag;
+            self.heard = 0.0;
+            // Preroll fed the history at this tempo: extrapolates backwards.
+            self.segments[0] = (0.0, lag, speed * step);
+            self.seg_len = 1;
             let pre = stretch.preroll_frames().min(capacity);
             let start = self.pos + lag - pre as f64 * step;
             for (i, f) in input[..pre * 2]
@@ -444,6 +465,16 @@ impl DeckState {
             self.carry = 0.0;
             self.primed = true;
         }
+        let rate = speed * step;
+        if self.segments[self.seg_len - 1].2 != rate {
+            // Tempo change: start a new read-head segment. When full (fader
+            // moved every block), the newest segment is replaced.
+            if self.seg_len == SEGMENTS {
+                self.seg_len -= 1;
+            }
+            self.segments[self.seg_len] = (self.clock, self.path, rate);
+            self.seg_len += 1;
+        }
         let out_frames = (out.len() / 2) as f64;
         let want = out_frames * speed + self.carry;
         let n_in = (want as usize).min(capacity);
@@ -453,24 +484,30 @@ impl DeckState {
             *f = [l, r];
             self.read = wrap(self.read + step);
         }
-        self.ahead += n_in as f64 * step;
+        self.path += n_in as f64 * step;
+        self.clock += out_frames;
         stretch.process(&input[..n_in * 2], out);
         for v in out.iter_mut() {
             *v *= self.gain;
         }
-        // The ear advances at the tempo the emerging audio was fed at: the
-        // nominal advance, plus a correction that drains the difference to
-        // the current latency over one output latency (after a tempo change
-        // the pipeline still holds audio fed at the old tempo). Never
-        // backwards.
-        let nominal = out_frames * speed * step;
-        let drain = if out_lat == 0 {
-            1.0
-        } else {
-            (out_frames / out_lat as f64).min(1.0)
-        };
-        let advance = (nominal + (self.ahead - nominal - lag) * drain).max(0.0);
-        self.ahead -= advance;
+        // What emerges now was synthesised one output latency ago from
+        // input one input latency behind the read head of that moment, so
+        // the ear follows the read head's own history (its tempo segments),
+        // not the current tempo. Never backwards.
+        let then = self.clock - out_lat as f64;
+        let mut i = self.seg_len - 1;
+        while i > 0 && self.segments[i].0 > then {
+            i -= 1;
+        }
+        // Segments wholly before `then` are never needed again.
+        if i > 0 {
+            self.segments.copy_within(i..self.seg_len, 0);
+            self.seg_len -= i;
+        }
+        let (t0, p0, r0) = self.segments[0];
+        let heard = p0 + (then - t0) * r0 - in_lat as f64 * step;
+        let advance = (heard - self.heard).max(0.0);
+        self.heard += advance;
         self.pos = wrap(self.pos + advance).max(0.0);
         let frames = track.frames() as f64;
         if self.pos >= frames {
@@ -992,7 +1029,11 @@ impl Engine {
                 speed: memory.speeds[d].unwrap_or(1.0),
                 keylock: memory.keylocks[d],
                 read: 0.0,
-                ahead: 0.0,
+                clock: 0.0,
+                path: 0.0,
+                heard: 0.0,
+                segments: [(0.0, 0.0, 0.0); SEGMENTS],
+                seg_len: 0,
                 primed: false,
                 carry: 0.0,
                 applied: 0,
