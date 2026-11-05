@@ -159,6 +159,15 @@ fn amplitude(p: WaveformPeak) -> (f32, f32) {
     (s(p.max()), s(p.min()))
 }
 
+/// Band indices `[low, mid, high]` ordered by extent, largest first (ties
+/// keep band order): the accepted 3-band nesting rule, shared by the
+/// details panel and the deck waveforms. Draw rank 0 at the back.
+pub fn nest_by_rank(ext: [f32; 3]) -> [usize; 3] {
+    let mut order = [0usize, 1, 2];
+    order.sort_unstable_by(|&a, &b| ext[b].total_cmp(&ext[a]).then(a.cmp(&b)));
+    order
+}
+
 /// Vertices emitted per strip point: outer fringe, body edge, body edge, outer fringe.
 pub const VERTS_PER_POINT: usize = 4;
 /// Triangles per strip segment: top fringe, body, bottom fringe (two each).
@@ -270,9 +279,7 @@ pub fn build_layers_with_fringe(
                 // one. Each keeps its own colour at its own true extent. Linear
                 // interpolation between columns preserves this order, so the
                 // strips stay nested between points too.
-                let mut order = [0usize, 1, 2];
-                order.sort_unstable_by(|&a, &b| ext[b].total_cmp(&ext[a]).then(a.cmp(&b)));
-                for (rank, &b) in order.iter().enumerate() {
+                for (rank, &b) in nest_by_rank(ext).iter().enumerate() {
                     let (y0, y1) = edges((ext[b], -ext[b]));
                     column[rank] = (y0, y1, colors[b]);
                 }

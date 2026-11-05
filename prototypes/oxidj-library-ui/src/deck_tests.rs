@@ -1590,3 +1590,221 @@ fn mixer_is_fully_keyboard_reachable_and_operable() {
     assert!(!h.app.settings.crossfader, "Space hides the crossfader");
     std::fs::remove_dir_all(root).unwrap();
 }
+
+
+// ------------------------------------------------------------ W12 bands
+
+/// Constant-per-section synthetic peaks: `sections` of `(seconds, [low, mid, high])`.
+fn band_peaks(sections: &[(u32, [f32; 3])]) -> oxidj_application::WaveformPeaks {
+    const RATE: u32 = 44_100;
+    const SPP: u32 = 294; // 150 columns per second
+    let mut bands: [Vec<oxidj_application::WaveformPeak>; 3] = Default::default();
+    for &(seconds, amp) in sections {
+        for _ in 0..seconds * 150 {
+            for b in 0..3 {
+                let a = amp[b].clamp(0.0, 1.0);
+                bands[b].push(oxidj_application::WaveformPeak::from_f32(-a, a).unwrap());
+            }
+        }
+    }
+    let samples = bands[0].len() as u64 * u64::from(SPP);
+    oxidj_application::WaveformPeaks::from_base(RATE, SPP, samples, bands).unwrap()
+}
+
+/// Body (opaque) vertices of a layer mesh as `(reach from base, colour)`.
+fn body(mesh: &egui::Mesh, rect: Rect, up: bool) -> Vec<(f32, egui::Color32)> {
+    mesh.vertices
+        .iter()
+        .filter(|v| v.color.a() == 255)
+        .map(|v| (if up { rect.bottom() - v.pos.y } else { v.pos.y - rect.top() }, v.color))
+        .collect()
+}
+
+#[test]
+fn deck_band_layers_keep_their_own_colour_and_nest_at_min_mid_max() {
+    let rect = Rect::from_min_size(Pos2::new(10.0, 20.0), egui::vec2(300.0, 80.0));
+    for palette in [DeckPalette::WarmCool, DeckPalette::Classic] {
+        for theme in [ThemeMode::TokyoNight, ThemeMode::TokyoDay] {
+            for d in 0..2 {
+                let c = decks::deck_colours(palette, d, theme.tokens());
+                let colours = [c.low, c.mid, c.high];
+                assert!(colours[0] != colours[1] && colours[1] != colours[2] && colours[0] != colours[2], "three hues");
+                // Typical spectrum (low > mid > high) at min / mid / max amplitude,
+                // plus an inverted (hat-only) column that ranks high outermost.
+                for (case, amp, order) in [
+                    ("min", [0.0, 0.0, 0.0], [0, 1, 2]),
+                    ("mid", [0.5, 0.3, 0.15], [0, 1, 2]),
+                    ("max", [1.0, 0.8, 0.5], [0, 1, 2]),
+                    ("hat", [0.1, 0.2, 0.6], [2, 1, 0]),
+                ] {
+                    let peaks = band_peaks(&[(4, amp)]);
+                    for up in [true, false] {
+                        let mut layers: [egui::Mesh; 3] = Default::default();
+                        decks::build_half(&peaks, (0.0, 4_000.0), 1.0, rect, up, c, 1.0, decks::Envelope::Peak, &mut layers);
+                        let what = format!("{palette:?} {theme:?} deck {d} {case} up={up}");
+                        let mut reach = [0.0f32; 3];
+                        for (rank, mesh) in layers.iter().enumerate() {
+                            // Bounds inside the clip, fringe included.
+                            assert!(mesh.vertices.iter().all(|v| rect.expand(0.01).contains(v.pos)), "{what}: inside");
+                            let b = body(mesh, rect, up);
+                            assert!(!b.is_empty(), "{what}: layer {rank} painted");
+                            // Each layer is exactly its band's colour.
+                            assert!(b.iter().all(|(_, col)| *col == colours[order[rank]]), "{what}: layer {rank} colour");
+                            reach[rank] = b.iter().map(|(r, _)| *r).fold(0.0, f32::max);
+                        }
+                        // Nested: back layer >= middle >= front.
+                        assert!(reach[0] >= reach[1] && reach[1] >= reach[2], "{what}: nesting {reach:?}");
+                        let full = rect.height() - 1.5;
+                        let want = amp[order[0]] * full;
+                        assert!((reach[0] - want.max(1.0)).abs() <= 1.0, "{what}: outer reach {} vs {want}", reach[0]);
+                        if case == "max" {
+                            assert!(reach[0] >= full - 1.0, "{what}: max fills the half");
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn overview_mean_envelope_auto_gains_a_quiet_track_and_shows_breaks() {
+    let rect = Rect::from_min_size(Pos2::new(0.0, 0.0), egui::vec2(400.0, 17.0));
+    let c = decks::deck_colours(DeckPalette::WarmCool, 0, ThemeMode::TokyoNight.tokens());
+    // Quiet master: intro, drop, break (near silent), drop — all at 0.15 peak.
+    let quiet = band_peaks(&[(20, [0.08, 0.05, 0.03]), (40, [0.15, 0.1, 0.06]), (20, [0.01, 0.01, 0.01]), (40, [0.15, 0.1, 0.06])]);
+    let window = (0.0, 120_000.0);
+    let gain = decks::overview_gain(&quiet, window, rect.width(), true);
+    assert_eq!(decks::overview_gain(&quiet, window, rect.width(), false), 1.0, "auto-gain off = unity");
+    let mut layers: [egui::Mesh; 3] = Default::default();
+    decks::build_half(&quiet, window, gain, rect, true, c, 1.0, decks::Envelope::Mean, &mut layers);
+    let at = |layers: &[egui::Mesh; 3], x0: f32, x1: f32| {
+        layers[0].vertices.iter().filter(|v| v.color.a() == 255 && v.pos.x >= x0 && v.pos.x <= x1).map(|v| rect.bottom() - v.pos.y).fold(0.0, f32::max)
+    };
+    let x = |s: f32| rect.width() * s / 120.0;
+    let drop = at(&layers, x(25.0), x(55.0));
+    let brk = at(&layers, x(63.0), x(77.0));
+    assert!(drop >= 0.6 * rect.height(), "quiet drop fills >= 60 %: {drop} of {}", rect.height());
+    assert!(brk <= 0.2 * rect.height(), "the break stays visibly low: {brk}");
+    // Without auto-gain the same track barely shows.
+    decks::build_half(&quiet, window, 1.0, rect, true, c, 1.0, decks::Envelope::Mean, &mut layers);
+    assert!(at(&layers, x(25.0), x(55.0)) < 0.25 * rect.height());
+    // A loud master is not pushed past the half.
+    let loud = band_peaks(&[(60, [1.0, 0.9, 0.7])]);
+    let g = decks::overview_gain(&loud, (0.0, 60_000.0), rect.width(), true);
+    decks::build_half(&loud, (0.0, 60_000.0), g, rect, true, c, 1.0, decks::Envelope::Mean, &mut layers);
+    assert!(layers.iter().flat_map(|m| &m.vertices).all(|v| rect.expand(0.01).contains(v.pos)));
+}
+
+#[test]
+fn deck_band_palette_contrast_in_both_themes() {
+    for theme in [ThemeMode::TokyoNight, ThemeMode::TokyoDay] {
+        let tokens = theme.tokens();
+        for palette in [DeckPalette::WarmCool, DeckPalette::Classic] {
+            for d in 0..2 {
+                let c = decks::deck_colours(palette, d, tokens);
+                let what = format!("{theme:?} {palette:?} deck {d}");
+                for (name, band) in [("low", c.low), ("mid", c.mid), ("high", c.high)] {
+                    assert!(decks::contrast(band, tokens.background) >= 3.0, "{what}: {name} on the plate");
+                }
+                assert!(decks::contrast(c.low, c.mid) >= 1.5, "{what}: low vs mid");
+                assert!(decks::contrast(c.mid, c.high) >= 1.5, "{what}: mid vs high");
+            }
+            if palette == DeckPalette::WarmCool {
+                let [a, b] = [0, 1].map(|d| decks::deck_colours(palette, d, tokens));
+                for band in [a.low, a.mid] {
+                    assert!(band.r() > band.b(), "{theme:?}: A bands warm");
+                }
+                for band in [b.low, b.mid] {
+                    assert!(band.b() > band.r(), "{theme:?}: B bands cool");
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn phrase_ticks_every_16_bars_inside_the_overview() {
+    let grid = crate::beat_grid::BeatGrid::new(&grid(120.0, 140.0, 0.0), 140_000.0).unwrap(); // 70 bars
+    let rect = Rect::from_min_size(Pos2::new(26.0, 500.0), egui::vec2(700.0, 34.0));
+    let mut mesh = egui::Mesh::default();
+    decks::phrase_lines(&grid, (0.0, 140_000.0), rect, egui::Color32::WHITE, &mut mesh);
+    // Bars 1, 17, 33, 49, 65 → five 1 px quads (4 vertices each).
+    assert_eq!(mesh.vertices.len(), 5 * 4);
+    assert!(mesh.vertices.iter().all(|v| rect.contains(v.pos)));
+    let xs: Vec<f32> = mesh.vertices.chunks(4).map(|q| q[0].pos.x).collect();
+    let bar_px = rect.width() * 2_000.0 / 140_000.0;
+    for w in xs.windows(2) {
+        assert!(((w[1] - w[0]) - 16.0 * bar_px).abs() < 1.0, "16-bar spacing {xs:?}");
+    }
+}
+
+#[test]
+fn production_decks_paint_three_bands_and_readable_overview_cues_with_hover_names() {
+    let (root, mut h) = fresh("bands", 20.0);
+    h.select_and_load("a-120.wav", egui::Key::A);
+    h.select_and_load("c-nogrid.wav", egui::Key::B);
+    h.app.decks.decks[0].seek(5_000.0);
+    let out = h.settle();
+    let tokens = ThemeMode::TokyoNight.tokens();
+    let [ha, hb] = h.layout().halves.unwrap();
+    let [oa, ob] = h.layout().overviews.unwrap();
+    for (d, half, ov) in [(0, ha, oa), (1, hb, ob)] {
+        let c = decks::deck_colours(DeckPalette::WarmCool, d, tokens);
+        for (clip, what) in [(half, "detail"), (ov, "overview")] {
+            let painted: Vec<egui::Color32> = meshes_in(&out, clip).into_iter().map(|(_, col)| col).filter(|col| col.a() == 255).collect();
+            for (name, band) in [("low", c.low), ("mid", c.mid), ("high", c.high)] {
+                assert!(painted.contains(&band), "deck {d} {what}: {name} band painted");
+            }
+        }
+    }
+    // Overview auto-gain: deck B's quiet master (0.3) still fills >= 60 % of its upper half.
+    let inner = Rect::from_min_max(Pos2::new(ob.left() + decks::OVERVIEW_INSET, ob.top()), ob.max);
+    let mid = inner.center().y.round();
+    let cb = decks::deck_colours(DeckPalette::WarmCool, 1, tokens);
+    let reach = meshes_in(&out, ob)
+        .into_iter()
+        .filter(|(_, col)| *col == cb.low || *col == cb.mid || *col == cb.high)
+        .filter(|(p, _)| p.y <= mid)
+        .map(|(p, _)| mid - p.y)
+        .fold(0.0, f32::max);
+    assert!(reach >= 0.6 * (mid - inner.top()), "quiet overview reach {reach}");
+    // Cue markers on the overview: hot-cue flags and memory triangles >= 6 px tall.
+    let flags: Vec<Rect> = out
+        .shapes
+        .iter()
+        .filter(|c| c.clip_rect == oa)
+        .filter_map(|c| match &c.shape {
+            Shape::Rect(r) if r.fill == egui::Color32::from_rgb(0x28, 0xe2, 0x14) && r.rect.width() > 4.0 => Some(r.rect),
+            _ => None,
+        })
+        .collect();
+    assert!(flags.iter().any(|r| r.height() >= 6.0), "hot cue 2 flag >= 6 px: {flags:?}");
+    let triangles: Vec<f32> = out
+        .shapes
+        .iter()
+        .filter(|c| c.clip_rect == oa)
+        .filter_map(|c| match &c.shape {
+            Shape::Path(p) if p.points.len() == 3 => Some(p.points.iter().map(|q| q.y).fold(f32::MIN, f32::max) - p.points.iter().map(|q| q.y).fold(f32::MAX, f32::min)),
+            _ => None,
+        })
+        .collect();
+    assert!(triangles.len() >= 2 && triangles.iter().all(|t| *t >= 6.0), "memory cues >= 6 px: {triangles:?}");
+    // Hover over hot cue 2 (6 s of 20 s) names it in a tooltip.
+    let inner_a = Rect::from_min_max(Pos2::new(oa.left() + decks::OVERVIEW_INSET, oa.top()), oa.max);
+    let duration = h.deck(0).track.as_ref().unwrap().duration_ms;
+    let x = inner_a.left() + inner_a.width() * (6_000.0 / duration) as f32;
+    let pos = Pos2::new(x + 2.0, oa.center().y + 8.0);
+    h.frame_with(vec![egui::Event::PointerMoved(pos)], Default::default());
+    let mut found = false;
+    for _ in 0..40 {
+        let out = h.frame_with(vec![], Default::default());
+        if texts(&out).iter().any(|(t, _)| t == "Hot cue 2 · 0:06") {
+            found = true;
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    assert!(found, "hover names hot cue 2");
+    std::fs::remove_dir_all(root).unwrap();
+}

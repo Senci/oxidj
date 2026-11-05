@@ -79,11 +79,14 @@ pub const PAD_COLOURS: [Color32; PADS] = [
 /// Every colour one deck paints with.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct DeckColours {
-    /// Outer (loudest) waveform layer, rail, bar lines, chip fill.
+    /// Deck accent: rail, bar lines, chip fill, active buttons.
     pub outer: Color32,
+    /// W12 band colours (deep low, mid, pale high core on dark themes;
+    /// on light themes the core is the darkest). Each >= 3:1 on the plate
+    /// and adjacent bands >= 1.5:1 apart, so the three layers separate.
+    pub low: Color32,
     pub mid: Color32,
-    /// The "white-hot" core (dark core on light themes).
-    pub core: Color32,
+    pub high: Color32,
     pub wash: Color32,
     pub beat: Color32,
     pub watermark: Color32,
@@ -118,25 +121,38 @@ pub fn contrast(a: Color32, b: Color32) -> f32 {
 pub fn deck_colours(palette: DeckPalette, deck: usize, tokens: ColorTokens) -> DeckColours {
     let light = luminance(tokens.background) > 0.4;
     let a = deck == 0;
-    let (outer, mid, core) = match (palette, a, light) {
-        // Warm A: amber → orange → white-hot core.
-        (DeckPalette::WarmCool, true, false) => (rgb(0xff, 0x9e, 0x3d), rgb(0xff, 0x6a, 0x1a), rgb(0xff, 0xf3, 0xdc)),
-        (DeckPalette::WarmCool, true, true) => (rgb(0xb0, 0x52, 0x00), rgb(0xc4, 0x3c, 0x00), rgb(0x4a, 0x1a, 0x00)),
-        // Cool B: blue → cyan → icy core.
-        (DeckPalette::WarmCool, false, false) => (rgb(0x4c, 0x8d, 0xff), rgb(0x38, 0xd6, 0xff), rgb(0xe6, 0xfa, 0xff)),
-        (DeckPalette::WarmCool, false, true) => (rgb(0x1f, 0x5f, 0xd6), rgb(0x00, 0x78, 0x9e), rgb(0x00, 0x2c, 0x4a)),
+    // Accent (rail/chip/buttons), unchanged from D1.
+    let outer = match (palette, a, light) {
+        (DeckPalette::WarmCool, true, false) => rgb(0xff, 0x9e, 0x3d),
+        (DeckPalette::WarmCool, true, true) => rgb(0xb0, 0x52, 0x00),
+        (DeckPalette::WarmCool, false, false) => rgb(0x4c, 0x8d, 0xff),
+        (DeckPalette::WarmCool, false, true) => rgb(0x1f, 0x5f, 0xd6),
+        (DeckPalette::Classic, true, false) => rgb(0x7d, 0xcf, 0xff),
+        (DeckPalette::Classic, true, true) => rgb(0x00, 0x71, 0x97),
+        (DeckPalette::Classic, false, false) => rgb(0xbb, 0x9a, 0xf7),
+        (DeckPalette::Classic, false, true) => rgb(0x7a, 0x3f, 0xd1),
+    };
+    // W12 bands: [low, mid, high].
+    let [low, mid, high] = match (palette, a, light) {
+        // Warm A: deep red-orange low, amber mid, pale-yellow core.
+        (DeckPalette::WarmCool, true, false) => [rgb(0xe8, 0x59, 0x0c), rgb(0xff, 0xb3, 0x40), rgb(0xff, 0xf4, 0xc2)],
+        (DeckPalette::WarmCool, true, true) => [rgb(0xdc, 0x4c, 0x0c), rgb(0x7a, 0x4a, 0x00), rgb(0x2e, 0x16, 0x00)],
+        // Cool B: deep blue low, cyan mid, ice-white core.
+        (DeckPalette::WarmCool, false, false) => [rgb(0x3a, 0x6d, 0xf0), rgb(0x22, 0xd3, 0xee), rgb(0xe6, 0xfb, 0xff)],
+        (DeckPalette::WarmCool, false, true) => [rgb(0x3b, 0x7d, 0xdd), rgb(0x00, 0x68, 0x7e), rgb(0x00, 0x1f, 0x33)],
         // Classic: cyan A, purple B.
-        (DeckPalette::Classic, true, false) => (rgb(0x7d, 0xcf, 0xff), rgb(0x2a, 0xc3, 0xde), rgb(0xe6, 0xf7, 0xff)),
-        (DeckPalette::Classic, true, true) => (rgb(0x00, 0x71, 0x97), rgb(0x00, 0x5f, 0x87), rgb(0x00, 0x30, 0x4a)),
-        (DeckPalette::Classic, false, false) => (rgb(0xbb, 0x9a, 0xf7), rgb(0x9d, 0x7c, 0xd8), rgb(0xf0, 0xe8, 0xff)),
-        (DeckPalette::Classic, false, true) => (rgb(0x7a, 0x3f, 0xd1), rgb(0x6a, 0x35, 0xb8), rgb(0x3b, 0x1d, 0x6e)),
+        (DeckPalette::Classic, true, false) => [rgb(0x2a, 0x8f, 0xd6), rgb(0x7d, 0xcf, 0xff), rgb(0xe6, 0xf7, 0xff)],
+        (DeckPalette::Classic, true, true) => [rgb(0x2f, 0x7f, 0xbf), rgb(0x00, 0x5f, 0x87), rgb(0x00, 0x24, 0x3a)],
+        (DeckPalette::Classic, false, false) => [rgb(0x7a, 0x4f, 0xd8), rgb(0xbb, 0x9a, 0xf7), rgb(0xf3, 0xec, 0xff)],
+        (DeckPalette::Classic, false, true) => [rgb(0x8a, 0x5a, 0xd8), rgb(0x5a, 0x2f, 0xa8), rgb(0x24, 0x0f, 0x4a)],
     };
     let dark = rgb(0x10, 0x10, 0x18);
     let chip_text = if contrast(outer, dark) >= contrast(outer, Color32::WHITE) { dark } else { Color32::WHITE };
     DeckColours {
         outer,
+        low,
         mid,
-        core,
+        high,
         wash: alpha(outer, if light { 26 } else { 18 }),
         beat: alpha(outer, 80),
         watermark: alpha(outer, if light { 36 } else { 22 }),
@@ -958,12 +974,99 @@ pub(crate) fn format_clock(ms: f64) -> String {
 
 // --------------------------------------------------------------- geometry
 
+/// How one pixel column summarises the stored peaks it covers.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Envelope {
+    /// Loudest peak per band (zoomed detail: every transient shows).
+    Peak,
+    /// Mean peak per band over finer stored columns (overview: a
+    /// time-compressed envelope where breaks, drops and phrases stand out
+    /// instead of one flat full-height bar).
+    Mean,
+}
+
+/// Stored columns per pixel the [`Envelope::Mean`] overview averages.
+const MEAN_COLUMNS_PER_PX: usize = 8;
+/// Overview auto-gain ceiling (a silent track is not blown up to noise).
+const MAX_OVERVIEW_GAIN: f32 = 20.0;
+
+/// Per-pixel band extents of `peaks` over a track-time `window`.
+struct Columns<'a> {
+    bands: [&'a [oxidj_application::WaveformPeak]; 3],
+    /// Samples per stored column at the chosen level.
+    col: f64,
+    total: f64,
+    /// First visible sample and samples per pixel.
+    start: f64,
+    step: f64,
+    envelope: Envelope,
+}
+
+impl<'a> Columns<'a> {
+    fn new(peaks: &'a WaveformPeaks, (t0, t1): (f64, f64), px: usize, envelope: Envelope) -> Self {
+        let rate = f64::from(peaks.sample_rate().max(1));
+        let span = (t1 - t0) * rate / 1000.0;
+        let want = match envelope {
+            Envelope::Peak => px,
+            Envelope::Mean => px * MEAN_COLUMNS_PER_PX,
+        };
+        let level = pick_level(peaks, span.max(1.0) as u64, want);
+        Self {
+            bands: WaveformBand::ALL.map(|b| peaks.band(level, b).unwrap_or(&[])),
+            col: f64::from(peaks.samples_per_peak()) * (1u64 << level) as f64,
+            total: peaks.sample_count() as f64,
+            start: t0 * rate / 1000.0,
+            step: span / px.max(1) as f64,
+            envelope,
+        }
+    }
+
+    /// `[low, mid, high]` extents (ungained, `0..=1`) of the pixel column
+    /// centred on point `i`; `None` outside the track.
+    fn at(&self, i: usize) -> Option<[f32; 3]> {
+        let len = self.bands[0].len();
+        let centre = self.start + self.step * i as f64;
+        let (s0, s1) = (centre - self.step / 2.0, centre + self.step / 2.0);
+        if s1 <= 0.0 || s0 >= self.total || len == 0 {
+            return None;
+        }
+        let c0 = ((s0.max(0.0) / self.col) as usize).min(len - 1);
+        let c1 = ((s1 / self.col).ceil() as usize).clamp(c0 + 1, len);
+        Some(core::array::from_fn(|b| {
+            let it = self.bands[b][c0..c1].iter().map(|p| amplitude_ext(*p));
+            match self.envelope {
+                Envelope::Peak => it.fold(0.0, f32::max),
+                Envelope::Mean => it.sum::<f32>() / (c1 - c0) as f32,
+            }
+        }))
+    }
+}
+
+/// Per-track overview auto-gain: the loudest [`Envelope::Mean`] column of
+/// the whole track reaches [`GAIN_TARGET`] of the half, so quiet and loud
+/// masters both use the height (display only; `auto` off = unity).
+pub fn overview_gain(peaks: &WaveformPeaks, window: (f64, f64), width: f32, auto: bool) -> f32 {
+    if !auto || width.is_nan() || width < 1.0 || window.1 <= window.0 {
+        return 1.0;
+    }
+    let px = width.floor() as usize;
+    let columns = Columns::new(peaks, window, px, Envelope::Mean);
+    let loudest = (0..=px).filter_map(|i| columns.at(i)).flatten().fold(0.0, f32::max);
+    if loudest > f32::EPSILON { (GAIN_TARGET / loudest).clamp(1.0, MAX_OVERVIEW_GAIN) } else { 1.0 }
+}
+
 /// Fill `layers` (cleared first) with deck `colours` waveform strips that
 /// grow from the seam: `up` = from `rect.bottom()` upwards (deck A), else
 /// from `rect.top()` downwards (deck B). Points sit on pixel boundaries
 /// over the track-time `window`; columns outside the track are skipped
 /// (the strip breaks there). Every vertex is clamped into `rect`, so the
-/// painted bounds never leave it. Layers: outer, mid, core.
+/// painted bounds never leave it.
+///
+/// W12: three opaque nested band layers, each band at its own extent in
+/// its own colour (`low`, `mid`, `high`). Per column the bands are ranked
+/// by extent ([`crate::waveform_view::nest_by_rank`], the accepted 3-band
+/// rule): `layers[0]` holds the largest, `[2]` the smallest, so a band is
+/// never hidden behind a larger one.
 #[allow(clippy::too_many_arguments)]
 pub fn build_half(
     peaks: &WaveformPeaks,
@@ -973,6 +1076,7 @@ pub fn build_half(
     up: bool,
     colours: DeckColours,
     fringe: f32,
+    envelope: Envelope,
     layers: &mut [Mesh; 3],
 ) {
     for mesh in layers.iter_mut() {
@@ -984,40 +1088,25 @@ pub fn build_half(
         return;
     }
     let px = rect.width().floor() as usize;
-    let rate = f64::from(peaks.sample_rate().max(1));
-    let total = peaks.sample_count() as f64;
-    let span = (t1 - t0) * rate / 1000.0;
-    let level = pick_level(peaks, span.max(1.0) as u64, px);
-    let bands = WaveformBand::ALL.map(|b| peaks.band(level, b).unwrap_or(&[]));
-    let len = bands[0].len();
-    let col = f64::from(peaks.samples_per_peak()) * (1u64 << level) as f64;
+    let columns = Columns::new(peaks, window, px, envelope);
     let base = if up { rect.bottom() } else { rect.top() };
     let dir = if up { -1.0 } else { 1.0 };
     let reach = (rect.height() - fringe - 0.5).max(1.0);
-    let colors = [colours.outer, colours.mid, colours.core];
+    let colors = [colours.low, colours.mid, colours.high];
     let mut connected = false;
     for i in 0..=px {
         let x = rect.left() + rect.width() * i as f32 / px as f32;
-        let centre = (t0 * rate / 1000.0) + span * i as f64 / px as f64;
-        let half_px = span / px as f64 / 2.0;
-        let (s0, s1) = (centre - half_px, centre + half_px);
-        if s1 <= 0.0 || s0 >= total || len == 0 {
+        let Some(raw) = columns.at(i) else {
             connected = false;
             continue;
-        }
-        let c0 = ((s0.max(0.0) / col) as usize).min(len - 1);
-        let c1 = ((s1 / col).ceil() as usize).clamp(c0 + 1, len);
-        let e: [f32; 3] = core::array::from_fn(|b| {
-            bands[b][c0..c1].iter().map(|p| amplitude_ext(*p)).fold(0.0, f32::max) * gain
-        });
-        let outer = e.iter().copied().fold(0.0, f32::max).min(1.0);
-        let mid = e[1].max(e[2]).min(outer);
-        let core = (0.45 * outer).max(e[2]).min(mid);
-        for (layer, (mesh, ext)) in layers.iter_mut().zip([outer, mid, core]).enumerate() {
-            let height = (ext * reach).max(if layer == 0 { 1.0 } else { 0.0 });
+        };
+        let e = raw.map(|v| (v * gain).min(1.0));
+        let order = crate::waveform_view::nest_by_rank(e);
+        for (rank, (mesh, &b)) in layers.iter_mut().zip(&order).enumerate() {
+            let height = (e[b] * reach).max(if rank == 0 { 1.0 } else { 0.0 });
             let edge = base + dir * height;
             let outside = (edge + dir * fringe).clamp(rect.top(), rect.bottom());
-            push(mesh, x, outside, edge, base, colors[layer], connected);
+            push(mesh, x, outside, edge, base, colors[b], connected);
         }
         connected = true;
     }
@@ -1098,6 +1187,56 @@ fn time_grid(painter: &egui::Painter, rect: Rect, window: (f64, f64), duration: 
     }
 }
 
+/// Bars per phrase tick on the overview.
+pub const PHRASE_BARS: usize = 16;
+/// Hot-cue flag size on the overview (>= 6 px tall, numbered).
+pub const OVERVIEW_FLAG: f32 = 12.0;
+/// Pointer distance (px) at which an overview cue names itself on hover.
+const CUE_HOVER_PX: f32 = 6.0;
+
+/// One 1 px full-height phrase tick every [`PHRASE_BARS`] bars (bar 1, 17,
+/// 33, …) of `grid` in `window`, clamped into `rect`, appended to `mesh`.
+pub fn phrase_lines(grid: &BeatGrid, window: (f64, f64), rect: Rect, colour: Color32, mesh: &mut Mesh) {
+    for &(t, bar) in grid.beats_in(window) {
+        if bar.is_some_and(|n| (n - 1) % PHRASE_BARS == 0) {
+            let x0 = (x_at(t, window, rect) - 0.5).clamp(rect.left(), rect.right() - 1.0);
+            mesh.add_colored_rect(Rect::from_min_max(pos2(x0, rect.top()), pos2(x0 + 1.0, rect.bottom())), colour);
+        }
+    }
+}
+
+/// Name of the cue, loop or hot cue nearest to `x` (within
+/// [`CUE_HOVER_PX`]) on a `rect` showing `window`, for the hover tooltip.
+pub(crate) fn cue_label_at(deck: &Deck, window: (f64, f64), rect: Rect, x: f32) -> Option<String> {
+    let track = deck.track.as_ref()?;
+    let mut best: Option<(f32, String)> = None;
+    let mut consider = |ms: f64, label: String| {
+        let dx = (x_at(ms, window, rect) - x).abs();
+        if dx <= CUE_HOVER_PX && best.as_ref().is_none_or(|(b, _)| dx < *b) {
+            best = Some((dx, label));
+        }
+    };
+    for (i, pad) in deck.pads.iter().enumerate() {
+        if let Some(ms) = *pad {
+            consider(ms, format!("Hot cue {} · {}", i + 1, format_clock(ms)));
+        }
+    }
+    for cue in &track.cues {
+        let start = f64::from(cue.start_ms);
+        match (cue.hot_cue, cue.end_ms) {
+            (_, Some(end)) => {
+                let range = format!("{}–{}", format_clock(start), format_clock(f64::from(end)));
+                let name = cue.hot_cue.map_or("Loop".to_owned(), |n| format!("Loop (hot cue {n})"));
+                consider(start, format!("{name} · {range}"));
+                consider(f64::from(end), format!("{name} end · {range}"));
+            }
+            (None, None) => consider(start, format!("Memory cue · {}", format_clock(start))),
+            (Some(_), None) => {}
+        }
+    }
+    best.map(|(_, label)| label)
+}
+
 /// Imported loops (and the active manual loop) as shaded regions, hot cues
 /// as numbered coloured markers with a flag at the `outer` edge, memory
 /// cues as small triangles there. Everything is clamped into `rect`.
@@ -1113,6 +1252,16 @@ fn paint_cues(painter: &egui::Painter, rect: Rect, window: (f64, f64), deck: &De
         if r.width() > 0.0 {
             let colour = cue.hot_cue.map_or(memory, |n| pad_colour(n as usize, Some(cue)));
             painter.rect_filled(r, 0.0, alpha(colour, 46));
+            // W12: an opaque bracket (edge bar + end ticks >= 6 px) so a
+            // loop stays findable on the 34 px overview.
+            let tick = (flag * 0.6).max(6.0).min(r.height());
+            let (y0, y1) = if top_edge { (r.top(), r.top() + tick) } else { (r.bottom() - tick, r.bottom()) };
+            let bar = if top_edge { r.top()..=r.top() + 2.0 } else { r.bottom() - 2.0..=r.bottom() };
+            painter.rect_filled(Rect::from_x_y_ranges(r.x_range(), bar), 0.0, colour);
+            for x in [r.left(), r.right() - 2.0] {
+                let x = x.clamp(rect.left(), rect.right() - 2.0);
+                painter.rect_filled(Rect::from_min_max(pos2(x, y0), pos2(x + 2.0, y1)), 0.0, colour);
+            }
         }
     }
     if let Some((a, b)) = deck.loop_range {
@@ -1510,7 +1659,7 @@ impl LibraryApp {
                 layout.windows[d] = Some(window);
                 paint_meshes(ui, &painter, ui.id().with(("deck-half", d)), |layers, lines| {
                     match &track.peaks {
-                        Some(peaks) => build_half(peaks, window, track.gain(auto_gain), half, up, c, if smooth { FRINGE } else { 0.0 }, layers),
+                        Some(peaks) => build_half(peaks, window, track.gain(auto_gain), half, up, c, if smooth { FRINGE } else { 0.0 }, Envelope::Peak, layers),
                         None => layers.iter_mut().for_each(|m| {
                             m.vertices.clear();
                             m.indices.clear();
@@ -1775,14 +1924,19 @@ impl LibraryApp {
             let mid = inner.center().y.round();
             let up = Rect::from_min_max(inner.min, pos2(inner.right(), mid));
             let down = Rect::from_min_max(pos2(inner.left(), mid), inner.max);
-            let gain = track.gain(self.settings.auto_gain);
             match &track.peaks {
                 Some(peaks) => {
+                    // W12: time-compressed mean envelope, per-track auto-gain.
+                    let gain = overview_gain(peaks, window, up.width(), self.settings.auto_gain);
+                    let phrase = alpha(tokens.text, 110);
                     for (k, (half, is_up)) in [(up, true), (down, false)].into_iter().enumerate() {
                         paint_meshes(ui, &painter, ui.id().with(("deck-overview-mesh", d, k)), |layers, lines| {
-                            build_half(peaks, window, gain, half, is_up, c, FRINGE, layers);
+                            build_half(peaks, window, gain, half, is_up, c, FRINGE, Envelope::Mean, layers);
                             lines.vertices.clear();
                             lines.indices.clear();
+                            if let (0, Some(grid)) = (k, track.beat_grid()) {
+                                phrase_lines(grid, window, inner, phrase, lines);
+                            }
                         });
                     }
                 }
@@ -1792,10 +1946,14 @@ impl LibraryApp {
                     painter.galley(pos2(inner.center().x - g.size().x / 2.0, inner.bottom() - g.size().y - 1.0), g, tokens.muted_text);
                 }
             }
-            paint_cues(&painter, inner, window, deck, true, 10.0, tokens.error, tokens.text);
             let x = x_at(deck.position_ms, window, inner).clamp(inner.left(), inner.right());
             // Played part dimmed.
             painter.rect_filled(Rect::from_min_max(inner.min, pos2(x, inner.bottom())), 0.0, alpha(tokens.background, 150));
+            // Cues over the dimming so played markers stay readable.
+            paint_cues(&painter, inner, window, deck, true, OVERVIEW_FLAG, tokens.error, tokens.text);
+            if let Some(label) = response.hover_pos().and_then(|p| cue_label_at(deck, window, inner, p.x)) {
+                response.clone().on_hover_text_at_pointer(label);
+            }
             if let Some((a, b)) = layout.windows[d] {
                 let (x0, x1) = (x_at(a, window, inner).max(inner.left()), x_at(b, window, inner).min(inner.right()));
                 if x1 > x0 {
