@@ -1822,3 +1822,50 @@ fn production_decks_paint_three_bands_and_readable_overview_cues_with_hover_name
     assert!(found, "hover names hot cue 2");
     std::fs::remove_dir_all(root).unwrap();
 }
+
+#[test]
+fn production_overview_brackets_a_manual_loop_and_names_its_endpoints_on_hover() {
+    let (root, mut h) = fresh("manual-loop", 20.0);
+    h.select_and_load("c-nogrid.wav", egui::Key::B);
+    assert!(h.deck(1).track.as_ref().unwrap().cues.iter().all(|c| c.end_ms.is_none()), "no imported loop on c");
+    let loops = h.layout().loops[1].unwrap();
+    h.seek(1, 4_000.0);
+    h.click(loops[0].center());
+    h.seek(1, 6_000.0);
+    h.click(loops[1].center());
+    assert_eq!(h.deck(1).loop_range, Some((4_000.0, 6_000.0)));
+    let out = h.settle();
+    let ob = h.layout().overviews.unwrap()[1];
+    let inner = Rect::from_min_max(Pos2::new(ob.left() + decks::OVERVIEW_INSET, ob.top()), ob.max);
+    let duration = h.deck(1).track.as_ref().unwrap().duration_ms;
+    let x_of = |ms: f64| inner.left() + inner.width() * (ms / duration) as f32;
+    let text = ThemeMode::TokyoNight.tokens().text;
+    let ticks: Vec<Rect> = out
+        .shapes
+        .iter()
+        .filter(|c| c.clip_rect == ob)
+        .filter_map(|c| match &c.shape {
+            Shape::Rect(r) if r.fill == text && r.rect.width() <= 2.5 && r.rect.height() >= 6.0 => Some(r.rect),
+            _ => None,
+        })
+        .collect();
+    for ms in [4_000.0, 6_000.0] {
+        let x = x_of(ms);
+        assert!(ticks.iter().any(|r| (r.center().x - x).abs() <= 2.5 && ob.contains_rect(*r)), "opaque >= 6 px tick at {ms} ms inside the overview: {ticks:?}");
+    }
+    for (ms, want) in [(4_000.0, "Loop IN · 0:04–0:06"), (6_000.0, "Loop OUT · 0:04–0:06")] {
+        h.frame_with(vec![egui::Event::PointerMoved(Pos2::new(x_of(ms), ob.center().y + 8.0))], Default::default());
+        let mut found = false;
+        for _ in 0..40 {
+            let out = h.frame_with(vec![], Default::default());
+            if texts(&out).iter().any(|(t, _)| t == want) {
+                found = true;
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        assert!(found, "hover names {want}");
+        h.frame_with(vec![egui::Event::PointerGone], Default::default());
+    }
+    std::fs::remove_dir_all(root).unwrap();
+}

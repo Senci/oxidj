@@ -1254,6 +1254,11 @@ pub(crate) fn cue_label_at(deck: &Deck, window: (f64, f64), rect: Rect, x: f32) 
             (Some(_), None) => {}
         }
     }
+    if let Some((a, b)) = deck.loop_range {
+        let range = format!("{}–{}", format_clock(a), format_clock(b));
+        consider(a, format!("Loop IN · {range}"));
+        consider(b, format!("Loop OUT · {range}"));
+    }
     best.map(|(_, label)| label)
 }
 
@@ -1267,28 +1272,29 @@ fn paint_cues(painter: &egui::Painter, rect: Rect, window: (f64, f64), deck: &De
         let (x0, x1) = (x_at(a, window, rect), x_at(b, window, rect));
         Rect::from_x_y_ranges(x0.max(rect.left())..=x1.min(rect.right()), rect.y_range())
     };
-    for cue in track.cues.iter().filter(|c| c.end_ms.is_some()) {
-        let r = span(f64::from(cue.start_ms), f64::from(cue.end_ms.unwrap_or(cue.start_ms)));
-        if r.width() > 0.0 {
-            let colour = cue.hot_cue.map_or(memory, |n| pad_colour(n as usize, Some(cue)));
-            painter.rect_filled(r, 0.0, alpha(colour, 46));
-            // W12: an opaque bracket (edge bar + end ticks >= 6 px) so a
-            // loop stays findable on the 34 px overview.
-            let tick = (flag * 0.6).max(6.0).min(r.height());
-            let (y0, y1) = if top_edge { (r.top(), r.top() + tick) } else { (r.bottom() - tick, r.bottom()) };
-            let bar = if top_edge { r.top()..=r.top() + 2.0 } else { r.bottom() - 2.0..=r.bottom() };
-            painter.rect_filled(Rect::from_x_y_ranges(r.x_range(), bar), 0.0, colour);
-            for x in [r.left(), r.right() - 2.0] {
-                let x = x.clamp(rect.left(), rect.right() - 2.0);
-                painter.rect_filled(Rect::from_min_max(pos2(x, y0), pos2(x + 2.0, y1)), 0.0, colour);
-            }
+    // W12: a loop is a light fill plus an opaque bracket (edge bar + end
+    // ticks >= 6 px) so it stays findable on the 34 px overview.
+    let bracket = |a: f64, b: f64, colour: Color32, fill: u8| {
+        let r = span(a, b);
+        if r.width() <= 0.0 {
+            return;
         }
+        painter.rect_filled(r, 0.0, alpha(colour, fill));
+        let tick = (flag * 0.6).max(6.0).min(r.height());
+        let (y0, y1) = if top_edge { (r.top(), r.top() + tick) } else { (r.bottom() - tick, r.bottom()) };
+        let bar = if top_edge { r.top()..=r.top() + 2.0 } else { r.bottom() - 2.0..=r.bottom() };
+        painter.rect_filled(Rect::from_x_y_ranges(r.x_range(), bar), 0.0, colour);
+        for x in [r.left(), r.right() - 2.0] {
+            let x = x.clamp(rect.left(), rect.right() - 2.0);
+            painter.rect_filled(Rect::from_min_max(pos2(x, y0), pos2(x + 2.0, y1)), 0.0, colour);
+        }
+    };
+    for cue in track.cues.iter().filter(|c| c.end_ms.is_some()) {
+        let colour = cue.hot_cue.map_or(memory, |n| pad_colour(n as usize, Some(cue)));
+        bracket(f64::from(cue.start_ms), f64::from(cue.end_ms.unwrap_or(cue.start_ms)), colour, 46);
     }
     if let Some((a, b)) = deck.loop_range {
-        let r = span(a, b);
-        if r.width() > 0.0 {
-            painter.rect_filled(r, 0.0, alpha(label, 40));
-        }
+        bracket(a, b, label, 40);
     }
     let edge_y = if top_edge { rect.top() } else { rect.bottom() };
     let dir = if top_edge { 1.0 } else { -1.0 };
