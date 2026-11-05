@@ -501,7 +501,7 @@ fn labelled_row(ui: &mut Ui, label: &str, add: impl FnOnce(&mut Ui) -> egui::Res
 
 /// The shared slider look: full-strength primary trailing fill (the 20 %
 /// selection tint left the filled rail barely visible in Tokyo Day).
-fn slider_look(ui: &mut Ui, tokens: ColorTokens) {
+pub(crate) fn slider_look(ui: &mut Ui, tokens: ColorTokens) {
     ui.visuals_mut().selection.bg_fill = tokens.primary;
 }
 

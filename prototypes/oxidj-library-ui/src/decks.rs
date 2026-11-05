@@ -1088,10 +1088,8 @@ impl LibraryApp {
             let chip_r = place(inset, 0, 22.0);
             chip(ui.painter(), chip_r.shrink2(vec2(0.0, 2.0)), letter, c);
             let load_r = place(inset + 26.0, 0, 44.0);
-            let r = ui.put(load_r, egui::Button::new(egui::RichText::new("Load").small()));
-            let r = r.on_hover_text(format!("Load the selected library track to deck {letter} ({letter} key)"));
-            r.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, format!("Load selected track to deck {letter}")));
-            if r.clicked() {
+            let r = deck_button(ui, load_r, "Load", &format!("Load selected track to deck {letter}"), false, true, c.outer, tokens);
+            if r.on_hover_text(format!("Load the selected library track to deck {letter} ({letter} key)")).clicked() {
                 load = Some(d);
             }
             layout.load[d] = Some(load_r);
@@ -1100,16 +1098,22 @@ impl LibraryApp {
             let tempo_w = 120.0;
             let tempo_r = place(column - 36.0 - 44.0 - 2.0 * BTN_GAP - GROUP_GAP - tempo_w, 0, tempo_w);
             for (r, text, name) in [(sync_r, "SYNC", "sync"), (key_r, "KEY", "key lock")] {
-                let resp = ui.add_enabled_ui(false, |ui| ui.put(r, egui::Button::new(egui::RichText::new(text).small().strong()))).inner;
-                resp.on_disabled_hover_text(format!("Deck {letter} {name}: arrives in D3"))
-                    .widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, false, format!("Deck {letter} {name} (D3)")));
+                deck_button(ui, r, text, &format!("Deck {letter} {name} (D3)"), false, false, c.outer, tokens)
+                    .on_hover_text(format!("Deck {letter} {name}: arrives in D3"));
             }
             layout.sync[d] = Some(sync_r);
             layout.key_lock[d] = Some(key_r);
             let slider_r = Rect::from_min_size(tempo_r.min, vec2(tempo_w - 46.0, ROW));
             let value_r = Rect::from_min_max(pos2(slider_r.right() + 2.0, tempo_r.top()), tempo_r.max);
             let mut tempo = deck.tempo_pct.clamp(-range, range);
-            let slider = ui.put(slider_r, egui::Slider::new(&mut tempo, -range..=range).show_value(false).step_by(0.1));
+            let slider = ui
+                .scope(|ui| {
+                    crate::track_waveform::slider_look(ui, tokens);
+                    ui.visuals_mut().selection.bg_fill = c.outer;
+                    ui.spacing_mut().slider_width = slider_r.width();
+                    ui.put(slider_r, egui::Slider::new(&mut tempo, -range..=range).show_value(false).step_by(0.1))
+                })
+                .inner;
             slider.widget_info(|| egui::WidgetInfo::slider(true, f64::from(tempo), format!("Deck {letter} tempo")));
             let slider = slider.on_hover_text(format!("Deck {letter} tempo (±{range:.0} %, Settings → Decks); double-click resets"));
             if slider.double_clicked() {
@@ -1260,21 +1264,30 @@ impl LibraryApp {
     }
 }
 
-/// A strip button placed at `rect`: `active` fills it with `accent`.
+/// A strip button painted at `rect` (exact size, centred label): `active`
+/// fills it with `accent`; native click/keyboard response and AccessKit name.
 #[allow(clippy::too_many_arguments)]
 fn deck_button(ui: &mut Ui, rect: Rect, text: &str, name: &str, active: bool, enabled: bool, accent: Color32, tokens: ColorTokens) -> egui::Response {
-    let dark = rgb(0x10, 0x10, 0x18);
-    let ink = if active {
-        if contrast(accent, dark) >= contrast(accent, Color32::WHITE) { dark } else { Color32::WHITE }
-    } else {
-        tokens.text
-    };
-    let mut button = egui::Button::new(egui::RichText::new(text).small().strong().color(ink)).wrap_mode(egui::TextWrapMode::Truncate);
-    if active {
-        button = button.fill(accent);
-    }
-    let response = ui.add_enabled_ui(enabled, |ui| ui.put(rect, button)).inner;
+    let sense = if enabled { Sense::click() } else { Sense::hover() };
+    let response = ui.interact(rect, ui.id().with(("deck-button", name)), sense);
     response.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, enabled, active, name));
+    let painter = ui.painter_at(rect);
+    let dark = rgb(0x10, 0x10, 0x18);
+    let (fill, ink) = if active {
+        (accent, if contrast(accent, dark) >= contrast(accent, Color32::WHITE) { dark } else { Color32::WHITE })
+    } else if response.hovered() && enabled {
+        (tokens.surface, tokens.text)
+    } else {
+        (tokens.background, if enabled { tokens.text } else { tokens.muted_text })
+    };
+    painter.rect_filled(rect.shrink(0.5), 3.0, fill);
+    let outline = if enabled { tokens.border } else { alpha(tokens.border, 110) };
+    painter.rect_stroke(rect.shrink(0.5), 3.0, Stroke::new(1.0_f32, outline), egui::StrokeKind::Inside);
+    if response.has_focus() {
+        painter.rect_stroke(rect, 3.0, Stroke::new(2.0_f32, tokens.focus), egui::StrokeKind::Inside);
+    }
+    let g = painter.layout_no_wrap(text.to_owned(), FontId::proportional(11.0), ink);
+    painter.galley(rect.center() - g.size() / 2.0, g, ink);
     response
 }
 
