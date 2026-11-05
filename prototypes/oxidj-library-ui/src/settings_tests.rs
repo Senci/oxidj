@@ -1,0 +1,342 @@
+//! M8/D0: the Settings window through the production `LibraryApp::ui`
+//! path: Ctrl+, / gear / Esc, focus return, keyboard reach, AccessKit
+//! names, and every wired option changing the next rendered frame.
+//! Synthetic audio only.
+
+use super::*;
+use crate::settings::{Settings, WINDOW_TITLE};
+use crate::waveform_view::Style;
+use eframe::egui::{Pos2, Rect, Shape, accesskit};
+use oxidj_library::{LibraryBeat, LibrarySnapshot, LibraryTrack};
+use std::path::{Path, PathBuf};
+
+type Frame = egui::FullOutput;
+
+/// 16-bit mono PCM WAV: a click every 500 ms (120 BPM) for `seconds`.
+fn write_click_wav(path: &Path, seconds: f32) {
+    let rate = 44_100u32;
+    let n = (rate as f32 * seconds) as u32;
+    let mut bytes = Vec::new();
+    for chunk in [&b"RIFF"[..], &(36 + n * 2).to_le_bytes(), b"WAVEfmt ", &16u32.to_le_bytes()] {
+        bytes.extend_from_slice(chunk);
+    }
+    for v in [1u16, 1] {
+        bytes.extend_from_slice(&v.to_le_bytes());
+    }
+    bytes.extend_from_slice(&rate.to_le_bytes());
+    bytes.extend_from_slice(&(rate * 2).to_le_bytes());
+    bytes.extend_from_slice(&2u16.to_le_bytes());
+    bytes.extend_from_slice(&16u16.to_le_bytes());
+    bytes.extend_from_slice(b"data");
+    bytes.extend_from_slice(&(n * 2).to_le_bytes());
+    for i in 0..n {
+        let t = i as f32 / rate as f32;
+        let phase = (t * 2.0).fract();
+        let v = if phase < 0.02 { (t * 3_000.0 * std::f32::consts::TAU).sin() * 0.9 } else { 0.05 * (t * 200.0 * std::f32::consts::TAU).sin() };
+        bytes.extend_from_slice(&((v * 32_000.0) as i16).to_le_bytes());
+    }
+    std::fs::write(path, bytes).unwrap();
+}
+
+fn temp_root(tag: &str) -> PathBuf {
+    let root = std::env::temp_dir().join(format!(
+        "oxidj-ui-d0-{tag}-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+    ));
+    std::fs::create_dir_all(root.join("audio")).unwrap();
+    root
+}
+
+/// One 20 s analysed track with an imported 120 BPM grid (10 bars).
+fn grid_catalog() -> PathBuf {
+    let root = temp_root("grid");
+    let audio = root.join("audio");
+    write_click_wav(&audio.join("d0-grid.wav"), 20.0);
+    let db = root.join("catalog.sqlite");
+    let mut catalog = Catalog::open(&db).unwrap();
+    catalog.import_audio_directory(audio.to_str().unwrap()).unwrap();
+    let track = catalog.list_track_details().unwrap().remove(0).track;
+    oxidj_application::analyze_track_waveform(&mut catalog, track.id).unwrap();
+    let (location, _) = oxidj_application::location_uri(&track.path);
+    catalog
+        .import_library(&LibrarySnapshot {
+            tracks: vec![LibraryTrack {
+                title: "synthetic grid".into(),
+                location,
+                beat_grid: (0..40u32)
+                    .map(|i| LibraryBeat { time_ms: 500 * i, tempo_hundredths_bpm: 12_000, beat_in_bar: (i % 4 + 1) as u8 })
+                    .collect(),
+                ..LibraryTrack::default()
+            }],
+            roots: vec![],
+        })
+        .unwrap();
+    db
+}
+
+struct Harness {
+    ctx: egui::Context,
+    app: LibraryApp,
+}
+
+impl Harness {
+    fn new(db: PathBuf) -> Self {
+        let ctx = egui::Context::default();
+        ctx.enable_accesskit();
+        let app = LibraryApp::new(db, ThemeMode::TokyoNight, ThemeMode::TokyoNight.tokens());
+        let mut h = Self { ctx, app };
+        h.settle();
+        h
+    }
+
+    fn frame_with(&mut self, events: Vec<egui::Event>, modifiers: egui::Modifiers) -> Frame {
+        let input = egui::RawInput {
+            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, egui::vec2(1440.0, 900.0))),
+            events,
+            modifiers,
+            ..Default::default()
+        };
+        let app = &mut self.app;
+        self.ctx.run(input, |ctx| app.ui(ctx))
+    }
+
+    fn settle(&mut self) -> Frame {
+        self.frame_with(vec![], Default::default());
+        self.frame_with(vec![], Default::default())
+    }
+
+    fn click(&mut self, pos: Pos2) -> Frame {
+        let button = |pressed| egui::Event::PointerButton {
+            pos,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: Default::default(),
+        };
+        self.frame_with(vec![egui::Event::PointerMoved(pos), button(true)], Default::default());
+        self.frame_with(vec![button(false)], Default::default());
+        self.settle()
+    }
+
+    fn key(&mut self, key: egui::Key, modifiers: egui::Modifiers) -> Frame {
+        let event = |pressed| egui::Event::Key { key, physical_key: None, pressed, repeat: false, modifiers };
+        self.frame_with(vec![event(true)], modifiers);
+        self.frame_with(vec![event(false)], Default::default());
+        self.settle()
+    }
+
+    /// Ctrl+, as winit reports it on Linux (ctrl and command both set).
+    fn ctrl_comma(&mut self) -> Frame {
+        self.key(egui::Key::Comma, egui::Modifiers { ctrl: true, command: true, ..Default::default() })
+    }
+
+    fn focused(&self) -> Option<egui::Id> {
+        self.ctx.memory(|m| m.focused())
+    }
+
+    fn layout(&self) -> crate::settings::SettingsLayout {
+        self.app.settings_ui.layout
+    }
+}
+
+fn texts(out: &Frame) -> Vec<(String, Rect)> {
+    out.shapes
+        .iter()
+        .filter_map(|c| match &c.shape {
+            Shape::Text(t) => Some((t.galley.job.text.clone(), t.visual_bounding_rect())),
+            _ => None,
+        })
+        .collect()
+}
+
+fn text_rect(out: &Frame, label: &str) -> Rect {
+    let hits: Vec<_> = texts(out).into_iter().filter(|(t, _)| t == label).collect();
+    assert_eq!(hits.len(), 1, "{label:?}: {hits:?}");
+    hits[0].1
+}
+
+fn waveform_vertices(out: &Frame, view: Rect) -> Vec<(Pos2, egui::Color32)> {
+    let mut v = Vec::new();
+    for clipped in &out.shapes {
+        if let Shape::Mesh(mesh) = &clipped.shape {
+            if view.expand(0.5).contains_rect(mesh.calc_bounds()) {
+                v.extend(mesh.vertices.iter().map(|x| (x.pos, x.color)));
+            }
+        }
+    }
+    v
+}
+
+fn bar_labels_in(out: &Frame, view: Rect) -> usize {
+    texts(out).iter().filter(|(t, r)| t.starts_with("Bar ") && view.contains_rect(*r)).count()
+}
+
+fn accesskit_nodes(out: &Frame) -> Vec<accesskit::Node> {
+    out.platform_output.accesskit_update.as_ref().expect("accesskit enabled").nodes.iter().map(|(_, n)| n.clone()).collect()
+}
+
+#[test]
+fn ctrl_comma_and_gear_toggle_settings_esc_closes_and_focus_returns() {
+    let root = temp_root("shell");
+    let mut h = Harness::new(root.join("catalog.sqlite"));
+    assert!(!h.app.settings_ui.open);
+    assert!(h.layout().window.is_none());
+
+    // Focus the search field, as a user typing a query would.
+    let search = h.app.shell.search.expect("search field");
+    h.click(search.center());
+    let before = h.focused().expect("search focused");
+
+    // Ctrl+, opens the window and moves focus to its first control.
+    let out = h.ctrl_comma();
+    assert!(h.app.settings_ui.open);
+    let window = h.layout().window.expect("settings window painted");
+    let first = h.layout().first_control.expect("first control");
+    assert_eq!(h.focused(), Some(first), "focus moves into the window");
+    for group in ["Appearance", "Waveform", "Decks (used from D1)", "Keyboard"] {
+        assert!(window.contains_rect(text_rect(&out, group)), "{group}");
+    }
+    assert!(window.contains_rect(text_rect(&out, "Ctrl+,")), "shortcut list");
+
+    // AccessKit: titled window, labelled switches with their checked state.
+    let nodes = accesskit_nodes(&out);
+    let named = |name: &str| nodes.iter().find(|n| n.label().as_deref() == Some(name)).cloned();
+    assert!(named(WINDOW_TITLE).is_some(), "window title exposed");
+    let smooth = named("Smooth edges").expect("Smooth switch exposed");
+    assert_eq!(smooth.role(), accesskit::Role::CheckBox);
+    assert_eq!(smooth.toggled(), Some(accesskit::Toggled::True));
+    assert!(
+        nodes.iter().any(|n| n.label().as_deref() == Some("Tokyo Night") && n.toggled() == Some(accesskit::Toggled::True)),
+        "selected theme cell exposed"
+    );
+
+    // Keyboard reachable: Tab moves focus to the next control in the window,
+    // and Space on a focused switch flips it.
+    h.key(egui::Key::Tab, Default::default());
+    let next = h.focused().expect("tab focus");
+    assert_ne!(next, first);
+    let mut guard = 0;
+    while h.layout().smooth.is_some_and(|r| {
+        h.ctx.memory(|m| m.focused()).and_then(|id| h.ctx.read_response(id)).map(|r| r.rect) != Some(r)
+    }) {
+        h.key(egui::Key::Tab, Default::default());
+        guard += 1;
+        assert!(guard < 12, "Smooth switch reachable by Tab");
+    }
+    h.key(egui::Key::Space, Default::default());
+    assert!(!h.app.settings.smooth, "Space flips the focused switch");
+
+    // Esc closes and returns focus to the search field.
+    h.key(egui::Key::Escape, Default::default());
+    assert!(!h.app.settings_ui.open);
+    assert!(h.layout().window.is_none());
+    assert_eq!(h.focused(), Some(before), "focus returned");
+
+    // Ctrl+, toggles open and closed again.
+    h.ctrl_comma();
+    assert!(h.app.settings_ui.open);
+    h.ctrl_comma();
+    assert!(!h.app.settings_ui.open);
+
+    // Toolbar gear (AccessKit name "Settings") opens it too.
+    let gear = h.app.shell.settings.expect("gear button");
+    let out = h.click(gear.center());
+    assert!(h.app.settings_ui.open);
+    assert!(
+        accesskit_nodes(&out).iter().any(|n| n.role() == accesskit::Role::Button && n.label().as_deref() == Some("Settings")),
+        "gear named for AccessKit"
+    );
+    // Esc does nothing to the app when Settings is already closed.
+    h.key(egui::Key::Escape, Default::default());
+    h.key(egui::Key::Escape, Default::default());
+    assert!(!h.app.settings_ui.open);
+}
+
+#[test]
+fn each_wired_option_changes_the_next_rendered_frame_and_persists() {
+    let mut h = Harness::new(grid_catalog());
+    h.app.show_details = true;
+    let out = h.settle();
+    let out = h.click(text_rect(&out, "d0-grid.wav").center());
+    let view = h.app.track_waveform.layout.view.expect("detail view");
+    let base = waveform_vertices(&out, view);
+    assert!(!base.is_empty());
+    assert!(bar_labels_in(&out, view) > 0, "bar lines on by default");
+    let (window, _) = h.app.track_waveform.layout.grid_window.expect("imported grid");
+    assert_eq!(window.1 - window.0, 8_000.0, "default 4 bars at 120 BPM");
+
+    h.ctrl_comma();
+
+    // Waveform style: RGB.
+    let out = h.click(h.layout().style.unwrap()[2].center());
+    assert_eq!(h.app.settings.waveform_style, Style::Rgb);
+    assert_eq!(h.app.track_waveform.style, Style::Rgb);
+    let with_lines = waveform_vertices(&out, view);
+    assert_ne!(with_lines, base, "style changes the painted waveform");
+
+    // Beat and bar lines off: no labels and no line mesh (only the waveform's).
+    let out = h.click(h.layout().beat_lines.unwrap().center());
+    assert!(!h.app.settings.beat_lines);
+    assert_eq!(bar_labels_in(&out, view), 0, "no bar labels");
+    let rgb = waveform_vertices(&out, view);
+    assert!(rgb.len() < with_lines.len(), "line mesh gone");
+
+    // Smooth off: same style, hard edges (fringe vertices collapse onto the body).
+    let out = h.click(h.layout().smooth.unwrap().center());
+    assert!(!h.app.settings.smooth);
+    let hard = waveform_vertices(&out, view);
+    assert_eq!(hard.len(), rgb.len());
+    assert_ne!(hard, rgb, "smooth changes the painted edges");
+    for quad in hard.chunks(4) {
+        assert_eq!(quad[0].0, quad[1].0, "top fringe on the body edge");
+        assert_eq!(quad[3].0, quad[2].0, "bottom fringe on the body edge");
+    }
+
+
+    // Default zoom 8 bars: the detail window spans 8 bars (16 s).
+    let out = h.click(h.layout().zoom.unwrap()[3].center());
+    assert_eq!(h.app.settings.zoom_bars, 8);
+    let (window, bar) = h.app.track_waveform.layout.grid_window.unwrap();
+    assert_eq!(window.1 - window.0, 16_000.0);
+    assert!(texts(&out).iter().any(|(t, _)| t.starts_with(&format!("Detail 8 bars from Bar {}", bar + 1))));
+
+    // Theme: Tokyo Day repaints the waveform plate in Day background.
+    let day = ThemeMode::TokyoDay.tokens();
+    let out = h.click(h.layout().theme.unwrap()[1].center());
+    assert_eq!(h.app.theme, ThemeMode::TokyoDay);
+    assert!(
+        out.shapes.iter().any(|c| matches!(&c.shape, Shape::Rect(r) if r.fill == day.background && r.rect == view)),
+        "plate painted in the new theme"
+    );
+
+    // Persisted through the production eframe save path.
+    let mut storage = MemoryStorage::default();
+    eframe::App::save(&mut h.app, &mut storage);
+    let saved = Settings::load(Some(&storage));
+    assert_eq!(saved, h.app.settings);
+    assert_eq!((saved.waveform_style, saved.smooth, saved.beat_lines, saved.zoom_bars), (Style::Rgb, false, false, 8));
+    assert_eq!(ThemeMode::load(Some(&storage)).0, ThemeMode::TokyoDay);
+
+    // Reset to defaults restores everything, live.
+    let reset = h.layout().reset.expect("reset button");
+    assert!(h.layout().window.unwrap().contains_rect(reset), "Reset visible in the window");
+    h.click(reset.center());
+    assert_eq!(h.app.settings, Settings::default());
+    assert_eq!(h.app.theme, ThemeMode::TokyoNight);
+    let out = h.settle();
+    assert!(bar_labels_in(&out, view) > 0, "lines back");
+    assert_eq!(waveform_vertices(&out, view), base, "default rendering restored");
+}
+
+#[derive(Default)]
+struct MemoryStorage(std::collections::HashMap<String, String>);
+
+impl eframe::Storage for MemoryStorage {
+    fn get_string(&self, key: &str) -> Option<String> {
+        self.0.get(key).cloned()
+    }
+    fn set_string(&mut self, key: &str, value: String) {
+        self.0.insert(key.to_owned(), value);
+    }
+    fn flush(&mut self) {}
+}

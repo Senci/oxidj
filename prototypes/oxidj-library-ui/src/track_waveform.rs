@@ -115,10 +115,37 @@ pub(crate) struct PanelLayout {
     pub(crate) grid_window: Option<((f64, f64), usize)>,
 }
 
+/// D0 settings the panel reads each frame (set by the app from `Settings`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct WaveformPrefs {
+    /// Paint beat and bar lines over the detail strip.
+    pub(crate) beat_lines: bool,
+    /// Detail window length in bars (2 s per bar without a beat grid).
+    pub(crate) zoom_bars: usize,
+}
+
+impl Default for WaveformPrefs {
+    fn default() -> Self {
+        Self {
+            beat_lines: true,
+            zoom_bars: beat_grid::BARS,
+        }
+    }
+}
+
+impl WaveformPrefs {
+    /// Fixed window length without a usable grid: 2 s per bar (8 s at the
+    /// default 4 bars, as before D0).
+    pub(crate) fn detail_seconds(self) -> f64 {
+        DETAIL_SECONDS * self.zoom_bars.max(1) as f64 / beat_grid::BARS as f64
+    }
+}
+
 #[derive(Default)]
 pub(crate) struct TrackWaveformPanel {
     pub(crate) style: Style,
     pub(crate) eq: wv::Eq,
+    pub(crate) prefs: WaveformPrefs,
     loaded: Option<Loaded>,
     pub(crate) layout: PanelLayout,
     /// Detail-window position `0..=1` through the track; `None` = default for a new selection.
@@ -228,6 +255,7 @@ impl TrackWaveformPanel {
         let Self {
             style,
             eq,
+            prefs,
             loaded,
             layout,
             position,
@@ -281,21 +309,21 @@ impl TrackWaveformPanel {
                 let (start, window) = match grid {
                     Some(grid) => {
                         // Position moves by whole bars; the window starts on a downbeat.
-                        let max = grid.max_start_bar();
+                        let max = grid.max_start_bar_for(prefs.zoom_bars);
                         let default = (max as f32 * DEFAULT_POSITION).round() as usize;
                         let mut b = bar.unwrap_or(default).min(max);
                         layout.position = Some(position_row(ui, rail, tokens, |ui| {
                             ui.add(egui::Slider::new(&mut b, 0..=max).trailing_fill(true).show_value(false))
                         }));
                         *bar = Some(b);
-                        let ms = grid.window_ms(b);
+                        let ms = grid.window_ms_for(b, prefs.zoom_bars);
                         layout.grid_window = Some((ms, b));
                         let s = (ms.0 * rate / 1000.0).round() as u64;
                         let e = (ms.1 * rate / 1000.0).round() as u64;
                         (s, e.saturating_sub(s).max(1))
                     }
                     None => {
-                        let window = ((rate * DETAIL_SECONDS) as u64).clamp(1, total.max(1));
+                        let window = ((rate * prefs.detail_seconds()) as u64).clamp(1, total.max(1));
                         let slack = total.saturating_sub(window);
                         let mut pos = position.unwrap_or(DEFAULT_POSITION).clamp(0.0, 1.0);
                         layout.position = Some(position_row(ui, rail, tokens, |ui| {
@@ -321,7 +349,7 @@ impl TrackWaveformPanel {
                 let below = below_detail_height(ui, loaded.vendor.as_ref().is_ok_and(|v| !v.is_empty()), grid_lines);
                 let height = detail_height(ui, below);
                 let view = waveform_view_sized(ui, Some(peaks), *style, detail, *eq, height);
-                if let (Some(grid), Some((ms, _))) = (grid, layout.grid_window) {
+                if let (true, Some(grid), Some((ms, _))) = (prefs.beat_lines, grid, layout.grid_window) {
                     beat_grid::paint(ui, view.id.with("beat-grid"), view.rect, grid, ms, tokens);
                 }
                 layout.view = Some(view.rect);
@@ -351,14 +379,16 @@ impl TrackWaveformPanel {
                 // W9: short lines that wrap inside the panel (never clip).
                 let detail_line = match (grid, layout.grid_window) {
                     (Some(grid), Some((_, b))) => format!(
-                        "Detail {} bars from Bar {} of {} · track {track_s:.1} s · {} Hz",
-                        beat_grid::BARS,
+                        "Detail {} {} from Bar {} of {} · track {track_s:.1} s · {} Hz",
+                        prefs.zoom_bars,
+                        if prefs.zoom_bars == 1 { "bar" } else { "bars" },
                         b + 1,
                         grid.bar_count(),
                         peaks.sample_rate()
                     ),
                     _ => format!(
-                        "Detail {DETAIL_SECONDS:.0} s window · track {track_s:.1} s · {} Hz",
+                        "Detail {:.0} s window · track {track_s:.1} s · {} Hz",
+                        prefs.detail_seconds(),
                         peaks.sample_rate()
                     ),
                 };

@@ -130,6 +130,9 @@ pub(crate) struct LibraryApp {
     pub(crate) show_decks: bool,
     /// Rects of the shell regions painted in the last frame (for tests).
     pub(crate) shell: ShellLayout,
+    /// M8/D0 persisted settings and the Settings window state.
+    pub(crate) settings: crate::settings::Settings,
+    pub(crate) settings_ui: crate::settings::SettingsUi,
 }
 
 /// Where the last frame placed each shell region; `None` when hidden.
@@ -145,6 +148,8 @@ pub(crate) struct ShellLayout {
     pub(crate) toggles: Option<[egui::Rect; 3]>,
     pub(crate) more: Option<egui::Rect>,
     pub(crate) more_popup: Option<egui::Rect>,
+    /// Toolbar gear that opens Settings.
+    pub(crate) settings: Option<egui::Rect>,
     /// Search text field and, when there is text, its clear (x) button.
     pub(crate) search: Option<egui::Rect>,
     pub(crate) search_clear: Option<egui::Rect>,
@@ -281,6 +286,8 @@ impl LibraryApp {
             show_details: false,
             show_decks: false,
             shell: ShellLayout::default(),
+            settings: Default::default(),
+            settings_ui: Default::default(),
         };
         app.reload();
         app

@@ -63,20 +63,33 @@ impl BeatGrid {
     }
 
     /// Last bar index the detail window may start at (0-based).
+    #[cfg(test)]
     pub fn max_start_bar(&self) -> usize {
-        self.bars.len().saturating_sub(BARS)
+        self.max_start_bar_for(BARS)
+    }
+
+    /// [`Self::max_start_bar`] for a `bars`-bar window (D0 zoom setting).
+    pub fn max_start_bar_for(&self, bars: usize) -> usize {
+        self.bars.len().saturating_sub(bars.max(1))
     }
 
     /// `[start, end)` in ms of the [`BARS`]-bar window starting at bar index
     /// `bar` (clamped): from that downbeat to the downbeat [`BARS`] bars later,
     /// or, near the end, the starting bar's nominal length times [`BARS`].
+    #[cfg(test)]
     pub fn window_ms(&self, bar: usize) -> (f64, f64) {
+        self.window_ms_for(bar, BARS)
+    }
+
+    /// [`Self::window_ms`] for a `bars`-bar window (D0 zoom setting).
+    pub fn window_ms_for(&self, bar: usize, bars: usize) -> (f64, f64) {
+        let bars = bars.max(1);
         let bar = bar.min(self.bars.len() - 1);
         let (index, bar_ms) = self.bars[bar];
         let start = self.beats[index].0;
-        let end = match self.bars.get(bar + BARS) {
+        let end = match self.bars.get(bar + bars) {
             Some(&(i, _)) => self.beats[i].0,
-            None => start + bar_ms * BARS as f64,
+            None => start + bar_ms * bars as f64,
         };
         (start, end)
     }

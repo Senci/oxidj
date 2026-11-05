@@ -176,6 +176,7 @@ const TRIS_PER_SEGMENT: usize = 6;
 /// [`FRINGE`]-px fully transparent band offset along the outline normal, so
 /// the GPU's colour interpolation fades the edge (anti-aliasing without
 /// textures). Vertex colours give Rgb a smooth per-column gradient.
+#[cfg(test)]
 pub fn build_layers(
     peaks: &WaveformPeaks,
     style: Style,
@@ -183,6 +184,22 @@ pub fn build_layers(
     eq: Eq,
     rect: Rect,
     palette: Palette,
+    layers: &mut [Mesh; 3],
+) -> usize {
+    build_layers_with_fringe(peaks, style, viewport, eq, rect, palette, FRINGE, layers)
+}
+
+/// [`build_layers`] with an explicit anti-aliasing `fringe` width in px
+/// (D0 "Smooth" setting: [`FRINGE`] when on, `0` = hard aliased edges).
+#[allow(clippy::too_many_arguments)]
+pub fn build_layers_with_fringe(
+    peaks: &WaveformPeaks,
+    style: Style,
+    viewport: Viewport,
+    eq: Eq,
+    rect: Rect,
+    palette: Palette,
+    fringe: f32,
     layers: &mut [Mesh; 3],
 ) -> usize {
     for mesh in layers.iter_mut() {
@@ -286,7 +303,7 @@ pub fn build_layers(
         let x_end = (rect.left() + drawn as f32 * w).min(rect.right());
         for (mesh, &(y0, y1, color)) in layers.iter_mut().zip(&last).take(used) {
             push_point(mesh, x_end, y0, y1, color);
-            finish_strip(mesh, rect);
+            finish_strip(mesh, rect, fringe);
         }
     }
     level
@@ -318,9 +335,9 @@ fn push_point(mesh: &mut Mesh, x: f32, top: f32, bottom: f32, color: Color32) {
     }
 }
 
-/// Move every fringe vertex [`FRINGE`] px outward along the outline normal
+/// Move every fringe vertex `width` px outward along the outline normal
 /// (averaged over the neighbouring segments), clamped into `rect`.
-fn finish_strip(mesh: &mut Mesh, rect: Rect) {
+fn finish_strip(mesh: &mut Mesh, rect: Rect, width: f32) {
     let points = mesh.vertices.len() / VERTS_PER_POINT;
     for j in 0..points {
         let prev = j.saturating_sub(1) * VERTS_PER_POINT;
@@ -335,7 +352,7 @@ fn finish_strip(mesh: &mut Mesh, rect: Rect) {
             } else {
                 Vec2::new(0.0, sign)
             };
-            let p = mesh.vertices[at + body].pos + n * FRINGE;
+            let p = mesh.vertices[at + body].pos + n * width;
             mesh.vertices[at + fringe].pos = p.clamp(rect.min, rect.max);
         }
     }
@@ -351,6 +368,19 @@ fn rgb_color(band_amp: [(f32, f32); 3], silent: Color32) -> Color32 {
     }
     let c = e.map(|v| (v / m * 255.0).round() as u8);
     Color32::from_rgb(c[0], c[1], c[2])
+}
+
+const SMOOTH_ID: &str = "oxidj_waveform_smooth";
+
+/// Publish the D0 "Smooth" setting for every [`waveform_view`] this frame
+/// (like the theme tokens: painters only get a `Ui`).
+pub fn publish_smooth(ctx: &egui::Context, smooth: bool) {
+    ctx.data_mut(|d| d.insert_temp(egui::Id::NULL.with(SMOOTH_ID), smooth));
+}
+
+/// The published "Smooth" setting; on (anti-aliased) when never published.
+pub fn smooth(ctx: &egui::Context) -> bool {
+    ctx.data(|d| d.get_temp(egui::Id::NULL.with(SMOOTH_ID))).unwrap_or(true)
 }
 
 /// Reused layer buffers, keyed by the widget id in egui temp memory.
@@ -395,7 +425,8 @@ pub fn waveform_view_sized(
     let mut owned: [Mesh; 3] = slots
         .each_mut()
         .map(|slot| Arc::get_mut(slot).map(std::mem::take).unwrap_or_default());
-    build_layers(peaks, style, viewport, eq, rect, palette, &mut owned);
+    let fringe = if smooth(ui.ctx()) { FRINGE } else { 0.0 };
+    build_layers_with_fringe(peaks, style, viewport, eq, rect, palette, fringe, &mut owned);
     for (slot, mesh) in slots.iter_mut().zip(owned) {
         match Arc::get_mut(slot) {
             Some(dst) => *dst = mesh,

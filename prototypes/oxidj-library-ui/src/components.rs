@@ -230,6 +230,95 @@ pub fn segmented_toggles(
     responses
 }
 
+/// Label column of a settings row (fits "Beat and bar lines").
+pub const SETTING_LABEL_WIDTH: f32 = 150.0;
+/// On/off switch hit target (one control high); the painted track is
+/// [`SWITCH_TRACK_HEIGHT`] tall, centred in it.
+const SWITCH_SIZE: egui::Vec2 = egui::vec2(40.0, crate::theme::CONTROL_HEIGHT);
+const SWITCH_TRACK_HEIGHT: f32 = 20.0;
+
+/// A settings row (D0): `label` in a fixed muted column, then the control
+/// added by `add`; the row is one control high. Returns the label response
+/// and the control's output.
+pub fn setting_row<R>(
+    ui: &mut egui::Ui,
+    tokens: ColorTokens,
+    label: &str,
+    add: impl FnOnce(&mut egui::Ui) -> R,
+) -> (egui::Response, R) {
+    ui.horizontal(|ui| {
+        let label = ui
+            .allocate_ui_with_layout(
+                egui::vec2(SETTING_LABEL_WIDTH, crate::theme::CONTROL_HEIGHT),
+                egui::Layout::left_to_right(egui::Align::Center),
+                |ui| {
+                    ui.set_min_width(SETTING_LABEL_WIDTH);
+                    ui.add(egui::Label::new(RichText::new(label).color(tokens.muted_text)).truncate())
+                },
+            )
+            .inner;
+        let inner = add(ui);
+        (label, inner)
+    })
+    .inner
+}
+
+/// A labelled segmented choice (one [`segmented_toggles`] group): clicking
+/// a cell (or Space/Enter on it) sets `selected`. Each cell keeps its own
+/// AccessKit name and `selected` state.
+pub fn segmented_row(
+    ui: &mut egui::Ui,
+    tokens: ColorTokens,
+    label: &str,
+    options: &[&str],
+    selected: &mut usize,
+) -> Vec<egui::Response> {
+    let (_, responses) = setting_row(ui, tokens, label, |ui| {
+        let cells: Vec<_> = options.iter().enumerate().map(|(i, o)| (*o, i == *selected)).collect();
+        segmented_toggles(ui, tokens, &cells)
+    });
+    if let Some(i) = responses.iter().position(egui::Response::clicked) {
+        *selected = i;
+    }
+    responses
+}
+
+/// A labelled on/off switch: a native focusable widget (Space/Enter or a
+/// click flips `value`; AccessKit checkbox with its checked state). On: the
+/// selection tint with the knob in primary at the right; off: surface with
+/// a muted knob at the left. The painted shapes stay inside the response rect.
+pub fn toggle_row(ui: &mut egui::Ui, tokens: ColorTokens, label: &str, value: &mut bool) -> egui::Response {
+    let (label_response, response) = setting_row(ui, tokens, label, |ui| {
+        let (rect, mut response) = ui.allocate_exact_size(SWITCH_SIZE, egui::Sense::click());
+        if response.clicked() {
+            *value = !*value;
+            response.mark_changed();
+        }
+        let on = *value;
+        response.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Checkbox, true, on, label));
+        let t = ui.ctx().animate_bool_responsive(response.id, on);
+        let painter = ui.painter();
+        let rect = egui::Rect::from_center_size(rect.center(), egui::vec2(rect.width(), SWITCH_TRACK_HEIGHT));
+        let radius = rect.height() / 2.0;
+        let fill = if on { crate::theme::selection_fill(tokens) } else { tokens.surface };
+        painter.rect_filled(rect, radius, fill);
+        let outline = if response.has_focus() {
+            Stroke::new(2.0_f32, tokens.focus)
+        } else if response.hovered() {
+            Stroke::new(1.0_f32, tokens.focus)
+        } else {
+            Stroke::new(1.0_f32, tokens.border)
+        };
+        painter.rect_stroke(rect, radius, outline, egui::StrokeKind::Inside);
+        let knob_r = radius - 4.0;
+        let x = egui::lerp((rect.left() + radius)..=(rect.right() - radius), t);
+        let knob = if on { tokens.primary } else { tokens.muted_text };
+        painter.circle_filled(egui::pos2(x, rect.center().y), knob_r, knob);
+        response
+    });
+    response.labelled_by(label_response.id)
+}
+
 /// Single-line text field at the shared control height, text vertically
 /// centred: `ui.text_edit_singleline` sizes to the font (~20 px), below the
 /// 24 px target and shorter than the toolbar fields beside it.
@@ -334,6 +423,53 @@ mod tests {
         let underline = underline.expect("hovered action paints Tokyo cyan underline");
         assert!((underline.width() - button_rect.width()).abs() < 0.01);
         assert_eq!(underline.center().x, button_rect.center().x);
+    }
+
+    #[test]
+    fn settings_rows_paint_inside_their_rects_and_flip_on_click() {
+        let ctx = egui::Context::default();
+        let tokens = ThemeMode::TokyoNight.tokens();
+        let mut value = true;
+        let mut choice = 0usize;
+        let rects = std::cell::RefCell::new((egui::Rect::NOTHING, Vec::new()));
+        let run = |events: Vec<egui::Event>, value: &mut bool, choice: &mut usize| {
+            ctx.run(egui::RawInput { events, ..Default::default() }, |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    let switch = toggle_row(ui, tokens, "Smooth edges", value).rect;
+                    let cells = segmented_row(ui, tokens, "Style", &["Mono", "3-band", "RGB"], choice);
+                    *rects.borrow_mut() = (switch, cells.iter().map(|c| c.rect).collect());
+                });
+            })
+        };
+        for _ in 0..2 {
+            run(vec![], &mut value, &mut choice);
+        }
+        let (switch, cells) = rects.borrow().clone();
+        assert_eq!(switch.height(), crate::theme::CONTROL_HEIGHT);
+        let click = |pos| {
+            let b = |pressed| egui::Event::PointerButton {
+                pos,
+                button: egui::PointerButton::Primary,
+                pressed,
+                modifiers: Default::default(),
+            };
+            vec![egui::Event::PointerMoved(pos), b(true), b(false)]
+        };
+        for expect in [false, true] {
+            run(click(switch.center()), &mut value, &mut choice);
+            assert_eq!(value, expect);
+            let out = run(vec![], &mut value, &mut choice);
+            let knob = out.shapes.iter().find_map(|c| match &c.shape {
+                egui::Shape::Circle(k) => Some(k),
+                _ => None,
+            });
+            let knob = knob.expect("knob painted");
+            let bounds = egui::Rect::from_center_size(knob.center, egui::Vec2::splat(2.0 * knob.radius));
+            assert!(switch.contains_rect(bounds), "knob inside the switch: {bounds:?}");
+            assert_eq!(knob.fill, if expect { tokens.primary } else { tokens.muted_text });
+        }
+        run(click(cells[2].center()), &mut value, &mut choice);
+        assert_eq!(choice, 2);
     }
 
     #[test]

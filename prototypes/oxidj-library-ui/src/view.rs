@@ -5,6 +5,7 @@ use super::*;
 impl eframe::App for LibraryApp {
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
         self.theme.save(self.custom_tokens, storage);
+        self.settings.save(storage);
     }
 
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
@@ -50,6 +51,7 @@ impl LibraryApp {
     /// one-row toolbar, status bar, optional nav/details/decks panels and the
     /// track table filling whatever space the visible panels leave.
     pub(crate) fn ui(&mut self, ctx: &egui::Context) {
+        self.handle_settings_shortcuts(ctx);
         self.handle_theme_shortcuts(ctx);
         self.handle_panel_shortcuts(ctx);
         self.theme.apply(self.custom_tokens, ctx);
@@ -63,6 +65,15 @@ impl LibraryApp {
             .frame(bar)
             .show(ctx, |ui| self.toolbar(ui, ctx, tokens));
         self.shell.toolbar = Some(toolbar.response.rect);
+        // Settings first, so an option changed this frame is what the
+        // panels below render (theme changes apply from the next frame).
+        self.settings_window(ctx, tokens);
+        waveform_view::publish_smooth(ctx, self.settings.smooth);
+        self.track_waveform.style = self.settings.waveform_style;
+        self.track_waveform.prefs = track_waveform::WaveformPrefs {
+            beat_lines: self.settings.beat_lines,
+            zoom_bars: self.settings.zoom_bars,
+        };
         self.show_control_gallery_window(ctx, tokens);
         self.show_waveform_demo_window(ctx);
         self.xml_preview_window(ctx, tokens);
@@ -106,6 +117,8 @@ impl LibraryApp {
                         .show(ui, |ui| self.details(ui, tokens));
                 });
             self.shell.details = Some(details.response.rect);
+            // The panel's own style picker is the same persisted setting.
+            self.settings.waveform_style = self.track_waveform.style;
         } else {
             // Re-opening the panel re-lays the facts grid like a new
             // selection does (W11: the first opened frame showed rows sized
@@ -163,6 +176,15 @@ impl LibraryApp {
                     self.more_menu(ui, tokens)
                 });
             self.shell.more_popup = popup.map(|popup| popup.response.rect);
+            let gear = ui
+                .add(egui::Button::new("⚙").min_size(egui::vec2(theme::CONTROL_HEIGHT + 8.0, 0.0)))
+                .on_hover_text("Settings (Ctrl+,)");
+            gear.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, "Settings"));
+            if gear.clicked() {
+                let open = !self.settings_ui.open;
+                self.set_settings_open(ctx, open);
+            }
+            self.shell.settings = Some(gear.rect);
             self.theme_selection_ui(ui);
             ui.separator();
             // W11: one segmented Nav | Details | Decks group (left to right
@@ -251,6 +273,10 @@ impl LibraryApp {
             });
         ui.separator();
         ui.horizontal(|ui| {
+            if ui.button("Settings… (Ctrl+,)").clicked() {
+                self.set_settings_open(ui.ctx(), true);
+                close = true;
+            }
             close |= self.show_control_gallery_button(ui).clicked();
             close |= self.show_waveform_demo_button(ui).clicked();
             if self.theme == ThemeMode::Custom && ui.button("Edit palette…").clicked() {

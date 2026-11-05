@@ -12,6 +12,9 @@ mod keyboard_tests;
 #[path = "../../../xtask/tests/f02_playlist_member_insert_oracle.rs"]
 mod f02_playlist_member_insert_oracle;
 mod playlist_ops;
+mod settings;
+#[cfg(test)]
+mod settings_tests;
 #[cfg(test)]
 mod shell_tests;
 mod theme;
@@ -46,7 +49,9 @@ fn main() -> eframe::Result<()> {
         Box::new(move |cc| {
             cc.egui_ctx.enable_accesskit();
             let (theme, custom_tokens) = ThemeMode::load(cc.storage);
-            Ok(Box::new(LibraryApp::new(db, theme, custom_tokens)))
+            let mut app = LibraryApp::new(db, theme, custom_tokens);
+            app.settings = settings::Settings::load(cc.storage);
+            Ok(Box::new(app))
         }),
     )
 }
