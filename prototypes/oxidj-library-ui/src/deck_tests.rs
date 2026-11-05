@@ -1629,34 +1629,48 @@ fn deck_band_layers_keep_their_own_colour_and_nest_at_min_mid_max() {
                 let c = decks::deck_colours(palette, d, theme.tokens());
                 let colours = [c.low, c.mid, c.high];
                 assert!(colours[0] != colours[1] && colours[1] != colours[2] && colours[0] != colours[2], "three hues");
-                // Typical spectrum (low > mid > high) at min / mid / max amplitude,
-                // plus an inverted (hat-only) column that ranks high outermost.
-                for (case, amp, order) in [
-                    ("min", [0.0, 0.0, 0.0], [0, 1, 2]),
-                    ("mid", [0.5, 0.3, 0.15], [0, 1, 2]),
-                    ("max", [1.0, 0.8, 0.5], [0, 1, 2]),
-                    ("hat", [0.1, 0.2, 0.6], [2, 1, 0]),
+                // Typical spectrum (low > mid > high) at min / mid / max
+                // amplitude, plus a hat-only column (high loudest).
+                for (case, amp) in [
+                    ("min", [0.0, 0.0, 0.0]),
+                    ("mid", [0.5, 0.3, 0.15]),
+                    ("max", [1.0, 0.8, 0.5]),
+                    ("hat", [0.1, 0.2, 0.6]),
                 ] {
                     let peaks = band_peaks(&[(4, amp)]);
+                    let want = decks::stack(amp, 1.0);
                     for up in [true, false] {
                         let mut layers: [egui::Mesh; 3] = Default::default();
                         decks::build_half(&peaks, (0.0, 4_000.0), 1.0, rect, up, c, 1.0, decks::Envelope::Peak, &mut layers);
                         let what = format!("{palette:?} {theme:?} deck {d} {case} up={up}");
                         let mut reach = [0.0f32; 3];
-                        for (rank, mesh) in layers.iter().enumerate() {
+                        for (layer, mesh) in layers.iter().enumerate() {
                             // Bounds inside the clip, fringe included.
                             assert!(mesh.vertices.iter().all(|v| rect.expand(0.01).contains(v.pos)), "{what}: inside");
                             let b = body(mesh, rect, up);
-                            assert!(!b.is_empty(), "{what}: layer {rank} painted");
-                            // Each layer is exactly its band's colour.
-                            assert!(b.iter().all(|(_, col)| *col == colours[order[rank]]), "{what}: layer {rank} colour");
-                            reach[rank] = b.iter().map(|(r, _)| *r).fold(0.0, f32::max);
+                            assert!(!b.is_empty(), "{what}: layer {layer} painted");
+                            // Each layer is exactly its band's colour: low, mid, high.
+                            assert!(b.iter().all(|(_, col)| *col == colours[layer]), "{what}: layer {layer} colour");
+                            reach[layer] = b.iter().map(|(r, _)| *r).fold(0.0, f32::max);
                         }
-                        // Nested: back layer >= middle >= front.
+                        // Nested: low >= mid >= high, each ring its band's share.
                         assert!(reach[0] >= reach[1] && reach[1] >= reach[2], "{what}: nesting {reach:?}");
                         let full = rect.height() - 1.5;
-                        let want = amp[order[0]] * full;
-                        assert!((reach[0] - want.max(1.0)).abs() <= 1.0, "{what}: outer reach {} vs {want}", reach[0]);
+                        for k in 0..3 {
+                            let w = want[k] * full;
+                            let w = if k == 0 { w.max(1.0) } else { w };
+                            assert!((reach[k] - w).abs() <= 1.0, "{what}: layer {k} reach {} vs {w}", reach[k]);
+                        }
+                        let outer = amp.iter().copied().fold(0.0, f32::max);
+                        assert!((want[0] - outer).abs() < 1e-6, "{what}: outer edge = loudest band");
+                        if case != "min" {
+                            for k in 0..3 {
+                                let ring = want[k] - if k < 2 { want[k + 1] } else { 0.0 };
+                                let w = decks::SHARE_WEIGHTS;
+                                let share = outer * amp[k] * w[k] / (0..3).map(|j| amp[j] * w[j]).sum::<f32>();
+                                assert!((ring - share).abs() < 1e-5, "{what}: band {k} ring = its share");
+                            }
+                        }
                         if case == "max" {
                             assert!(reach[0] >= full - 1.0, "{what}: max fills the half");
                         }

@@ -22,6 +22,7 @@ v0.2–v0.6 are interoperability evidence (CLI/test oracles rendered as cards), 
 | [v0.14](v14-merged-decks/README.md) | 2026-11-05 | `9b9acbd..` | M8 D1: merged two-deck detail waveform (A warm above, B cool below, one playhead), club-standard control strip, two separate overviews, collapsible sections; silent transport, no audio yet. | <img src="v14-merged-decks/02-after-both-decks-loaded.png" width="240" alt="v0.14 key screenshot"> |
 | [v0.15](v15-tempo-keylock-sync/README.md) | 2026-11-05 | `bdeecf5..` | M8 D3: tempo fader with key lock (Signalsmith Stretch behind `TimeStretch`), SYNC (tempo + nearest-beat phase, imported grid wins) with visible refusals, live BPM and seam phase readout, warped beat lines. | <img src="v15-tempo-keylock-sync/02-after-sync-b-keylock-matched.png" width="240" alt="v0.15 key screenshot"> |
 | [v0.16](v16-mixer/README.md) | 2026-11-05 | M8 D4 | M8 D4: optional mixer — trim, 3-band isolator EQ with kill (in-house LR4), colour filter, channel faders, crossfader (Smooth/Sharp/Cut, own toggle), master, peak/clip meters; hidden = bit-identical bypass. | <img src="v16-mixer/01-mixer-both-playing-centre.png" width="240" alt="v0.16 key screenshot"> |
+| [v0.17](v17-waveform-bands/README.md) | 2026-11-05 | W12 | W12: 3-band deck waveforms — detail and overviews in warm/cool low/mid/high nested layers, overview auto-gain and mean envelope, played part dimmed, readable cue flags with hover names, 16-bar phrase ticks. | <img src="v17-waveform-bands/02-after-three-bands-loaded.png" width="240" alt="v0.17 key screenshot"> |
 
 ## Before → after
 
@@ -33,3 +34,4 @@ v0.2–v0.6 are interoperability evidence (CLI/test oracles rendered as cards), 
 | v0.14 merged decks | ![before](v14-merged-decks/01-before-library-only.png) | ![after](v14-merged-decks/02-after-both-decks-loaded.png) |
 | v0.15 tempo/key lock/SYNC | ![before](v15-tempo-keylock-sync/01-before-sync-unmatched.png) | ![after](v15-tempo-keylock-sync/02-after-sync-b-keylock-matched.png) |
 | v0.16 mixer | ![before](v15-tempo-keylock-sync/03-both-playing-synced-live-phase.png) | ![after](v16-mixer/01-mixer-both-playing-centre.png) |
+| v0.17 3-band waveforms | ![before](v17-waveform-bands/01-before-v16-monochrome.png) | ![after](v17-waveform-bands/02-after-three-bands-loaded.png) |

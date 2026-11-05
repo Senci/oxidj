@@ -1055,6 +1055,31 @@ pub fn overview_gain(peaks: &WaveformPeaks, window: (f64, f64), width: f32, auto
     if loudest > f32::EPSILON { (GAIN_TARGET / loudest).clamp(1.0, MAX_OVERVIEW_GAIN) } else { 1.0 }
 }
 
+/// Nested `[low, mid, high]` layer extents of one column (`raw` band
+/// extents times `gain`): the outer edge is the true loudest band
+/// (`max`, clamped to 1) and each band's ring is as thick as its share of
+/// the column's ([`SHARE_WEIGHTS`]-weighted) band sum, so low ⊇ mid ⊇
+/// high always nest and each colour covers an area proportional to its
+/// energy. (Ranking bands by their own
+/// extent, as in the details panel, made the smallest band the largest
+/// visible area: real masters read as one pale core.)
+pub fn stack(raw: [f32; 3], gain: f32) -> [f32; 3] {
+    let e = raw.map(|v| (v * gain).max(0.0));
+    let total = e.iter().copied().fold(0.0, f32::max).min(1.0);
+    let w: [f32; 3] = core::array::from_fn(|b| e[b] * SHARE_WEIGHTS[b]);
+    let sum = w[0] + w[1] + w[2];
+    if sum <= f32::EPSILON {
+        return [0.0; 3];
+    }
+    [total, total * (w[1] + w[2]) / sum, total * w[2] / sum]
+}
+
+/// Display weights of the `[low, mid, high]` ring shares (not the outer
+/// edge). Mid-band peaks (200 Hz–2.5 kHz) dominate real masters; checked
+/// on real library tracks, an unweighted low ring was a hairline, so the
+/// low share is lifted and the high core trimmed a little.
+pub const SHARE_WEIGHTS: [f32; 3] = [1.5, 1.0, 0.85];
+
 /// Fill `layers` (cleared first) with deck `colours` waveform strips that
 /// grow from the seam: `up` = from `rect.bottom()` upwards (deck A), else
 /// from `rect.top()` downwards (deck B). Points sit on pixel boundaries
@@ -1062,11 +1087,8 @@ pub fn overview_gain(peaks: &WaveformPeaks, window: (f64, f64), width: f32, auto
 /// (the strip breaks there). Every vertex is clamped into `rect`, so the
 /// painted bounds never leave it.
 ///
-/// W12: three opaque nested band layers, each band at its own extent in
-/// its own colour (`low`, `mid`, `high`). Per column the bands are ranked
-/// by extent ([`crate::waveform_view::nest_by_rank`], the accepted 3-band
-/// rule): `layers[0]` holds the largest, `[2]` the smallest, so a band is
-/// never hidden behind a larger one.
+/// W12: three opaque nested band layers in fixed order — `layers[0]` low
+/// (outermost), `[1]` mid, `[2]` high (core) — see [`stack`].
 #[allow(clippy::too_many_arguments)]
 pub fn build_half(
     peaks: &WaveformPeaks,
@@ -1100,13 +1122,11 @@ pub fn build_half(
             connected = false;
             continue;
         };
-        let e = raw.map(|v| (v * gain).min(1.0));
-        let order = crate::waveform_view::nest_by_rank(e);
-        for (rank, (mesh, &b)) in layers.iter_mut().zip(&order).enumerate() {
-            let height = (e[b] * reach).max(if rank == 0 { 1.0 } else { 0.0 });
+        for (layer, (mesh, ext)) in layers.iter_mut().zip(stack(raw, gain)).enumerate() {
+            let height = (ext * reach).max(if layer == 0 { 1.0 } else { 0.0 });
             let edge = base + dir * height;
             let outside = (edge + dir * fringe).clamp(rect.top(), rect.bottom());
-            push(mesh, x, outside, edge, base, colors[b], connected);
+            push(mesh, x, outside, edge, base, colors[layer], connected);
         }
         connected = true;
     }
