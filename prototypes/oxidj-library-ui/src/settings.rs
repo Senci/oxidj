@@ -256,10 +256,22 @@ impl LibraryApp {
             .id(egui::Id::new("oxidj-settings"))
             .open(&mut open)
             .collapsible(false)
-            // Sized to its content (about 560 px tall), centred.
-            .auto_sized()
+            // Leave room for the title bar and window frame on small screens.
+            .default_height((ctx.screen_rect().height() - 64.0).max(1.0))
+            .max_height((ctx.screen_rect().height() - 64.0).max(1.0))
+            .vscroll(true)
+            .resizable(false)
             .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
-            .show(ctx, |ui| self.settings_contents(ui, tokens, &mut layout));
+            .show(ctx, |ui| {
+                self.settings_contents(ui, tokens, &mut layout);
+                // Native keyboard focus can advance to a clipped widget;
+                // keep that control visible within the window's scroll area.
+                if let Some(response) = ui.memory(|m| m.focused()).and_then(|id| ui.ctx().read_response(id)) {
+                    if response.gained_focus() && response.layer_id == ui.layer_id() && !ui.clip_rect().contains_rect(response.rect) {
+                        ui.scroll_to_rect(response.rect, None);
+                    }
+                }
+            });
         layout.window = shown.map(|w| w.response.rect);
         if self.settings_ui.focus_first {
             if let Some(id) = layout.first_control {

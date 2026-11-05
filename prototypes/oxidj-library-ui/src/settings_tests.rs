@@ -78,6 +78,7 @@ fn grid_catalog() -> PathBuf {
 struct Harness {
     ctx: egui::Context,
     app: LibraryApp,
+    viewport: egui::Vec2,
 }
 
 impl Harness {
@@ -85,14 +86,14 @@ impl Harness {
         let ctx = egui::Context::default();
         ctx.enable_accesskit();
         let app = LibraryApp::new(db, ThemeMode::TokyoNight, ThemeMode::TokyoNight.tokens());
-        let mut h = Self { ctx, app };
+        let mut h = Self { ctx, app, viewport: egui::vec2(1440.0, 900.0) };
         h.settle();
         h
     }
 
     fn frame_with(&mut self, events: Vec<egui::Event>, modifiers: egui::Modifiers) -> Frame {
         let input = egui::RawInput {
-            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, egui::vec2(1440.0, 900.0))),
+            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, self.viewport)),
             events,
             modifiers,
             ..Default::default()
@@ -326,6 +327,54 @@ fn each_wired_option_changes_the_next_rendered_frame_and_persists() {
     let out = h.settle();
     assert!(bar_labels_in(&out, view) > 0, "lines back");
     assert_eq!(waveform_vertices(&out, view), base, "default rendering restored");
+}
+
+#[test]
+fn small_viewport_settings_controls_are_reachable_by_keyboard_and_pointer() {
+    for viewport in [egui::vec2(800.0, 600.0), egui::vec2(640.0, 480.0)] {
+        let root = temp_root("small-settings");
+        let mut h = Harness::new(root.join("catalog.sqlite"));
+        h.viewport = viewport;
+        h.settle();
+        h.ctrl_comma();
+        let screen = Rect::from_min_size(Pos2::ZERO, viewport);
+        assert!(screen.contains_rect(h.layout().window.unwrap()), "window bounded at {viewport:?}: {:?}", h.layout().window);
+        let day = h.layout().theme.unwrap()[1];
+        assert!(screen.contains_rect(day), "first row visible");
+        h.click(day.center());
+        assert_eq!(h.app.theme, ThemeMode::TokyoDay, "first row activates");
+
+        // Start at the first control and traverse actual focus order, not a
+        // direct focus request to Reset. Every focused control must scroll
+        // into view, including the last button below the shortcut list.
+        h.ctx.memory_mut(|m| m.request_focus(h.layout().first_control.unwrap()));
+        h.settle();
+        let mut reached_reset = false;
+        for _ in 0..40 {
+            h.key(egui::Key::Tab, Default::default());
+            // Allow egui's focus-scroll animation to settle.
+            for _ in 0..30 {
+                h.settle();
+            }
+            let focused = h.focused().and_then(|id| h.ctx.read_response(id)).expect("focused control");
+            let visible = focused.rect.intersect(focused.interact_rect);
+            assert!(screen.contains_rect(focused.rect), "focused control on screen: {:?}", focused.rect);
+            assert!(visible.contains_rect(focused.rect), "focused control not clipped");
+            if focused.rect == h.layout().reset.unwrap() {
+                reached_reset = true;
+                h.key(egui::Key::Space, Default::default());
+                break;
+            }
+        }
+        assert!(reached_reset, "Reset reachable by Tab at {viewport:?}");
+        assert_eq!(h.app.theme, ThemeMode::TokyoNight, "keyboard Reset activates");
+        // Reset is also pointer-operable after scrolling into view.
+        h.app.settings.smooth = false;
+        h.click(h.layout().reset.unwrap().center());
+        assert_eq!(h.app.settings, Settings::default());
+        h.key(egui::Key::Escape, Default::default());
+        assert!(!h.app.settings_ui.open);
+    }
 }
 
 #[derive(Default)]
