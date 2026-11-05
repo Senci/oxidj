@@ -48,18 +48,19 @@ pub const DETAIL_MAX_HEIGHT: f32 = 140.0;
 /// Fixed label column of the slider rows (fits "Position").
 pub const SLIDER_LABEL_WIDTH: f32 = 60.0;
 
-/// What the catalog holds for one selected track, read on selection.
-struct Loaded {
+/// What the catalog holds for one track, read on selection (and on deck
+/// load, D1).
+pub(crate) struct Loaded {
     track: u64,
     /// `Ok(None)` = not analysed; `Err` = unreadable/stale row (reason shown).
-    computed: Result<Option<WaveformPeaks>, String>,
+    pub(crate) computed: Result<Option<WaveformPeaks>, String>,
     vendor: Result<Vec<VendorWaveform>, String>,
     /// Beat grid validated against the computed track length and where it
     /// came from (an imported grid always wins over a computed one);
     /// `Ok(None)` = none or unusable (fixed-length window).
-    grid: Result<Option<(BeatGrid, GridSource)>, String>,
+    pub(crate) grid: Result<Option<(BeatGrid, GridSource)>, String>,
     /// B2b computed tempo of this exact file (`Err` = stale/unreadable row).
-    tempo: Result<Option<ComputedTempo>, String>,
+    pub(crate) tempo: Result<Option<ComputedTempo>, String>,
 }
 
 /// Where the detail window's beat grid came from.
@@ -141,6 +142,69 @@ impl WaveformPrefs {
     }
 }
 
+impl Loaded {
+    /// Read `item`'s computed peaks, vendor waveforms, beat grid and tempo.
+    pub(crate) fn read(catalog: Option<&Catalog>, item: &TrackDetails) -> Self {
+        let id = item.track.id.as_u64();
+        let unavailable = || "catalog unavailable".to_string();
+        let computed = catalog.ok_or_else(unavailable).and_then(|db| {
+            match db.read_waveform(item.track.id) {
+                Ok(Some(stored)) if stored.source_sha256 == item.track.sha256 => {
+                    Ok(Some(stored.peaks))
+                }
+                Ok(Some(_)) => Err("stored waveform is out of date (source changed)".into()),
+                Ok(None) => Ok(None),
+                Err(e) => Err(e.to_string()),
+            }
+        });
+        let (uri, _) = oxidj_application::location_uri(&item.track.path);
+        let vendor = catalog.ok_or_else(unavailable).and_then(|db| {
+            db.vendor_waveforms_for_locations(&[&item.track.path, &uri])
+                .map_err(|e| e.to_string())
+        });
+        let tempo = catalog.ok_or_else(unavailable).and_then(|db| {
+            match db.computed_beat_grid(item.track.id) {
+                Ok(Some(stored)) if stored.source_sha256 == item.track.sha256 => {
+                    Ok(Some(ComputedTempo {
+                        bpm: stored.grid.bpm(),
+                        confidence: stored.grid.confidence(),
+                        algorithm: stored.grid.algorithm().to_owned(),
+                        beats_ms: stored.grid.beats_ms().to_vec(),
+                    }))
+                }
+                Ok(Some(_)) => Err("stored grid is out of date (source changed)".into()),
+                Ok(None) => Ok(None),
+                Err(e) => Err(e.to_string()),
+            }
+        });
+        let grid = match (&computed, catalog) {
+            (Ok(Some(peaks)), Some(db)) => db
+                .beat_grid_for_locations(&[&item.track.path, &uri])
+                .map(|beats| {
+                    let ms = peaks.sample_count() as f64 * 1000.0
+                        / f64::from(peaks.sample_rate().max(1));
+                    // The imported grid always wins; the computed one
+                    // is only the fallback when no usable import exists.
+                    BeatGrid::new(&beats, ms)
+                        .map(|g| (g, GridSource::Library))
+                        .or_else(|| {
+                            let tempo = tempo.as_ref().ok()?.as_ref()?;
+                            Some((BeatGrid::new(&tempo.beats(), ms)?, GridSource::Computed))
+                        })
+                })
+                .map_err(|e| e.to_string()),
+            _ => Ok(None),
+        };
+        Loaded {
+            track: id,
+            computed,
+            vendor,
+            grid,
+            tempo,
+        }
+    }
+}
+
 #[derive(Default)]
 pub(crate) struct TrackWaveformPanel {
     pub(crate) style: Style,
@@ -163,64 +227,9 @@ impl TrackWaveformPanel {
     fn load(&mut self, catalog: Option<&Catalog>, item: &TrackDetails) -> &Loaded {
         let id = item.track.id.as_u64();
         if self.loaded.as_ref().is_none_or(|l| l.track != id) {
-            let unavailable = || "catalog unavailable".to_string();
-            let computed = catalog.ok_or_else(unavailable).and_then(|db| {
-                match db.read_waveform(item.track.id) {
-                    Ok(Some(stored)) if stored.source_sha256 == item.track.sha256 => {
-                        Ok(Some(stored.peaks))
-                    }
-                    Ok(Some(_)) => Err("stored waveform is out of date (source changed)".into()),
-                    Ok(None) => Ok(None),
-                    Err(e) => Err(e.to_string()),
-                }
-            });
-            let (uri, _) = oxidj_application::location_uri(&item.track.path);
-            let vendor = catalog.ok_or_else(unavailable).and_then(|db| {
-                db.vendor_waveforms_for_locations(&[&item.track.path, &uri])
-                    .map_err(|e| e.to_string())
-            });
-            let tempo = catalog.ok_or_else(unavailable).and_then(|db| {
-                match db.computed_beat_grid(item.track.id) {
-                    Ok(Some(stored)) if stored.source_sha256 == item.track.sha256 => {
-                        Ok(Some(ComputedTempo {
-                            bpm: stored.grid.bpm(),
-                            confidence: stored.grid.confidence(),
-                            algorithm: stored.grid.algorithm().to_owned(),
-                            beats_ms: stored.grid.beats_ms().to_vec(),
-                        }))
-                    }
-                    Ok(Some(_)) => Err("stored grid is out of date (source changed)".into()),
-                    Ok(None) => Ok(None),
-                    Err(e) => Err(e.to_string()),
-                }
-            });
-            let grid = match (&computed, catalog) {
-                (Ok(Some(peaks)), Some(db)) => db
-                    .beat_grid_for_locations(&[&item.track.path, &uri])
-                    .map(|beats| {
-                        let ms = peaks.sample_count() as f64 * 1000.0
-                            / f64::from(peaks.sample_rate().max(1));
-                        // The imported grid always wins; the computed one
-                        // is only the fallback when no usable import exists.
-                        BeatGrid::new(&beats, ms)
-                            .map(|g| (g, GridSource::Library))
-                            .or_else(|| {
-                                let tempo = tempo.as_ref().ok()?.as_ref()?;
-                                Some((BeatGrid::new(&tempo.beats(), ms)?, GridSource::Computed))
-                            })
-                    })
-                    .map_err(|e| e.to_string()),
-                _ => Ok(None),
-            };
             self.position = None;
             self.bar = None;
-            self.loaded = Some(Loaded {
-                track: id,
-                computed,
-                vendor,
-                grid,
-                tempo,
-            });
+            self.loaded = Some(Loaded::read(catalog, item));
         }
         self.loaded.as_ref().expect("just loaded")
     }

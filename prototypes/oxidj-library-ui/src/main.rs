@@ -4,6 +4,9 @@ mod app;
 mod beat_grid;
 mod components;
 mod control_gallery;
+mod decks;
+#[cfg(test)]
+mod deck_tests;
 mod folder_ops;
 #[cfg(test)]
 mod keyboard_tests;

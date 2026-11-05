@@ -22,12 +22,19 @@ pub const ZOOM_BARS: [usize; 4] = [1, 2, 4, 8];
 /// Window title (also its AccessKit name).
 pub const WINDOW_TITLE: &str = "Settings";
 /// Read-only shortcut list shown in the Keyboard group.
-pub const SHORTCUTS: [(&str, &str); 7] = [
+pub const SHORTCUTS: [(&str, &str); 14] = [
     ("Ctrl+,", "Open or close Settings"),
     ("Esc", "Close Settings"),
     ("Ctrl+B", "Show or hide Navigation"),
     ("Ctrl+I", "Show or hide Details"),
     ("Ctrl+D", "Show or hide Decks"),
+    ("A / B", "Load the selected track to deck A / B"),
+    ("Space", "Play or pause the active deck (silent, D1)"),
+    ("Tab", "Switch the active deck (Shift+Tab enters the controls)"),
+    ("Q / P", "Cue deck A / deck B"),
+    ("1 – 8", "Hot-cue pads of the active deck"),
+    ("+ / −, wheel", "Zoom the deck waveform (1–8 bars)"),
+    ("Ctrl+Shift+1 – 4", "Show or hide a deck section"),
     ("Ctrl+Alt+1 / 2", "Tokyo Night / Tokyo Day theme"),
     ("Ctrl+Alt+3", "Custom theme"),
 ];
@@ -76,6 +83,52 @@ pub struct Settings {
     /// Phase offset readout between the decks (stored; D1).
     pub show_phase: bool,
     pub tempo_range: TempoRange,
+    /// D1 deck-area sections (collapsible; the mixer is hidden by default).
+    pub sections: DeckSections,
+}
+
+/// Which optional deck-area sections are expanded (D1).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct DeckSections {
+    pub detail: bool,
+    pub overviews: bool,
+    pub strip: bool,
+    pub mixer: bool,
+}
+
+impl Default for DeckSections {
+    fn default() -> Self {
+        Self { detail: true, overviews: true, strip: true, mixer: false }
+    }
+}
+
+impl DeckSections {
+    /// Section names in display order (tooltips, AccessKit, Settings).
+    pub const NAMES: [&'static str; 4] = ["Detail waveform", "Overviews", "Control strip", "Mixer / crossfader"];
+    const KEYS: [&'static str; 4] = ["sec_detail", "sec_overviews", "sec_strip", "sec_mixer"];
+
+    pub fn get(self, index: usize) -> bool {
+        [self.detail, self.overviews, self.strip, self.mixer][index]
+    }
+
+    pub fn get_mut(&mut self, index: usize) -> &mut bool {
+        match index {
+            0 => &mut self.detail,
+            1 => &mut self.overviews,
+            2 => &mut self.strip,
+            _ => &mut self.mixer,
+        }
+    }
+
+    /// The combination with bit `i` = section `i` expanded (tests).
+    #[cfg(test)]
+    pub fn from_bits(bits: u8) -> Self {
+        let mut s = Self::default();
+        for i in 0..4 {
+            *s.get_mut(i) = bits & (1 << i) != 0;
+        }
+        s
+    }
 }
 
 impl Default for Settings {
@@ -90,6 +143,7 @@ impl Default for Settings {
             playhead: Playhead::Centre,
             show_phase: true,
             tempo_range: TempoRange::Ten,
+            sections: DeckSections::default(),
         }
     }
 }
@@ -119,6 +173,9 @@ impl Settings {
     /// `name=value;…` (stable names, independent of labels).
     pub fn encode(&self) -> String {
         let b = |v: bool| if v { "1" } else { "0" };
+        let sections: String = (0..4)
+            .map(|i| format!(";{}={}", DeckSections::KEYS[i], b(self.sections.get(i))))
+            .collect();
         format!(
             "style={};smooth={};auto_gain={};beat_lines={};zoom={};deck_palette={};playhead={};phase={};tempo={}",
             name_of(&STYLES, self.waveform_style),
@@ -130,7 +187,7 @@ impl Settings {
             name_of(&PLAYHEADS, self.playhead),
             b(self.show_phase),
             name_of(&TEMPOS, self.tempo_range),
-        )
+        ) + &sections
     }
 
     /// Never fails: unknown names are ignored and an invalid value keeps
@@ -155,7 +212,12 @@ impl Settings {
                 "playhead" => s.playhead = parse_in(&PLAYHEADS, value).unwrap_or(s.playhead),
                 "phase" => s.show_phase = parse_bool(value).unwrap_or(s.show_phase),
                 "tempo" => s.tempo_range = parse_in(&TEMPOS, value).unwrap_or(s.tempo_range),
-                _ => {}
+                other => {
+                    if let Some(i) = DeckSections::KEYS.iter().position(|k| *k == other) {
+                        let slot = s.sections.get_mut(i);
+                        *slot = parse_bool(value).unwrap_or(*slot);
+                    }
+                }
             }
         }
         s
@@ -195,6 +257,8 @@ pub(crate) struct SettingsLayout {
     pub(crate) beat_lines: Option<egui::Rect>,
     pub(crate) zoom: Option<[egui::Rect; 4]>,
     pub(crate) reset: Option<egui::Rect>,
+    /// D1 deck-section toggles (detail, overviews, strip, mixer).
+    pub(crate) sections: Option<[egui::Rect; 4]>,
     pub(crate) first_control: Option<egui::Id>,
 }
 
@@ -304,7 +368,7 @@ impl LibraryApp {
         s.waveform_style = Style::ALL[index];
         layout.style = Some(rects(&responses));
         layout.smooth = Some(toggle_row(ui, tokens, "Smooth edges", &mut s.smooth).rect);
-        toggle_row(ui, tokens, "Auto-gain (decks, D1)", &mut s.auto_gain);
+        toggle_row(ui, tokens, "Auto-gain (decks)", &mut s.auto_gain);
         layout.beat_lines = Some(toggle_row(ui, tokens, "Beat and bar lines", &mut s.beat_lines).rect);
         let mut index = ZOOM_BARS.iter().position(|z| *z == s.zoom_bars).unwrap_or(2);
         let labels = ["1 bar", "2 bars", "4 bars", "8 bars"];
@@ -312,7 +376,7 @@ impl LibraryApp {
         s.zoom_bars = ZOOM_BARS[index];
         layout.zoom = Some(rects(&responses));
 
-        SectionHeading { title: "Decks (used from D1)" }.show(ui, tokens);
+        SectionHeading { title: "Deck view" }.show(ui, tokens);
         let mut pick = |label: &str, cells: &[&str], index: &mut usize| {
             segmented_row(ui, tokens, label, cells, index);
         };
@@ -326,6 +390,11 @@ impl LibraryApp {
         pick("Tempo range", &["±6 %", "±10 %", "±16 %"], &mut i);
         s.tempo_range = TEMPOS[i].0;
         toggle_row(ui, tokens, "Phase readout", &mut s.show_phase);
+        let mut sections = [egui::Rect::NOTHING; 4];
+        for (i, name) in DeckSections::NAMES.iter().enumerate() {
+            sections[i] = toggle_row(ui, tokens, &format!("Show {name}"), s.sections.get_mut(i)).rect;
+        }
+        layout.sections = Some(sections);
 
         SectionHeading { title: "Keyboard" }.show(ui, tokens);
         egui::Grid::new("settings-shortcuts").num_columns(2).spacing([12.0, 4.0]).show(ui, |ui| {
@@ -383,6 +452,7 @@ mod tests {
             playhead: Playhead::LeftThird,
             show_phase: false,
             tempo_range: TempoRange::Sixteen,
+            sections: DeckSections { detail: false, overviews: false, strip: false, mixer: true },
         };
         let mut storage = MemoryStorage::default();
         edited.save(&mut storage);
@@ -395,6 +465,14 @@ mod tests {
             let s = Settings { zoom_bars: zoom, ..Settings::default() };
             assert_eq!(Settings::decode(&s.encode()), s);
         }
+        for bits in 0..16 {
+            let s = Settings { sections: DeckSections::from_bits(bits), ..Settings::default() };
+            assert_eq!(Settings::decode(&s.encode()), s, "sections {bits:04b}");
+        }
+        // Stores written before D1 keep the section defaults (mixer hidden).
+        let old = "style=mono;smooth=1;auto_gain=1;beat_lines=1;zoom=4;deck_palette=warm-cool;playhead=centre;phase=1;tempo=10";
+        assert_eq!(Settings::decode(old).sections, DeckSections::default());
+        assert!(!DeckSections::default().mixer);
     }
 
     #[test]

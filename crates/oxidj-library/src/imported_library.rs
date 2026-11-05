@@ -505,6 +505,35 @@ impl Catalog {
             .collect::<Result<Vec<_>, _>>()?;
         Ok(beats)
     }
+
+    /// Imported (vendor-derived) cue points and loops of the library track
+    /// matched like [`Self::beat_grid_for_locations`], in stored order.
+    /// Empty when no such track or no cues. Read-only.
+    pub fn cues_for_locations(&self, locations: &[&str]) -> Result<Vec<LibraryCue>, CatalogError> {
+        let Some(position) = self.library_position_for_locations(locations)? else {
+            return Ok(Vec::new());
+        };
+        let mut statement = self.connection.prepare(
+            "SELECT hot_cue,start_ms,end_ms,name,red,green,blue FROM library_cues \
+             WHERE track_position=?1 ORDER BY position",
+        )?;
+        let cues = statement
+            .query_map([position], |row| {
+                let colour = match (row.get(4)?, row.get(5)?, row.get(6)?) {
+                    (Some(r), Some(g), Some(b)) => Some([r, g, b]),
+                    _ => None,
+                };
+                Ok(LibraryCue {
+                    hot_cue: row.get(0)?,
+                    start_ms: row.get(1)?,
+                    end_ms: row.get(2)?,
+                    name: row.get(3)?,
+                    colour,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(cues)
+    }
 }
 
 #[cfg(test)]
@@ -700,6 +729,37 @@ mod tests {
             .query_row("SELECT COUNT(*) FROM track_waveforms", [], |row| row.get(0))
             .unwrap();
         assert_eq!(computed, 0, "never touches computed peaks");
+    }
+
+    #[test]
+    fn cues_are_read_by_location_in_order_and_empty_without_any() {
+        let path = path();
+        let mut catalog = Catalog::open(&path).unwrap();
+        assert!(
+            catalog
+                .cues_for_locations(&["file://localhost/A.wav"])
+                .unwrap()
+                .is_empty()
+        );
+        catalog.import_library(&snapshot()).unwrap();
+        assert_eq!(
+            catalog
+                .cues_for_locations(&["nope", "file://localhost/A.wav"])
+                .unwrap(),
+            snapshot().tracks[0].cues
+        );
+        assert_eq!(
+            catalog
+                .cues_for_locations(&["file://localhost/C.wav"])
+                .unwrap(),
+            snapshot().tracks[2].cues
+        );
+        assert!(
+            catalog
+                .cues_for_locations(&["file://localhost/B.wav"])
+                .unwrap()
+                .is_empty()
+        );
     }
 
     #[test]

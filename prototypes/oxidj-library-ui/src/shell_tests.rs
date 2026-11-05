@@ -492,14 +492,15 @@ fn more_menu_reaches_catalog_import_and_xml_controls() {
     std::fs::remove_dir_all(root).unwrap();
 }
 
-/// W9: the decks bar keeps both decks' Play/Cue inside the window and the
-/// track name in its truncated column, even for a very long filename, at
-/// 1440 and 900 px; Play still toggles by a real click.
+/// W9 → D1: the deck strip keeps both decks' CUE/PLAY inside the window
+/// and the loaded track name elided inside its deck column, even for a very
+/// long filename, at 1440 and 900 px; PLAY still toggles by a real click
+/// and never moves the controls.
 #[test]
 fn decks_bar_truncates_long_names_and_keeps_play_cue_reachable() {
     let (root, _) = catalog_root("decks");
     let long = format!("{}.wav", "very-long-synthetic-track-name-".repeat(5));
-    write_wav(&root.join("audio").join(&long), 0.2);
+    write_wav(&root.join("audio").join(&long), 0.6);
     let db = root.join("catalog.sqlite");
     Catalog::open(&db)
         .unwrap()
@@ -519,72 +520,49 @@ fn decks_bar_truncates_long_names_and_keeps_play_cue_reachable() {
             .as_u64();
         shell.app.selected = Some(id);
         shell.app.show_decks = true;
+        shell.app.load_deck(0, id);
+        shell.app.load_deck(1, id);
         let out = shell.settle();
         let decks = shell.app.shell.decks.expect("decks panel");
         assert!(shell.screen.contains_rect(decks), "{width}: {decks:?}");
         let tree = nodes(&out);
-        for label in ["Play", "Cue"] {
-            let hits: Vec<_> = tree
-                .iter()
-                .filter(|n| n.1.as_deref() == Some(label))
-                .collect();
-            assert_eq!(hits.len(), 2, "{width}: one {label} per deck: {hits:?}");
-            for n in hits {
-                assert!(
-                    decks.contains_rect(n.2),
-                    "{width}: {label} {:?} outside {decks:?}",
-                    n.2
-                );
-                assert!(n.2.height() >= 24.0, "{width}: {label} target {:?}", n.2);
-            }
+        for label in ["Deck A play/pause", "Deck A cue", "Deck B play/pause", "Deck B cue"] {
+            let n = find(&tree, label);
+            assert!(decks.contains_rect(n.2), "{width}: {label} {:?} outside {decks:?}", n.2);
+            assert!(n.2.height() >= 24.0, "{width}: {label} target {:?}", n.2);
         }
-        // The name is painted elided inside the window, never past its column.
+        // Club layout: CUE outermost, then PLAY; A left, B right.
+        let x = |l: &str| find(&tree, l).2.center().x;
+        assert!(x("Deck A cue") < x("Deck A play/pause") && x("Deck A play/pause") < x("Deck B play/pause"));
+        assert!(x("Deck B play/pause") < x("Deck B cue"), "{width}: deck B mirrored");
+        // The name is painted elided inside its deck column, never past it.
+        let strip = shell.app.decks.layout.strip.expect("strip");
         let names: Vec<Rect> = out
             .shapes
             .iter()
             .filter_map(|c| match &c.shape {
-                egui::Shape::Text(t)
-                    if t.galley.job.text == long && decks.intersects(t.visual_bounding_rect()) =>
-                {
+                egui::Shape::Text(t) if t.galley.job.text.starts_with("very-long") && strip.intersects(t.visual_bounding_rect()) => {
                     Some(t.visual_bounding_rect())
                 }
                 _ => None,
             })
             .collect();
         assert_eq!(names.len(), 2, "{width}: {names:?}");
-        for name in names {
-            assert!(
-                name.width() <= view::DECK_NAME_WIDTH + 0.5,
-                "{width}: name {name:?}"
-            );
-            assert!(shell.screen.contains_rect(name), "{width}: {name:?}");
+        for name in &names {
+            assert!(name.width() <= strip.width() / 2.0, "{width}: name {name:?}");
+            assert!(shell.screen.contains_rect(*name), "{width}: {name:?}");
         }
-        // Deck A's Play comes first in reading order (top, then left);
-        // AccessKit node order is not layout order.
-        let play = tree
-            .iter()
-            .filter(|n| n.1.as_deref() == Some("Play"))
-            .min_by(|a, b| (a.2.top(), a.2.left()).partial_cmp(&(b.2.top(), b.2.left())).unwrap())
-            .unwrap()
-            .2;
+        let play = find(&tree, "Deck A play/pause").2;
         let deck_controls = |tree: &[Node]| -> Vec<Rect> {
-            tree.iter()
-                .filter(|n| matches!(n.1.as_deref(), Some("Play" | "Cue")))
-                .map(|n| n.2)
-                .collect()
+            ["Deck A play/pause", "Deck A cue", "Deck B play/pause", "Deck B cue"].map(|l| find(tree, l).2).to_vec()
         };
         let before = deck_controls(&tree);
         let out = shell.click(play.center());
         assert!(
-            shell.app.deck_playing[0] && !shell.app.deck_playing[1],
-            "{width}: Play toggles deck A"
+            shell.app.decks.decks[0].playing && !shell.app.decks.decks[1].playing,
+            "{width}: PLAY toggles deck A"
         );
-        // Toggling never moves the deck controls (the label stays "Play").
-        assert_eq!(
-            before,
-            deck_controls(&nodes(&out)),
-            "{width}: deck controls stay put"
-        );
+        assert_eq!(before, deck_controls(&nodes(&out)), "{width}: deck controls stay put");
     }
     std::fs::remove_dir_all(root).unwrap();
 }

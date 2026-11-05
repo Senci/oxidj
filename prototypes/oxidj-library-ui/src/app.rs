@@ -122,8 +122,8 @@ pub(crate) struct LibraryApp {
     pub(crate) waveform_demo: Option<waveform_view::DemoState>,
     pub(crate) track_waveform: track_waveform::TrackWaveformPanel,
     pub(crate) availability_filter: Option<TrackAvailability>,
-    pub(crate) deck_playing: [bool; 2],
-    pub(crate) deck_cue: [bool; 2],
+    /// M8/D1 deck area (silent transport until D2).
+    pub(crate) decks: crate::decks::DeckArea,
     /// W8 shell panel toggles (app state only, not persisted).
     pub(crate) show_nav: bool,
     pub(crate) show_details: bool,
@@ -280,8 +280,7 @@ impl LibraryApp {
             waveform_demo: None,
             track_waveform: Default::default(),
             availability_filter: None,
-            deck_playing: [false; 2],
-            deck_cue: [false; 2],
+            decks: Default::default(),
             show_nav: true,
             show_details: false,
             show_decks: false,
@@ -504,6 +503,7 @@ impl LibraryApp {
             },
             Err(e) => self.load_error = Some(e.clone()),
         }
+        self.refresh_decks();
     }
 
     pub(crate) fn import(&mut self) {

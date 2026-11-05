@@ -194,7 +194,7 @@ fn ctrl_comma_and_gear_toggle_settings_esc_closes_and_focus_returns() {
     let window = h.layout().window.expect("settings window painted");
     let first = h.layout().first_control.expect("first control");
     assert_eq!(h.focused(), Some(first), "focus moves into the window");
-    for group in ["Appearance", "Waveform", "Decks (used from D1)", "Keyboard"] {
+    for group in ["Appearance", "Waveform", "Deck view", "Keyboard"] {
         assert!(window.contains_rect(text_rect(&out, group)), "{group}");
     }
     assert!(window.contains_rect(text_rect(&out, "Ctrl+,")), "shortcut list");

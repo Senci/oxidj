@@ -11,6 +11,10 @@ impl eframe::App for LibraryApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.ui(ctx);
     }
+
+    fn raw_input_hook(&mut self, ctx: &egui::Context, raw_input: &mut egui::RawInput) {
+        self.deck_input_hook(ctx, raw_input);
+    }
 }
 
 
@@ -36,10 +40,6 @@ const CELL_INSET: f32 = 6.0;
 /// Width of the "…" popup (label + 240 px field + action button).
 const MORE_MENU_WIDTH: f32 = 500.0;
 /// Panel shortcut legend shown in the status bar and the toggle tooltips.
-/// Deck strip (W9): truncated track-name column and one deck's wrap width
-/// (label + name + Play/Cue + spacing).
-pub(crate) const DECK_NAME_WIDTH: f32 = 200.0;
-const DECK_WIDTH: f32 = DECK_NAME_WIDTH + 170.0;
 /// Narrowest details panel (W9).
 pub(crate) const DETAILS_MIN_WIDTH: f32 = 320.0;
 /// Temp-data key: the track whose facts grid was laid out last frame.
@@ -54,6 +54,8 @@ impl LibraryApp {
         self.handle_settings_shortcuts(ctx);
         self.handle_theme_shortcuts(ctx);
         self.handle_panel_shortcuts(ctx);
+        self.handle_deck_keys(ctx);
+        self.decks.tick(ctx.input(|i| i.time));
         self.theme.apply(self.custom_tokens, ctx);
         let tokens = self.active_tokens();
         self.shell = ShellLayout::default();
@@ -65,6 +67,16 @@ impl LibraryApp {
             .frame(bar)
             .show(ctx, |ui| self.toolbar(ui, ctx, tokens));
         self.shell.toolbar = Some(toolbar.response.rect);
+        // D1: the deck area sits under the toolbar, the library below it.
+        if self.show_decks {
+            let decks = egui::TopBottomPanel::top("decks")
+                .frame(panel)
+                .resizable(false)
+                .show(ctx, |ui| self.deck_area(ui, tokens));
+            self.shell.decks = Some(decks.response.rect);
+        } else {
+            self.decks.layout = Default::default();
+        }
         // Settings first, so an option changed this frame is what the
         // panels below render (theme changes apply from the next frame).
         self.settings_window(ctx, tokens);
@@ -81,13 +93,6 @@ impl LibraryApp {
             .frame(status_frame)
             .show(ctx, |ui| self.status_bar(ui, tokens));
         self.shell.status = Some(status.response.rect);
-        if self.show_decks {
-            let decks = egui::TopBottomPanel::bottom("demo-decks")
-                .frame(bar)
-                .resizable(false)
-                .show(ctx, |ui| self.demo_decks(ui, tokens));
-            self.shell.decks = Some(decks.response.rect);
-        }
         if self.show_nav {
             let nav = egui::SidePanel::left("library-navigation")
                 .frame(panel)
@@ -358,6 +363,11 @@ impl LibraryApp {
             ui.separator();
             ui.label(muted(format!("{} tracks", self.tracks.len())));
             ui.separator();
+            if self.show_decks {
+                ui.label(egui::RichText::new(crate::decks::NO_AUDIO).small().strong().color(tokens.warning))
+                    .on_hover_text("Silent transport: PLAY moves the playhead by wall clock; audio output arrives in D2");
+                ui.separator();
+            }
             ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
                 if self.notice.is_empty() {
                     ui.label(egui::RichText::new("Ready").color(tokens.text));
@@ -871,60 +881,6 @@ impl LibraryApp {
         }
     }
 
-    /// Demo deck strip (no audio engine is connected).
-    fn demo_decks(&mut self, ui: &mut egui::Ui, tokens: theme::ColorTokens) {
-        let loaded = self
-            .selected
-            .and_then(|id| self.tracks.iter().find(|track| track.track.id.as_u64() == id))
-            .map(|track| file_name(&track.track.path))
-            .unwrap_or_else(|| "No track selected".into());
-        ui.horizontal_wrapped(|ui| {
-            ui.label(
-                egui::RichText::new("LOCAL DEMO · NO AUDIO CONNECTED")
-                    .small()
-                    .strong()
-                    .color(tokens.muted_text),
-            );
-            for deck in 0..2 {
-                // One deck wraps as a unit so Play/Cue never orphan.
-                if ui.max_rect().right() - ui.cursor().min.x < DECK_WIDTH {
-                    ui.end_row();
-                } else {
-                    ui.separator();
-                }
-                ui.horizontal(|ui| {
-                    ui.label(egui::RichText::new(format!("DECK {}", if deck == 0 { "A" } else { "B" })).small().strong().color(tokens.text));
-                    // W9: a fixed, truncated name column (full name on hover):
-                    // a long filename pushed Play/Cue past the window edge.
-                    ui.allocate_ui_with_layout(
-                        egui::vec2(DECK_NAME_WIDTH, theme::CONTROL_HEIGHT),
-                        egui::Layout::left_to_right(egui::Align::Center),
-                        |ui| {
-                            ui.add(egui::Label::new(&loaded).truncate()).on_hover_text(&loaded);
-                        },
-                    );
-                    // W9: a fixed label (the selected fill shows the state):
-                    // "Playing · demo" widened the button and shifted Cue and
-                    // the other deck on every toggle.
-                    // W11: Play | Cue as one segmented toggle group.
-                    let mut cells = crate::components::segmented_toggles(
-                        ui,
-                        tokens,
-                        &[("Play", self.deck_playing[deck]), ("Cue", self.deck_cue[deck])],
-                    )
-                    .into_iter();
-                    let (play, cue) = (cells.next().expect("Play"), cells.next().expect("Cue"));
-                    if play.on_hover_text("Demo toggle only: no audio is played").clicked() {
-                        self.deck_playing[deck] = !self.deck_playing[deck];
-                    }
-                    if cue.clicked() {
-                        self.deck_cue[deck] = !self.deck_cue[deck];
-                    }
-                });
-            }
-        });
-    }
-
     /// Selected-track facts as an aligned key/value grid, then the waveform.
     fn details(&mut self, ui: &mut egui::Ui, tokens: theme::ColorTokens) {
         SectionHeading {
@@ -1085,6 +1041,8 @@ impl LibraryApp {
         // The visible table viewport (wider content scrolls inside it).
         self.shell.table = Some(ui.max_rect());
         ui.spacing_mut().item_spacing = egui::vec2(0.0, 0.0);
+        // D1: a "Load to deck" choice from a row's context menu.
+        let mut load = None;
         // Scrolls sideways only when the window is narrower than the columns.
         egui::ScrollArea::horizontal()
             .auto_shrink([false, false])
@@ -1115,17 +1073,34 @@ impl LibraryApp {
                     let stripe = egui::Rect::from_min_size(egui::pos2(body.left(), top), egui::vec2(total, theme::ROW_HEIGHT));
                     ui.painter().rect_filled(stripe.intersect(body), 0.0, theme::zebra(tokens));
                 }
+                let loaded = self.decks.loaded();
+                let badge_colours = [0, 1].map(|d| crate::decks::deck_colours(self.settings.deck_palette, d, tokens));
                 egui::ScrollArea::vertical()
                     .auto_shrink([false, false])
                     .show_rows(ui, theme::ROW_HEIGHT, visible.len(), |ui, range| {
                         for index in range {
                             let item = visible[index];
-                            if track_row(ui, item, self.selected, index, total, widths, tokens) {
-                                self.selected = Some(item.track.id.as_u64());
+                            let id = item.track.id.as_u64();
+                            let on = crate::decks::badges(loaded, id);
+                            let response = track_row(ui, item, self.selected, index, total, widths, tokens, on, badge_colours);
+                            if response.clicked() {
+                                self.selected = Some(id);
                             }
+                            response.context_menu(|ui| {
+                                for (d, letter) in crate::decks::DECKS.iter().enumerate() {
+                                    if ui.button(format!("Load to deck {letter}")).clicked() {
+                                        load = Some((d, id));
+                                        ui.close();
+                                    }
+                                }
+                            });
                         }
                     });
             });
+        if let Some((deck, id)) = load {
+            self.selected = Some(id);
+            self.load_deck(deck, id);
+        }
     }
 
 }
@@ -1220,7 +1195,9 @@ fn track_row(
         total: f32,
         widths: [f32; COLUMNS],
         tokens: theme::ColorTokens,
-    ) -> bool {
+        on_decks: [bool; 2],
+        deck_colours: [crate::decks::DeckColours; 2],
+    ) -> egui::Response {
         let id = item.track.id.as_u64();
         let selected = selected == Some(id);
         let filename = file_name(&item.track.path);
@@ -1258,8 +1235,25 @@ fn track_row(
         ];
         let dot = egui::pos2(rect.left() + STATUS_COLUMN / 2.0 + 1.0, rect.center().y);
         ui.painter().circle_filled(dot, 3.5, kind_color(kind, tokens));
+        // D1 deck badges at the right end of the Filename cell.
+        let badge_w = 18.0;
+        let badges = on_decks.iter().filter(|b| **b).count() as f32;
         let mut x = rect.left();
         for (column, ((text, color, strong), width)) in cells.into_iter().zip(widths).enumerate() {
+            let width = if column == 2 { width - badges * (badge_w + 2.0) } else { width };
+            if column == 3 {
+                let mut bx = x;
+                for (d, on) in on_decks.into_iter().enumerate() {
+                    if on {
+                        let r = egui::Rect::from_min_size(egui::pos2(bx, rect.center().y - 8.0), egui::vec2(badge_w, 16.0));
+                        ui.painter().rect_filled(r, 3.0, deck_colours[d].outer);
+                        let g = ui.painter().layout_no_wrap(crate::decks::DECKS[d].into(), egui::FontId::proportional(11.0), deck_colours[d].chip_text);
+                        ui.painter().galley(r.center() - g.size() / 2.0, g, deck_colours[d].chip_text);
+                        bx += badge_w + 2.0;
+                    }
+                }
+                x += badges * (badge_w + 2.0);
+            }
             if !text.is_empty() {
                 let rich = egui::RichText::new(text).color(color);
                 let galley = egui::WidgetText::from(if strong { rich.strong() } else { rich }).into_galley(
@@ -1278,9 +1272,9 @@ fn track_row(
             }
             x += width;
         }
-        response
-            .on_hover_text(format!("{availability} · {}", item.track.path))
-            .clicked()
+        let decks: Vec<&str> = on_decks.iter().zip(crate::decks::DECKS).filter(|(on, _)| **on).map(|(_, l)| l).collect();
+        let on = if decks.is_empty() { String::new() } else { format!(" · on deck {}", decks.join(" and ")) };
+        response.on_hover_text(format!("{availability}{on} · {}", item.track.path))
 }
 
 /// Track length as `m:ss` (rounded to the second), like DJ library tables.
