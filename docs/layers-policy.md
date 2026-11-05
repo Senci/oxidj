@@ -15,7 +15,7 @@ crates at the **same layer or lower**. Depending on a higher layer is a forbidde
 | 0 | `oxidj-core` | Neutral domain model and rules; zero infrastructure deps. |
 | 1 | `oxidj-library` | Shared catalog/application handlers; owns SQLite and migrations. |
 | 1 | `oxidj-analysis` | Offline analysis (W1: streaming 3-band waveform peaks; B2: tempo/beat grid) over decoded mono samples. Depends on `oxidj-core` and the admitted, exactly pinned `taktus =0.1.0` **only** (ADR-004 B2 amendment): the gate rejects every other internal or external dependency of any kind, so it can neither reach the library/adapters nor add other DSP crates. |
-| 1 | `oxidj-audio` | Realtime deck engine (M8/D2, ADR-008): CPAL device output, lock-free command ring, in-RAM decks. **No internal dependency**; only the admitted, exactly pinned `cpal =0.18.2` and `rtrb =0.4.1` (normal kind, crates.io, no default features, no features). Only layer 3+ crates (application, presentation) may depend on it; the out-of-workspace UI prototype uses it directly. |
+| 1 | `oxidj-audio` | Realtime deck engine (M8/D2, ADR-008): CPAL device output, lock-free command ring, in-RAM decks. **No internal dependency**; only the admitted, exactly pinned `cpal =0.18.2`, `rtrb =0.4.1` and `signalsmith-stretch =0.1.3` (key lock, D3) (normal kind, crates.io, no default features, no features). Only layer 3+ crates (application, presentation) may depend on it; the out-of-workspace UI prototype uses it directly. |
 | 2 | `oxidj-rekordbox` | Isolated vendor XML/DeviceSQL adapter (M4 preview). |
 | 2 | `oxidj-onelibrary` | Read-only OneLibrary DTO and process-protocol boundary; no SQL dependency. SQLCipher lives only in `adapters/onelibrary-reader`, an independent Cargo workspace excluded from the root graph. `cargo xtask layers` checks the root resolved feature graph excludes SQLCipher and verifies the isolated pinned reader graph and locked license gate. |
 | 3 | `oxidj-application` | Orchestrates shared handlers and adapter operations for callers. |
@@ -48,7 +48,7 @@ flowchart TB
     rekordbox --> pdb["rekordbox-pdb (pinned read-only use)"]
     library --> core["oxidj-core<br/>layer 0"]
     analysis["oxidj-analysis<br/>layer 1; core + taktus"] --> core
-    engine["oxidj-audio<br/>layer 1; realtime engine"] --> cpal["cpal =0.18.2 + rtrb =0.4.1"]
+    engine["oxidj-audio<br/>layer 1; realtime engine"] --> cpal["cpal =0.18.2 + rtrb =0.4.1<br/>+ signalsmith-stretch =0.1.3"]
     library --> sqlite["rusqlite + rusqlite_migration"]
     core -. "forbidden upward edge" .-> library
     xtask["xtask<br/>exempt build tooling"]
@@ -87,11 +87,12 @@ analysis and UI remain outside this slice.
    must remain SQLCipher-free. Both workspaces use committed locks and their own
    license checks. These checks include normal, dev and build dependencies.
 3. **The realtime engine stays isolated (ADR-004 D2 amendment).** `oxidj-audio`
-   may declare only `cpal =0.18.2` and `rtrb =0.4.1` (exact, crates.io, normal
-   kind, defaults and features off) — no internal crate, no other external
-   crate, no dev/build dependency. A path edge to `oxidj-audio` from a crate
-   below layer 3 (core, library, analysis, adapters) fails. `cpal` stays on the
-   audio denylist for every other crate.
+   may declare only `cpal =0.18.2`, `rtrb =0.4.1` and (M8/D3, ADR-008 D3
+   addendum) `signalsmith-stretch =0.1.3` (exact, crates.io, normal kind,
+   defaults and features off) — no internal crate, no other external crate, no
+   dev/build dependency. A path edge to `oxidj-audio` from a crate below layer 3
+   (core, library, analysis, adapters) fails. `cpal` and `signalsmith-stretch`
+   stay on the audio denylist for every other crate.
 4. **Every new product crate must be classified.** A workspace member with no
    layer assignment fails until it is added to the layer table in
    `xtask/src/main.rs`. This is what keeps the gate meaningful as the crate set

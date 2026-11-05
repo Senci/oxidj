@@ -137,6 +137,7 @@ impl LibraryApp {
             .show(ctx, |ui| self.track_table(ui, tokens));
         // D2: this frame's deck controls go to the audio engine; the mixer
         // volume applies only while the mixer is visible (else unity).
+        self.decks.range = crate::decks::tempo_range(self.settings.tempo_range);
         self.decks.flush(self.show_decks && self.settings.sections.mixer);
     }
 

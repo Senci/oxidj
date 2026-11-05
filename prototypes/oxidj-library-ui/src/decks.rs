@@ -171,6 +171,10 @@ pub(crate) struct DeckTrack {
     pub(crate) cues: Vec<LibraryCue>,
     /// Loudest band extent over the whole track (auto-gain input).
     pub(crate) loudest: f32,
+    /// Constant-tempo fit of `grid` (SYNC, BPM display, seam readout).
+    pub(crate) fit: Option<GridFit>,
+    /// Analyser confidence of a computed grid (`None` for imported grids).
+    pub(crate) confidence: Option<f32>,
 }
 
 impl DeckTrack {
@@ -178,6 +182,11 @@ impl DeckTrack {
         let loaded = Loaded::read(catalog, item);
         let peaks = loaded.computed.ok().flatten();
         let grid = loaded.grid.ok().flatten();
+        let confidence = match (&grid, &loaded.tempo) {
+            (Some((_, GridSource::Computed)), Ok(Some(tempo))) => Some(tempo.confidence),
+            _ => None,
+        };
+        let fit = grid.as_ref().and_then(|(g, _)| GridFit::of(g));
         let (uri, _) = oxidj_application::location_uri(&item.track.path);
         let cues = catalog
             .and_then(|db| db.cues_for_locations(&[&item.track.path, &uri]).ok())
@@ -199,6 +208,17 @@ impl DeckTrack {
             grid,
             cues,
             loudest,
+            fit,
+            confidence,
+        }
+    }
+
+    /// Track BPM at `ms`: the constant fit when the grid is constant, else
+    /// the local beat length.
+    pub(crate) fn bpm_at(&self, ms: f64) -> Option<f64> {
+        match self.fit {
+            Some(fit) if fit.constant() => Some(fit.bpm()),
+            _ => beat_len_at(self.beat_grid()?, ms).map(|len| 60_000.0 / len),
         }
     }
 
@@ -247,8 +267,105 @@ pub(crate) enum DeckAudio {
     Failed(String),
 }
 
+/// Constant-tempo model of a beat grid: `time = anchor + i × beat` fitted
+/// to every beat by least squares (imported beat times are whole ms, so a
+/// single beat pair is not precise enough for sub-millisecond SYNC).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct GridFit {
+    pub(crate) beat_ms: f64,
+    pub(crate) anchor_ms: f64,
+    /// Largest distance of a beat from the fitted line.
+    pub(crate) residual_ms: f64,
+}
+
+/// A grid whose beats stray further than this from one tempo is variable
+/// (tempo changes); SYNC refuses it.
+pub(crate) const MAX_GRID_RESIDUAL_MS: f64 = 3.0;
+
+impl GridFit {
+    pub(crate) fn of(grid: &BeatGrid) -> Option<Self> {
+        let beats = grid.beats_in((f64::NEG_INFINITY, f64::INFINITY));
+        if beats.len() < 2 {
+            return None;
+        }
+        let n = beats.len() as f64;
+        let (mut si, mut st, mut sii, mut sit) = (0.0, 0.0, 0.0, 0.0);
+        for (i, (t, _)) in beats.iter().enumerate() {
+            let i = i as f64;
+            (si, st, sii, sit) = (si + i, st + t, sii + i * i, sit + i * t);
+        }
+        let beat_ms = (n * sit - si * st) / (n * sii - si * si);
+        let anchor_ms = (st - beat_ms * si) / n;
+        let residual_ms = beats
+            .iter()
+            .enumerate()
+            .map(|(i, (t, _))| (t - (anchor_ms + i as f64 * beat_ms)).abs())
+            .fold(0.0, f64::max);
+        (beat_ms.is_finite() && beat_ms > 0.0 && anchor_ms.is_finite()).then_some(Self { beat_ms, anchor_ms, residual_ms })
+    }
+
+    pub(crate) fn constant(&self) -> bool {
+        self.residual_ms <= MAX_GRID_RESIDUAL_MS
+    }
+
+    pub(crate) fn bpm(&self) -> f64 {
+        60_000.0 / self.beat_ms
+    }
+
+    /// Fraction `0..1` of the beat at track time `ms`.
+    pub(crate) fn phase(&self, ms: f64) -> f64 {
+        ((ms - self.anchor_ms) / self.beat_ms).rem_euclid(1.0)
+    }
+}
+
+/// What SYNC sends: the follower's speed and both constant grids (ms).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct SyncPlan {
+    pub(crate) speed: f64,
+    pub(crate) fit: GridFit,
+    pub(crate) master: usize,
+    pub(crate) master_fit: GridFit,
+}
+
+/// SYNC deck `d` to the other deck: match its tempo (track BPM × speed)
+/// and phase. `Err` is the visible refusal reason.
+pub(crate) fn sync_plan(decks: &[Deck; 2], d: usize, range_pct: f32) -> Result<SyncPlan, String> {
+    let master = 1 - d;
+    let mut fits = [None; 2];
+    for k in [d, master] {
+        let letter = DECKS[k];
+        let deck = &decks[k];
+        let Some(track) = &deck.track else {
+            return Err(format!("SYNC: deck {letter} is empty"));
+        };
+        if !deck.ready() {
+            return Err(format!("SYNC: deck {letter} is not playable yet"));
+        }
+        if track.beat_grid().is_none() {
+            return Err(format!("SYNC: deck {letter} has no beat grid"));
+        }
+        if let Some(c) = track.confidence.filter(|c| *c < crate::track_waveform::LOW_CONFIDENCE) {
+            return Err(format!("SYNC: deck {letter} grid confidence is low ({c:.2})"));
+        }
+        match track.fit {
+            Some(fit) if fit.constant() => fits[k] = Some(fit),
+            _ => return Err(format!("SYNC: deck {letter} has a variable-tempo grid")),
+        }
+    }
+    let (Some(fit), Some(master_fit)) = (fits[d], fits[master]) else {
+        return Err("SYNC: no beat grid".into());
+    };
+    let speed = master_fit.bpm() * decks[master].speed() / fit.bpm();
+    let pct = (speed - 1.0) * 100.0;
+    if pct.abs() > f64::from(range_pct) + 1e-9 {
+        return Err(format!("SYNC: needs {pct:+.1} %, beyond the ±{range_pct:.0} % tempo range"));
+    }
+    Ok(SyncPlan { speed, fit, master, master_fit })
+}
+
 /// A deck-local engine request (converted to source frames on flush).
 enum Op {
+    Sync(SyncPlan),
     TogglePlay,
     CueDown,
     CueUp,
@@ -280,8 +397,16 @@ pub(crate) struct Deck {
     pub(crate) playing: bool,
     pub(crate) previewing: bool,
     pub(crate) cue_ms: f64,
-    /// Tempo fader in percent (within the Settings range; plain varispeed).
+    /// Tempo fader in percent (within the Settings range).
     pub(crate) tempo_pct: f32,
+    /// Key lock (master tempo): the fader changes tempo, not pitch.
+    pub(crate) keylock: bool,
+    /// SYNC is on: the speed follows the other deck's tempo.
+    pub(crate) sync: bool,
+    /// Speed set by SYNC (exact; the fader shows it while SYNC is on).
+    sync_speed: Option<f64>,
+    /// Why the last SYNC press was refused (shown until the next press or load).
+    pub(crate) sync_note: Option<String>,
     /// Mixer volume; unity whenever the mixer is hidden.
     pub(crate) volume: Volume,
     pub(crate) loop_in: Option<f64>,
@@ -300,6 +425,7 @@ pub(crate) struct Deck {
     unload: bool,
     sent_gain: Option<f32>,
     sent_speed: Option<f64>,
+    sent_keylock: Option<bool>,
 }
 
 impl Deck {
@@ -315,9 +441,11 @@ impl Deck {
             audio,
             pads,
             tempo_pct: self.tempo_pct,
+            keylock: self.keylock,
             volume: self.volume,
             sent_gain: self.sent_gain,
             sent_speed: self.sent_speed,
+            sent_keylock: self.sent_keylock,
             unload: true,
             ..Self::default()
         };
@@ -332,9 +460,21 @@ impl Deck {
         self.track.as_ref().map_or(0.0, |t| t.duration_ms)
     }
 
-    /// Effective speed multiplier from the tempo fader.
+    /// Effective speed multiplier: SYNC's while it is on, else the fader's.
     pub(crate) fn speed(&self) -> f64 {
-        1.0 + f64::from(self.tempo_pct) / 100.0
+        self.sync_speed.unwrap_or(1.0 + f64::from(self.tempo_pct) / 100.0)
+    }
+
+    /// SYNC off; the fader keeps the synced tempo (clamped to `range`).
+    pub(crate) fn sync_off(&mut self, range: f32) {
+        if let Some(speed) = self.sync_speed.take() {
+            self.tempo_pct = (((speed - 1.0) * 100.0) as f32).clamp(-range, range);
+        }
+        self.sync = false;
+    }
+
+    pub(crate) fn toggle_keylock(&mut self) {
+        self.keylock = !self.keylock;
     }
 
     fn queue(&mut self, op: Op) {
@@ -432,6 +572,8 @@ pub(crate) struct DeckArea {
     /// The fake sink: blocks rendered by hand (tests); `None` once a real
     /// output is attached.
     manual: Option<Renderer>,
+    /// Tempo fader range ±% (Settings → Decks), set by the app every frame.
+    pub(crate) range: f32,
 }
 
 impl Default for DeckArea {
@@ -446,6 +588,7 @@ impl Default for DeckArea {
             layout: DeckLayout::default(),
             engine,
             manual: Some(renderer),
+            range: tempo_range(TempoRange::default()),
         }
     }
 }
@@ -456,7 +599,7 @@ impl DeckArea {
         self.engine = engine;
         self.manual = None;
         for deck in &mut self.decks {
-            (deck.sent_gain, deck.sent_speed) = (None, None);
+            (deck.sent_gain, deck.sent_speed, deck.sent_keylock) = (None, None, None);
         }
     }
 
@@ -510,10 +653,56 @@ impl DeckArea {
         }
     }
 
+    /// SYNC pressed on deck `d`: on → off; off → match the other deck's
+    /// tempo and phase, or refuse with a visible reason.
+    pub(crate) fn press_sync(&mut self, d: usize) {
+        if self.decks[d].sync {
+            self.decks[d].sync_off(self.range);
+            return;
+        }
+        match sync_plan(&self.decks, d, self.range) {
+            Ok(plan) => {
+                let deck = &mut self.decks[d];
+                deck.sync = true;
+                deck.sync_speed = Some(plan.speed);
+                deck.sync_note = None;
+                deck.queue(Op::Sync(plan));
+            }
+            Err(reason) => {
+                self.decks[d].sync_off(self.range);
+                self.decks[d].sync_note = Some(reason);
+            }
+        }
+    }
+
+    /// While SYNC is on, the follower's speed tracks the master's tempo
+    /// (phase is aligned only on press); a master that can no longer be
+    /// followed turns SYNC off with the reason.
+    fn follow_sync(&mut self) {
+        for d in 0..2 {
+            if !self.decks[d].sync {
+                continue;
+            }
+            match sync_plan(&self.decks, d, self.range) {
+                Ok(plan) => self.decks[d].sync_speed = Some(plan.speed),
+                Err(reason) => {
+                    self.decks[d].sync_off(self.range);
+                    self.decks[d].sync_note = Some(reason);
+                }
+            }
+        }
+    }
+
     /// End of a frame: send every queued control, plus gain (the mixer's
-    /// volume, or exact unity while the mixer is hidden) and tempo changes.
+    /// volume, or exact unity while the mixer is hidden), tempo and key
+    /// lock changes.
     pub(crate) fn flush(&mut self, mixer: bool) {
+        self.follow_sync();
         self.send_unloads();
+        let rates = [0, 1].map(|d| match self.decks[d].audio {
+            DeckAudio::Ready { rate } => f64::from(rate),
+            _ => 0.0,
+        });
         for (d, deck) in self.decks.iter_mut().enumerate() {
             let gain = if mixer { deck.volume.0.clamp(0.0, 1.0) } else { 1.0 };
             if deck.sent_gain != Some(gain) && self.engine.send(Command::Gain { deck: d, gain }) {
@@ -523,6 +712,9 @@ impl DeckArea {
             if deck.sent_speed != Some(speed) && self.engine.send(Command::Speed { deck: d, speed }) {
                 deck.sent_speed = Some(speed);
             }
+            if deck.sent_keylock != Some(deck.keylock) && self.engine.send(Command::KeyLock { deck: d, on: deck.keylock }) {
+                deck.sent_keylock = Some(deck.keylock);
+            }
             let DeckAudio::Ready { rate } = deck.audio else {
                 deck.outbox.clear();
                 continue;
@@ -530,6 +722,22 @@ impl DeckArea {
             let frame = |ms: f64| ms * f64::from(rate) / 1000.0;
             for op in deck.outbox.drain(..) {
                 let command = match op {
+                    Op::Sync(plan) => {
+                        let to = |ms: f64, rate: f64| ms * rate / 1000.0;
+                        let master_rate = rates[plan.master];
+                        if master_rate <= 0.0 {
+                            continue;
+                        }
+                        Command::Sync {
+                            deck: d,
+                            master: plan.master,
+                            speed: plan.speed,
+                            beat: to(plan.fit.beat_ms, f64::from(rate)),
+                            anchor: to(plan.fit.anchor_ms, f64::from(rate)),
+                            master_beat: to(plan.master_fit.beat_ms, master_rate),
+                            master_anchor: to(plan.master_fit.anchor_ms, master_rate),
+                        }
+                    }
                     Op::TogglePlay => Command::TogglePlay { deck: d },
                     Op::CueDown => Command::CueDown { deck: d },
                     Op::CueUp => Command::CueUp { deck: d },
@@ -610,8 +818,11 @@ pub(crate) fn seam_readout(decks: &[Deck; 2]) -> Option<String> {
     let mut phase = [(0.0, 0.0); 2];
     let mut bpm = [0.0; 2];
     for (d, deck) in decks.iter().enumerate() {
-        let grid = deck.track.as_ref()?.beat_grid()?;
-        phase[d] = phase_at(grid, deck.position_ms)?;
+        let track = deck.track.as_ref()?;
+        phase[d] = match track.fit {
+            Some(fit) if fit.constant() => (fit.beat_ms, fit.phase(deck.position_ms)),
+            _ => phase_at(track.beat_grid()?, deck.position_ms)?,
+        };
         bpm[d] = 60_000.0 / phase[d].0 * deck.speed();
     }
     let real_beat = phase[0].0 / decks[0].speed();
@@ -956,7 +1167,7 @@ pub(crate) fn zoom_step(bars: usize, dir: i32) -> usize {
     z[(i + dir).clamp(0, z.len() as i32 - 1) as usize]
 }
 
-fn tempo_range(range: TempoRange) -> f32 {
+pub(crate) fn tempo_range(range: TempoRange) -> f32 {
     match range {
         TempoRange::Six => 6.0,
         TempoRange::Ten => 10.0,
@@ -1084,7 +1295,7 @@ impl LibraryApp {
                 .inner;
             slider.widget_info(|| egui::WidgetInfo::slider(true, f64::from(volume), format!("Deck {letter} volume")));
             let slider = slider.on_hover_text(format!("Deck {letter} volume (unity at the top; double-click resets)"));
-            if slider.double_clicked() {
+            if reset_clicked(&slider) {
                 volume = 1.0;
             }
             self.decks.decks[d].volume.0 = volume;
@@ -1287,7 +1498,9 @@ impl LibraryApp {
             Rect::from_min_size(pos2(rect.right() - column, rect.top()), vec2(column, rect.height())),
         ];
         let range = tempo_range(self.settings.tempo_range);
+        self.decks.range = range;
         let mut load = None;
+        let mut sync_press = None;
         for (d, col) in cols.into_iter().enumerate() {
             let c = colours[d];
             let letter = DECKS[d];
@@ -1314,15 +1527,25 @@ impl LibraryApp {
             let sync_r = place(column - 36.0 - BTN_GAP - 44.0, 0, 44.0);
             let tempo_w = 120.0;
             let tempo_r = place(column - 36.0 - 44.0 - 2.0 * BTN_GAP - GROUP_GAP - tempo_w, 0, tempo_w);
-            for (r, text, name) in [(sync_r, "SYNC", "sync"), (key_r, "KEY", "key lock")] {
-                deck_button(ui, r, text, &format!("Deck {letter} {name} (D3)"), false, false, c.outer, tokens)
-                    .on_hover_text(format!("Deck {letter} {name}: arrives in D3"));
+            let sync_hover = match &deck.sync_note {
+                Some(note) => note.clone(),
+                None if deck.sync => format!("Deck {letter} SYNC on: follows deck {}'s tempo; press to release", DECKS[1 - d]),
+                None => format!("Deck {letter} SYNC: match deck {}'s tempo and align to the nearest beat", DECKS[1 - d]),
+            };
+            if deck_button(ui, sync_r, "SYNC", &format!("Deck {letter} sync"), deck.sync, loaded, c.outer, tokens).on_hover_text(sync_hover).clicked() {
+                sync_press = Some(d);
+            }
+            let key_hover = format!("Deck {letter} key lock (master tempo): {}", if deck.keylock { "on, tempo changes keep the pitch" } else { "off, pitch follows tempo" });
+            if deck_button(ui, key_r, "KEY", &format!("Deck {letter} key lock"), deck.keylock, loaded, c.outer, tokens).on_hover_text(key_hover).clicked() {
+                deck.toggle_keylock();
             }
             layout.sync[d] = Some(sync_r);
             layout.key_lock[d] = Some(key_r);
             let slider_r = Rect::from_min_size(tempo_r.min, vec2(tempo_w - 46.0, ROW));
             let value_r = Rect::from_min_max(pos2(slider_r.right() + 2.0, tempo_r.top()), tempo_r.max);
-            let mut tempo = deck.tempo_pct.clamp(-range, range);
+            let shown = ((deck.speed() - 1.0) * 100.0) as f32;
+            // On the slider's 0.1 % step, so only real input reports a change.
+            let mut tempo = ((shown * 10.0).round() / 10.0).clamp(-range, range);
             let slider = ui
                 .scope(|ui| {
                     crate::track_waveform::slider_look(ui, tokens);
@@ -1333,11 +1556,19 @@ impl LibraryApp {
                 .inner;
             slider.widget_info(|| egui::WidgetInfo::slider(true, f64::from(tempo), format!("Deck {letter} tempo")));
             let slider = slider.on_hover_text(format!("Deck {letter} tempo (±{range:.0} %, Settings → Decks); double-click resets"));
-            if slider.double_clicked() {
+            let reset = reset_clicked(&slider);
+            if reset {
                 tempo = 0.0;
             }
-            deck.tempo_pct = tempo;
-            let value = ui.painter().layout_no_wrap(format!("{tempo:+.1}%"), FontId::monospace(11.0), tokens.text);
+            if slider.changed() || reset {
+                // Moving the fader takes the tempo back from SYNC.
+                deck.sync_off(range);
+                deck.tempo_pct = tempo;
+            } else if !deck.sync {
+                // A narrower Settings range clamps the fader.
+                deck.tempo_pct = deck.tempo_pct.clamp(-range, range);
+            }
+            let value = ui.painter().layout_no_wrap(format!("{:+.1}%", ((deck.speed() - 1.0) * 100.0) as f32), FontId::monospace(11.0), tokens.text);
             ui.painter().galley(pos2(value_r.right() - value.size().x, value_r.center().y - value.size().y / 2.0), value, tokens.text);
             layout.tempo[d] = Some(slider_r);
             // Title / clock / BPM between Load and the tempo group.
@@ -1350,12 +1581,9 @@ impl LibraryApp {
                         let pct = l.fraction().map(|f| format!(" {:.0} %", f * 100.0)).unwrap_or_default();
                         (format!("{} · decoding{pct}…", t.name), tokens.muted_text)
                     }
+                    (Some(t), _) if deck.sync_note.is_some() => (format!("{} · {}", t.name, deck.sync_note.as_deref().unwrap_or_default()), tokens.error),
                     (Some(t), _) => {
-                        let bpm = t
-                            .beat_grid()
-                            .and_then(|g| beat_len_at(g, deck.position_ms))
-                            .map(|len| format!(" · {:.2} BPM", 60_000.0 / len * deck.speed()))
-                            .unwrap_or_default();
+                        let bpm = t.bpm_at(deck.position_ms).map(|b| format!(" · {:.2} BPM", b * deck.speed())).unwrap_or_default();
                         (format!("{} · {} / {}{bpm}", t.name, format_clock(deck.position_ms), format_clock(t.duration_ms)), tokens.text)
                     }
                     (None, _) => (format!("Deck {letter} · empty"), tokens.muted_text),
@@ -1425,6 +1653,9 @@ impl LibraryApp {
                 }
             }
             layout.loops[d] = Some(loop_rects);
+        }
+        if let Some(d) = sync_press {
+            self.decks.press_sync(d);
         }
         if let (Some(deck), Some(id)) = (load, self.selected) {
             self.load_deck(deck, id);
@@ -1523,6 +1754,12 @@ fn deck_button(ui: &mut Ui, rect: Rect, text: &str, name: &str, active: bool, en
     let g = painter.layout_no_wrap(text.to_owned(), FontId::proportional(11.0), ink);
     painter.galley(rect.center() - g.size() / 2.0, g, ink);
     response
+}
+
+/// A double click on a fader (egui's `Slider` senses drags only, so its
+/// own `double_clicked()` never fires).
+fn reset_clicked(slider: &egui::Response) -> bool {
+    slider.hovered() && slider.ctx.input(|i| i.pointer.button_double_clicked(egui::PointerButton::Primary))
 }
 
 /// A hot-cue pad: filled with its colour when set, outlined when empty.

@@ -101,7 +101,7 @@ flowchart TB
     core --> audio["oxidj-audio"]
     core --> adapters["oxidj-adapters"]
     core --> ui["oxidj-ui"]
-    engine["oxidj-audio<br/>(M8/D2; cpal + rtrb only)"]
+    engine["oxidj-audio<br/>(M8/D2-D3; cpal + rtrb + signalsmith-stretch only)"]
     ui -. "forbidden" .-> storage
     linkStyle 8 stroke:#c0392b,stroke-width:2px,stroke-dasharray:4 2
 ```

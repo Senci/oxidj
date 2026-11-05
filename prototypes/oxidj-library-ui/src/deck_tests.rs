@@ -680,10 +680,10 @@ fn pads_cue_play_tab_and_loops_drive_the_engine() {
     assert_eq!(h.deck(0).loop_range, None);
     h.app.decks.decks[0].toggle_play();
     h.settle();
-    // SYNC and key-lock exist but are disabled until D3.
+    // SYNC and key lock are live controls (D3).
     let out = h.settle();
-    for name in ["Deck A sync (D3)", "Deck B key lock (D3)"] {
-        assert!(node(&out, name).is_disabled(), "{name}");
+    for name in ["Deck A sync", "Deck B key lock"] {
+        assert!(!node(&out, name).is_disabled(), "{name}");
     }
     assert_eq!(node(&out, "Deck A tempo").role(), accesskit::Role::Slider);
     // Seam readout appears when both decks have a grid.
@@ -1024,4 +1024,197 @@ fn seed_capture_catalog() {
     let Ok(dir) = std::env::var("OXIDJ_D1_CAPTURE_DIR") else { return };
     let db = deck_catalog(Path::new(&dir), 240.0);
     println!("{}", db.display());
+}
+
+// ------------------------------------------------------------------ D3
+
+/// Real-time phase difference (ms) of the two decks from the engine's
+/// published positions and each track's constant grid fit.
+fn engine_phase_error_ms(h: &Harness) -> f64 {
+    let mut phase = [0.0; 2];
+    let mut beat_real = [0.0; 2];
+    for (d, rate) in [(0, 44_100.0), (1, 44_100.0)] {
+        let fit = h.deck(d).track.as_ref().unwrap().fit.unwrap();
+        let ms = h.app.decks.engine.deck(d).frame * 1000.0 / rate;
+        phase[d] = fit.phase(ms);
+        beat_real[d] = fit.beat_ms / h.deck(d).speed();
+    }
+    assert!((beat_real[0] - beat_real[1]).abs() < 1e-6, "tempo matched: {beat_real:?}");
+    ((phase[0] - phase[1] + 0.5).rem_euclid(1.0) - 0.5).abs() * beat_real[0]
+}
+
+/// The constant fit recovers sub-millisecond tempo and first beat from a
+/// grid of whole-millisecond beat times, and flags a tempo change.
+#[test]
+fn grid_fit_is_sub_millisecond_and_detects_variable_grids() {
+    let g = crate::beat_grid::BeatGrid::new(&grid(124.0, 60.0, 120.0), 60_000.0).unwrap();
+    let fit = decks::GridFit::of(&g).unwrap();
+    assert!((fit.beat_ms - 60_000.0 / 124.0).abs() < 0.001, "{fit:?}");
+    assert!((fit.anchor_ms - 120.0).abs() < 0.3, "{fit:?}");
+    assert!(fit.constant() && fit.residual_ms <= 0.5);
+    let mut beats = grid(120.0, 20.0, 0.0);
+    let shift = beats.last().unwrap().time_ms;
+    beats.extend(grid(128.0, 20.0, 0.0).into_iter().skip(1).map(|mut b| {
+        b.time_ms += shift;
+        b
+    }));
+    let g = crate::beat_grid::BeatGrid::new(&beats, 60_000.0).unwrap();
+    let fit = decks::GridFit::of(&g).unwrap();
+    assert!(!fit.constant(), "tempo change must not fit one tempo: {fit:?}");
+}
+
+/// KEY and SYNC through the real buttons: key lock reaches the engine,
+/// SYNC matches B's tempo to A's (track BPM × fader) and aligns B to A's
+/// beat phase within 1 ms, the BPM readouts agree, the seam readout shows
+/// the live offset, B follows A's fader, and moving B's fader releases it.
+#[test]
+fn key_lock_and_sync_buttons_match_tempo_and_phase() {
+    let (root, mut h) = fresh("sync", 30.0);
+    h.select_and_load("a-120.wav", egui::Key::A);
+    h.select_and_load("b-124.wav", egui::Key::B);
+    let (key_b, sync_b) = (h.layout().key_lock[1].unwrap(), h.layout().sync[1].unwrap());
+    h.click(key_b.center());
+    assert!(h.deck(1).keylock && h.app.decks.engine.deck(1).keylock, "key lock reached the engine");
+    let out = h.settle();
+    assert_eq!(node(&out, "Deck B key lock").toggled(), Some(accesskit::Toggled::True));
+    // A at +2 %, both playing, B off-phase.
+    h.app.decks.decks[0].tempo_pct = 2.0;
+    h.seek(1, 5_000.0);
+    h.app.decks.decks[0].toggle_play();
+    h.app.decks.decks[1].toggle_play();
+    for _ in 0..20 {
+        h.frame_with(vec![], Default::default());
+    }
+    let before = engine_phase_error_ms_unmatched(&h);
+    assert!(before > 20.0, "starts out of phase: {before} ms");
+    h.click(sync_b.center());
+    assert!(h.deck(1).sync && h.deck(1).sync_note.is_none(), "{:?} {:?}", h.deck(1).sync_note, h.deck(1).track.as_ref().map(|t| t.fit));
+    let want = 120.0 * 1.02 / 124.0;
+    assert!((h.deck(1).speed() - want).abs() < 1e-5, "B speed {}", h.deck(1).speed());
+    for _ in 0..30 {
+        h.frame_with(vec![], Default::default());
+    }
+    let err = engine_phase_error_ms(&h);
+    assert!(err < 1.0, "phase error after SYNC: {err} ms");
+    let out = h.settle();
+    assert_eq!(node(&out, "Deck B sync").toggled(), Some(accesskit::Toggled::True));
+    // Warped beat lines: each half's window is scaled by its deck's speed,
+    // so after SYNC every beat line of A has a B line at the same x (< 1 px).
+    let halves = h.layout().halves.unwrap();
+    let mut xs = [vec![], vec![]];
+    for d in 0..2 {
+        let window = h.layout().windows[d].unwrap();
+        let grid = h.deck(d).track.as_ref().unwrap().beat_grid().unwrap();
+        xs[d] = grid.beats_in(window).iter().map(|(t, _)| crate::beat_grid::x_of(*t, window, halves[d])).collect();
+    }
+    assert!(xs[0].len() >= 8, "lines in view: {:?}", xs[0]);
+    for x in &xs[0] {
+        let nearest = xs[1].iter().map(|b| (b - x).abs()).fold(f32::INFINITY, f32::min);
+        assert!(nearest < 1.0 || *x < halves[0].left() + 2.0 || *x > halves[0].right() - 2.0, "A line at {x} has no B line (nearest {nearest} px)");
+    }
+    let t = texts(&out);
+    assert_eq!(t.iter().filter(|(s, _)| s.contains("122.40 BPM")).count(), 2, "both decks read 120 × 1.02");
+    assert!(t.iter().any(|(s, _)| s == "-1.3%"), "B's fader shows the synced pitch");
+    let readout: Vec<&String> = t.iter().map(|(s, _)| s).filter(|s| s.starts_with('Δ')).collect();
+    assert!(
+        readout.iter().any(|s| (s.starts_with("Δ +0 ms") || s.starts_with("Δ -0 ms")) && s.ends_with("0.00 BPM")),
+        "live seam readout shows the synced offset: {readout:?}"
+    );
+    // A's fader moves: B follows its tempo.
+    h.app.decks.decks[0].tempo_pct = -1.0;
+    h.settle();
+    assert!((h.deck(1).speed() - 120.0 * 0.99 / 124.0).abs() < 1e-5);
+    // Dragging B's fader takes the tempo back from SYNC.
+    let fader = h.layout().tempo[1].unwrap();
+    h.drag(fader.center(), fader.center() + egui::vec2(10.0, 0.0));
+    assert!(!h.deck(1).sync);
+    let out = h.settle();
+    assert_eq!(node(&out, "Deck B sync").toggled(), Some(accesskit::Toggled::False));
+    // Double-click resets the fader to 0 %.
+    let at = fader.center() + egui::vec2(20.0, 0.0);
+    let ev = |pressed| egui::Event::PointerButton { pos: at, button: egui::PointerButton::Primary, pressed, modifiers: Default::default() };
+    let mut trace = vec![];
+    h.frame_with(vec![egui::Event::PointerMoved(at), ev(true)], Default::default());
+    trace.push(h.deck(1).tempo_pct);
+    h.frame_with(vec![ev(false)], Default::default());
+    trace.push(h.deck(1).tempo_pct);
+    h.frame_with(vec![ev(true)], Default::default());
+    trace.push(h.deck(1).tempo_pct);
+    h.frame_with(vec![ev(false)], Default::default());
+    trace.push(h.deck(1).tempo_pct);
+    h.settle();
+    trace.push(h.deck(1).tempo_pct);
+    assert_eq!(h.deck(1).tempo_pct, 0.0, "double-click resets: {trace:?}");
+    // Key lock off again.
+    h.click(key_b.center());
+    assert!(!h.app.decks.engine.deck(1).keylock);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+/// Phase difference (ms of A's beat) without assuming matched tempo.
+fn engine_phase_error_ms_unmatched(h: &Harness) -> f64 {
+    let mut phase = [0.0; 2];
+    for d in 0..2 {
+        let fit = h.deck(d).track.as_ref().unwrap().fit.unwrap();
+        phase[d] = fit.phase(h.app.decks.engine.deck(d).frame * 1000.0 / 44_100.0);
+    }
+    ((phase[0] - phase[1] + 0.5).rem_euclid(1.0) - 0.5).abs() * 500.0
+}
+
+/// SYNC refuses, visibly and with the exact reason, when a deck is empty,
+/// has no grid, a low-confidence computed grid, a variable-tempo grid, or
+/// would need a tempo beyond the fader range; nothing is sent then.
+#[test]
+fn sync_refuses_with_exact_visible_reasons() {
+    let (root, mut h) = fresh("sync-refuse", 20.0);
+    h.select_and_load("a-120.wav", egui::Key::A);
+    let sync_a = h.layout().sync[0].unwrap();
+    let refused = |h: &mut Harness, want: &str| {
+        let sent = h.app.decks.engine.deck(0).applied;
+        h.click(sync_a.center());
+        assert!(!h.deck(0).sync, "{want}");
+        assert_eq!(h.deck(0).sync_note.as_deref(), Some(want));
+        let out = h.settle();
+        assert!(texts(&out).iter().any(|(s, _)| s.ends_with(want)), "{want} is shown");
+        assert_eq!(node(&out, "Deck A sync").toggled(), Some(accesskit::Toggled::False));
+        assert_eq!(h.app.decks.engine.deck(0).applied, sent, "{want}: nothing sent");
+    };
+    refused(&mut h, "SYNC: deck B is empty");
+    h.select_and_load("c-nogrid.wav", egui::Key::B);
+    refused(&mut h, "SYNC: deck B has no beat grid");
+    h.select_and_load("b-124.wav", egui::Key::B);
+    // A computed grid below the confidence threshold.
+    h.app.decks.decks[1].track.as_mut().unwrap().confidence = Some(0.3);
+    refused(&mut h, "SYNC: deck B grid confidence is low (0.30)");
+    h.app.decks.decks[1].track.as_mut().unwrap().confidence = None;
+    // A tempo change in deck A's grid.
+    let mut beats = grid(120.0, 10.0, 0.0);
+    let shift = beats.last().unwrap().time_ms;
+    beats.extend(grid(128.0, 10.0, 0.0).into_iter().skip(1).map(|mut b| {
+        b.time_ms += shift;
+        b
+    }));
+    let variable = crate::beat_grid::BeatGrid::new(&beats, 20_000.0).unwrap();
+    let a = h.app.decks.decks[0].track.as_mut().unwrap();
+    let saved = (a.grid.clone(), a.fit);
+    a.fit = decks::GridFit::of(&variable);
+    a.grid = Some((variable, crate::track_waveform::GridSource::Library));
+    refused(&mut h, "SYNC: deck A has a variable-tempo grid");
+    let a = h.app.decks.decks[0].track.as_mut().unwrap();
+    (a.grid, a.fit) = saved;
+    // ±6 %: B at -6 % → A needs 124 × 0.94 / 120 = -2.9 % (fine), but with
+    // B at +6 % → A needs +9.5 %.
+    h.app.settings.tempo_range = crate::settings::TempoRange::Six;
+    h.app.decks.decks[1].tempo_pct = 6.0;
+    refused(&mut h, "SYNC: needs +9.5 %, beyond the ±6 % tempo range");
+    // In range: accepted, and the note clears.
+    h.app.decks.decks[1].tempo_pct = -6.0;
+    h.click(sync_a.center());
+    assert!(h.deck(0).sync && h.deck(0).sync_note.is_none());
+    assert!((h.deck(0).speed() - 124.0 * 0.94 / 120.0).abs() < 1e-5);
+    // Pressing again releases SYNC; the fader keeps the tempo.
+    h.click(sync_a.center());
+    assert!(!h.deck(0).sync);
+    assert!((h.deck(0).speed() - 124.0 * 0.94 / 120.0).abs() < 1e-6);
+    std::fs::remove_dir_all(root).unwrap();
 }
