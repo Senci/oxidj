@@ -5,6 +5,7 @@
 #   crates/oxidj-core         neutral domain model          (layer 0)
 #   crates/oxidj-library      shared catalog handlers        (layer 1)
 #   crates/oxidj-analysis     offline analysis (waveform)    (layer 1; core only)
+#   crates/oxidj-audio        realtime deck engine (CPAL)    (layer 1; cpal+rtrb only)
 #   crates/oxidj-rekordbox    isolated XML + DeviceSQL adapter (layer 2)
 #   crates/oxidj-onelibrary   isolated OneLibrary preview contract (layer 2)
 #   crates/oxidj-application  shared operation orchestration (layer 3)
@@ -26,6 +27,7 @@ members = [
     "crates/oxidj-core",
     "crates/oxidj-library",
     "crates/oxidj-analysis",
+    "crates/oxidj-audio",
     "crates/oxidj-rekordbox",
     "crates/oxidj-onelibrary",
     "crates/oxidj-application",
@@ -38,6 +40,7 @@ default-members = [
     "crates/oxidj-core",
     "crates/oxidj-library",
     "crates/oxidj-analysis",
+    "crates/oxidj-audio",
     "crates/oxidj-cli",
 ]
 
@@ -54,6 +57,7 @@ description = "OxiDJ: a modern, open-source DJ library and performance applicati
 oxidj-core = { path = "crates/oxidj-core", version = "0.1.0" }
 oxidj-library = { path = "crates/oxidj-library", version = "0.1.0" }
 oxidj-analysis = { path = "crates/oxidj-analysis", version = "0.1.0" }
+oxidj-audio = { path = "crates/oxidj-audio", version = "0.1.0" }
 oxidj-rekordbox = { path = "crates/oxidj-rekordbox", version = "0.1.0" }
 oxidj-onelibrary = { path = "crates/oxidj-onelibrary", version = "0.1.0" }
 oxidj-application = { path = "crates/oxidj-application", version = "0.1.0" }

@@ -522,6 +522,13 @@ fn decks_bar_truncates_long_names_and_keeps_play_cue_reachable() {
         shell.app.show_decks = true;
         shell.app.load_deck(0, id);
         shell.app.load_deck(1, id);
+        // D2: controls go live once the decoder worker finishes.
+        let start = std::time::Instant::now();
+        while !shell.app.decks.decks.iter().all(|d| d.ready()) {
+            assert!(start.elapsed().as_secs() < 30, "{width}: decode did not finish");
+            std::thread::sleep(std::time::Duration::from_millis(5));
+            shell.settle();
+        }
         let out = shell.settle();
         let decks = shell.app.shell.decks.expect("decks panel");
         assert!(shell.screen.contains_rect(decks), "{width}: {decks:?}");
@@ -558,6 +565,9 @@ fn decks_bar_truncates_long_names_and_keeps_play_cue_reachable() {
         };
         let before = deck_controls(&tree);
         let out = shell.click(play.center());
+        // The engine's fake sink applies the command; the next frame reads it.
+        let _ = shell.app.decks.render(800);
+        shell.settle();
         assert!(
             shell.app.decks.decks[0].playing && !shell.app.decks.decks[1].playing,
             "{width}: PLAY toggles deck A"

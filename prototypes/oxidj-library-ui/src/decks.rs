@@ -1,4 +1,4 @@
-//! M8/D1: the deck area (no audio yet, D2).
+//! M8/D1 + D2: the deck area, playing through the realtime engine.
 //!
 //! Top to bottom: a slim section bar (one chevron toggle per optional
 //! section), ONE merged zoomed detail waveform (deck A above the seam growing
@@ -12,11 +12,16 @@
 //! cyan/purple preset), a tinted half wash, a coloured rail, a faint
 //! watermark letter and position (A always above / left).
 //!
-//! The transport is silent: PLAY advances the playhead by wall clock.
+//! D2: every control drives the `oxidj-audio` engine (CPAL output, both
+//! decks mixed at unity; a silent paced output when no device opens). A
+//! loaded track decodes to RAM off the UI thread with progress, then plays;
+//! the playhead is the audio callback's sample position, never the frame
+//! clock. CUE follows CDJ rules (set at stop, preview while held, return).
 //! Hot cues set on the pads live for the session only; imported Rekordbox
 //! cues and loops are drawn as stored and never written back.
 
 use crate::beat_grid::{self, BeatGrid, GridColours};
+use crate::deck_audio::Loading;
 use crate::settings::{DeckPalette, DeckSections, Playhead, TempoRange};
 use crate::theme::ColorTokens;
 use crate::track_waveform::{GridSource, Loaded};
@@ -24,7 +29,9 @@ use crate::waveform_view::pick_level;
 use crate::LibraryApp;
 use eframe::egui::{self, pos2, vec2, Color32, FontId, Mesh, Pos2, Rect, Sense, Shape, Stroke, Ui};
 use oxidj_application::{WaveformBand, WaveformPeaks};
+use oxidj_audio::{Command, Engine, Renderer};
 use oxidj_library::{Catalog, LibraryCue, TrackDetails};
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 /// Deck letters, A first.
@@ -43,12 +50,10 @@ pub const MIXER_HEIGHT: f32 = 28.0;
 pub const PADS: usize = 8;
 /// Detail window per "bar" when a deck has no beat grid (2/4/8/16 s).
 pub const NO_GRID_BAR_MS: f64 = 2000.0;
-/// Status-bar marker while the transport is silent.
-pub const NO_AUDIO: &str = "NO AUDIO (D2)";
 /// Quiet caption in a half/overview whose waveform is not analysed yet.
 pub const NOT_READY: &str = "analysing · waveform not ready";
 /// Mixer placeholder text.
-pub const MIXER_NOTE: &str = "Mixer and crossfader arrive in D4 · hidden by default";
+pub const MIXER_NOTE: &str = "EQ, crossfader and meters arrive in D4";
 /// Rail width on each half's / overview's left edge.
 pub const RAIL: f32 = 4.0;
 /// Overview content starts after the rail and the deck chip.
@@ -155,6 +160,8 @@ fn pad_colour(n: usize, cue: Option<&LibraryCue>) -> Color32 {
 pub(crate) struct DeckTrack {
     pub(crate) id: u64,
     pub(crate) name: String,
+    /// Audio file (decoded on load).
+    pub(crate) path: PathBuf,
     pub(crate) duration_ms: f64,
     /// `None` = not analysed yet (time grid + quiet caption instead).
     pub(crate) peaks: Option<WaveformPeaks>,
@@ -186,6 +193,7 @@ impl DeckTrack {
                 .file_name()
                 .map(|n| n.to_string_lossy().into_owned())
                 .unwrap_or_default(),
+            path: PathBuf::from(&item.track.path),
             duration_ms,
             peaks,
             grid,
@@ -228,29 +236,91 @@ fn loudest_extent(peaks: &WaveformPeaks) -> f32 {
         .fold(0.0, f32::max)
 }
 
-/// One deck's transport (silent until D2).
+/// A deck's audio: decoding, playable from RAM, or refused.
+#[derive(Default)]
+pub(crate) enum DeckAudio {
+    #[default]
+    None,
+    Loading(Loading),
+    /// Handed to the engine; positions convert at the track's own rate.
+    Ready { rate: u32 },
+    Failed(String),
+}
+
+/// A deck-local engine request (converted to source frames on flush).
+enum Op {
+    TogglePlay,
+    CueDown,
+    CueUp,
+    Seek(f64),
+    LoopIn,
+    LoopOut,
+    LoopScale(f64),
+}
+
+/// Linear deck volume `0..=1` (default unity).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct Volume(pub(crate) f32);
+
+impl Default for Volume {
+    fn default() -> Self {
+        Self(1.0)
+    }
+}
+
+/// One deck: the loaded track, its audio and a mirror of the engine's
+/// state (position, play, cue, loop), refreshed every frame from the audio
+/// callback's snapshot. Controls queue engine commands; only a seek also
+/// moves the mirror at once (scrub feel) until the callback confirms it.
 #[derive(Default)]
 pub(crate) struct Deck {
     pub(crate) track: Option<DeckTrack>,
+    pub(crate) audio: DeckAudio,
     pub(crate) position_ms: f64,
     pub(crate) playing: bool,
+    pub(crate) previewing: bool,
     pub(crate) cue_ms: f64,
-    /// Tempo fader in percent (within the Settings range).
+    /// Tempo fader in percent (within the Settings range; plain varispeed).
     pub(crate) tempo_pct: f32,
+    /// Mixer volume; unity whenever the mixer is hidden.
+    pub(crate) volume: Volume,
     pub(crate) loop_in: Option<f64>,
     /// Active manual loop `[start, end)`.
     pub(crate) loop_range: Option<(f64, f64)>,
     /// Hot-cue pads (ms), seeded from the imported hot cues.
     pub(crate) pads: [Option<f64>; PADS],
+    /// CUE key (Q / P) is held and owes a release.
+    pub(crate) cue_held: bool,
+    /// CUE button is held by the pointer and owes a release.
+    pub(crate) cue_pointer: bool,
+    outbox: Vec<Op>,
+    sent_gain: Option<f32>,
+    sent_speed: Option<f64>,
 }
 
 impl Deck {
+    /// Show `track` and start decoding its audio off the UI thread.
     pub(crate) fn load(&mut self, track: DeckTrack) {
         let mut pads = [None; PADS];
         for (n, pad) in pads.iter_mut().enumerate() {
             *pad = track.hot_cue(n + 1).map(|c| f64::from(c.start_ms));
         }
-        *self = Self { track: Some(track), pads, ..Self::default() };
+        let audio = DeckAudio::Loading(Loading::spawn(track.path.clone()));
+        *self = Self {
+            track: Some(track),
+            audio,
+            pads,
+            tempo_pct: self.tempo_pct,
+            volume: self.volume,
+            sent_gain: self.sent_gain,
+            sent_speed: self.sent_speed,
+            ..Self::default()
+        };
+    }
+
+    /// Audio decoded and handed to the engine: the controls are live.
+    pub(crate) fn ready(&self) -> bool {
+        self.track.is_some() && matches!(self.audio, DeckAudio::Ready { .. })
     }
 
     pub(crate) fn duration(&self) -> f64 {
@@ -262,33 +332,38 @@ impl Deck {
         1.0 + f64::from(self.tempo_pct) / 100.0
     }
 
+    fn queue(&mut self, op: Op) {
+        if self.ready() {
+            self.outbox.push(op);
+        }
+    }
+
+    /// Jump to `ms` (seek, scrub, hot cue); the mirror moves at once.
     pub(crate) fn seek(&mut self, ms: f64) {
-        self.position_ms = ms.clamp(0.0, self.duration());
+        if self.ready() {
+            self.position_ms = ms.clamp(0.0, self.duration());
+            self.queue(Op::Seek(self.position_ms));
+        }
     }
 
     pub(crate) fn toggle_play(&mut self) {
-        if self.track.is_some() {
-            self.playing = !self.playing;
-        }
+        self.queue(Op::TogglePlay);
     }
 
-    /// Club CUE: while playing, stop and return to the cue point; while
-    /// paused, set the cue point here.
-    pub(crate) fn cue(&mut self) {
-        if self.track.is_none() {
-            return;
-        }
-        if self.playing {
-            self.playing = false;
-            self.position_ms = self.cue_ms;
-        } else {
-            self.cue_ms = self.position_ms;
-        }
+    /// CUE pressed (CDJ): playing → stop at the cue point; paused off the
+    /// cue point → set it here; paused on it → preview while held.
+    pub(crate) fn cue_down(&mut self) {
+        self.queue(Op::CueDown);
+    }
+
+    /// CUE released: a preview returns to the cue point.
+    pub(crate) fn cue_up(&mut self) {
+        self.queue(Op::CueUp);
     }
 
     /// A set pad jumps there; an empty pad stores the current position.
     pub(crate) fn pad(&mut self, index: usize) {
-        if self.track.is_none() || index >= PADS {
+        if !self.ready() || index >= PADS {
             return;
         }
         match self.pads[index] {
@@ -298,43 +373,16 @@ impl Deck {
     }
 
     pub(crate) fn loop_in(&mut self) {
-        if self.track.is_some() {
-            self.loop_in = Some(self.position_ms);
-        }
+        self.queue(Op::LoopIn);
     }
 
     /// OUT closes a loop after IN; on an active loop it exits the loop.
     pub(crate) fn loop_out(&mut self) {
-        if self.loop_range.take().is_some() {
-            return;
-        }
-        if let Some(start) = self.loop_in.filter(|s| *s < self.position_ms) {
-            self.loop_range = Some((start, self.position_ms));
-        }
+        self.queue(Op::LoopOut);
     }
 
     pub(crate) fn loop_scale(&mut self, factor: f64) {
-        if let Some((start, end)) = self.loop_range {
-            let len = ((end - start) * factor).max(10.0);
-            self.loop_range = Some((start, (start + len).min(self.duration().max(start + 10.0))));
-        }
-    }
-
-    /// Advance the silent transport by `dt` seconds of wall clock.
-    pub(crate) fn advance(&mut self, dt: f64) {
-        if !self.playing {
-            return;
-        }
-        self.position_ms += dt * 1000.0 * self.speed();
-        if let Some((start, end)) = self.loop_range {
-            if self.position_ms >= end && end > start {
-                self.position_ms = start + (self.position_ms - end) % (end - start);
-            }
-        }
-        if self.position_ms >= self.duration() {
-            self.position_ms = self.duration();
-            self.playing = false;
-        }
+        self.queue(Op::LoopScale(factor));
     }
 }
 
@@ -361,31 +409,135 @@ pub(crate) struct DeckLayout {
     /// IN, OUT, ½, ×2.
     pub(crate) loops: [Option<[Rect; 4]>; 2],
     pub(crate) mixer: Option<Rect>,
+    /// Mixer volume faders (D2).
+    pub(crate) volume: [Option<Rect>; 2],
     /// Deck A overview first, deck B second.
     pub(crate) overviews: Option<[Rect; 2]>,
 }
 
 /// The whole deck area's state.
-#[derive(Default)]
 pub(crate) struct DeckArea {
     pub(crate) decks: [Deck; 2],
     /// Deck the keyboard (Space, 1–8, Tab) acts on.
     pub(crate) active: usize,
-    last_time: Option<f64>,
     /// A Tab press taken by [`LibraryApp::deck_input_hook`].
     pending_tab: bool,
     pub(crate) layout: DeckLayout,
+    pub(crate) engine: Engine,
+    /// The fake sink: blocks rendered by hand (tests); `None` once a real
+    /// output is attached.
+    manual: Option<Renderer>,
+}
+
+impl Default for DeckArea {
+    /// A manual engine (nothing plays until [`DeckArea::render`]);
+    /// `main` attaches the device output with [`DeckArea::attach`].
+    fn default() -> Self {
+        let (engine, renderer) = Engine::manual(48_000);
+        Self {
+            decks: Default::default(),
+            active: 0,
+            pending_tab: false,
+            layout: DeckLayout::default(),
+            engine,
+            manual: Some(renderer),
+        }
+    }
 }
 
 impl DeckArea {
-    /// Advance both silent transports to `now` (seconds, egui input time).
-    pub(crate) fn tick(&mut self, now: f64) {
-        // Wall-clock elapsed time, never capped: a delayed or throttled
-        // frame still advances the playhead by the real time that passed.
-        let dt = self.last_time.map_or(0.0, |t| (now - t).max(0.0));
-        self.last_time = Some(now);
+    /// Use `engine` (the device output, or the silent fallback).
+    pub(crate) fn attach(&mut self, engine: Engine) {
+        self.engine = engine;
+        self.manual = None;
         for deck in &mut self.decks {
-            deck.advance(dt);
+            (deck.sent_gain, deck.sent_speed) = (None, None);
+        }
+    }
+
+    /// Render `frames` on the fake sink (tests; no-op with a real output).
+    #[cfg(test)]
+    pub(crate) fn render(&mut self, frames: usize) -> Vec<f32> {
+        let mut out = vec![0.0; frames * 2];
+        if let Some(renderer) = &mut self.manual {
+            renderer.render(&mut out, 2);
+        }
+        out
+    }
+
+    /// Start of a frame: engine housekeeping, finished decodes go to the
+    /// engine, and every deck mirror takes the callback's latest state (a
+    /// deck with unapplied commands keeps its optimistic position).
+    pub(crate) fn pump(&mut self) {
+        self.engine.poll();
+        for (d, deck) in self.decks.iter_mut().enumerate() {
+            let Some(id) = deck.track.as_ref().map(|t| t.id) else { continue };
+            if let DeckAudio::Loading(loading) = &deck.audio {
+                match loading.poll() {
+                    None => {}
+                    Some(Err(reason)) => deck.audio = DeckAudio::Failed(reason),
+                    Some(Ok(pcm)) => {
+                        let rate = pcm.sample_rate();
+                        if self.engine.send(Command::Load { deck: d, id, track: Arc::new(pcm) }) {
+                            deck.audio = DeckAudio::Ready { rate };
+                        } else {
+                            deck.audio = DeckAudio::Failed("audio engine busy".into());
+                        }
+                    }
+                }
+            }
+            let DeckAudio::Ready { rate } = deck.audio else { continue };
+            let snap = self.engine.deck(d);
+            if snap.id != Some(id) || self.engine.pending(d) {
+                continue;
+            }
+            let ms = |frame: f64| frame * 1000.0 / f64::from(rate);
+            deck.position_ms = ms(snap.frame);
+            deck.cue_ms = ms(snap.cue);
+            deck.loop_in = snap.loop_in.map(ms);
+            deck.loop_range = snap.loop_range.map(|(a, b)| (ms(a), ms(b)));
+            deck.playing = snap.playing;
+            deck.previewing = snap.previewing;
+        }
+    }
+
+    /// End of a frame: send every queued control, plus gain (the mixer's
+    /// volume, or exact unity while the mixer is hidden) and tempo changes.
+    pub(crate) fn flush(&mut self, mixer: bool) {
+        for (d, deck) in self.decks.iter_mut().enumerate() {
+            let gain = if mixer { deck.volume.0.clamp(0.0, 1.0) } else { 1.0 };
+            if deck.sent_gain != Some(gain) && self.engine.send(Command::Gain { deck: d, gain }) {
+                deck.sent_gain = Some(gain);
+            }
+            let speed = deck.speed();
+            if deck.sent_speed != Some(speed) && self.engine.send(Command::Speed { deck: d, speed }) {
+                deck.sent_speed = Some(speed);
+            }
+            let DeckAudio::Ready { rate } = deck.audio else {
+                deck.outbox.clear();
+                continue;
+            };
+            let frame = |ms: f64| ms * f64::from(rate) / 1000.0;
+            for op in deck.outbox.drain(..) {
+                let command = match op {
+                    Op::TogglePlay => Command::TogglePlay { deck: d },
+                    Op::CueDown => Command::CueDown { deck: d },
+                    Op::CueUp => Command::CueUp { deck: d },
+                    Op::Seek(ms) => Command::Seek { deck: d, frame: frame(ms) },
+                    Op::LoopIn => Command::LoopIn { deck: d },
+                    Op::LoopOut => Command::LoopOut { deck: d },
+                    Op::LoopScale(f) => Command::LoopScale { deck: d, factor: f },
+                };
+                self.engine.send(command);
+            }
+        }
+    }
+
+    /// Status-bar text: where audio goes, or why it is silent.
+    pub(crate) fn status(&self) -> (String, bool) {
+        match self.engine.error() {
+            Some(reason) => (format!("NO AUDIO · {reason} · decks run silently"), false),
+            None => (format!("AUDIO · {}", self.engine.output()), true),
         }
     }
 
@@ -393,6 +545,10 @@ impl DeckArea {
         self.decks.iter().any(|d| d.playing)
     }
 
+    /// Any deck still decoding (repaint for progress).
+    pub(crate) fn any_loading(&self) -> bool {
+        self.decks.iter().any(|d| matches!(d.audio, DeckAudio::Loading(_)))
+    }
     /// Track id loaded on each deck.
     pub(crate) fn loaded(&self) -> [Option<u64>; 2] {
         [0, 1].map(|d| self.decks[d].track.as_ref().map(|t| t.id))
@@ -719,11 +875,17 @@ impl LibraryApp {
             if i.consume_key(none, egui::Key::Space) {
                 self.decks.decks[active].toggle_play();
             }
-            if i.consume_key(none, egui::Key::Q) {
-                self.decks.decks[0].cue();
-            }
-            if i.consume_key(none, egui::Key::P) {
-                self.decks.decks[1].cue();
+            // CUE keys: press = CUE down, release = CUE up (hold-preview).
+            for (d, key) in [(0, egui::Key::Q), (1, egui::Key::P)] {
+                let deck = &mut self.decks.decks[d];
+                if i.consume_key(none, key) && !deck.cue_held {
+                    deck.cue_held = true;
+                    deck.cue_down();
+                }
+                if deck.cue_held && i.key_released(key) {
+                    deck.cue_held = false;
+                    deck.cue_up();
+                }
             }
             for (pad, key) in digits.iter().enumerate() {
                 if i.consume_key(none, *key) {
@@ -856,12 +1018,7 @@ impl LibraryApp {
         }
         if sections.mixer {
             let r = take(MIXER_HEIGHT, &mut y);
-            ui.painter().rect_filled(r, 3.0, tokens.surface);
-            let galley = ui.painter().layout_no_wrap(MIXER_NOTE.into(), FontId::proportional(11.5), tokens.muted_text);
-            ui.painter().galley(r.center() - galley.size() / 2.0, galley, tokens.muted_text);
-            let response = ui.interact(r, ui.id().with("mixer-placeholder"), Sense::hover());
-            response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, MIXER_NOTE));
-            layout.mixer = Some(r);
+            self.mixer(ui, r, tokens, colours, &mut layout);
         }
         if sections.overviews {
             let r = take(2.0 * OVERVIEW_HEIGHT + 2.0, &mut y);
@@ -874,8 +1031,47 @@ impl LibraryApp {
         }
         if self.decks.any_playing() {
             ui.ctx().request_repaint();
+        } else if self.decks.any_loading() {
+            ui.ctx().request_repaint_after(std::time::Duration::from_millis(100));
         }
         self.decks.layout = layout;
+    }
+
+    /// D2 mixer row: one volume fader per deck (A left, B right); the D4
+    /// note in the middle. Hidden mixer = both decks at exact unity.
+    fn mixer(&mut self, ui: &mut Ui, r: Rect, tokens: ColorTokens, colours: [DeckColours; 2], layout: &mut DeckLayout) {
+        ui.painter().rect_filled(r, 3.0, tokens.surface);
+        let galley = ui.painter().layout_no_wrap(MIXER_NOTE.into(), FontId::proportional(11.5), tokens.muted_text);
+        ui.painter().galley(r.center() - galley.size() / 2.0, galley, tokens.muted_text);
+        let note = ui.interact(r.shrink2(vec2(200.0, 0.0)), ui.id().with("mixer-placeholder"), Sense::hover());
+        note.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, MIXER_NOTE));
+        let w = 150.0_f32.min(r.width() / 4.0);
+        for d in 0..2 {
+            let letter = DECKS[d];
+            let x = if d == 0 { r.left() + 8.0 } else { r.right() - 8.0 - w };
+            let slot = Rect::from_min_size(pos2(x, r.center().y - ROW / 2.0), vec2(w, ROW));
+            let label = Rect::from_min_size(slot.min, vec2(34.0, ROW));
+            let g = ui.painter().layout_no_wrap(format!("VOL {letter}"), FontId::proportional(11.0), tokens.text);
+            ui.painter().galley(pos2(label.left(), label.center().y - g.size().y / 2.0), g, tokens.text);
+            let slider_r = Rect::from_min_max(pos2(label.right() + 2.0, slot.top()), slot.max);
+            let mut volume = self.decks.decks[d].volume.0;
+            let slider = ui
+                .scope(|ui| {
+                    crate::track_waveform::slider_look(ui, tokens);
+                    ui.visuals_mut().selection.bg_fill = colours[d].outer;
+                    ui.spacing_mut().slider_width = slider_r.width();
+                    ui.put(slider_r, egui::Slider::new(&mut volume, 0.0..=1.0).show_value(false))
+                })
+                .inner;
+            slider.widget_info(|| egui::WidgetInfo::slider(true, f64::from(volume), format!("Deck {letter} volume")));
+            let slider = slider.on_hover_text(format!("Deck {letter} volume (unity at the top; double-click resets)"));
+            if slider.double_clicked() {
+                volume = 1.0;
+            }
+            self.decks.decks[d].volume.0 = volume;
+            layout.volume[d] = Some(slider_r);
+        }
+        layout.mixer = Some(r);
     }
 
     /// Section bar: deck chips with the active deck marked, then the four
@@ -1085,7 +1281,7 @@ impl LibraryApp {
             ui.painter().rect_filled(Rect::from_min_size(col.min, vec2(RAIL, col.height())).translate(vec2(if d == 0 { 0.0 } else { col.width() - RAIL }, 0.0)), 0.0, c.outer);
             let inset = RAIL + 4.0;
             let deck = &mut self.decks.decks[d];
-            let loaded = deck.track.is_some();
+            let loaded = deck.ready();
             // Row 1: chip, Load, title + clock + BPM, tempo, SYNC, KEY.
             let chip_r = place(inset, 0, 22.0);
             chip(ui.painter(), chip_r.shrink2(vec2(0.0, 2.0)), letter, c);
@@ -1129,18 +1325,23 @@ impl LibraryApp {
             let (a, b) = if d == 0 { (load_r.right() + 6.0, tempo_r.left() - 6.0) } else { (tempo_r.right() + 6.0, load_r.left() - 6.0) };
             if b > a + 20.0 {
                 let info = Rect::from_min_max(pos2(a, load_r.top()), pos2(b, load_r.bottom()));
-                let text = match &deck.track {
-                    Some(t) => {
+                let (text, ink) = match (&deck.track, &deck.audio) {
+                    (Some(t), DeckAudio::Failed(reason)) => (format!("{} · cannot play: {reason}", t.name), tokens.error),
+                    (Some(t), DeckAudio::Loading(l)) => {
+                        let pct = l.fraction().map(|f| format!(" {:.0} %", f * 100.0)).unwrap_or_default();
+                        (format!("{} · decoding{pct}…", t.name), tokens.muted_text)
+                    }
+                    (Some(t), _) => {
                         let bpm = t
                             .beat_grid()
                             .and_then(|g| beat_len_at(g, deck.position_ms))
                             .map(|len| format!(" · {:.2} BPM", 60_000.0 / len * deck.speed()))
                             .unwrap_or_default();
-                        format!("{} · {} / {}{bpm}", t.name, format_clock(deck.position_ms), format_clock(t.duration_ms))
+                        (format!("{} · {} / {}{bpm}", t.name, format_clock(deck.position_ms), format_clock(t.duration_ms)), tokens.text)
                     }
-                    None => format!("Deck {letter} · empty"),
+                    (None, _) => (format!("Deck {letter} · empty"), tokens.muted_text),
                 };
-                let g = egui::WidgetText::from(egui::RichText::new(text).small().color(if loaded { tokens.text } else { tokens.muted_text }))
+                let g = egui::WidgetText::from(egui::RichText::new(text).small().color(ink))
                     .into_galley(ui, Some(egui::TextWrapMode::Truncate), info.width(), egui::TextStyle::Small);
                 let x = if d == 0 { info.left() } else { info.right() - g.size().x };
                 ui.painter_at(info).galley(pos2(x, info.center().y - g.size().y / 2.0), g, tokens.text);
@@ -1148,9 +1349,21 @@ impl LibraryApp {
             // Row 2: CUE, PLAY (outermost), pads 1–8, loops.
             let cue_r = place(inset, 1, CUE_W);
             let play_r = place(inset + CUE_W + BTN_GAP, 1, PLAY_W);
-            let at_cue = loaded && !deck.playing && (deck.position_ms - deck.cue_ms).abs() < 1.0;
-            if deck_button(ui, cue_r, "CUE", &format!("Deck {letter} cue"), at_cue, loaded, tokens.warning, tokens).clicked() {
-                deck.cue();
+            let at_cue = loaded && (deck.previewing || (!deck.playing && (deck.position_ms - deck.cue_ms).abs() < 1.0));
+            let cue = deck_button(ui, cue_r, "CUE", &format!("Deck {letter} cue"), at_cue, loaded, tokens.warning, tokens)
+                .on_hover_text(format!("Deck {letter} CUE ({}): stopped, sets the cue point; on it, hold to preview; playing, returns to it", ["Q", "P"][d]));
+            // Pointer: press = CUE down, release = CUE up; keyboard
+            // activation of the focused button is a press + release.
+            let held = cue.is_pointer_button_down_on();
+            if held && !deck.cue_pointer {
+                deck.cue_pointer = true;
+                deck.cue_down();
+            } else if !held && deck.cue_pointer {
+                deck.cue_pointer = false;
+                deck.cue_up();
+            } else if cue.clicked() {
+                deck.cue_down();
+                deck.cue_up();
             }
             let play_label = if deck.playing { "PAUSE" } else { "PLAY" };
             if deck_button(ui, play_r, play_label, &format!("Deck {letter} play/pause"), deck.playing, loaded, tokens.success, tokens).clicked() {

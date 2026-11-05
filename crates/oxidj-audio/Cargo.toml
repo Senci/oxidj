@@ -1,0 +1,19 @@
+[package]
+name = "oxidj-audio"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "OxiDJ realtime deck engine: CPAL output, lock-free commands, in-RAM decks."
+publish = false
+
+# Layer 1 (ADR-004 D2 amendment). No internal dependencies; the admitted
+# exactly pinned `cpal` (device I/O, ADR-008) and `rtrb` (lock-free SPSC
+# command ring) only. `cargo xtask layers` rejects anything else. Decoding
+# stays in `oxidj-library`; this crate plays already-decoded PCM from RAM.
+[dependencies]
+cpal = { version = "=0.18.2", default-features = false }
+rtrb = { version = "=0.4.1", default-features = false }
+
+[lints]
+workspace = true

@@ -37,6 +37,7 @@ fn layer_of(name: &str) -> Option<u8> {
         "oxidj-core" => Some(0),
         "oxidj-library" => Some(1),
         "oxidj-analysis" => Some(1),
+        "oxidj-audio" => Some(1),
         "oxidj-rekordbox" => Some(2),
         "oxidj-onelibrary" => Some(2),
         "oxidj-application" => Some(3),
@@ -67,6 +68,37 @@ fn analysis_dep_allowed(dep: &DepInfo) -> bool {
             source == "registry+https://github.com/rust-lang/crates.io-index"
                 || source == "registry+https://index.crates.io/"
         })
+        && dep.kind.is_none()
+        && !dep.default_features
+        && dep.features.is_empty()
+}
+
+/// Realtime deck engine (M8/D2, ADR-004 D2 amendment / ADR-008): CPAL device
+/// output and the lock-free command ring only — no internal dependency.
+const AUDIO_ENGINE_CRATE: &str = "oxidj-audio";
+
+/// External crates admitted into [`AUDIO_ENGINE_CRATE`]: `(name, exact
+/// requirement)`. Normal dependency kind, crates.io, no default features and
+/// no features only. Dev-dependencies are refused too.
+const AUDIO_ENGINE_EXTERNAL_ALLOW: &[(&str, &str)] = &[("cpal", "=0.18.2"), ("rtrb", "=0.4.1")];
+
+/// Lowest layer allowed to depend on [`AUDIO_ENGINE_CRATE`]: application
+/// orchestration and presentation, never core, library, analysis or adapters.
+const AUDIO_ENGINE_MIN_DEPENDENT_LAYER: u8 = 3;
+
+fn crates_io(dep: &DepInfo) -> bool {
+    dep.source.as_deref().is_some_and(|source| {
+        source == "registry+https://github.com/rust-lang/crates.io-index"
+            || source == "registry+https://index.crates.io/"
+    })
+}
+
+/// Whether `dep` is an accepted dependency of [`AUDIO_ENGINE_CRATE`].
+fn audio_engine_dep_allowed(dep: &DepInfo) -> bool {
+    AUDIO_ENGINE_EXTERNAL_ALLOW
+        .iter()
+        .any(|(name, req)| dep.name == *name && dep.req == *req)
+        && crates_io(dep)
         && dep.kind.is_none()
         && !dep.default_features
         && dep.features.is_empty()
@@ -278,7 +310,27 @@ fn check_layers(meta: &serde_json::Value) -> Result<(), Vec<String>> {
                 }
                 continue;
             }
+            if name == AUDIO_ENGINE_CRATE {
+                if !audio_engine_dep_allowed(dep) {
+                    violations.push(format!(
+                        "{name} (layer {my_layer}) -> {dep_name}: {AUDIO_ENGINE_CRATE} may depend \
+                         only on the admitted [cpal =0.18.2, rtrb =0.4.1] (ADR-004 D2)"
+                    ));
+                }
+                continue;
+            }
             let is_path_dep = dep.source.is_none();
+            if is_path_dep
+                && dep_name == AUDIO_ENGINE_CRATE
+                && *my_layer < AUDIO_ENGINE_MIN_DEPENDENT_LAYER
+            {
+                violations.push(format!(
+                    "{name} (layer {my_layer}) -> {AUDIO_ENGINE_CRATE}: the realtime engine may be \
+                     used only from layer {AUDIO_ENGINE_MIN_DEPENDENT_LAYER}+ (application, \
+                     presentation) (ADR-004 D2)"
+                ));
+                continue;
+            }
             if is_path_dep {
                 // A path dependency is an internal edge to a workspace member
                 // (identified by its package name). Same-or-lower layer: allowed.
@@ -834,6 +886,79 @@ mod tests {
         assert!(check_layers(&meta("oxidj-application", pinned)).is_err());
         let wrong_revision = "git+https://github.com/fragmede/rekordbox-pdb-rs?rev=main#0000000000000000000000000000000000000000".to_string();
         assert!(check_layers(&meta("oxidj-rekordbox", wrong_revision)).is_err());
+    }
+
+    #[test]
+    fn audio_engine_admits_only_pinned_cpal_and_rtrb_and_only_high_dependents() {
+        let registry = "registry+https://github.com/rust-lang/crates.io-index";
+        let dep =
+            |name: &str, req: &str, defaults: bool, kind: Option<&str>, source: Option<&str>| {
+                json!({
+                    "name": name, "source": source, "kind": kind, "req": req,
+                    "uses_default_features": defaults, "features": []
+                })
+            };
+        let meta = |packages: Vec<(&str, Vec<serde_json::Value>)>| {
+            json!({
+                "workspace_members": packages.iter()
+                    .map(|(n, _)| format!("path+file:///root#{n}@0.1.0"))
+                    .collect::<Vec<_>>(),
+                "packages": packages.iter().map(|(n, deps)| json!({
+                    "name": n,
+                    "id": format!("path+file:///root#{n}@0.1.0"),
+                    "dependencies": deps
+                })).collect::<Vec<_>>()
+            })
+        };
+        let good = || {
+            vec![
+                dep("cpal", "=0.18.2", false, None, Some(registry)),
+                dep("rtrb", "=0.4.1", false, None, Some(registry)),
+            ]
+        };
+        assert!(check_layers(&meta(vec![("oxidj-audio", good())])).is_ok());
+        // Application (layer 3) may use the engine.
+        let app = vec![dep("oxidj-audio", "*", true, None, None)];
+        assert!(
+            check_layers(&meta(vec![
+                ("oxidj-audio", good()),
+                ("oxidj-application", app)
+            ]))
+            .is_ok()
+        );
+        let planted = [
+            dep("cpal", "^0.18.2", false, None, Some(registry)), // not exact
+            dep("cpal", "=0.18.2", true, None, Some(registry)),  // default features
+            dep("rtrb", "=0.4.1", false, Some("dev"), Some(registry)), // dev kind
+            dep("rubato", "=1.0.0", false, None, Some(registry)), // not admitted
+            dep("oxidj-core", "*", true, None, None),            // internal edge
+        ];
+        for bad in planted {
+            let name = bad["name"].as_str().unwrap().to_owned();
+            let errs = check_layers(&meta(vec![("oxidj-audio", vec![bad])])).unwrap_err();
+            assert!(
+                errs.iter()
+                    .any(|e| e.contains("oxidj-audio") && e.contains(&name)),
+                "{errs:?}"
+            );
+        }
+        for low in [
+            "oxidj-core",
+            "oxidj-library",
+            "oxidj-analysis",
+            "oxidj-rekordbox",
+        ] {
+            let edge = vec![dep("oxidj-audio", "*", true, None, None)];
+            let errs = check_layers(&meta(vec![("oxidj-audio", good()), (low, edge)])).unwrap_err();
+            assert!(
+                errs.iter()
+                    .any(|e| e.starts_with(low) && e.contains("oxidj-audio")),
+                "{errs:?}"
+            );
+        }
+        // cpal stays forbidden everywhere else.
+        let cpal = vec![dep("cpal", "=0.18.2", false, None, Some(registry))];
+        assert!(check_layers(&meta(vec![("oxidj-application", cpal)])).is_err());
     }
 
     #[test]

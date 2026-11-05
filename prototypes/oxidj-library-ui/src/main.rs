@@ -4,6 +4,7 @@ mod app;
 mod beat_grid;
 mod components;
 mod control_gallery;
+mod deck_audio;
 mod decks;
 #[cfg(test)]
 mod deck_tests;
@@ -54,6 +55,8 @@ fn main() -> eframe::Result<()> {
             let (theme, custom_tokens) = ThemeMode::load(cc.storage);
             let mut app = LibraryApp::new(db, theme, custom_tokens);
             app.settings = settings::Settings::load(cc.storage);
+            // D2: the default output device, or the silent fallback.
+            app.decks.attach(oxidj_audio::Engine::start());
             Ok(Box::new(app))
         }),
     )

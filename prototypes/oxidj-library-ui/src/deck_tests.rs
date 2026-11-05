@@ -1,16 +1,24 @@
-//! M8/D1: the deck area through the production `LibraryApp::ui` path
+//! M8/D1 + D2: the deck area through the production `LibraryApp::ui` path
 //! (plus the eframe raw-input hook): load, seek, zoom, merged geometry,
 //! overview separation, grid fallback, palette, pads, transport keys and
 //! every collapse combination with persistence. Synthetic audio only.
+//!
+//! D2: the app runs the real `oxidj-audio` engine on its fake sink — the
+//! harness renders 1/60 s of audio (800 frames at 48 kHz) after every UI
+//! frame, exactly the code a device callback runs — so the playhead,
+//! cue, loops and end of track are the engine's, never the frame clock's.
 
 use super::*;
-use crate::decks::{self, DeckColours, NOT_READY, NO_AUDIO};
+use crate::decks::{self, DeckAudio, DeckColours, NOT_READY};
 use crate::settings::{DeckPalette, DeckSections, Settings};
 use eframe::egui::{Pos2, Rect, Shape, accesskit};
 use oxidj_library::{LibraryBeat, LibraryCue, LibrarySnapshot, LibraryTrack};
 use std::path::{Path, PathBuf};
 
 type Frame = egui::FullOutput;
+
+/// 1/60 s at the fake sink's 48 kHz.
+const AUDIO_FRAMES_PER_UI_FRAME: usize = 800;
 
 /// 16-bit mono PCM WAV: kick on every beat at `bpm`, off-beat hat, quiet
 /// bass, scaled by `level` (a quiet master exercises auto-gain).
@@ -154,7 +162,21 @@ impl Harness {
         };
         self.app.deck_input_hook(&self.ctx, &mut input);
         let app = &mut self.app;
-        self.ctx.run(input, |ctx| app.ui(ctx))
+        let out = self.ctx.run(input, |ctx| app.ui(ctx));
+        // The fake sink: 1/60 s of audio per UI frame.
+        let _ = self.app.decks.render(AUDIO_FRAMES_PER_UI_FRAME);
+        out
+    }
+
+    /// Frames until every loaded deck finished decoding (real worker).
+    fn wait_audio(&mut self) {
+        let start = std::time::Instant::now();
+        while self.app.decks.decks.iter().any(|d| matches!(d.audio, DeckAudio::Loading(_))) {
+            assert!(start.elapsed().as_secs() < 30, "decode did not finish");
+            std::thread::sleep(std::time::Duration::from_millis(5));
+            self.frame_with(vec![], Default::default());
+        }
+        self.settle();
     }
 
     fn settle(&mut self) -> Frame {
@@ -202,6 +224,13 @@ impl Harness {
     fn select_and_load(&mut self, name: &str, key: egui::Key) {
         self.app.selected = Some(self.id_of(name));
         self.tap(key);
+        self.wait_audio();
+    }
+
+    /// Seek deck `d` through its production method, applied by the engine.
+    fn seek(&mut self, d: usize, ms: f64) {
+        self.app.decks.decks[d].seek(ms);
+        self.settle();
     }
 
     fn layout(&self) -> crate::decks::DeckLayout {
@@ -266,7 +295,7 @@ fn track_of(catalog: &Catalog, name: &str) -> TrackDetails {
 fn load_by_keys_button_and_context_menu_with_table_badges() {
     let (root, mut h) = fresh("load", 20.0);
     let out = h.settle();
-    assert!(texts(&out).iter().any(|(t, _)| t == NO_AUDIO), "status bar says NO AUDIO");
+    assert!(texts(&out).iter().any(|(t, _)| t == "AUDIO · manual"), "status bar names the output");
     assert!(h.deck(0).track.is_none() && h.deck(1).track.is_none());
     // A key loads the selected track to deck A.
     h.select_and_load("a-120.wav", egui::Key::A);
@@ -565,19 +594,22 @@ fn deck_palettes_are_warm_and_cool_with_contrast_in_both_themes() {
 }
 
 #[test]
-fn pads_cue_play_tab_and_loops_drive_the_silent_transport() {
+fn pads_cue_play_tab_and_loops_drive_the_engine() {
     let (root, mut h) = fresh("pads", 20.0);
     h.select_and_load("a-120.wav", egui::Key::A);
     h.select_and_load("b-124.wav", egui::Key::B);
+    assert!(h.deck(0).ready() && h.deck(1).ready(), "both decks decoded to RAM");
+    assert_eq!(h.app.decks.engine.deck(0).id, Some(h.id_of("a-120.wav")), "engine holds A's track");
     assert_eq!(h.app.decks.active, 0);
-    // Key 1 jumps deck A to its imported hot cue 1.
+    // Key 1 jumps deck A to its imported hot cue 1 (engine position).
     h.tap(egui::Key::Num1);
     assert_eq!(h.deck(0).position_ms, 2_000.0);
+    assert_eq!(h.app.decks.engine.deck(0).frame, 88_200.0, "2 s at 44.1 kHz, sample exact");
     // An empty pad stores the position; clicking that pad later jumps back.
-    h.app.decks.decks[0].seek(5_000.0);
+    h.seek(0, 5_000.0);
     h.tap(egui::Key::Num4);
     assert_eq!(h.deck(0).pads[3], Some(5_000.0));
-    h.app.decks.decks[0].seek(0.0);
+    h.seek(0, 0.0);
     let pad4 = h.layout().pads[0].unwrap()[3];
     h.click(pad4.center());
     assert_eq!(h.deck(0).position_ms, 5_000.0);
@@ -585,23 +617,26 @@ fn pads_cue_play_tab_and_loops_drive_the_silent_transport() {
     let pad = node(&out, "Deck A hot cue 4 (set)");
     assert_eq!(pad.role(), accesskit::Role::Button);
     node(&out, "Deck B hot cue 2 (empty)");
-    // Space plays the active deck; the playhead advances by wall clock.
+    // Space plays the active deck; the playhead is the engine's position:
+    // 30 UI frames render 30 × 800 frames at 48 kHz = 0.5 s exactly.
     h.tap(egui::Key::Space);
     assert!(h.deck(0).playing && !h.deck(1).playing);
-    let start = h.deck(0).position_ms;
+    let start = h.app.decks.engine.deck(0).frame;
     for _ in 0..30 {
         h.frame_with(vec![], Default::default());
     }
-    let moved = h.deck(0).position_ms - start;
-    assert!((450.0..=600.0).contains(&moved), "30 frames ≈ 0.5 s: {moved}");
-    // Tempo +10 % speeds the silent transport up.
+    let moved = h.app.decks.engine.deck(0).frame - start;
+    assert!((moved - 22_050.0).abs() < 1e-6, "0.5 s of 44.1 kHz source: {moved}");
+    // Tempo +10 % is plain varispeed on the same step.
     h.app.decks.decks[0].tempo_pct = 10.0;
-    let start = h.deck(0).position_ms;
+    h.settle();
+    let start = h.app.decks.engine.deck(0).frame;
     for _ in 0..60 {
         h.frame_with(vec![], Default::default());
     }
-    let moved = h.deck(0).position_ms - start;
-    assert!((1050.0..=1150.0).contains(&moved), "1 s at +10 %: {moved}");
+    let moved = h.app.decks.engine.deck(0).frame - start;
+    assert!((moved - 44_100.0 * 1.1).abs() < 1e-3, "1 s at +10 %: {moved}");
+    h.app.decks.decks[0].tempo_pct = 0.0;
     // Q while playing: stop and return to the cue point (0 by default).
     h.tap(egui::Key::Q);
     assert!(!h.deck(0).playing && h.deck(0).position_ms == 0.0);
@@ -616,29 +651,35 @@ fn pads_cue_play_tab_and_loops_drive_the_silent_transport() {
     assert!(!h.deck(1).playing);
     // Pads 1-8 act on the active deck (B): its hot cue 1.
     h.tap(egui::Key::Num1);
-    assert_eq!(h.deck(1).position_ms, 1_088.0);
+    assert!((h.deck(1).position_ms - 1_088.0).abs() < 1e-9);
     // Loops: IN at 4 s, OUT at 6 s, ½ → 1 s, ×2 → 2 s; playback wraps.
     h.tap(egui::Key::Tab);
     assert_eq!(h.app.decks.active, 0);
     let loops = h.layout().loops[0].unwrap();
-    h.app.decks.decks[0].seek(4_000.0);
+    h.seek(0, 4_000.0);
     h.click(loops[0].center());
-    h.app.decks.decks[0].seek(6_000.0);
+    assert_eq!(h.deck(0).loop_in, Some(4_000.0));
+    h.seek(0, 6_000.0);
     h.click(loops[1].center());
     assert_eq!(h.deck(0).loop_range, Some((4_000.0, 6_000.0)));
     h.click(loops[2].center());
     assert_eq!(h.deck(0).loop_range, Some((4_000.0, 5_000.0)));
     h.click(loops[3].center());
     assert_eq!(h.deck(0).loop_range, Some((4_000.0, 6_000.0)));
-    h.app.decks.decks[0].tempo_pct = 0.0;
-    h.app.decks.decks[0].seek(5_900.0);
-    h.app.decks.decks[0].playing = true;
+    // Play from 5.9 s: 12 UI frames (200 ms) wrap 100 ms into the loop.
+    h.seek(0, 5_900.0);
+    h.app.decks.decks[0].toggle_play();
+    h.frame_with(vec![], Default::default());
     for _ in 0..12 {
         h.frame_with(vec![], Default::default());
     }
     let p = h.deck(0).position_ms;
     assert!((4_000.0..4_300.0).contains(&p), "wrapped into the loop: {p}");
-    h.app.decks.decks[0].playing = false;
+    // OUT on an active loop exits it; playback continues past 6 s.
+    h.click(loops[1].center());
+    assert_eq!(h.deck(0).loop_range, None);
+    h.app.decks.decks[0].toggle_play();
+    h.settle();
     // SYNC and key-lock exist but are disabled until D3.
     let out = h.settle();
     for name in ["Deck A sync (D3)", "Deck B key lock (D3)"] {
@@ -654,37 +695,135 @@ fn pads_cue_play_tab_and_loops_drive_the_silent_transport() {
     std::fs::remove_dir_all(root).unwrap();
 }
 
+/// CDJ CUE through the real button: paused off the cue point a click sets
+/// it; holding CUE on the cue point previews, releasing returns; PLAY
+/// during the hold keeps playing.
 #[test]
-fn delayed_frame_advances_by_full_wall_clock() {
-    let (root, mut h) = fresh("delay", 20.0);
+fn cue_button_sets_previews_while_held_and_returns() {
+    let (root, mut h) = fresh("cue", 20.0);
+    h.select_and_load("a-120.wav", egui::Key::A);
+    let cue = h.layout().cue[0].unwrap().center();
+    h.seek(0, 3_000.0);
+    h.click(cue);
+    assert_eq!(h.deck(0).cue_ms, 3_000.0, "set at stop");
+    assert!(!h.deck(0).playing);
+    // Hold: press, then 30 frames with the button down (0.5 s preview).
+    let ev = |pressed| egui::Event::PointerButton { pos: cue, button: egui::PointerButton::Primary, pressed, modifiers: Default::default() };
+    h.frame_with(vec![egui::Event::PointerMoved(cue), ev(true)], Default::default());
+    for _ in 0..30 {
+        h.frame_with(vec![], Default::default());
+    }
+    assert!(h.deck(0).playing && h.deck(0).previewing, "previewing while held");
+    assert!(h.deck(0).position_ms > 3_400.0, "{}", h.deck(0).position_ms);
+    h.frame_with(vec![ev(false)], Default::default());
+    h.settle();
+    assert!(!h.deck(0).playing && !h.deck(0).previewing);
+    assert_eq!(h.deck(0).position_ms, 3_000.0, "released: back to the cue point");
+    // Q held + Space: PLAY during the preview keeps playing after release.
+    let key = |key, pressed| egui::Event::Key { key, physical_key: None, pressed, repeat: false, modifiers: Default::default() };
+    h.frame_with(vec![key(egui::Key::Q, true)], Default::default());
+    h.frame_with(vec![], Default::default());
+    assert!(h.deck(0).previewing);
+    h.frame_with(vec![key(egui::Key::Space, true)], Default::default());
+    h.frame_with(vec![key(egui::Key::Space, false)], Default::default());
+    h.frame_with(vec![key(egui::Key::Q, false)], Default::default());
+    h.settle();
+    assert!(h.deck(0).playing && !h.deck(0).previewing, "PLAY latched the preview");
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+/// The playhead is the engine's sample position, not the frame clock: a
+/// long UI gap without rendered audio moves nothing; rendered audio moves
+/// it exactly; the end of the track stops it exactly.
+#[test]
+fn playhead_follows_the_engine_not_wall_clock() {
+    let (root, mut h) = fresh("clock", 20.0);
     h.select_and_load("a-120.wav", egui::Key::A);
     h.tap(egui::Key::Space);
     assert!(h.deck(0).playing);
-    // A 2 s frame gap (throttled/minimised window) advances 2 s, not a cap.
+    h.app.decks.pump();
     let start = h.deck(0).position_ms;
+    // 2 s of UI time pass in one frame, but the device rendered 1/60 s.
     h.time += 2.0;
     h.frame_with(vec![], Default::default());
+    h.app.decks.pump();
     let moved = h.deck(0).position_ms - start;
-    assert!((2_000.0..=2_040.0).contains(&moved), "2 s gap advanced {moved} ms");
-    // A large gap inside a loop wraps by the full elapsed time.
-    h.app.decks.decks[0].loop_range = Some((4_000.0, 6_000.0));
-    h.app.decks.decks[0].seek(4_000.0);
-    h.frame_with(vec![], Default::default());
+    assert!((moved - 1000.0 / 60.0).abs() < 1e-6, "one block, not the 2 s gap: {moved}");
+    // One rendered second advances exactly one second.
     let start = h.deck(0).position_ms;
-    h.time += 3.0;
-    h.frame_with(vec![], Default::default());
-    let expect = 4_000.0 + (start - 4_000.0 + 3_000.0 + 1_000.0 / 60.0) % 2_000.0;
-    let p = h.deck(0).position_ms;
-    assert!((p - expect).abs() < 1.0, "loop wrap over 3 s gap: {p} vs {expect}");
-    assert!(h.deck(0).playing);
-    // A gap past the end stops exactly at the track end.
-    h.app.decks.decks[0].loop_range = None;
-    h.app.decks.decks[0].seek(15_000.0);
-    h.frame_with(vec![], Default::default());
-    h.time += 30.0;
-    h.frame_with(vec![], Default::default());
+    let _ = h.app.decks.render(48_000);
+    h.app.decks.pump();
+    assert!((h.deck(0).position_ms - start - 1000.0).abs() < 1e-6);
+    // Rendering past the end stops exactly at the track end.
+    h.seek(0, 19_000.0);
+    let _ = h.app.decks.render(48_000 * 3);
+    h.settle();
     assert!(!h.deck(0).playing);
-    assert_eq!(h.deck(0).position_ms, h.deck(0).duration());
+    assert!((h.deck(0).position_ms - h.deck(0).duration()).abs() < 0.05, "{} vs {}", h.deck(0).position_ms, h.deck(0).duration());
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+/// Mixer volume reaches the engine only while the mixer is visible; a
+/// hidden mixer is exact unity. A decode failure is shown on its deck and
+/// leaves it inert; no device = a visible NO AUDIO status, decks still run.
+#[test]
+fn volume_unity_bypass_decode_failure_and_silent_fallback() {
+    let (root, mut h) = fresh("vol", 20.0);
+    h.select_and_load("a-120.wav", egui::Key::A);
+    // 100 ms of deck A from 4 s, as the device would receive it.
+    let block = |h: &mut Harness| {
+        let mixer = h.app.settings.sections.mixer;
+        h.app.decks.decks[0].seek(4_000.0);
+        h.app.decks.decks[0].toggle_play();
+        h.app.decks.flush(mixer);
+        let out = h.app.decks.render(4_800);
+        h.app.decks.decks[0].toggle_play();
+        h.app.decks.flush(mixer);
+        h.app.decks.render(1);
+        h.settle();
+        out
+    };
+    let unity = block(&mut h);
+    assert!(unity.iter().any(|s| s.abs() > 0.1), "deck A is audible");
+    h.app.decks.decks[0].volume.0 = 0.25;
+    h.settle();
+    assert_eq!(block(&mut h), unity, "mixer hidden: exact unity whatever the fader says");
+    h.app.settings.sections.mixer = true;
+    h.settle();
+    assert!(h.layout().volume[0].is_some() && h.layout().volume[1].is_some());
+    let quiet = block(&mut h);
+    assert!(quiet.iter().zip(&unity).all(|(q, u)| *q == u * 0.25), "volume 0.25 scales the output");
+    let out = h.settle();
+    assert_eq!(node(&out, "Deck A volume").role(), accesskit::Role::Slider);
+    h.app.settings.sections.mixer = false;
+    h.settle();
+    assert_eq!(block(&mut h), unity);
+    // Decode failure: the file vanished between import and load.
+    let path = h.app.tracks.iter().find(|t| t.track.path.ends_with("b-124.wav")).unwrap().track.path.clone();
+    std::fs::remove_file(&path).unwrap();
+    h.select_and_load("b-124.wav", egui::Key::B);
+    assert!(matches!(&h.deck(1).audio, DeckAudio::Failed(r) if r.contains("unreadable")));
+    let out = h.settle();
+    assert!(texts(&out).iter().any(|(t, _)| t.contains("cannot play: file missing or unreadable")));
+    h.app.decks.decks[1].toggle_play();
+    h.settle();
+    assert!(!h.deck(1).playing && !h.deck(1).ready());
+    assert!(h.deck(0).ready(), "deck A unaffected");
+    // No device: the silent output keeps the decks running, visibly.
+    h.app.decks.attach(oxidj_audio::Engine::silent("no audio output device"));
+    h.app.decks.decks[0].audio = DeckAudio::None;
+    h.app.selected = Some(h.id_of("a-120.wav"));
+    h.tap(egui::Key::A);
+    h.wait_audio();
+    h.tap(egui::Key::Space);
+    let start = std::time::Instant::now();
+    while h.deck(0).position_ms < 100.0 {
+        assert!(start.elapsed().as_secs() < 10, "silent clock moves the deck");
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        h.frame_with(vec![], Default::default());
+    }
+    let out = h.settle();
+    assert!(texts(&out).iter().any(|(t, _)| t == "NO AUDIO · no audio output device · decks run silently"));
     std::fs::remove_dir_all(root).unwrap();
 }
 

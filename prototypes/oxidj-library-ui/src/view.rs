@@ -55,7 +55,7 @@ impl LibraryApp {
         self.handle_theme_shortcuts(ctx);
         self.handle_panel_shortcuts(ctx);
         self.handle_deck_keys(ctx);
-        self.decks.tick(ctx.input(|i| i.time));
+        self.decks.pump();
         self.theme.apply(self.custom_tokens, ctx);
         let tokens = self.active_tokens();
         self.shell = ShellLayout::default();
@@ -135,6 +135,9 @@ impl LibraryApp {
         egui::CentralPanel::default()
             .frame(egui::Frame::central_panel(&style).inner_margin(0))
             .show(ctx, |ui| self.track_table(ui, tokens));
+        // D2: this frame's deck controls go to the audio engine; the mixer
+        // volume applies only while the mixer is visible (else unity).
+        self.decks.flush(self.show_decks && self.settings.sections.mixer);
     }
 
     /// One slim row: title, growing search field, then (right-aligned) the
@@ -364,8 +367,10 @@ impl LibraryApp {
             ui.label(muted(format!("{} tracks", self.tracks.len())));
             ui.separator();
             if self.show_decks {
-                ui.label(egui::RichText::new(crate::decks::NO_AUDIO).small().strong().color(tokens.warning))
-                    .on_hover_text("Silent transport: PLAY moves the playhead by wall clock; audio output arrives in D2");
+                let (status, ok) = self.decks.status();
+                let colour = if ok { tokens.muted_text } else { tokens.warning };
+                ui.label(egui::RichText::new(status).small().strong().color(colour))
+                    .on_hover_text("Deck audio output (D2): both decks mixed at unity; without a device the decks keep running silently");
                 ui.separator();
             }
             ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {

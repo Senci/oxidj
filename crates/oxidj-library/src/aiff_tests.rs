@@ -4,7 +4,9 @@
 //! the generator's integer values (never by re-decoding), and every refusal is a
 //! named test asserting the exact error kind and that the sink saw nothing.
 
-use crate::pcm::{MONO_CHUNK_FRAMES, MonoSink, PcmError, PcmFormat, decode_mono};
+use crate::pcm::{
+    MONO_CHUNK_FRAMES, MonoSink, PcmError, PcmFormat, StereoSink, decode_mono, decode_stereo,
+};
 use std::path::{Path, PathBuf};
 
 #[derive(Default)]
@@ -179,6 +181,45 @@ fn aiff_8_16_24_32_bit_mono_and_stereo_decode_exactly() {
             let path = scratch("ramp.aiff", &aiff(channels, frames, bits, 44_100));
             let want = expected(frames as usize, channels as usize, u32::from(bits));
             assert_decodes(&path, 44_100, channels, &want);
+        }
+    }
+}
+
+/// D2 playback path: AIFF through `decode_stereo` keeps each channel exact
+/// (mono feeds both sides).
+#[test]
+fn aiff_stereo_decode_keeps_channels_exact() {
+    #[derive(Default)]
+    struct Pairs(Vec<f32>);
+    impl StereoSink for Pairs {
+        type Error = ();
+        fn begin(&mut self, _: PcmFormat) -> Result<(), ()> {
+            Ok(())
+        }
+        fn push(&mut self, stereo: &[f32]) -> Result<(), ()> {
+            self.0.extend_from_slice(stereo);
+            Ok(())
+        }
+    }
+    for bits in [16_u16, 24] {
+        for channels in [1_u16, 2] {
+            let frames = 300_usize;
+            let path = scratch("lr.aiff", &aiff(channels, frames as u32, bits, 44_100));
+            let mut sink = Pairs::default();
+            decode_stereo(&path, &mut sink).unwrap();
+            let scale = 2_f64.powi(i32::from(bits) - 1);
+            let want: Vec<f32> = (0..frames)
+                .flat_map(|f| {
+                    let l = generated(f, 0, u32::from(bits)) as f64 / scale;
+                    let r = if channels == 1 {
+                        l
+                    } else {
+                        generated(f, 1, u32::from(bits)) as f64 / scale
+                    };
+                    [l as f32, r as f32]
+                })
+                .collect();
+            assert_eq!(sink.0, want, "{bits} bit, {channels} ch");
         }
     }
 }

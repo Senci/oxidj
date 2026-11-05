@@ -1,12 +1,16 @@
 //! Streaming PCM decode (W2): the catalog's supported WAV / FLAC / MP3 decoders
 //! (`hound` / `claxon` / `nanomp3`) and the hand-rolled AIFF / AIFF-C parser
-//! ([`crate::aiff`], A1) feeding **mono** `f32` chunks to a caller sink.
+//! ([`crate::aiff`], A1) feeding **mono** `f32` chunks ([`decode_mono`], for
+//! analysis) or interleaved **stereo** chunks ([`decode_stereo`], M8/D2 deck
+//! playback) to a caller sink.
 //!
 //! Nothing is buffered beyond one chunk of [`MONO_CHUNK_FRAMES`] frames, source
 //! files are only opened for reading, and the supported matrix is the importer's
 //! (integer PCM 8/16/24/32 and float32 WAV; FLAC; MPEG layer III; AIFF and
 //! AIFF-C `NONE`/`sowt`/`fl32`/`fl64` at 8/16/24/32 bits). Channels are
-//! mixed down by their arithmetic mean; integer samples are scaled by
+//! mixed down by their arithmetic mean (mono) or mapped to left/right (stereo:
+//! a mono source feeds both sides, channels beyond the second are dropped);
+//! integer samples are scaled by
 //! `1 / 2^(bits - 1)`. Reservoir-dependent leading MP3 frames, whose PCM cannot
 //! be reconstructed, are emitted as silence so frame counts match the importer.
 
@@ -56,33 +60,110 @@ pub trait MonoSink {
     fn push(&mut self, mono: &[f32]) -> Result<(), Self::Error>;
 }
 
-/// Mixes interleaved frames into a bounded mono chunk and flushes it to the sink.
+/// Receiver of decoded interleaved stereo samples (`L R L R …`).
+pub trait StereoSink {
+    type Error;
+    /// Called once, before the first [`push`](Self::push); `format` is the
+    /// source's (its `channels` may be 1 or more than 2).
+    fn begin(&mut self, format: PcmFormat) -> Result<(), Self::Error>;
+    /// Next chunk of interleaved stereo samples (never empty, even length).
+    fn push(&mut self, stereo: &[f32]) -> Result<(), Self::Error>;
+}
+
+/// A sink as the decoders see it: mono mean or stereo left/right output.
+trait Out {
+    type Error;
+    const STEREO: bool;
+    fn begin(&mut self, format: PcmFormat) -> Result<(), Self::Error>;
+    fn push(&mut self, chunk: &[f32]) -> Result<(), Self::Error>;
+}
+
+struct MonoOut<'a, S>(&'a mut S);
+struct StereoOut<'a, S>(&'a mut S);
+
+impl<S: MonoSink> Out for MonoOut<'_, S> {
+    type Error = S::Error;
+    const STEREO: bool = false;
+    fn begin(&mut self, format: PcmFormat) -> Result<(), S::Error> {
+        self.0.begin(format)
+    }
+    fn push(&mut self, chunk: &[f32]) -> Result<(), S::Error> {
+        self.0.push(chunk)
+    }
+}
+
+impl<S: StereoSink> Out for StereoOut<'_, S> {
+    type Error = S::Error;
+    const STEREO: bool = true;
+    fn begin(&mut self, format: PcmFormat) -> Result<(), S::Error> {
+        self.0.begin(format)
+    }
+    fn push(&mut self, chunk: &[f32]) -> Result<(), S::Error> {
+        self.0.push(chunk)
+    }
+}
+
+/// Collects one frame's channel samples (in channel order) and emits it as
+/// a mono mean or a stereo pair into a bounded chunk flushed to the sink.
 struct Mixer {
     channels: u16,
     chunk: Vec<f32>,
+    /// Samples per flushed chunk.
+    limit: usize,
     frames: u64,
+    channel: u16,
+    sum: f64,
+    left: f64,
+    right: f64,
 }
 
 impl Mixer {
-    fn new<S: MonoSink>(sink: &mut S, format: PcmFormat) -> Result<Self, PcmError<S::Error>> {
+    fn new<S: Out>(sink: &mut S, format: PcmFormat) -> Result<Self, PcmError<S::Error>> {
         sink.begin(format).map_err(PcmError::Sink)?;
         Ok(Self {
             channels: format.channels,
-            chunk: Vec::with_capacity(MONO_CHUNK_FRAMES),
+            chunk: Vec::with_capacity(MONO_CHUNK_FRAMES * if S::STEREO { 2 } else { 1 }),
+            limit: MONO_CHUNK_FRAMES * if S::STEREO { 2 } else { 1 },
             frames: 0,
+            channel: 0,
+            sum: 0.0,
+            left: 0.0,
+            right: 0.0,
         })
     }
 
-    fn frame<S: MonoSink>(&mut self, sink: &mut S, sum: f64) -> Result<(), PcmError<S::Error>> {
-        self.chunk.push((sum / f64::from(self.channels)) as f32);
+    /// Next sample of the current frame; the frame ends after `channels`.
+    fn sample<S: Out>(&mut self, sink: &mut S, value: f64) -> Result<(), PcmError<S::Error>> {
+        self.sum += value;
+        match self.channel {
+            0 => self.left = value,
+            1 => self.right = value,
+            _ => {}
+        }
+        self.channel += 1;
+        if self.channel < self.channels {
+            return Ok(());
+        }
+        if S::STEREO {
+            let right = if self.channels == 1 {
+                self.left
+            } else {
+                self.right
+            };
+            self.chunk.extend([self.left as f32, right as f32]);
+        } else {
+            self.chunk
+                .push((self.sum / f64::from(self.channels)) as f32);
+        }
+        (self.channel, self.sum) = (0, 0.0);
         self.frames += 1;
-        if self.chunk.len() == MONO_CHUNK_FRAMES {
+        if self.chunk.len() == self.limit {
             self.flush(sink)?;
         }
         Ok(())
     }
 
-    fn flush<S: MonoSink>(&mut self, sink: &mut S) -> Result<(), PcmError<S::Error>> {
+    fn flush<S: Out>(&mut self, sink: &mut S) -> Result<(), PcmError<S::Error>> {
         if !self.chunk.is_empty() {
             sink.push(&self.chunk).map_err(PcmError::Sink)?;
             self.chunk.clear();
@@ -100,6 +181,19 @@ pub fn decode_mono<S: MonoSink>(
     path: &Path,
     sink: &mut S,
 ) -> Result<PcmFormat, PcmError<S::Error>> {
+    decode(path, &mut MonoOut(sink))
+}
+
+/// [`decode_mono`]'s twin for playback: the same formats and refusals, but
+/// interleaved stereo chunks of at most [`MONO_CHUNK_FRAMES`] frames.
+pub fn decode_stereo<S: StereoSink>(
+    path: &Path,
+    sink: &mut S,
+) -> Result<PcmFormat, PcmError<S::Error>> {
+    decode(path, &mut StereoOut(sink))
+}
+
+fn decode<S: Out>(path: &Path, sink: &mut S) -> Result<PcmFormat, PcmError<S::Error>> {
     let extension = path
         .extension()
         .and_then(|ext| ext.to_str())
@@ -131,12 +225,14 @@ pub fn decode_mono<S: MonoSink>(
                 match pcm {
                     crate::Mp3Pcm::Interleaved(samples) => {
                         for frame in samples.chunks_exact(usize::from(channels)) {
-                            mixer.frame(sink, frame.iter().map(|&s| f64::from(s)).sum())?;
+                            for &s in frame {
+                                mixer.sample(sink, f64::from(s))?;
+                            }
                         }
                     }
                     crate::Mp3Pcm::Silence(count) => {
-                        for _ in 0..count {
-                            mixer.frame(sink, 0.0)?;
+                        for _ in 0..count * usize::from(channels) {
+                            mixer.sample(sink, 0.0)?;
                         }
                     }
                 }
@@ -164,7 +260,7 @@ fn has_aiff_magic(path: &Path) -> bool {
         && crate::aiff::is_aiff_magic(&header)
 }
 
-fn decode_aiff<S: MonoSink>(path: &Path, sink: &mut S) -> Result<PcmFormat, PcmError<S::Error>> {
+fn decode_aiff<S: Out>(path: &Path, sink: &mut S) -> Result<PcmFormat, PcmError<S::Error>> {
     use std::io::{Read, Seek, SeekFrom};
     let mut file = std::fs::File::open(path).map_err(|_| PcmError::Unreadable)?;
     let len = file.metadata().map_err(|_| PcmError::Unreadable)?.len();
@@ -181,22 +277,20 @@ fn decode_aiff<S: MonoSink>(path: &Path, sink: &mut S) -> Result<PcmFormat, PcmE
     let mut bytes = [0_u8; 8];
     let mut mixer = Mixer::new(sink, format)?;
     for _ in 0..layout.frames {
-        let mut sum = 0.0;
         for _ in 0..layout.channels {
             // `parse` proved the data is present; a short read means the file
             // changed underneath us.
             reader
                 .read_exact(&mut bytes[..width])
                 .map_err(|_| PcmError::Unreadable)?;
-            sum += layout.sample(&bytes[..width]);
+            mixer.sample(sink, layout.sample(&bytes[..width]))?;
         }
-        mixer.frame(sink, sum)?;
     }
     mixer.flush(sink)?;
     Ok(format)
 }
 
-fn decode_wav<S: MonoSink>(path: &Path, sink: &mut S) -> Result<PcmFormat, PcmError<S::Error>> {
+fn decode_wav<S: Out>(path: &Path, sink: &mut S) -> Result<PcmFormat, PcmError<S::Error>> {
     let (padding, supported) = wav_container_padding_offsets(path).ok_or(PcmError::Malformed)?;
     if !supported {
         return Err(PcmError::Unsupported);
@@ -215,17 +309,10 @@ fn decode_wav<S: MonoSink>(path: &Path, sink: &mut S) -> Result<PcmFormat, PcmEr
         frames: Some(total / u64::from(spec.channels)),
     };
     let mut mixer = Mixer::new(sink, format)?;
-    let (mut sum, mut channel, mut seen) = (0.0_f64, 0_u16, 0_u64);
+    let mut seen = 0_u64;
     let mut add = |value: f64, mixer: &mut Mixer, sink: &mut S| -> Result<(), PcmError<S::Error>> {
-        sum += value;
-        channel += 1;
         seen += 1;
-        if channel == spec.channels {
-            mixer.frame(sink, sum)?;
-            sum = 0.0;
-            channel = 0;
-        }
-        Ok(())
+        mixer.sample(sink, value)
     };
     if spec.sample_format == hound::SampleFormat::Float {
         for sample in reader.samples::<f32>() {
@@ -252,7 +339,7 @@ fn decode_wav<S: MonoSink>(path: &Path, sink: &mut S) -> Result<PcmFormat, PcmEr
     Ok(format)
 }
 
-fn decode_flac<S: MonoSink>(path: &Path, sink: &mut S) -> Result<PcmFormat, PcmError<S::Error>> {
+fn decode_flac<S: Out>(path: &Path, sink: &mut S) -> Result<PcmFormat, PcmError<S::Error>> {
     let file = std::fs::File::open(path).map_err(|_| PcmError::Unreadable)?;
     let mut reader = claxon::FlacReader::new_ext(
         file,
@@ -291,10 +378,9 @@ fn decode_flac<S: MonoSink>(path: &Path, sink: &mut S) -> Result<PcmFormat, PcmE
             return Err(PcmError::Malformed);
         }
         for index in 0..block.duration() {
-            let sum: f64 = (0..block.channels())
-                .map(|ch| f64::from(block.sample(ch, index)) / scale)
-                .sum();
-            mixer.frame(sink, sum)?;
+            for ch in 0..block.channels() {
+                mixer.sample(sink, f64::from(block.sample(ch, index)) / scale)?;
+            }
         }
         buffer = block.into_buffer();
     }
@@ -375,6 +461,109 @@ mod tests {
             assert_eq!(s, expected);
         }
         assert_eq!(std::fs::read(&path).unwrap(), before);
+    }
+
+    #[derive(Default)]
+    struct Stereo {
+        format: Option<PcmFormat>,
+        samples: Vec<f32>,
+        max_chunk: usize,
+    }
+
+    impl StereoSink for Stereo {
+        type Error = ();
+        fn begin(&mut self, format: PcmFormat) -> Result<(), ()> {
+            assert!(self.format.replace(format).is_none(), "begin called twice");
+            Ok(())
+        }
+        fn push(&mut self, stereo: &[f32]) -> Result<(), ()> {
+            assert!(self.format.is_some() && !stereo.is_empty() && stereo.len().is_multiple_of(2));
+            self.max_chunk = self.max_chunk.max(stereo.len());
+            self.samples.extend_from_slice(stereo);
+            Ok(())
+        }
+    }
+
+    fn wav(
+        name: &str,
+        channels: u16,
+        frames: usize,
+        value: impl Fn(usize, u16) -> i16,
+    ) -> std::path::PathBuf {
+        let path = scratch(name);
+        let spec = hound::WavSpec {
+            channels,
+            sample_rate: 44_100,
+            bits_per_sample: 16,
+            sample_format: hound::SampleFormat::Int,
+        };
+        let mut writer = hound::WavWriter::create(&path, spec).unwrap();
+        for i in 0..frames {
+            for ch in 0..channels {
+                writer.write_sample(value(i, ch)).unwrap();
+            }
+        }
+        writer.finalize().unwrap();
+        path
+    }
+
+    #[test]
+    fn stereo_decode_keeps_left_and_right_in_bounded_chunks() {
+        let frames = MONO_CHUNK_FRAMES * 2 + 5;
+        let path = wav("lr.wav", 2, frames, |i, ch| {
+            let v = (i % 1000) as i16 * 10;
+            if ch == 0 { v } else { -v - 1 }
+        });
+        let mut sink = Stereo::default();
+        let format = decode_stereo(&path, &mut sink).unwrap();
+        assert_eq!((format.channels, format.frames), (2, Some(frames as u64)));
+        assert_eq!(sink.samples.len(), frames * 2);
+        assert_eq!(sink.max_chunk, MONO_CHUNK_FRAMES * 2);
+        for i in 0..frames {
+            let v = (i % 1000) as f32 * 10.0;
+            assert_eq!(sink.samples[2 * i], v / 32_768.0);
+            assert_eq!(sink.samples[2 * i + 1], (-v - 1.0) / 32_768.0);
+        }
+    }
+
+    #[test]
+    fn stereo_decode_feeds_a_mono_source_to_both_sides() {
+        let mono = wav("mono.wav", 1, 100, |i, _| i as i16 * 7);
+        let mut sink = Stereo::default();
+        decode_stereo(&mono, &mut sink).unwrap();
+        assert_eq!(sink.samples.len(), 200);
+        for i in 0..100 {
+            let v = (i * 7) as f32 / 32_768.0;
+            assert_eq!((sink.samples[2 * i], sink.samples[2 * i + 1]), (v, v));
+        }
+    }
+
+    #[test]
+    fn stereo_decode_matches_mono_frame_counts_for_flac_and_mp3() {
+        for (name, bytes) in [
+            (
+                "tone.flac",
+                &include_bytes!("../tests/fixtures/tone.flac")[..],
+            ),
+            (
+                "tone-stereo.mp3",
+                &include_bytes!("../tests/fixtures/tone-stereo.mp3")[..],
+            ),
+        ] {
+            let path = scratch(name);
+            std::fs::write(&path, bytes).unwrap();
+            let mut mono = Collect::default();
+            let mut stereo = Stereo::default();
+            assert_eq!(
+                decode_mono(&path, &mut mono),
+                decode_stereo(&path, &mut stereo)
+            );
+            assert_eq!(stereo.samples.len(), mono.samples.len() * 2, "{name}");
+            for (i, m) in mono.samples.iter().enumerate() {
+                let (l, r) = (stereo.samples[2 * i], stereo.samples[2 * i + 1]);
+                assert!(((l + r) / 2.0 - m).abs() < 1e-6, "{name} frame {i}");
+            }
+        }
     }
 
     #[test]

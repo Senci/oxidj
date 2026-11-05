@@ -49,7 +49,7 @@ Future layers (M1+), each depending only on core:
   oxidj-ui       — egui/Slint GUI (M3, see ADR-001)
 
 Future engine (M4+, depends only on core):
-  oxidj-engine  — CPAL I/O + RT-safe DSP (NOT in M0)
+  oxidj-audio   — realtime deck engine: CPAL I/O + lock-free commands (M8/D2)
 ```
 
 **M0 scaffolding scope:** only `oxidj-core` and `oxidj-cli`. No adapter, storage, analysis, audio, UI, or engine crates.
@@ -104,7 +104,7 @@ flowchart LR
         analysis["oxidj-analysis<br/>BPM, beatgrid, waveform"]
     end
     subgraph realtime["M4+ · deferred realtime engine"]
-        engine["oxidj-engine<br/>CPAL I/O and RT-safe DSP"]
+        engine["oxidj-audio<br/>realtime engine: CPAL I/O (M8/D2)"]
     end
     audio --> core["oxidj-core<br/>neutral domain types"]
     analysis --> core

@@ -40,7 +40,8 @@ flowchart TB
     analysis["oxidj-analysis<br/>layer 1; waveform peaks (W1), tempo/beat grid (B2)"] --> core
     analysis --> taktus["taktus =0.1.0<br/>Apache-2.0, zero deps; tempo/beat only"]
     audio["WAV/FLAC/MP3 decode in oxidj-library<br/>M2 import only"] --> library
-    engine["oxidj-engine<br/>M4+ deferred"] -. "depends only on" .-> core
+    engine["oxidj-audio (realtime engine, D2)<br/>layer 1; no internal edge"] --> cpal["cpal =0.18.2 + rtrb =0.4.1<br/>device I/O, lock-free ring"]
+    ui -. "plays decoded PCM through" .-> engine
 ```
 
 **Offline analysis (W1 amendment):** `oxidj-analysis` exists at layer 1. Its only internal dependency edge is `oxidj-core`. It consumes already-decoded mono samples (decoding stays in `oxidj-library`) and produces the neutral `oxidj_core::waveform::WaveformPeaks`; `cargo xtask layers` rejects any other dependency of the crate except the explicitly admitted external crates below. Key analysis remains unimplemented.
@@ -50,6 +51,8 @@ flowchart TB
 **Waveform persistence (W2 amendment):** `oxidj-application` composes the library's streaming mono decode (`oxidj_library::pcm`) with `oxidj-analysis` chunk by chunk and stores the result through `oxidj-library` (`track_waveforms`, keyed by catalog track ID). The library still depends on no adapter and not on `oxidj-analysis`. Vendor waveforms decoded by `oxidj-rekordbox` (ANLZ `PWV3`/`PWV5`) are mapped by the application into the library's neutral `VendorWaveform` and stored in the separate `library_vendor_waveforms` table; they are never mixed into computed peaks.
 
 The **realtime engine** (`oxidj-engine`: CPAL + dasp/fundsp/rubato) is a separate crate with strictly one dependency edge — `oxidj-core` — and is **not created in M0**. It enters only at M4.
+
+**Realtime engine (M8/D2 amendment, 2026-11-05):** the engine crate is named `oxidj-audio` (resolving the open `oxidj-engine`/`oxidj-rt` naming question) and sits at layer 1 with **no internal dependency at all** — stricter than the single `oxidj-core` edge sketched above, because D2 needs no domain type: it plays decoded stereo PCM handed over by its caller. Its only dependencies are the admitted, exactly pinned `cpal =0.18.2` (device I/O, ADR-008; default features off, so the ALSA backend on Linux — PipeWire via its ALSA plugin) and `rtrb =0.4.1` (MIT/Apache-2.0 lock-free SPSC ring; defaults off). `cargo xtask layers` rejects any other dependency of the crate, any dev/build dependency, and any path edge to it from below layer 3; `cpal` stays denied in every other crate. File decoding stays in `oxidj-library` (`pcm::decode_stereo`, the same decoder matrix as import and analysis); the UI prototype decodes off the UI thread and passes the PCM to the engine. Resampling (44.1 ↔ 48 kHz) is linear interpolation inside the engine, so no DSP crate (dasp/fundsp/rubato) is admitted. ADR-008's D2 addendum records the measured qualification evidence.
 
 The **M2 decoder exception** is deliberately narrow: `oxidj-library` may use the following as normal dependencies, with no feature additions beyond the stated defaults:
 
