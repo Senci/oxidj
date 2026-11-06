@@ -2,6 +2,7 @@
 Senad Licina <senad@licina.eu>
 
 # Historical identities -> canonical (merge into you).
-# git uses "canonical name+email FIRST, legacy identity SECOND", no "=" sign.
-Viper <viper@users.noreply.github.com> Senad Licina <senad@licina.eu>
-Senad <senci@users.noreply.github.com> Senad Licina <senad@licina.eu>
+# git map entries are written canonical-first:
+#   <canonical-name> <canonical-email> <legacy-name> <legacy-email>
+Senad Licina <senad@licina.eu> Viper <viper@users.noreply.github.com>
+Senad Licina <senad@licina.eu> Senad <senci@users.noreply.github.com>
