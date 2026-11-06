@@ -1,6 +1,7 @@
 # Canonical identity for this repository
 Senad Licina <senad@licina.eu>
 
-# Historical identities → canonical (merge into you)
-Viper <viper@users.noreply.github.com> = Senad Licina <senad@licina.eu>
-Senad <senci@users.noreply.github.com> = Senad Licina <senad@licina.eu>
+# Historical identities -> canonical (merge into you).
+# git uses "canonical name+email FIRST, legacy identity SECOND", no "=" sign.
+Viper <viper@users.noreply.github.com> Senad Licina <senad@licina.eu>
+Senad <senci@users.noreply.github.com> Senad Licina <senad@licina.eu>
