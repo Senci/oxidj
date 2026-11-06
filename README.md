@@ -30,6 +30,20 @@ M0 is verified complete. The named `local-catalog-alpha-v1` dependency exception
 
 `scripts/install-local.sh` builds a release and installs, for the current user only, `oxidj-cli`, `oxidj-library-ui`, an `oxidj-library` launcher (opens the library at `~/.local/share/oxidj/library.sqlite`, or `$OXIDJ_DB`; created when missing), a desktop entry and an icon under `~/.local`. Re-run it after any change; it never touches library data. Import music with `oxidj-cli catalog import --dir <folder> --db ~/.local/share/oxidj/library.sqlite`. Provisional prototype: see [Status](#status) for maturity.
 
+## Seed a library from a Rekordbox USB stick
+
+Local, read-only on the stick; counts and files stay on your machine. Order matters (the UI lists tracks from the audio import step):
+
+1. `oxidj-cli catalog import-library --pdb <stick>/PIONEER/rekordbox/export.pdb --catalog new.sqlite` (library tracks, playlists, beat grids, cues, vendor waveforms), then move it to `~/.local/share/oxidj/library.sqlite` (keep the old file).
+2. `oxidj-cli catalog import --dir <copy of the stick's Contents> --db ~/.local/share/oxidj/library.sqlite` (audio files; library paths are device-relative, matched by `/Contents/` suffix).
+3. `oxidj-cli catalog analyze-waveform --db …` then `analyze-tempo --db …` (about 1.5 h for ~1,300 tracks; AIFF, MP3, WAV, FLAC decode in-house). A Rekordbox grid always wins over a computed one.
+
+Do not open the UI on a catalog while an analysis job writes to it. `catalog create-library-playlist` (IDs from `catalog list-library-tracks`) and `export-library-xml --computed-grids` are described under the export section.
+
+## Keys (library UI)
+
+`Ctrl+,` Settings · `Ctrl+B` / `Ctrl+I` / `Ctrl+D` navigation / details / deck area · `A` / `B` load the selected track to deck A / B · `Space` play/pause (active deck) · `Q` / `P` cue deck A / B · `1`–`8` hot cues · `Tab` switch active deck. Every deck-area section (detail waveform, overviews, control strip, mixer) collapses with its small icon; the mixer is hidden by default and bypassed bit-exactly while hidden. The Omarchy launcher entry is a user-side setup: `~/.config/omarchy/extensions/omarchy-menu.jsonc`, key `oxidj`, action `uwsm-app -- oxidj-library`.
+
 ## Export a USB library for Rekordbox on Windows
 
 ```sh
