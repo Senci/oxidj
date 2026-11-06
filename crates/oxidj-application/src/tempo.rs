@@ -15,6 +15,7 @@
 use std::convert::Infallible;
 use std::path::Path;
 
+use oxidj_analysis::key::{Key, KeyBuilder};
 use oxidj_analysis::tempo::{BpmRange, TEMPO_ALGORITHM, TempoBuilder, TempoError, TempoOptions};
 use oxidj_core::TrackId;
 use oxidj_core::tempo::TempoGrid;
@@ -81,6 +82,8 @@ pub enum TempoOutcome {
 #[derive(Clone, Debug, PartialEq, Eq, Default)]
 pub struct TempoReport {
     pub outcomes: Vec<(TrackId, Result<TempoOutcome, TempoAnalysisError>)>,
+    /// Computed key suggestions; `None` means the audio provided no confident key.
+    pub keys: Vec<(TrackId, Result<Option<Key>, TempoAnalysisError>)>,
 }
 
 impl TempoReport {
@@ -170,6 +173,40 @@ pub fn analyze_tempo_file(
     }))
 }
 
+struct KeySink {
+    builder: Option<KeyBuilder>,
+}
+
+impl MonoSink for KeySink {
+    type Error = Infallible;
+    fn begin(&mut self, format: PcmFormat) -> Result<(), Infallible> {
+        self.builder = Some(KeyBuilder::new(format.sample_rate));
+        Ok(())
+    }
+    fn push(&mut self, mono: &[f32]) -> Result<(), Infallible> {
+        if let Some(builder) = self.builder.as_mut() {
+            builder.push(mono);
+        }
+        Ok(())
+    }
+}
+
+/// Compute a key suggestion from one local audio file. `None` is a deliberate
+/// no-result for short, silent, unsupported-rate, or ambiguous material.
+pub fn analyze_key_file(path: &Path) -> Result<Option<Key>, TempoAnalysisError> {
+    let mut sink = KeySink { builder: None };
+    decode_mono(path, &mut sink).map_err(|error| match error {
+        PcmError::Unreadable => TempoAnalysisError::SourceUnreadable,
+        PcmError::Unsupported => TempoAnalysisError::UnsupportedAudio,
+        PcmError::Malformed => TempoAnalysisError::MalformedAudio,
+        PcmError::Sink(never) => match never {},
+    })?;
+    Ok(sink
+        .builder
+        .ok_or(TempoAnalysisError::MalformedAudio)?
+        .finish())
+}
+
 fn source_digest(path: &Path) -> Result<[u8; 32], TempoAnalysisError> {
     oxidj_library::file_sha256(path)
         .map(|(digest, _)| digest)
@@ -255,11 +292,30 @@ pub fn analyze_catalog_tempo(
             .map(|t| t.id)
             .collect(),
     };
+    let keys = ids
+        .iter()
+        .map(|id| {
+            let result = catalog
+                .read_track(*id)
+                .map_err(catalog_error)
+                .and_then(|track| {
+                    let track = track.ok_or(TempoAnalysisError::UnknownTrack)?;
+                    let path = Path::new(&track.path);
+                    let before = source_digest(path)?;
+                    let key = analyze_key_file(path)?;
+                    if source_digest(path)? != before {
+                        return Err(TempoAnalysisError::SourceChanged);
+                    }
+                    Ok(key)
+                });
+            (*id, result)
+        })
+        .collect();
     let outcomes = ids
         .into_iter()
         .map(|id| (id, analyze_track_tempo(&mut catalog, id, range)))
         .collect();
-    Ok(TempoReport { outcomes })
+    Ok(TempoReport { outcomes, keys })
 }
 
 #[cfg(test)]

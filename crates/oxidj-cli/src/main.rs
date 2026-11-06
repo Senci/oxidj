@@ -1861,6 +1861,13 @@ fn run_analyze_tempo(args: &[String]) -> i32 {
                     Err(error) => println!("Failed\t{id}\t{error}"),
                 }
             }
+            for (id, key) in &report.keys {
+                match key {
+                    Ok(Some(key)) => println!("Key\t{id}\t{key:?}"),
+                    Ok(None) => println!("NoKey\t{id}"),
+                    Err(error) => println!("KeyFailed\t{id}\t{error}"),
+                }
+            }
             println!("Analyzed: {}", report.analyzed());
             println!("Unchanged: {}", report.unchanged());
             println!("NoGrid: {}", report.no_grid());

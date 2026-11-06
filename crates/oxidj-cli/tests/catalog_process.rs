@@ -680,6 +680,7 @@ fn analyze_tempo_command_stores_grids_and_keeps_vendor_data_untouched() {
                     tempo_hundredths_bpm: 12_345,
                     location: location.clone(),
                     beat_grid: vendor_beats.clone(),
+                    key: Some("malformed-key-token".into()),
                     vendor_waveforms: vendor_waveform.clone(),
                     ..LibraryTrack::default()
                 }],
@@ -706,6 +707,7 @@ fn analyze_tempo_command_stores_grids_and_keeps_vendor_data_untouched() {
     assert_eq!(
         stdout(&first),
         "Analyzed\t1\nNoGrid\t2\nFailed\t3\tcorrupt or truncated audio\n\
+         Key\t1\tMinor(0)\nNoKey\t2\nKeyFailed\t3\tcorrupt or truncated audio\n\
          Analyzed: 1\nUnchanged: 0\nNoGrid: 1\nFailed: 1\n"
     );
     let catalog = Catalog::open(&database).unwrap();
@@ -728,13 +730,13 @@ fn analyze_tempo_command_stores_grids_and_keeps_vendor_data_untouched() {
     assert_eq!(again.status.code(), Some(0));
     assert_eq!(
         stdout(&again),
-        "Unchanged\t1\nAnalyzed: 0\nUnchanged: 1\nNoGrid: 0\nFailed: 0\n"
+        "Unchanged\t1\nKey\t1\tMinor(0)\nAnalyzed: 0\nUnchanged: 1\nNoGrid: 0\nFailed: 0\n"
     );
     let silent = run(&["catalog", "analyze-tempo", "--db", db, "--track-id", "2"]);
     assert_eq!(silent.status.code(), Some(0), "NoGrid is not a failure");
     assert_eq!(
         stdout(&silent),
-        "NoGrid\t2\nAnalyzed: 0\nUnchanged: 0\nNoGrid: 1\nFailed: 0\n"
+        "NoGrid\t2\nNoKey\t2\nAnalyzed: 0\nUnchanged: 0\nNoGrid: 1\nFailed: 0\n"
     );
     let sources_after: Vec<Vec<u8>> = ["a-click.wav", "b-silence.wav", "c-corrupt.wav"]
         .iter()
@@ -757,7 +759,7 @@ fn analyze_tempo_command_stores_grids_and_keeps_vendor_data_untouched() {
     assert_eq!(changed.status.code(), Some(0), "{:?}", changed.stderr);
     assert_eq!(
         stdout(&changed),
-        "Analyzed\t1\nAnalyzed: 1\nUnchanged: 0\nNoGrid: 0\nFailed: 0\n"
+        "Analyzed\t1\nKey\t1\tMinor(0)\nAnalyzed: 1\nUnchanged: 0\nNoGrid: 0\nFailed: 0\n"
     );
     let catalog = Catalog::open(&database).unwrap();
     let stored = catalog.computed_beat_grid(id(1)).unwrap().unwrap();
