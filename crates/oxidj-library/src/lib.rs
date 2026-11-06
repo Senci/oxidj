@@ -336,6 +336,17 @@ impl Catalog {
         result
     }
 
+    /// Open an existing current-schema catalog without creating or migrating it.
+    pub fn open_read_only(path: impl AsRef<Path>) -> Result<Self, CatalogError> {
+        let connection =
+            Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+        let version: i64 = connection.pragma_query_value(None, "user_version", |row| row.get(0))?;
+        if version != SCHEMA_VERSION {
+            return Err(CatalogError::UnsupportedSchema(version));
+        }
+        Ok(Self { connection })
+    }
+
     /// Open or create a catalog, applying known migrations without resetting data.
     pub fn open(path: impl AsRef<Path>) -> Result<Self, CatalogError> {
         let mut connection = Connection::open(path)?;

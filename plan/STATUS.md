@@ -34,6 +34,21 @@ Condensed 2026-11-02. Full prior text (per-increment evidence, M0-09 verificatio
 
 `t_20e6f34b`: `catalog create-library-playlist --catalog DB --name NAME --track-ids 3,1,3` independently reviewed and approved through `0bbdc96`; installed from that commit. Appends one root playlist atomically using exported XML TrackIDs (imported position + 1, not audio/PDB IDs), preserves ordered duplicate memberships, and refuses invalid arguments or a same-name root node without logical change. The library owns the transaction; application validates/composes; CLI has no SQL. Synthetic CLI regression independently decodes fresh-process exports and compares baseline plus exactly one final playlist, including metadata/grids/cues/tree/order; source PDB/ANLZ bytes and no-clobber behavior are checked. Focused storage tests cover reopen, original node identity and injected mid-write rollback. No owner catalog/private data or hardware used. Rekordbox acceptance of this new operation, ADR-005/A3, hardware, accessibility/platform and scale remain unverified; M7 is not closed. Usage/ID selection: README.
 
+## M7 catalog track selection (pending review)
+
+`t_05b2713d`: `catalog list-library-tracks --catalog DB` lists exported XML TrackIDs,
+titles and optional artists in imported order, with reversible escaped TSV.
+This is an explicit personal-metadata display: local viewing only, never task logs
+or transmission. Existing current-schema catalogs are opened read-only without
+migration; missing paths are refused and an empty library is labelled. Synthetic
+CLI tests compare actual listing to independently decoded actual XML, create a
+playlist using listed IDs, reopen/export and verify ordered duplicate membership,
+source bytes, catalog snapshots and existing XML preservation; missing/empty and
+escaped metadata (including missing versus empty artists) are covered. No personal
+catalog was opened. Review and post-approval install remain pending; no push.
+M7 remains open: ADR-005/A3, vendor/hardware, accessibility/platform and scale
+qualification are NOT DEMONSTRATED by this synthetic workflow.
+
 ## M4 workstreams
 
 | Workstream | Evidence (details in history file) | Status / next gate |

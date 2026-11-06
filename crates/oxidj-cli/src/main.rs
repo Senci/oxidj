@@ -1624,6 +1624,9 @@ fn run_catalog(args: &[String]) -> i32 {
     if action == "create-library-playlist" {
         return run_create_library_playlist(&args[1..]);
     }
+    if action == "list-library-tracks" {
+        return run_list_library_tracks(&args[1..]);
+    }
     if action == "export-library-xml" {
         return run_export_library_xml(&args[1..]);
     }
@@ -1990,6 +1993,43 @@ fn run_create_library_playlist(args: &[String]) -> i32 {
     }
 }
 
+/// Reversible TSV: escape backslash first; missing artist is the reserved `\N`.
+fn escape_track_field(value: &str) -> String {
+    value
+        .replace('\\', "\\\\")
+        .replace('\t', "\\t")
+        .replace('\n', "\\n")
+        .replace('\r', "\\r")
+}
+
+fn run_list_library_tracks(args: &[String]) -> i32 {
+    const EXPECTED: &str = "error: expected catalog list-library-tracks --catalog DB";
+    if args.len() != 2 || args[0] != "--catalog" {
+        eprintln!("{EXPECTED}");
+        return USAGE;
+    }
+    match oxidj_application::list_library_tracks(&args[1]) {
+        Ok(tracks) => {
+            println!("ExportedTrackID\tTitle\tArtist");
+            if tracks.is_empty() {
+                println!("(no imported tracks)");
+            }
+            for (id, title, artist) in tracks {
+                let artist = artist
+                    .as_deref()
+                    .map(escape_track_field)
+                    .unwrap_or_else(|| "\\N".into());
+                println!("{id}\t{}\t{artist}", escape_track_field(&title));
+            }
+            OK
+        }
+        Err(error) => {
+            eprintln!("error: list-library-tracks refused: {error}");
+            DOMAIN
+        }
+    }
+}
+
 /// `catalog export-library-xml --catalog DB --output NEW [--drive X] [--computed-grids]`:
 /// no-edit, new-file-only. `--drive` qualifies device-relative locations for
 /// Windows; `--computed-grids` writes OxiDJ's computed grid for tracks without a
@@ -2072,6 +2112,7 @@ fn print_usage(to_stdout: bool) {
   rekordbox preview --xml <path>   Read-only Rekordbox XML preview
   rekordbox pdb-preview --pdb <path> Read-only legacy DeviceSQL PDB preview
   catalog import-library --pdb <src> --catalog <new> [--onelibrary-db <db> --key-stdin]   Import a PDB library into a new catalog (aggregate-only report)
+  catalog list-library-tracks --catalog <db>   List exported XML TrackIDs, titles and artists as escaped TSV (PERSONAL METADATA: do not log or transmit)
   catalog create-library-playlist --catalog <db> --name <name> --track-ids <3,1,3>   Append an ordered root playlist in the catalog; IDs are exported XML TrackIDs, not audio/vendor IDs
   catalog export-library-xml --catalog <db> --output <new> [--drive <X>] [--computed-grids]   Export the imported library as new Rekordbox XML (no edits); --drive prefixes device-relative locations with X: for Windows Rekordbox; --computed-grids adds one TEMPO from OxiDJ's computed grid (confidence >= 0.5) to tracks without a Rekordbox grid",
     );

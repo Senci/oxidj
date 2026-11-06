@@ -826,6 +826,27 @@ pub fn create_library_playlist(
         .map_err(|e| LibraryWorkflowError(e.to_string()))
 }
 
+/// List imported tracks with XML TrackIDs accepted by `create_library_playlist`.
+pub fn list_library_tracks(
+    catalog: impl AsRef<Path>,
+) -> Result<Vec<(usize, String, Option<String>)>, LibraryWorkflowError> {
+    let catalog = catalog.as_ref();
+    if !catalog.is_file() {
+        return Err(fail("catalog does not exist"));
+    }
+    let opened =
+        Catalog::open_read_only(catalog).map_err(|e| LibraryWorkflowError(e.to_string()))?;
+    let snapshot = opened
+        .library_snapshot()
+        .map_err(|e| LibraryWorkflowError(e.to_string()))?;
+    Ok(snapshot
+        .tracks
+        .into_iter()
+        .enumerate()
+        .map(|(position, track)| (position + 1, track.title, track.artist))
+        .collect())
+}
+
 /// Export a catalog's imported library as a NEW Rekordbox XML file, without edits.
 /// The bytes are re-parsed and verified before publication; nothing is written on
 /// failure and an existing output is never replaced. `drive` qualifies device-relative

@@ -1281,6 +1281,203 @@ fn import_synthetic(dir: &Path) -> PathBuf {
     catalog
 }
 
+// Independent decoder for the documented escaped TSV, not the production formatter.
+fn listed_tracks(output: &Output) -> Vec<(String, String, Option<String>)> {
+    fn field(raw: &str) -> String {
+        let mut chars = raw.chars();
+        let mut decoded = String::new();
+        while let Some(c) = chars.next() {
+            decoded.push(if c == '\\' {
+                match chars.next().expect("unfinished escape") {
+                    '\\' => '\\',
+                    't' => '\t',
+                    'n' => '\n',
+                    'r' => '\r',
+                    _ => panic!("unknown escape"),
+                }
+            } else {
+                c
+            });
+        }
+        decoded
+    }
+    assert!(output.stderr.is_empty());
+    let text = stdout(output);
+    let mut lines = text.lines();
+    assert_eq!(lines.next(), Some("ExportedTrackID\tTitle\tArtist"));
+    lines
+        .map(|line| {
+            let parts: Vec<_> = line.split('\t').collect();
+            assert_eq!(parts.len(), 3);
+            (
+                parts[0].into(),
+                field(parts[1]),
+                if parts[2] == "\\N" {
+                    None
+                } else {
+                    Some(field(parts[2]))
+                },
+            )
+        })
+        .collect()
+}
+
+#[test]
+fn listed_track_ids_match_export_and_create_an_ordered_playlist_without_listing_mutations() {
+    let dir = scratch();
+    let catalog = import_synthetic(&dir);
+    let pdb = dir.join("device/PIONEER/rekordbox/export.pdb");
+    let source = std::fs::read(&pdb).unwrap();
+    let analysis: Vec<_> = [
+        ANLZ_A.to_owned(),
+        ANLZ_A.replace(".DAT", ".EXT"),
+        ANLZ_B.to_owned(),
+    ]
+    .into_iter()
+    .map(|rel| {
+        let path = dir.join("device").join(rel.trim_start_matches('/'));
+        let bytes = std::fs::read(&path).unwrap();
+        (path, bytes)
+    })
+    .collect();
+    let baseline_xml = dir.join("before.xml");
+    stdout(&export_with(&catalog, &baseline_xml, &[]));
+    let baseline_bytes = std::fs::read(&baseline_xml).unwrap();
+    let mut baseline = decode(&baseline_bytes);
+    assert_eq!(baseline, expected());
+    let original_bytes = std::fs::read(&catalog).unwrap();
+    let original = oxidj_library::Catalog::open_read_only(&catalog)
+        .unwrap()
+        .library_snapshot()
+        .unwrap();
+    let list = || {
+        cli(&[
+            s("catalog"),
+            s("list-library-tracks"),
+            s("--catalog"),
+            catalog.as_os_str(),
+        ])
+    };
+    let listed = listed_tracks(&list());
+    let exported: Vec<_> = baseline
+        .tracks
+        .iter()
+        .map(|attrs| {
+            (
+                get(attrs, "TrackID"),
+                get(attrs, "Name"),
+                attrs
+                    .iter()
+                    .find(|(k, _)| k == "Artist")
+                    .map(|(_, v)| v.clone()),
+            )
+        })
+        .collect();
+    assert_eq!(listed, exported);
+    assert_eq!(
+        listed.iter().map(|t| t.0.as_str()).collect::<Vec<_>>(),
+        ["1", "2", "3"]
+    );
+    assert_eq!(listed_tracks(&list()), listed);
+    assert_eq!(std::fs::read(&catalog).unwrap(), original_bytes);
+    assert_eq!(
+        oxidj_library::Catalog::open_read_only(&catalog)
+            .unwrap()
+            .library_snapshot()
+            .unwrap(),
+        original
+    );
+    assert_eq!(std::fs::read(&baseline_xml).unwrap(), baseline_bytes);
+    let ids = [
+        listed[2].0.clone(),
+        listed[0].0.clone(),
+        listed[2].0.clone(),
+    ];
+    stdout(&cli(&[
+        s("catalog"),
+        s("create-library-playlist"),
+        s("--catalog"),
+        catalog.as_os_str(),
+        s("--name"),
+        s("Listed set"),
+        s("--track-ids"),
+        s(&ids.join(",")),
+    ]));
+    let after = dir.join("after.xml");
+    stdout(&export_with(&catalog, &after, &[]));
+    let Node::Folder(_, children) = &mut baseline.root else {
+        panic!("missing root")
+    };
+    children.push(Node::Playlist("Listed set".into(), ids.to_vec()));
+    assert_eq!(decode(&std::fs::read(after).unwrap()), baseline);
+    assert_eq!(listed_tracks(&list()), listed);
+    assert_eq!(std::fs::read(pdb).unwrap(), source);
+    for (path, bytes) in analysis {
+        assert_eq!(std::fs::read(path).unwrap(), bytes);
+    }
+    assert_eq!(std::fs::read(baseline_xml).unwrap(), baseline_bytes);
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn list_tracks_refuses_missing_catalog_and_handles_empty_and_escaped_metadata() {
+    let dir = scratch();
+    let catalog = dir.join("catalog.sqlite");
+    let list = || {
+        cli(&[
+            s("catalog"),
+            s("list-library-tracks"),
+            s("--catalog"),
+            catalog.as_os_str(),
+        ])
+    };
+    let missing = list();
+    assert_eq!(missing.status.code(), Some(1));
+    assert!(missing.stdout.is_empty());
+    assert!(String::from_utf8_lossy(&missing.stderr).contains("catalog does not exist"));
+    assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 0);
+    drop(oxidj_library::Catalog::open(&catalog).unwrap());
+    let bytes = std::fs::read(&catalog).unwrap();
+    assert_eq!(
+        stdout(&list()),
+        "ExportedTrackID\tTitle\tArtist\n(no imported tracks)\n"
+    );
+    assert_eq!(std::fs::read(&catalog).unwrap(), bytes);
+    let title = "Café 音 🎵\tline\nreturn\r\"quoted\"\\N";
+    let artists = [
+        None,
+        Some(String::new()),
+        Some(title.into()),
+        Some("\\N".into()),
+    ];
+    let snapshot = oxidj_library::LibrarySnapshot {
+        tracks: artists
+            .iter()
+            .map(|artist| oxidj_library::LibraryTrack {
+                title: title.into(),
+                artist: artist.clone(),
+                ..Default::default()
+            })
+            .collect(),
+        ..Default::default()
+    };
+    oxidj_library::Catalog::open(&catalog)
+        .unwrap()
+        .import_library(&snapshot)
+        .unwrap();
+    let output = list();
+    assert_eq!(String::from_utf8_lossy(&output.stdout).lines().count(), 5);
+    assert_eq!(
+        listed_tracks(&output),
+        artists
+            .into_iter()
+            .enumerate()
+            .map(|(i, artist)| ((i + 1).to_string(), title.into(), artist))
+            .collect::<Vec<_>>()
+    );
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
 fn export_with(catalog: &Path, xml: &Path, extra: &[&str]) -> Output {
     let mut args = vec![
         s("catalog"),

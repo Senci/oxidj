@@ -49,14 +49,27 @@ The first major product proof — the MVP (idea.md) — is library-first: import
 
 ## Create an ordered playlist in an imported catalog
 
-First export the catalog, then select the `TrackID` values from that export's
-`COLLECTION/TRACK` entries (use `Name`/`Location` to identify the tracks):
+List imported tracks locally and select the `ExportedTrackID` values for the new
+playlist (no manual XML parsing is needed):
 
 ```sh
-oxidj-cli catalog export-library-xml --catalog lib.sqlite --output before.xml --drive D
+oxidj-cli catalog list-library-tracks --catalog lib.sqlite
 oxidj-cli catalog create-library-playlist --catalog lib.sqlite --name 'New set' --track-ids 3,1,3
 oxidj-cli catalog export-library-xml --catalog lib.sqlite --output with-playlist.xml --drive D
 ```
+
+**Privacy:** `list-library-tracks` deliberately prints personal titles and artists
+on stdout. View it only locally; do not log, upload, transmit or paste real output
+into task threads. The command itself does not log metadata or send it anywhere.
+It opens an existing current-schema catalog read-only (no creation or migrations)
+and never edits the source PDB/ANLZ, catalog records or XML files.
+
+Output is tab-separated with header `ExportedTrackID`, `Title`, `Artist`, in
+imported order. Within fields, backslash, TAB, LF and CR are escaped as `\\`,
+`\t`, `\n`, `\r`; quotes and Unicode remain literal. Missing artist is `\N`,
+an empty artist is an empty field, and a literal `\N` is printed as `\\N`.
+An empty imported library prints the header followed by `(no imported tracks)`.
+Only imported library tracks are listed, not separately imported local audio.
 
 IDs here are **this catalog's exported XML TrackIDs** (imported track position + 1),
 not local-audio `TrackId`s, original PDB IDs, or IDs from another catalog/XML file.
