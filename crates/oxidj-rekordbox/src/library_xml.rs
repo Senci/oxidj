@@ -145,7 +145,8 @@ pub fn write_library_xml(
             checked(&t.name)?
         );
         let text = |out: &mut String, key: &str, value: &Option<String>| -> Result<(), Error> {
-            if let Some(value) = value {
+            // An empty optional value is absent, never written as `Key=""`.
+            if let Some(value) = value.as_ref().filter(|value| !value.is_empty()) {
                 let _ = write!(out, " {key}=\"{}\"", checked(value)?);
             }
             Ok(())
@@ -406,6 +407,10 @@ mod library_xml_tests {
                 genre: Some("bad\u{1}".into()),
                 ..track.clone()
             },
+            LibraryXmlTrack {
+                location: "file://localhost/bad\u{1}.wav".into(),
+                ..track.clone()
+            },
         ] {
             assert!(write_library_xml(&[bad], &[]).is_err());
         }
@@ -574,6 +579,29 @@ mod library_xml_tests {
         assert_eq!(
             bare_line.trim(),
             "<TRACK TrackID=\"2\" Name=\"Bare\" TotalTime=\"0\" AverageBpm=\"0.00\" Location=\"file://localhost/bare.wav\"/>"
+        );
+    }
+
+    #[test]
+    fn empty_optional_metadata_is_never_written_as_an_empty_attribute() {
+        let track = LibraryXmlTrack {
+            track_id: 1,
+            name: "Empty".into(),
+            location: "file://localhost/empty.wav".into(),
+            artist: Some(String::new()),
+            album: Some(String::new()),
+            genre: Some(String::new()),
+            label: Some(String::new()),
+            tonality: Some(String::new()),
+            comments: Some(String::new()),
+            ..LibraryXmlTrack::default()
+        };
+        let bytes = write_library_xml(std::slice::from_ref(&track), &[]).unwrap();
+        let text = String::from_utf8(bytes).unwrap();
+        let line = text.lines().find(|l| l.contains("Name=\"Empty\"")).unwrap();
+        assert_eq!(
+            line.trim(),
+            "<TRACK TrackID=\"1\" Name=\"Empty\" TotalTime=\"0\" AverageBpm=\"0.00\" Location=\"file://localhost/empty.wav\"/>"
         );
     }
 }

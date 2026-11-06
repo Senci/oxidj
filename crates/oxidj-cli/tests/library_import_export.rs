@@ -1491,6 +1491,696 @@ fn export_with(catalog: &Path, xml: &Path, extra: &[&str]) -> Output {
     cli(&args)
 }
 
+// ---------------------------------------------------------------------------
+// M7 MVP-first proof: a large synthetic library (1,330 tracks / 20 playlists /
+// 901 memberships) exercised through the real import → manage → export path.
+// ---------------------------------------------------------------------------
+
+const M7_TRACKS: usize = 1_330;
+const M7_PLAYLISTS: usize = 20;
+const M7_MEMBERSHIPS: usize = 901;
+/// Tracks whose ANLZ analysis files exist; the rest have no analysis path.
+const M7_ANLZ_TRACKS: usize = 100;
+
+/// Split `rows` into DeviceSQL pages of at most 16 rows that also fit the page:
+/// 0x28 header + row bytes + one 0x24 row-offset group (the format stores offsets
+/// from the end of the page, so oversized rows must start a new page).
+fn pack_rows(rows: &[Vec<u8>]) -> Vec<(usize, usize)> {
+    let mut pages = Vec::new();
+    let mut index = 0usize;
+    while index < rows.len() {
+        let start = index;
+        let mut count = 0usize;
+        let mut used = 0x28usize;
+        while index < rows.len() && count < 16 {
+            let padded = (rows[index].len() + 3) & !3;
+            if used + padded + 0x24 > 4096 {
+                break;
+            }
+            used += padded;
+            count += 1;
+            index += 1;
+        }
+        pages.push((start, index));
+    }
+    pages
+}
+
+fn table_page_count(rows: &[Vec<u8>]) -> usize {
+    pack_rows(rows).len()
+}
+
+/// Multi-page DeviceSQL table writer. `page_offset` is the next free page index
+/// (page 0 is the file header) and advances by the number of pages written.
+fn add_table_pages(
+    bytes: &mut [u8],
+    table_index: usize,
+    table_type: u32,
+    rows: &[Vec<u8>],
+    page_offset: &mut usize,
+) {
+    let pages = pack_rows(rows);
+    if pages.is_empty() {
+        return;
+    }
+    let first_page = *page_offset;
+    let last_page = *page_offset + pages.len() - 1;
+    let dir = 0x1c + table_index * 16;
+    bytes[dir..dir + 4].copy_from_slice(&table_type.to_le_bytes());
+    bytes[dir + 8..dir + 12].copy_from_slice(&(first_page as u32).to_le_bytes());
+    bytes[dir + 12..dir + 16].copy_from_slice(&(last_page as u32).to_le_bytes());
+    for (page_index, (start, end)) in pages.iter().enumerate() {
+        let page = (first_page + page_index) * 4096;
+        let page_rows = &rows[*start..*end];
+        bytes[page + 0x04..page + 0x08]
+            .copy_from_slice(&((first_page + page_index) as u32).to_le_bytes());
+        bytes[page + 0x08..page + 0x0c].copy_from_slice(&table_type.to_le_bytes());
+        let next_page = if page_index + 1 < pages.len() {
+            first_page + page_index + 1
+        } else {
+            0
+        };
+        bytes[page + 0x0c..page + 0x10].copy_from_slice(&(next_page as u32).to_le_bytes());
+        bytes[page + 0x18] = page_rows.len() as u8;
+        let mut heap = 0usize;
+        for (i, row) in page_rows.iter().enumerate() {
+            bytes[page + 0x28 + heap..page + 0x28 + heap + row.len()].copy_from_slice(row);
+            let slot = page + 4096 - 6 - 2 * i;
+            bytes[slot..slot + 2].copy_from_slice(&(heap as u16).to_le_bytes());
+            heap += (row.len() + 3) & !3;
+        }
+        let present = ((1u32 << page_rows.len()) - 1) as u16;
+        bytes[page + 4092..page + 4094].copy_from_slice(&present.to_le_bytes());
+    }
+    *page_offset += pages.len();
+}
+
+/// Track row with dynamic strings (the small `track_row_with` uses `&'static str`).
+#[allow(clippy::too_many_arguments)]
+fn m7_track_row(
+    id: u32,
+    artist_id: u32,
+    tempo: u32,
+    duration: u16,
+    title: &str,
+    path: &str,
+    sample_rate: u32,
+    file_size: u32,
+    key_id: u32,
+    label_id: u32,
+    bit_rate: u32,
+    track_number: u32,
+    genre_id: u32,
+    disc_number: u16,
+    year: u16,
+    rating: u8,
+    date_added: &str,
+    comment: &str,
+    analyze_path: &str,
+) -> Vec<u8> {
+    let mut row = vec![0u8; 0x88];
+    for (at, value) in [
+        (0x08, sample_rate),
+        (0x10, file_size),
+        (0x20, key_id),
+        (0x28, label_id),
+        (0x30, bit_rate),
+        (0x34, track_number),
+        (0x3c, genre_id),
+    ] {
+        row[at..at + 4].copy_from_slice(&value.to_le_bytes());
+    }
+    row[0x4c..0x4e].copy_from_slice(&disc_number.to_le_bytes());
+    row[0x50..0x52].copy_from_slice(&year.to_le_bytes());
+    row[0x59] = rating;
+    row[0x48..0x4c].copy_from_slice(&id.to_le_bytes());
+    row[0x44..0x48].copy_from_slice(&artist_id.to_le_bytes());
+    row[0x38..0x3c].copy_from_slice(&tempo.to_le_bytes());
+    row[0x54..0x56].copy_from_slice(&duration.to_le_bytes());
+    let mut strings = vec![String::new(); 21];
+    strings[10] = date_added.to_string();
+    strings[14] = analyze_path.to_string();
+    strings[16] = comment.to_string();
+    strings[17] = title.to_string();
+    strings[20] = path.to_string();
+    let mut offset = 0x88u16;
+    let mut data = Vec::new();
+    for (index, value) in strings.iter().enumerate() {
+        row[0x5e + index * 2..0x60 + index * 2].copy_from_slice(&offset.to_le_bytes());
+        let encoded = encoded_string(value);
+        offset += encoded.len() as u16;
+        data.extend_from_slice(&encoded);
+    }
+    row.extend(data);
+    row
+}
+
+/// Deterministic large library: 1,330 tracks, 20 playlists (18 at ROOT, one in
+/// each of two folders), 901 ordered memberships. Every audited field resolves;
+/// the first 100 tracks carry ANLZ analysis, the rest have no analysis path.
+fn synthetic_pdb_m7() -> Vec<u8> {
+    let tracks: Vec<Vec<u8>> = (0..M7_TRACKS)
+        .map(|i| {
+            let id = (i + 1) as u32;
+            let analyze_path = if i < M7_ANLZ_TRACKS {
+                format!("/PIONEER/USBANLZ/P001/{id:08X}/ANLZ0000.DAT")
+            } else {
+                String::new()
+            };
+            m7_track_row(
+                id,
+                ((i % 10) + 1) as u32,
+                12_000 + ((i % 100) * 100) as u32,
+                (180 + i % 60) as u16,
+                &format!("Track {id}"),
+                &format!("/Contents/Track {id}.mp3"),
+                44_100,
+                5_000_000 + id,
+                ((i % 8) + 1) as u32,
+                ((i % 4) + 1) as u32,
+                320,
+                ((i % 12) + 1) as u32,
+                ((i % 3) + 1) as u32,
+                1,
+                (2000 + i % 25) as u16,
+                ((i % 5) + 1) as u8,
+                "2025-01-01",
+                &format!("Comment {id}"),
+                &analyze_path,
+            )
+        })
+        .collect();
+
+    let artists: Vec<Vec<u8>> = (1..=10)
+        .map(|id| artist_row(id, &format!("Artist {id}")))
+        .collect();
+
+    let genres: Vec<Vec<u8>> = (1..=3)
+        .map(|id| id_name_row(id, 4, &format!("Genre {id}")))
+        .collect();
+
+    let labels: Vec<Vec<u8>> = (1..=4)
+        .map(|id| id_name_row(id, 4, &format!("Label {id}")))
+        .collect();
+
+    let keys: Vec<Vec<u8>> = (1..=8)
+        .map(|id| id_name_row(id, 8, &format!("Key {id}")))
+        .collect();
+
+    let mut nodes_rows = Vec::new();
+    for j in 0..18 {
+        nodes_rows.push(node_row(
+            0,
+            (100 + j) as u32,
+            j as u32,
+            false,
+            &format!("Playlist {}", j + 1),
+        ));
+    }
+    nodes_rows.push(node_row(0, 200, 18, true, "Folder A"));
+    nodes_rows.push(node_row(0, 201, 19, true, "Folder B"));
+    nodes_rows.push(node_row(200, 118, 0, false, "Playlist 19"));
+    nodes_rows.push(node_row(201, 119, 0, false, "Playlist 20"));
+
+    let mut entries = Vec::new();
+    for j in 0..18u32 {
+        for k in 0..45u32 {
+            entries.push(entry_row(k, j * 45 + k + 1, 100 + j));
+        }
+    }
+    for k in 0..46u32 {
+        entries.push(entry_row(k, 811 + k, 118));
+    }
+    for k in 0..45u32 {
+        entries.push(entry_row(k, 857 + k, 119));
+    }
+
+    let total_pages = 1
+        + table_page_count(&tracks)
+        + table_page_count(&artists)
+        + table_page_count(&genres)
+        + table_page_count(&labels)
+        + table_page_count(&keys)
+        + table_page_count(&nodes_rows)
+        + table_page_count(&entries);
+    let mut bytes = vec![0u8; total_pages * 4096];
+    bytes[4..8].copy_from_slice(&4096u32.to_le_bytes());
+    bytes[8..12].copy_from_slice(&7u32.to_le_bytes());
+    let mut page_offset = 1usize;
+    add_table_pages(&mut bytes, 0, 0, &tracks, &mut page_offset);
+    add_table_pages(&mut bytes, 1, 2, &artists, &mut page_offset);
+    add_table_pages(&mut bytes, 2, 1, &genres, &mut page_offset);
+    add_table_pages(&mut bytes, 3, 4, &labels, &mut page_offset);
+    add_table_pages(&mut bytes, 4, 5, &keys, &mut page_offset);
+    add_table_pages(&mut bytes, 5, 7, &nodes_rows, &mut page_offset);
+    add_table_pages(&mut bytes, 6, 8, &entries, &mut page_offset);
+    bytes
+}
+
+/// ANLZ `.DAT` files for the first [`M7_ANLZ_TRACKS`] tracks (grid + one hot cue).
+fn write_analysis_m7(root: &Path) -> Vec<(PathBuf, Vec<u8>)> {
+    (0..M7_ANLZ_TRACKS)
+        .map(|i| {
+            let id = (i + 1) as u32;
+            let rel = format!("/PIONEER/USBANLZ/P001/{id:08X}/ANLZ0000.DAT");
+            let path = root.join(rel.trim_start_matches('/'));
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            let bytes = anlz_file(&[
+                anlz_path(&format!("/Contents/Track {id}.mp3")),
+                anlz_grid(&[(1, 12_000, 0), (2, 12_000, 500)]),
+                anlz_cues(1, &[(1, 1, 1_500, u32::MAX)]),
+            ]);
+            std::fs::write(&path, &bytes).unwrap();
+            (path, bytes)
+        })
+        .collect()
+}
+
+fn m7_cli(args: &[&std::ffi::OsStr]) -> Output {
+    cli(args)
+}
+
+/// Whole-tree structural oracle over the independent `decode` output: collection
+/// count, track count, playlist count, ordered membership count and that every
+/// member key names a written track.
+fn m7_verify_tree(bytes: &[u8], tracks: usize, playlists: usize, memberships: usize) -> Decoded {
+    let decoded = decode(bytes);
+    assert_eq!(
+        decoded.collection_entries,
+        tracks.to_string(),
+        "COLLECTION Entries drift"
+    );
+    assert_eq!(decoded.tracks.len(), tracks, "collection track count drift");
+    let mut written = std::collections::HashSet::new();
+    for attrs in &decoded.tracks {
+        written.insert(get(attrs, "TrackID"));
+    }
+    fn walk(
+        node: &Node,
+        playlists: &mut usize,
+        memberships: &mut usize,
+        written: &std::collections::HashSet<String>,
+    ) {
+        match node {
+            Node::Folder(_, children) => {
+                for child in children {
+                    walk(child, playlists, memberships, written);
+                }
+            }
+            Node::Playlist(_, keys) => {
+                *playlists += 1;
+                *memberships += keys.len();
+                for key in keys {
+                    assert!(written.contains(key), "member {key} names no written track");
+                }
+            }
+        }
+    }
+    let (mut actual_playlists, mut actual_memberships) = (0, 0);
+    walk(
+        &decoded.root,
+        &mut actual_playlists,
+        &mut actual_memberships,
+        &written,
+    );
+    assert_eq!(actual_playlists, playlists, "playlist count drift");
+    assert_eq!(actual_memberships, memberships, "membership count drift");
+    decoded
+}
+
+/// M7 MVP-first proof: import a 1,330-track / 20-playlist / 901-membership
+/// synthetic Rekordbox library, manage it through the guarded XML operations,
+/// re-export, and verify the whole tree with an independent decoder.
+#[test]
+fn m7_proof_import_manage_export_large_library() {
+    let dir = scratch();
+    let device = dir.join("device");
+    std::fs::create_dir_all(device.join("PIONEER/rekordbox")).unwrap();
+    let pdb = device.join("PIONEER/rekordbox/export.pdb");
+    let source = synthetic_pdb_m7();
+    std::fs::write(&pdb, &source).unwrap();
+    let analysis = write_analysis_m7(&device);
+    let catalog = dir.join("catalog.sqlite");
+
+    // --- import ---
+    let import = m7_cli(&[
+        s("catalog"),
+        s("import-library"),
+        s("--pdb"),
+        pdb.as_os_str(),
+        s("--catalog"),
+        catalog.as_os_str(),
+    ]);
+    let report = stdout(&import);
+    for line in [
+        "Tracks: 1330",
+        "Playlists: 20",
+        "Memberships: 901",
+        "SourceUnchanged: true",
+        "CatalogMatchesSource: true",
+    ] {
+        assert!(
+            report.lines().any(|l| l == line),
+            "missing {line:?} in {report}"
+        );
+    }
+    for field in [
+        "Artist",
+        "Album",
+        "Genre",
+        "Label",
+        "Tonality",
+        "DateAdded",
+        "Rating",
+        "TEMPO",
+        "POSITION_MARK",
+    ] {
+        let unresolved = report
+            .lines()
+            .find_map(|l| {
+                l.strip_prefix(&format!("UnresolvedInSource\t{field}\t"))
+                    .and_then(|count| count.parse::<u64>().ok())
+            })
+            .unwrap_or(0);
+        assert_eq!(unresolved, 0, "unexpected unresolved {field}: {report}");
+    }
+
+    // --- baseline export ---
+    let baseline = dir.join("baseline.xml");
+    let export = m7_cli(&[
+        s("catalog"),
+        s("export-library-xml"),
+        s("--catalog"),
+        catalog.as_os_str(),
+        s("--output"),
+        baseline.as_os_str(),
+    ]);
+    let report = stdout(&export);
+    for line in [
+        "Tracks: 1330",
+        "Playlists: 20",
+        "Memberships: 901",
+        "PreviewVerified: true",
+    ] {
+        assert!(
+            report.lines().any(|l| l == line),
+            "missing {line:?} in {report}"
+        );
+    }
+    let baseline_bytes = std::fs::read(&baseline).unwrap();
+    m7_verify_tree(&baseline_bytes, M7_TRACKS, M7_PLAYLISTS, M7_MEMBERSHIPS);
+    assert_eq!(
+        std::fs::read(&pdb).unwrap(),
+        source,
+        "source must be byte-identical"
+    );
+    for (path, bytes) in &analysis {
+        assert_eq!(
+            &std::fs::read(path).unwrap(),
+            bytes,
+            "analysis must be byte-identical"
+        );
+    }
+
+    // --- manage: insert, append, clear, remove, rename, move to subfolder ---
+    let order = |from: usize, to: usize| -> String {
+        (from..=to)
+            .map(|i| i.to_string())
+            .collect::<Vec<_>>()
+            .join(",")
+    };
+    fn manage_step(current: &Path, next: &Path, action: &str, args: &[&str]) {
+        let mut cmd = vec![
+            s("rekordbox"),
+            s(action),
+            s("--xml"),
+            current.as_os_str(),
+            s("--output"),
+            next.as_os_str(),
+        ];
+        cmd.extend(args.iter().map(|a| s(a)));
+        let out = cli(&cmd);
+        assert!(
+            out.status.success(),
+            "manage {action} failed: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
+    let mut current = baseline.clone();
+
+    // 1. Insert TrackID 1330 at position 0 of Playlist 1 (index 0).
+    let next = dir.join("managed-1.xml");
+    manage_step(
+        &current,
+        &next,
+        "insert-playlist-member",
+        &[
+            "--playlist-index",
+            "0",
+            "--expected-order",
+            &order(1, 45),
+            "--track-id",
+            "1330",
+            "--position",
+            "0",
+        ],
+    );
+    current = next;
+    m7_verify_tree(
+        &std::fs::read(&current).unwrap(),
+        M7_TRACKS,
+        M7_PLAYLISTS,
+        M7_MEMBERSHIPS + 1,
+    );
+
+    // 2. Append TrackID 1330 to Playlist 2 (index 1).
+    let next = dir.join("managed-2.xml");
+    manage_step(
+        &current,
+        &next,
+        "append-playlist-member",
+        &[
+            "--playlist-index",
+            "1",
+            "--expected-order",
+            &order(46, 90),
+            "--track-id",
+            "1330",
+        ],
+    );
+    current = next;
+    m7_verify_tree(
+        &std::fs::read(&current).unwrap(),
+        M7_TRACKS,
+        M7_PLAYLISTS,
+        M7_MEMBERSHIPS + 2,
+    );
+
+    // 3. Clear Playlist 3 (index 2).
+    let next = dir.join("managed-3.xml");
+    manage_step(
+        &current,
+        &next,
+        "clear-playlist",
+        &["--playlist-index", "2", "--expected-order", &order(91, 135)],
+    );
+    current = next;
+    m7_verify_tree(
+        &std::fs::read(&current).unwrap(),
+        M7_TRACKS,
+        M7_PLAYLISTS,
+        M7_MEMBERSHIPS + 2 - 45,
+    );
+
+    // 4. Remove TrackID 136 from Playlist 4 (index 3).
+    let next = dir.join("managed-4.xml");
+    manage_step(
+        &current,
+        &next,
+        "remove-playlist-member",
+        &[
+            "--playlist-index",
+            "3",
+            "--expected-order",
+            &order(136, 180),
+            "--track-id",
+            "136",
+        ],
+    );
+    current = next;
+    m7_verify_tree(
+        &std::fs::read(&current).unwrap(),
+        M7_TRACKS,
+        M7_PLAYLISTS,
+        M7_MEMBERSHIPS + 2 - 45 - 1,
+    );
+
+    // 5. Rename Playlist 5 (index 4).
+    let next = dir.join("managed-5.xml");
+    manage_step(
+        &current,
+        &next,
+        "rename-playlist",
+        &[
+            "--playlist-index",
+            "4",
+            "--expected-name",
+            "Playlist 5",
+            "--name",
+            "Renamed Playlist",
+        ],
+    );
+    current = next;
+    m7_verify_tree(
+        &std::fs::read(&current).unwrap(),
+        M7_TRACKS,
+        M7_PLAYLISTS,
+        M7_MEMBERSHIPS + 2 - 45 - 1,
+    );
+
+    // 6. Move Playlist 19 (index 18) from Folder A to Folder B.
+    let next = dir.join("managed-6.xml");
+    manage_step(
+        &current,
+        &next,
+        "move-playlist",
+        &[
+            "--playlist-index",
+            "18",
+            "--expected-name",
+            "Playlist 19",
+            "--expected-members",
+            &order(811, 856),
+            "--source-parent-index",
+            "0",
+            "--source-parent-name",
+            "Folder A",
+            "--target-parent-index",
+            "1",
+            "--target-parent-name",
+            "Folder B",
+            "--expected-target-order",
+            "Playlist 20",
+        ],
+    );
+    current = next;
+    let final_bytes = std::fs::read(&current).unwrap();
+    let decoded = m7_verify_tree(
+        &final_bytes,
+        M7_TRACKS,
+        M7_PLAYLISTS,
+        M7_MEMBERSHIPS + 2 - 45 - 1,
+    );
+
+    // --- order and metadata spot checks on the final tree ---
+    let mut playlists: Vec<(Vec<String>, Vec<String>)> = Vec::new();
+    fn collect(node: &Node, path: &mut Vec<String>, out: &mut Vec<(Vec<String>, Vec<String>)>) {
+        match node {
+            Node::Folder(name, children) => {
+                path.push(name.clone());
+                for child in children {
+                    collect(child, path, out);
+                }
+                path.pop();
+            }
+            Node::Playlist(name, keys) => {
+                let mut p = path.clone();
+                p.push(name.clone());
+                out.push((p, keys.clone()));
+            }
+        }
+    }
+    collect(&decoded.root, &mut Vec::new(), &mut playlists);
+    let find = |name: &str| {
+        playlists
+            .iter()
+            .find(|(p, _)| p.last().map(String::as_str) == Some(name))
+            .unwrap_or_else(|| panic!("playlist {name} missing: {playlists:?}"))
+            .1
+            .clone()
+    };
+    assert_eq!(
+        find("Playlist 1")[0],
+        "1330",
+        "inserted member must be first"
+    );
+    assert_eq!(find("Playlist 1").len(), 46);
+    assert_eq!(find("Playlist 2").last().map(String::as_str), Some("1330"));
+    assert!(
+        find("Playlist 3").is_empty(),
+        "cleared playlist must be empty"
+    );
+    assert_eq!(find("Playlist 4").len(), 44);
+    assert!(!find("Playlist 4").contains(&"136".to_string()));
+    assert!(find("Renamed Playlist").len() == 45);
+    assert!(find("Playlist 19").len() == 46);
+    // The renamed node is the only playlist named "Renamed Playlist".
+    assert_eq!(
+        playlists
+            .iter()
+            .filter(|(p, _)| p.last().map(String::as_str) == Some("Renamed Playlist"))
+            .count(),
+        1
+    );
+    // Folder A is now empty; Folder B holds Playlist 20 and the moved Playlist 19.
+    fn folder_children(node: &Node, name: &str) -> Option<Vec<String>> {
+        match node {
+            Node::Folder(folder_name, children) => {
+                if folder_name == name {
+                    Some(
+                        children
+                            .iter()
+                            .map(|child| match child {
+                                Node::Folder(child_name, _) | Node::Playlist(child_name, _) => {
+                                    child_name.clone()
+                                }
+                            })
+                            .collect(),
+                    )
+                } else {
+                    children
+                        .iter()
+                        .find_map(|child| folder_children(child, name))
+                }
+            }
+            Node::Playlist(_, _) => None,
+        }
+    }
+    assert_eq!(folder_children(&decoded.root, "Folder A"), Some(vec![]));
+    assert_eq!(
+        folder_children(&decoded.root, "Folder B"),
+        Some(vec!["Playlist 20".to_string(), "Playlist 19".to_string()])
+    );
+
+    // --- re-export preserves Position and editing metadata ---
+    // TrackID 1 (first ANLZ track) carries one TEMPO grid and one POSITION_MARK.
+    let track1 = decoded
+        .tracks
+        .iter()
+        .find(|attrs| get(attrs, "TrackID") == "1")
+        .expect("track 1 missing");
+    assert_eq!(get(track1, "Name"), "Track 1");
+    assert_eq!(get(track1, "Artist"), "Artist 1");
+    assert_eq!(get(track1, "Genre"), "Genre 1");
+    assert_eq!(get(track1, "Label"), "Label 1");
+    assert_eq!(get(track1, "Tonality"), "Key 1");
+    assert_eq!(get(track1, "DateAdded"), "2025-01-01");
+    assert_eq!(get(track1, "Year"), "2000");
+    assert_eq!(get(track1, "Rating"), "51");
+    let children1 = &decoded.children[0];
+    assert_eq!(children1.len(), 3, "expected 2 TEMPO + 1 POSITION_MARK");
+    assert_eq!(children1[0].0, "TEMPO");
+    assert_eq!(children1[1].0, "TEMPO");
+    assert_eq!(children1[2].0, "POSITION_MARK");
+
+    // Sources untouched throughout.
+    assert_eq!(std::fs::read(&pdb).unwrap(), source);
+    for (path, bytes) in &analysis {
+        assert_eq!(&std::fs::read(path).unwrap(), bytes);
+    }
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
 /// `--drive X` qualifies only device-relative `file://localhost/Contents/` locations;
 /// every other byte equals the no-option export.
 #[test]
