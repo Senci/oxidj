@@ -61,6 +61,23 @@ opened. Done.
 M7 remains open: ADR-005/A3, vendor/hardware, accessibility/platform and scale
 qualification are NOT DEMONSTRATED by this synthetic workflow.
 
+## M7 synthetic preservation proof (review corrections, 2026-11-06)
+
+`t_4a3c5bb7`: the reproducible command is
+`cargo test -p oxidj-cli --test library_import_export m7_proof_import_manage_export_large_library -- --exact`.
+It generates a synthetic DeviceSQL/ANLZ library (1,330 tracks / 20 playlists /
+901 memberships), invokes the actual CLI import/export and six guarded edits,
+and calls `scripts/verify_m7_export.py` for the baseline and every edited output.
+The oracle independently decodes the PDB with `scripts/decode_pdb.py` and compares
+all exported track attributes, exact synthetic cue/grid attributes, complete
+ordered folder/playlist attributes and every membership vector against baseline
+plus only the intended edits. Controls reject unrelated title, cue, grid,
+member replacement and order-only corruption (same counts and valid IDs).
+Source PDB/ANLZ bytes remain unchanged; audited unresolved fields are zero.
+This replaces the earlier spot-check preservation claim; independent re-review
+is pending. Synthetic evidence only: no personal catalog opened, no native/vendor,
+hardware, ADR-005, accessibility or scale qualification implied.
+
 ## M4 workstreams
 
 | Workstream | Evidence (details in history file) | Status / next gate |

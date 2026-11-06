@@ -1756,6 +1756,17 @@ fn write_analysis_m7(root: &Path) -> Vec<(PathBuf, Vec<u8>)> {
         .collect()
 }
 
+fn m7_python(pdb: &Path, xml: &Path, step: usize) -> Output {
+    Command::new("python3")
+        .arg("-B")
+        .arg(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../scripts/verify_m7_export.py"))
+        .arg(pdb)
+        .arg(xml)
+        .args(["--step", &step.to_string()])
+        .output()
+        .expect("Python 3 is required for the independent M7 baseline oracle")
+}
+
 fn m7_cli(args: &[&std::ffi::OsStr]) -> Output {
     cli(args)
 }
@@ -1889,6 +1900,7 @@ fn m7_proof_import_manage_export_large_library() {
     }
     let baseline_bytes = std::fs::read(&baseline).unwrap();
     m7_verify_tree(&baseline_bytes, M7_TRACKS, M7_PLAYLISTS, M7_MEMBERSHIPS);
+    stdout(&m7_python(&pdb, &baseline, 0));
     assert_eq!(
         std::fs::read(&pdb).unwrap(),
         source,
@@ -1953,6 +1965,8 @@ fn m7_proof_import_manage_export_large_library() {
         M7_MEMBERSHIPS + 1,
     );
 
+    stdout(&m7_python(&pdb, &current, 1));
+
     // 2. Append TrackID 1330 to Playlist 2 (index 1).
     let next = dir.join("managed-2.xml");
     manage_step(
@@ -1976,6 +1990,8 @@ fn m7_proof_import_manage_export_large_library() {
         M7_MEMBERSHIPS + 2,
     );
 
+    stdout(&m7_python(&pdb, &current, 2));
+
     // 3. Clear Playlist 3 (index 2).
     let next = dir.join("managed-3.xml");
     manage_step(
@@ -1991,6 +2007,8 @@ fn m7_proof_import_manage_export_large_library() {
         M7_PLAYLISTS,
         M7_MEMBERSHIPS + 2 - 45,
     );
+
+    stdout(&m7_python(&pdb, &current, 3));
 
     // 4. Remove TrackID 136 from Playlist 4 (index 3).
     let next = dir.join("managed-4.xml");
@@ -2015,6 +2033,8 @@ fn m7_proof_import_manage_export_large_library() {
         M7_MEMBERSHIPS + 2 - 45 - 1,
     );
 
+    stdout(&m7_python(&pdb, &current, 4));
+
     // 5. Rename Playlist 5 (index 4).
     let next = dir.join("managed-5.xml");
     manage_step(
@@ -2037,6 +2057,8 @@ fn m7_proof_import_manage_export_large_library() {
         M7_PLAYLISTS,
         M7_MEMBERSHIPS + 2 - 45 - 1,
     );
+
+    stdout(&m7_python(&pdb, &current, 5));
 
     // 6. Move Playlist 19 (index 18) from Folder A to Folder B.
     let next = dir.join("managed-6.xml");
@@ -2065,113 +2087,50 @@ fn m7_proof_import_manage_export_large_library() {
     );
     current = next;
     let final_bytes = std::fs::read(&current).unwrap();
-    let decoded = m7_verify_tree(
+    m7_verify_tree(
         &final_bytes,
         M7_TRACKS,
         M7_PLAYLISTS,
         M7_MEMBERSHIPS + 2 - 45 - 1,
     );
 
-    // --- order and metadata spot checks on the final tree ---
-    let mut playlists: Vec<(Vec<String>, Vec<String>)> = Vec::new();
-    fn collect(node: &Node, path: &mut Vec<String>, out: &mut Vec<(Vec<String>, Vec<String>)>) {
-        match node {
-            Node::Folder(name, children) => {
-                path.push(name.clone());
-                for child in children {
-                    collect(child, path, out);
-                }
-                path.pop();
-            }
-            Node::Playlist(name, keys) => {
-                let mut p = path.clone();
-                p.push(name.clone());
-                out.push((p, keys.clone()));
-            }
-        }
-    }
-    collect(&decoded.root, &mut Vec::new(), &mut playlists);
-    let find = |name: &str| {
-        playlists
-            .iter()
-            .find(|(p, _)| p.last().map(String::as_str) == Some(name))
-            .unwrap_or_else(|| panic!("playlist {name} missing: {playlists:?}"))
-            .1
-            .clone()
-    };
-    assert_eq!(
-        find("Playlist 1")[0],
-        "1330",
-        "inserted member must be first"
-    );
-    assert_eq!(find("Playlist 1").len(), 46);
-    assert_eq!(find("Playlist 2").last().map(String::as_str), Some("1330"));
-    assert!(
-        find("Playlist 3").is_empty(),
-        "cleared playlist must be empty"
-    );
-    assert_eq!(find("Playlist 4").len(), 44);
-    assert!(!find("Playlist 4").contains(&"136".to_string()));
-    assert!(find("Renamed Playlist").len() == 45);
-    assert!(find("Playlist 19").len() == 46);
-    // The renamed node is the only playlist named "Renamed Playlist".
-    assert_eq!(
-        playlists
-            .iter()
-            .filter(|(p, _)| p.last().map(String::as_str) == Some("Renamed Playlist"))
-            .count(),
-        1
-    );
-    // Folder A is now empty; Folder B holds Playlist 20 and the moved Playlist 19.
-    fn folder_children(node: &Node, name: &str) -> Option<Vec<String>> {
-        match node {
-            Node::Folder(folder_name, children) => {
-                if folder_name == name {
-                    Some(
-                        children
-                            .iter()
-                            .map(|child| match child {
-                                Node::Folder(child_name, _) | Node::Playlist(child_name, _) => {
-                                    child_name.clone()
-                                }
-                            })
-                            .collect(),
-                    )
-                } else {
-                    children
-                        .iter()
-                        .find_map(|child| folder_children(child, name))
-                }
-            }
-            Node::Playlist(_, _) => None,
-        }
-    }
-    assert_eq!(folder_children(&decoded.root, "Folder A"), Some(vec![]));
-    assert_eq!(
-        folder_children(&decoded.root, "Folder B"),
-        Some(vec!["Playlist 20".to_string(), "Playlist 19".to_string()])
-    );
+    // Independent PDB decode → complete XML expectation after all six edits.
+    stdout(&m7_python(&pdb, &current, 6));
 
-    // --- re-export preserves Position and editing metadata ---
-    // TrackID 1 (first ANLZ track) carries one TEMPO grid and one POSITION_MARK.
-    let track1 = decoded
-        .tracks
-        .iter()
-        .find(|attrs| get(attrs, "TrackID") == "1")
-        .expect("track 1 missing");
-    assert_eq!(get(track1, "Name"), "Track 1");
-    assert_eq!(get(track1, "Artist"), "Artist 1");
-    assert_eq!(get(track1, "Genre"), "Genre 1");
-    assert_eq!(get(track1, "Label"), "Label 1");
-    assert_eq!(get(track1, "Tonality"), "Key 1");
-    assert_eq!(get(track1, "DateAdded"), "2025-01-01");
-    assert_eq!(get(track1, "Year"), "2000");
-    assert_eq!(get(track1, "Rating"), "51");
-    let children1 = &decoded.children[0];
-    assert_eq!(children1.len(), 3, "expected 2 TEMPO + 1 POSITION_MARK");
-    assert_eq!(children1[0].0, "TEMPO");
-    assert_eq!(children1[1].0, "TEMPO");
-    assert_eq!(children1[2].0, "POSITION_MARK");
+    // Same-count, valid-ID corruption is refused for the precise reason.
+    let final_text = String::from_utf8(final_bytes.clone()).unwrap();
+    for (from, to, reason) in [
+        ("Name=\"Track 1330\"", "Name=\"CORRUPTED\"", "tracks:"),
+        ("Start=\"1.500\"", "Start=\"9.500\"", "children:"),
+        (" Bpm=\"120.00\"", " Bpm=\"121.00\"", "children:"),
+        ("Key=\"226\"", "Key=\"1330\"", "tree:"),
+    ] {
+        assert!(final_text.contains(from), "mutation target absent: {from}");
+        let corrupt = dir.join("corrupt.xml");
+        std::fs::write(&corrupt, final_text.replacen(from, to, 1)).unwrap();
+        let rejected = m7_python(&pdb, &corrupt, 6);
+        assert_eq!(rejected.status.code(), Some(1));
+        assert!(
+            String::from_utf8_lossy(&rejected.stderr).contains(reason),
+            "{from}: {}",
+            String::from_utf8_lossy(&rejected.stderr)
+        );
+        assert_eq!(std::fs::read(&current).unwrap(), final_bytes);
+    }
+
+    // Swap only two unrelated members: same IDs, membership multiset and count.
+    assert_eq!(final_text.matches("Key=\"226\"").count(), 1);
+    assert_eq!(final_text.matches("Key=\"227\"").count(), 1);
+    let reordered = final_text
+        .replace("Key=\"226\"", "Key=\"SWAP\"")
+        .replace("Key=\"227\"", "Key=\"226\"")
+        .replace("Key=\"SWAP\"", "Key=\"227\"");
+    let corrupt = dir.join("reordered.xml");
+    std::fs::write(&corrupt, reordered).unwrap();
+    let rejected = m7_python(&pdb, &corrupt, 6);
+    assert_eq!(rejected.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&rejected.stderr).contains("tree:"));
+    assert_eq!(std::fs::read(&current).unwrap(), final_bytes);
 
     // Sources untouched throughout.
     assert_eq!(std::fs::read(&pdb).unwrap(), source);
