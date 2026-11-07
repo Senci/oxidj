@@ -103,7 +103,7 @@ Revised local M1–M3 acceptance is complete; the named `local-catalog-alpha-v1`
 
 ## Next actions
 
-1. **Real-library import/manage/export proof (M4→M7 path):** scope the smallest workflow that imports an owner-authorized real Rekordbox library (XML export first; PDB/OneLibrary previews are read-only inputs), manages it in the library UI/CLI, exports a new file, and verifies by independent oracle plus aggregate-only counts. Scoping must follow `idea.md` MVP and ADR-005; one card, no per-field cards.
+1. **M7 core import/manage/export workflow:** completed across reviewed slices 1–6: local staged-library import, playlist management, export, and owner-confirmed Rekordbox load/playback plus guarded edit-then-reimport; aggregate-only counts and independent-oracle checks are recorded above. Remaining owner-side checks are listed separately; no hardware claim.
 2. **Computed grids in XML export:** done (`d295fc4`, opt-in `--computed-grids`, only tracks without a Rekordbox grid); the owner's Rekordbox check of those tracks is pending.
 3. **Owner-side checks:** Rekordbox import of the export and an edited re-export are owner-confirmed (M7; per-beat `TEMPO` loads, no collapsing needed); still open: real FAT/exFAT export on the `PATRIOT` stick (NOT RUN) and hardware (CDJ/XDJ).
 4. **A3 native evidence:** unblock `t_4105b6eb` only on owner authorization above.
