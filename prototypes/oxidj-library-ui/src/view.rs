@@ -56,6 +56,7 @@ impl LibraryApp {
         self.handle_panel_shortcuts(ctx);
         self.handle_deck_keys(ctx);
         self.decks.pump();
+        self.pump_waveform_job(ctx);
         self.theme.apply(self.custom_tokens, ctx);
         let tokens = self.active_tokens();
         self.shell = ShellLayout::default();
@@ -263,6 +264,7 @@ impl LibraryApp {
                 );
                 if (PrimaryActionButton { label: "Import references" }).show(ui, tokens).clicked() {
                     self.import();
+                    ui.ctx().request_repaint();
                     close = true;
                 }
                 ui.end_row();

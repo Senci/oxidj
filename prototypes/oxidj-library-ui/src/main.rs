@@ -5,6 +5,7 @@ mod beat_grid;
 mod components;
 mod control_gallery;
 mod deck_audio;
+mod waveform_analysis;
 mod decks;
 #[cfg(test)]
 mod deck_tests;

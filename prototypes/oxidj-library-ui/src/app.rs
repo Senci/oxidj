@@ -121,6 +121,7 @@ pub(crate) struct LibraryApp {
     pub(crate) show_waveform_demo: bool,
     pub(crate) waveform_demo: Option<waveform_view::DemoState>,
     pub(crate) track_waveform: track_waveform::TrackWaveformPanel,
+    pub(crate) waveform_job: Option<waveform_analysis::Job>,
     pub(crate) availability_filter: Option<TrackAvailability>,
     /// M8/D1 deck area (silent transport until D2).
     pub(crate) decks: crate::decks::DeckArea,
@@ -279,6 +280,7 @@ impl LibraryApp {
             show_waveform_demo: false,
             waveform_demo: None,
             track_waveform: Default::default(),
+            waveform_job: None,
             availability_filter: None,
             decks: Default::default(),
             show_nav: true,
@@ -510,20 +512,60 @@ impl LibraryApp {
         match &mut self.catalog {
             Ok(db) => match db.import_audio_directory(&self.import_root) {
                 Ok(report) => {
+                    let imported: std::collections::HashSet<_> = report.outcomes.iter()
+                        .filter(|outcome| outcome.status == oxidj_library::ImportStatus::Imported)
+                        .map(|outcome| outcome.path.as_str()).collect();
+                    let ids = db.list_track_details().map(|tracks| tracks.into_iter()
+                        .filter(|track| imported.contains(track.track.path.as_str()))
+                        .map(|track| track.track.id.as_u64()).collect::<Vec<_>>());
                     self.notice = format!(
                         "Import: {} outcomes{}",
                         report.outcomes.len(),
-                        if report.complete {
-                            ""
-                        } else {
-                            " (incomplete; missing states unchanged)"
-                        }
+                        if report.complete { "" } else { " (incomplete; missing states unchanged)" }
                     );
                     self.reload();
+                    match ids {
+                        Ok(ids) if !ids.is_empty() => {
+                            let count = ids.len();
+                            self.waveform_job = match waveform_analysis::Job::start(self.db_path.clone(), ids) {
+                                Ok(job) => {
+                                    self.notice = format!("{count} imported; analysing waveforms");
+                                    Some(job)
+                                }
+                                Err(error) => {
+                                    self.notice = format!("{count} imported; waveform analysis could not start: {error}");
+                                    None
+                                }
+                            };
+                        }
+                        Err(error) => self.notice = format!("Import complete; could not queue waveform analysis: {error}"),
+                        _ => self.waveform_job = None,
+                    }
                 }
                 Err(e) => self.notice = format!("Import failed: {e}"),
             },
             Err(e) => self.notice = format!("Catalog unavailable: {e}"),
+        }
+    }
+
+    pub(crate) fn pump_waveform_job(&mut self, ctx: &egui::Context) {
+        let Some(job) = &self.waveform_job else { return; };
+        if let Some(result) = job.poll() {
+            let total = job.total();
+            self.waveform_job = None;
+            match result {
+                Ok(results) => {
+                    let succeeded = results.iter().filter(|(_, result)| result.is_ok()).count();
+                    let failed = results.len() - succeeded;
+                    self.notice = format!("Waveform analysis complete: {succeeded} succeeded, {failed} failed (of {total})");
+                    self.reload();
+                }
+                Err(()) => self.notice = "Waveform analysis worker stopped; results unavailable".into(),
+            }
+        } else {
+            let (done, total) = (job.completed(), job.total());
+            self.notice = format!("Waveform analysis: {done}/{total} tracks");
+            ctx.request_repaint_after(std::time::Duration::from_millis(50));
         }
     }
 

@@ -493,7 +493,44 @@ fn more_menu_reaches_catalog_import_and_xml_controls() {
     std::fs::remove_dir_all(root).unwrap();
 }
 
-/// W9 → D1: the deck strip keeps both decks' CUE/PLAY inside the window
+#[test]
+fn import_references_queues_new_tracks_and_reloads_waveforms_on_completion() {
+    let root = std::env::temp_dir().join(format!("oxidj-ui-waveform-{}-{}", std::process::id(),
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+    let audio = root.join("audio");
+    std::fs::create_dir_all(&audio).unwrap();
+    let source = audio.join("new-tone.wav");
+    write_wav(&source, 0.4);
+    std::fs::write(audio.join("unsupported.txt"), b"not audio").unwrap();
+    let before = std::fs::read(&source).unwrap();
+    let db = root.join("catalog.sqlite");
+    Catalog::open(&db).unwrap();
+    let mut shell = Shell::new(&db, 1200.0);
+    shell.app.import_root = audio.display().to_string();
+    shell.settle();
+    let more = shell.app.shell.more.unwrap().center();
+    let out = shell.click(more);
+    let import = find(&nodes(&out), "Import references").2.center();
+    shell.click(import);
+    assert!(shell.app.waveform_job.is_some(), "newly imported tracks start background analysis");
+    // A production UI frame remains callable while analysis is running.
+    let _ = shell.settle();
+    let started = std::time::Instant::now();
+    while shell.app.waveform_job.is_some() {
+        assert!(started.elapsed().as_secs() < 20, "analysis worker completes");
+        let _ = shell.settle();
+        std::thread::yield_now();
+    }
+    assert!(shell.app.notice.contains("1 succeeded, 0 failed"), "truthful summary: {}", shell.app.notice);
+    let id = shell.app.tracks.iter().find(|track| track.track.path.ends_with("new-tone.wav")).unwrap().track.id;
+    assert!(shell.app.catalog.as_ref().unwrap().read_waveform(id).unwrap().is_some(), "completion reloads stored peaks");
+    assert_eq!(std::fs::read(&source).unwrap(), before, "source bytes remain untouched");
+    // A second production import reports the same file as unchanged and queues nothing.
+    shell.app.import();
+    assert!(shell.app.waveform_job.is_none(), "unchanged imports are not re-analysed");
+    std::fs::remove_dir_all(root).unwrap();
+}
+
 /// and the loaded track name elided inside its deck column, even for a very
 /// long filename, at 1440 and 900 px; PLAY still toggles by a real click
 /// and never moves the controls.
