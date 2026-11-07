@@ -778,6 +778,48 @@ fn pdb_imported_library_audio_is_analyzed_and_grid_persisted() {
         "{}",
         String::from_utf8_lossy(&import.stderr)
     );
+    // Exercise the CLI boundary, not just Catalog's error classification. The
+    // trigger rejects the first readable imported audio reference; missing
+    // locations must not turn this storage failure into a successful report.
+    let sql = |statement: &str| {
+        let result = Command::new("python3")
+            .args([
+                "-c",
+                "import sqlite3,sys; c=sqlite3.connect(sys.argv[1]); c.execute(sys.argv[2]); c.commit()",
+            ])
+            .arg(&catalog)
+            .arg(statement)
+            .output()
+            .unwrap();
+        assert!(result.status.success(), "{result:?}");
+    };
+    sql(
+        "CREATE TRIGGER reject_reference BEFORE INSERT ON tracks BEGIN SELECT RAISE(ABORT, 'test reference storage failure'); END",
+    );
+    let rejected = cli(&[
+        s("catalog"),
+        s("analyze-tempo"),
+        s("--db"),
+        catalog.as_os_str(),
+    ]);
+    assert_eq!(rejected.status.code(), Some(1), "{rejected:?}");
+    let error = String::from_utf8_lossy(&rejected.stderr);
+    assert!(
+        error.contains("catalog database error: test reference storage failure"),
+        "{error}"
+    );
+    assert!(
+        !String::from_utf8_lossy(&rejected.stdout).contains("UnavailableLibraryAudio:"),
+        "{rejected:?}"
+    );
+    {
+        let db = oxidj_library::Catalog::open(&catalog).unwrap();
+        assert!(db.list_tracks().unwrap().is_empty());
+        assert_eq!(db.library_snapshot().unwrap().tracks[2].location, location);
+    }
+    sql("DROP TRIGGER reject_reference");
+    // Same imported catalog and audio now succeed; the two unavailable
+    // locations retain their distinct, successful classification.
     let analyze = cli(&[
         s("catalog"),
         s("analyze-tempo"),
