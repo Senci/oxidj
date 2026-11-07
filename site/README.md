@@ -27,7 +27,8 @@ decisions stay in `idea.md`, `plan/MVP.md`, `plan/STATUS.md` and the research do
 ## Assets
 
 - Screenshots: `scripts/crop-screenshots.py` (PIL via uv); provenance in
-  `public/images/README.md`. Synthetic catalog only; inspect pixels before replacing.
+  `public/images/README.md`. Synthetic catalog/audio examples plus one cropped owner-library
+  row shown as metadata only; the owner track was not loaded or played. Inspect pixels before replacing.
 - Fonts: `scripts/subset-fonts.py` subsets `fonts-src/*.ttf` to Latin WOFF2 (about
   11 KB each). The IBM Plex Mono subset is renamed OxiDJ Mono for its OFL Reserved Font
   Name. Licence texts ship in `public/fonts/`.

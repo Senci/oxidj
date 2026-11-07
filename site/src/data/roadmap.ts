@@ -371,4 +371,12 @@ export const screenshots = {
     caption:
       'Synthetic imported playlist: select a member, then explicitly load it to A or B. No autoplay.',
   },
+  ownerLibraryRecord: {
+    id: 'senci-owner-library-record',
+    width: 838,
+    height: 74,
+    alt: 'Cropped OxiDJ library table showing one selected imported-library record for a track by Senči; no other records, IDs or path details are visible.',
+    caption:
+      'One owner-library record, shown as metadata only; it was not loaded or played. Other examples use synthetic data.',
+  },
 } as const satisfies Record<string, Screenshot>;

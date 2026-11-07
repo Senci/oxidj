@@ -1,5 +1,7 @@
 # OxiDJ
 
+Live project site: <https://senci.github.io/oxidj/>. Artist profile: [Senči on SoundCloud](https://soundcloud.com/s3nci).
+
 OxiDJ is a modern, open-source DJ library manager and, eventually, performance application written primarily in Rust. Its long-term goal is a credible Rekordbox alternative without locking users into one vendor ecosystem (idea.md). The bounded local reference catalog exists as an implementation candidate; import, analysis, playback, and GUI workflows remain absent.
 
 ## Status
