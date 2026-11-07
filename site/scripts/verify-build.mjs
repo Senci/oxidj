@@ -73,5 +73,5 @@ const social = readFileSync(new URL('images/social.png', root));
 assert.equal(social.readUInt32BE(16), 1200);
 assert.equal(social.readUInt32BE(20), 630);
 console.log(
-  `Pages build verified: ${entries.length} entries, ${checked} local references under /oxidj/, sized images with alt, eleven lightbox links, nine milestone anchors, self-hosted WOFF2 fonts, 1200x630 social image, no private paths.`,
+  `Pages build verified: ${entries.length} entries, ${checked} local references under /oxidj/, sized images with alt, twelve lightbox links, nine milestone anchors, self-hosted WOFF2 fonts, 1200x630 social image, no private paths.`,
 );
