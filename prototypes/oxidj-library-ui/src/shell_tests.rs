@@ -506,6 +506,8 @@ fn import_references_queues_new_tracks_and_reloads_waveforms_on_completion() {
     let db = root.join("catalog.sqlite");
     Catalog::open(&db).unwrap();
     let mut shell = Shell::new(&db, 1200.0);
+    let worker_gate = std::sync::Arc::new(std::sync::Barrier::new(2));
+    shell.app.waveform_gate = Some(worker_gate.clone());
     shell.app.import_root = audio.display().to_string();
     shell.settle();
     let more = shell.app.shell.more.unwrap().center();
@@ -513,8 +515,11 @@ fn import_references_queues_new_tracks_and_reloads_waveforms_on_completion() {
     let import = find(&nodes(&out), "Import references").2.center();
     shell.click(import);
     assert!(shell.app.waveform_job.is_some(), "newly imported tracks start background analysis");
-    // A production UI frame remains callable while analysis is running.
+    // Worker is deterministically held before catalog analysis; the production frame still runs.
     let _ = shell.settle();
+    assert!(shell.app.waveform_job.is_some(), "job remains in flight while gated");
+    assert!(shell.app.notice.contains("0/1"), "progress while gated: {}", shell.app.notice);
+    worker_gate.wait();
     let started = std::time::Instant::now();
     while shell.app.waveform_job.is_some() {
         assert!(started.elapsed().as_secs() < 20, "analysis worker completes");
@@ -528,6 +533,13 @@ fn import_references_queues_new_tracks_and_reloads_waveforms_on_completion() {
     // A second production import reports the same file as unchanged and queues nothing.
     shell.app.import();
     assert!(shell.app.waveform_job.is_none(), "unchanged imports are not re-analysed");
+    // A changed source is reported Conflict and is never queued for analysis.
+    let mut changed = before.clone();
+    changed[44] ^= 1;
+    std::fs::write(&source, changed).unwrap();
+    shell.app.import();
+    assert!(shell.app.waveform_job.is_none(), "conflicted imports are not queued");
+    assert!(shell.app.notice.contains("Import:"), "conflict import reported: {}", shell.app.notice);
     std::fs::remove_dir_all(root).unwrap();
 }
 

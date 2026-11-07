@@ -1,10 +1,20 @@
 //! Background catalog waveform jobs for the Import references workflow.
 use oxidj_application::{analyze_track_waveform, WaveformOutcome};
-use oxidj_library::Catalog;
+use oxidj_library::{Catalog, ImportReport};
+use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc::{channel, Receiver, TryRecvError};
 use std::sync::Arc;
+
+pub(crate) fn imported_paths(report: &ImportReport) -> HashSet<String> {
+    report
+        .outcomes
+        .iter()
+        .filter(|outcome| outcome.status == oxidj_library::ImportStatus::Imported)
+        .map(|outcome| outcome.path.clone())
+        .collect()
+}
 
 pub(crate) struct Job {
     total: usize,
@@ -21,6 +31,14 @@ where
 
 impl Job {
     pub(crate) fn start(db_path: PathBuf, ids: Vec<u64>) -> Result<Self, String> {
+        Self::start_after_gate(db_path, ids, None)
+    }
+
+    pub(crate) fn start_after_gate(
+        db_path: PathBuf,
+        ids: Vec<u64>,
+        gate: Option<Arc<std::sync::Barrier>>,
+    ) -> Result<Self, String> {
         let total = ids.len();
         let done = Arc::new(AtomicUsize::new(0));
         let worker_done = done.clone();
@@ -29,6 +47,7 @@ impl Job {
             std::thread::Builder::new()
                 .name("oxidj-waveform-analysis".into())
                 .spawn(move || {
+                    if let Some(gate) = gate { gate.wait(); }
                     let mut results = Vec::with_capacity(ids.len());
                     match Catalog::open(&db_path) {
                         Ok(mut catalog) => {
@@ -95,6 +114,22 @@ mod tests {
         ));
         std::fs::create_dir_all(path.join("audio")).unwrap();
         path
+    }
+
+    #[test]
+    fn only_imported_report_rows_are_selected_for_waveform_analysis() {
+        let report = ImportReport {
+            complete: true,
+            cancelled: false,
+            outcomes: vec![
+                oxidj_library::FileOutcome { path: "new.wav".into(), status: ImportStatus::Imported },
+                oxidj_library::FileOutcome { path: "conflict.wav".into(), status: ImportStatus::Conflict },
+                oxidj_library::FileOutcome { path: "unreadable.wav".into(), status: ImportStatus::Unreadable },
+                oxidj_library::FileOutcome { path: "unchanged.wav".into(), status: ImportStatus::Unchanged },
+                oxidj_library::FileOutcome { path: "unsupported.wav".into(), status: ImportStatus::Unsupported },
+            ],
+        };
+        assert_eq!(imported_paths(&report), ["new.wav".to_owned()].into());
     }
 
     #[test]

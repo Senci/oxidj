@@ -122,6 +122,8 @@ pub(crate) struct LibraryApp {
     pub(crate) waveform_demo: Option<waveform_view::DemoState>,
     pub(crate) track_waveform: track_waveform::TrackWaveformPanel,
     pub(crate) waveform_job: Option<waveform_analysis::Job>,
+    #[cfg(test)]
+    pub(crate) waveform_gate: Option<std::sync::Arc<std::sync::Barrier>>,
     pub(crate) availability_filter: Option<TrackAvailability>,
     /// M8/D1 deck area (silent transport until D2).
     pub(crate) decks: crate::decks::DeckArea,
@@ -281,6 +283,8 @@ impl LibraryApp {
             waveform_demo: None,
             track_waveform: Default::default(),
             waveform_job: None,
+            #[cfg(test)]
+            waveform_gate: None,
             availability_filter: None,
             decks: Default::default(),
             show_nav: true,
@@ -512,9 +516,7 @@ impl LibraryApp {
         match &mut self.catalog {
             Ok(db) => match db.import_audio_directory(&self.import_root) {
                 Ok(report) => {
-                    let imported: std::collections::HashSet<_> = report.outcomes.iter()
-                        .filter(|outcome| outcome.status == oxidj_library::ImportStatus::Imported)
-                        .map(|outcome| outcome.path.as_str()).collect();
+                    let imported = waveform_analysis::imported_paths(&report);
                     let ids = db.list_track_details().map(|tracks| tracks.into_iter()
                         .filter(|track| imported.contains(track.track.path.as_str()))
                         .map(|track| track.track.id.as_u64()).collect::<Vec<_>>());
@@ -527,7 +529,13 @@ impl LibraryApp {
                     match ids {
                         Ok(ids) if !ids.is_empty() => {
                             let count = ids.len();
-                            self.waveform_job = match waveform_analysis::Job::start(self.db_path.clone(), ids) {
+                            let start_result = {
+                                #[cfg(test)]
+                                { waveform_analysis::Job::start_after_gate(self.db_path.clone(), ids, self.waveform_gate.take()) }
+                                #[cfg(not(test))]
+                                { waveform_analysis::Job::start(self.db_path.clone(), ids) }
+                            };
+                            self.waveform_job = match start_result {
                                 Ok(job) => {
                                     self.notice = format!("{count} imported; analysing waveforms");
                                     Some(job)
