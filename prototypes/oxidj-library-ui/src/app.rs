@@ -125,6 +125,8 @@ pub(crate) struct LibraryApp {
     #[cfg(test)]
     pub(crate) waveform_gate: Option<std::sync::Arc<std::sync::Barrier>>,
     pub(crate) availability_filter: Option<TrackAvailability>,
+    pub(crate) imported_playlist: Option<Vec<usize>>,
+    pub(crate) imported_member: Option<usize>,
     /// M8/D1 deck area (silent transport until D2).
     pub(crate) decks: crate::decks::DeckArea,
     /// W8 shell panel toggles (app state only, not persisted).
@@ -286,6 +288,8 @@ impl LibraryApp {
             #[cfg(test)]
             waveform_gate: None,
             availability_filter: None,
+            imported_playlist: None,
+            imported_member: None,
             decks: Default::default(),
             show_nav: true,
             show_details: false,
@@ -510,6 +514,24 @@ impl LibraryApp {
             Err(e) => self.load_error = Some(e.clone()),
         }
         self.refresh_decks();
+    }
+
+    pub(crate) fn load_imported_member(&mut self, member: usize, deck: usize) {
+        let result = (|| {
+            let snapshot = self.catalog.as_ref().map_err(|e| e.clone())?.library_snapshot().map_err(|e| e.to_string())?;
+            let imported = snapshot.tracks.get(member).ok_or_else(|| "playlist member is unavailable".to_owned())?;
+            let id = self.catalog.as_mut().map_err(|e| e.clone())?
+                .reference_id_for_library_location(&imported.location).map_err(|e| e.to_string())?
+                .ok_or_else(|| "playlist audio is unavailable".to_owned())?;
+            self.reload();
+            self.tracks.iter().find(|item| item.track.id == id)
+                .map(|item| item.track.id.as_u64())
+                .ok_or_else(|| "resolved audio reference is unavailable".to_owned())
+        })();
+        match result {
+            Ok(id) => self.load_deck(deck, id),
+            Err(error) => self.notice = format!("Playlist load refused: {error}"),
+        }
     }
 
     pub(crate) fn import(&mut self) {

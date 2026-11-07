@@ -892,6 +892,49 @@ impl LibraryApp {
                 self.availability_filter = Some(filter);
             }
         }
+        ui.add_space(8.0);
+        SectionHeading { title: "Imported playlists" }.show(ui, tokens);
+        let snapshot = self.catalog.as_ref().ok().and_then(|catalog| catalog.library_snapshot().ok());
+        if let Some(snapshot) = snapshot {
+            fn show_nodes(ui: &mut egui::Ui, nodes: &[oxidj_library::LibraryNode], path: &mut Vec<String>, app: &mut LibraryApp) {
+                for node in nodes {
+                    match node {
+                        oxidj_library::LibraryNode::Folder { name, children } => {
+                            path.push(name.clone());
+                            egui::CollapsingHeader::new(format!("📁 {name}")).default_open(true).id_salt(path.join("/" )).show(ui, |ui| show_nodes(ui, children, path, app));
+                            path.pop();
+                        }
+                        oxidj_library::LibraryNode::Playlist { name, members } => {
+                            let label = format!("♫ {name}");
+                            if ui.selectable_label(app.imported_playlist.as_ref() == Some(members), label).clicked() {
+                                app.imported_playlist = Some(members.clone());
+                                app.imported_member = None;
+                            }
+                        }
+                    }
+                }
+            }
+            show_nodes(ui, &snapshot.roots, &mut Vec::new(), self);
+            if let Some(members) = self.imported_playlist.clone() {
+                ui.separator();
+                ui.label("Playlist members (stored order)");
+                for (position, &member) in members.iter().enumerate() {
+                    let Some(track) = snapshot.tracks.get(member) else { continue };
+                    let title = format!("{} · {}", position + 1, track.title);
+                    if ui.selectable_label(self.imported_member == Some(position), title).clicked() {
+                        self.imported_member = Some(position);
+                    }
+                    if self.imported_member == Some(position) {
+                        ui.horizontal(|ui| {
+                            if ui.small_button("Load A").clicked() { self.load_imported_member(member, 0); }
+                            if ui.small_button("Load B").clicked() { self.load_imported_member(member, 1); }
+                        });
+                    }
+                }
+            }
+        } else {
+            ui.label("No imported playlists");
+        }
     }
 
     /// Selected-track facts as an aligned key/value grid, then the waveform.
