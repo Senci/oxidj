@@ -5,6 +5,7 @@
 
 use super::*;
 use eframe::egui::{Pos2, Rect, accesskit::Role};
+use oxidj_library::{LibraryCue, LibrarySnapshot, LibraryTrack};
 use std::path::Path;
 
 /// 16-bit mono PCM WAV of a 440 Hz tone for `seconds`.
@@ -797,5 +798,58 @@ fn navigation_counts_are_right_aligned_in_full_width_rows() {
     let right = counts[0].right();
     assert!(counts.iter().all(|c| (c.right() - right).abs() <= 1.0), "{counts:?}");
     assert!(rows.iter().all(|r| (r.right() - 8.0 - right).abs() <= 1.5), "{rows:?} {right}");
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn details_show_imported_cues_read_only_and_follow_selection() {
+    let (root, db) = catalog_root("details-cues");
+    let mut catalog = Catalog::open(&db).unwrap();
+    let paths = ["tone-a.wav", "tone-b.wav", "tone-c.wav"].map(|name| root.join("audio").join(name));
+    let tracks = paths.iter().enumerate().map(|(index, path)| {
+        let raw = path.to_string_lossy().into_owned();
+        let (uri, _) = oxidj_application::location_uri(&raw);
+        LibraryTrack {
+            title: format!("cue-track-{index}"), location: uri,
+            cues: match index {
+                0 => vec![
+                    LibraryCue { hot_cue: Some(1), start_ms: 12_345, end_ms: None, name: "Drop".into(), colour: None },
+                    LibraryCue { hot_cue: None, start_ms: 67_890, end_ms: Some(90_123), name: "Loop".into(), colour: None },
+                ],
+                2 => vec![LibraryCue { hot_cue: None, start_ms: 5_000, end_ms: None, name: String::new(), colour: None }],
+                _ => vec![],
+            },
+            ..LibraryTrack::default()
+        }
+    }).collect();
+    catalog.import_library(&LibrarySnapshot { tracks, ..Default::default() }).unwrap();
+    drop(catalog);
+
+    let mut shell = Shell::new(&db, 1440.0);
+    shell.app.show_details = true;
+    let id_a = shell.app.tracks[0].track.id.as_u64();
+    let id_b = shell.app.tracks[1].track.id.as_u64();
+    let id_c = shell.app.tracks[2].track.id.as_u64();
+    let before = Catalog::open(&db).unwrap().library_snapshot().unwrap();
+    shell.app.selected = Some(id_a);
+    let output = shell.settle();
+    let painted = texts(&output).into_iter().map(|(text, _)| text).collect::<Vec<_>>();
+    for expected in ["Imported cues & loops", "Hot cue 1", "Memory cue", "0:12.345", "1:30.123", "Drop", "Loop"] {
+        assert!(painted.iter().any(|text| text == expected), "missing {expected:?}: {painted:?}");
+    }
+    assert_eq!(Catalog::open(&db).unwrap().library_snapshot().unwrap(), before);
+
+    shell.app.selected = Some(id_b);
+    let output = shell.settle();
+    let painted = texts(&output).into_iter().map(|(text, _)| text).collect::<Vec<_>>();
+    assert!(painted.iter().any(|text| text == "No imported cues or loops."));
+    assert!(!painted.iter().any(|text| text == "Drop" || text == "Loop" || text == "Hot cue 1"), "stale cue rows: {painted:?}");
+
+    shell.app.selected = Some(id_c);
+    let output = shell.settle();
+    let painted = texts(&output).into_iter().map(|(text, _)| text).collect::<Vec<_>>();
+    assert!(painted.iter().any(|text| text == "Memory cue"));
+    assert!(painted.iter().any(|text| text == "0:05.000"));
+    assert_eq!(Catalog::open(&db).unwrap().library_snapshot().unwrap(), before);
     std::fs::remove_dir_all(root).unwrap();
 }

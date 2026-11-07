@@ -990,8 +990,46 @@ impl LibraryApp {
                 ui.end_row();
             });
         ui.add_space(8.0);
+        self.show_imported_cues(ui, item, tokens);
+        ui.add_space(8.0);
         self.track_waveform
             .show(ui, self.catalog.as_ref().ok(), item, tokens);
+    }
+
+    /// Display imported cue metadata verbatim from the catalog. Lookup follows
+    /// the same path/URI matching used by decks and is read-only.
+    fn show_imported_cues(&self, ui: &mut egui::Ui, item: &TrackDetails, tokens: theme::ColorTokens) {
+        SectionHeading { title: "Imported cues & loops" }.show(ui, tokens);
+        let cues = match self.catalog.as_ref() {
+            Ok(catalog) => {
+                let (uri, _) = oxidj_application::location_uri(&item.track.path);
+                match catalog.cues_for_locations(&[&item.track.path, &uri]) {
+                    Ok(cues) => cues,
+                    Err(error) => {
+                        ui.label(format!("Cue metadata unavailable: {error}"));
+                        return;
+                    }
+                }
+            }
+            Err(_) => {
+                ui.label("Cue metadata unavailable.");
+                return;
+            }
+        };
+        if cues.is_empty() {
+            ui.label(egui::RichText::new("No imported cues or loops.").color(tokens.muted_text));
+            return;
+        }
+        egui::Grid::new("imported-track-cues").num_columns(4).spacing([8.0, 4.0]).show(ui, |ui| {
+            ui.strong("Cue"); ui.strong("Start"); ui.strong("Loop end"); ui.strong("Name"); ui.end_row();
+            for cue in cues {
+                ui.label(cue.hot_cue.map(|index| format!("Hot cue {index}")).unwrap_or_else(|| "Memory cue".into()));
+                ui.label(format_cue_time(cue.start_ms));
+                ui.label(cue.end_ms.map(format_cue_time).unwrap_or_else(|| "—".into()));
+                ui.add(egui::Label::new(if cue.name.is_empty() { "—" } else { &cue.name }).truncate());
+                ui.end_row();
+            }
+        });
     }
 
     /// The track table: a sortable header (click a column to sort, again to
@@ -1283,6 +1321,11 @@ fn track_row(
         let decks: Vec<&str> = on_decks.iter().zip(crate::decks::DECKS).filter(|(on, _)| **on).map(|(_, l)| l).collect();
         let on = if decks.is_empty() { String::new() } else { format!(" · on deck {}", decks.join(" and ")) };
         response.on_hover_text(format!("{availability}{on} · {}", item.track.path))
+}
+
+/// Cue positions are source milliseconds; show all stored precision.
+fn format_cue_time(milliseconds: u32) -> String {
+    format!("{}:{:02}.{:03}", milliseconds / 60_000, (milliseconds / 1_000) % 60, milliseconds % 1_000)
 }
 
 /// Track length as `m:ss` (rounded to the second), like DJ library tables.
