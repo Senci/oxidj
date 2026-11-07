@@ -1359,6 +1359,56 @@ fn catalog_playlist_members_append_updates_only_the_exact_root_membership() {
 }
 
 #[test]
+fn catalog_playlist_append_refuses_non_imported_sqlite_without_mutation() {
+    let dir = scratch();
+    let catalog = dir.join("not-imported.sqlite");
+    let sql = |statement: &str| {
+        let result = Command::new("python3")
+            .args([
+                "-c",
+                "import sqlite3,sys; c=sqlite3.connect(sys.argv[1]); c.executescript(sys.argv[2]); c.commit(); print(c.execute('PRAGMA user_version').fetchone()[0]); print('\\n'.join(c.iterdump()))",
+            ])
+            .arg(&catalog)
+            .arg(statement)
+            .output()
+            .unwrap();
+        assert!(result.status.success(), "{result:?}");
+        result.stdout
+    };
+    // Both an unrelated database and one with a coincidentally current version
+    // must fail before the mutation-capable opener can create OxiDJ tables.
+    for version in [0, 7] {
+        let before = sql(&format!(
+            "CREATE TABLE IF NOT EXISTS sentinel(value TEXT); DELETE FROM sentinel; \
+             INSERT INTO sentinel VALUES ('synthetic sentinel'); PRAGMA user_version={version};"
+        ));
+        let refused = cli(&[
+            s("catalog"),
+            s("append-library-playlist-members"),
+            s("--catalog"),
+            catalog.as_os_str(),
+            s("--playlist-name"),
+            s("Top"),
+            s("--track-ids"),
+            s("1"),
+        ]);
+        assert_eq!(refused.status.code(), Some(1), "{refused:?}");
+        assert!(refused.stdout.is_empty());
+        let error = String::from_utf8_lossy(&refused.stderr);
+        assert!(
+            if version == 0 {
+                error.contains("catalog schema version 0 is newer than supported")
+            } else {
+                error.contains("no such table: library_tracks")
+            },
+            "{error}"
+        );
+        assert_eq!(sql(""), before, "schema/version/data changed on refusal");
+    }
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
 fn catalog_playlist_creation_requires_an_existing_imported_catalog() {
     let dir = scratch();
     let catalog = dir.join("catalog.sqlite");

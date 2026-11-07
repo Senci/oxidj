@@ -852,6 +852,18 @@ pub fn append_library_playlist_members(
     if !catalog.as_ref().is_file() {
         return Err(fail("catalog does not exist"));
     }
+    // Refuse unrelated/non-imported inputs before the write opener can create
+    // or migrate schema. Target/member checks still run in the write transaction.
+    {
+        let read_only = Catalog::open_read_only(catalog.as_ref())
+            .map_err(|e| LibraryWorkflowError(e.to_string()))?;
+        let snapshot = read_only
+            .library_snapshot()
+            .map_err(|e| LibraryWorkflowError(e.to_string()))?;
+        if snapshot.tracks.is_empty() {
+            return Err(fail("catalog holds no imported tracks"));
+        }
+    }
     let mut opened = Catalog::open(catalog).map_err(|e| LibraryWorkflowError(e.to_string()))?;
     opened
         .append_library_playlist_members(name, &members)
