@@ -56,7 +56,12 @@ assert.doesNotMatch(home, /on(?:click|load|mouseover)=|javascript:/i);
 assert.ok(home.includes('<details>'));
 assert.ok(home.includes('class="wave"') && home.includes('class="band band-low"'));
 const lightboxLinks = [...home.matchAll(/<a class="shot-link" href="([^"]+)" data-lightbox/g)];
-assert.equal(lightboxLinks.length, 11, 'home has eleven zoomable screenshots');
+assert.equal(lightboxLinks.length, 12, 'home has twelve zoomable screenshots');
+assert.match(
+  home,
+  /href="\.\/images\/imported-playlist-load-controls\.webp" data-lightbox data-width="175" data-height="252"/,
+);
+assert.match(home, /alt="[^"]*explicit Load A and Load B buttons/);
 for (const command of ['init', 'import', 'list'])
   assert.ok(home.includes(`catalog ${command} --db`));
 const roadmap = readFileSync(new URL('roadmap.html', root), 'utf8');

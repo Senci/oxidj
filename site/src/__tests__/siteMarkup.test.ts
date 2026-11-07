@@ -56,12 +56,21 @@ describe('screenshots', () => {
     expect(html).toContain('loading="lazy"');
     expect(html).not.toContain('srcset');
   });
+  it('pins the imported-playlist capture dimensions, accessible description and lightbox path', () => {
+    const html = renderShot(screenshots.importedPlaylists, '240px');
+    expect(html).toContain('href="./images/imported-playlist-load-controls.webp" data-lightbox');
+    expect(html).toContain('data-width="175" data-height="252"');
+    expect(html).toContain('width="175" height="252"');
+    expect(html).toContain(`alt="${screenshots.importedPlaylists.alt}"`);
+    expect(html).toContain('Load A and Load B');
+    expect(html).not.toContain('srcset');
+  });
   it('places the stage, gallery and waveform art on the home page only', () => {
     const home = renderSite(
       renderRoadmap(readFileSync(new URL('../../index.html', import.meta.url), 'utf8')),
       'index.html',
     );
-    expect(home.match(/data-lightbox/g)).toHaveLength(11);
+    expect(home.match(/data-lightbox/g)).toHaveLength(12);
     expect(home).toContain('class="wave"');
     expect(home.match(/class="rail-stop /g)).toHaveLength(9);
     for (const shot of Object.values(screenshots)) {

@@ -31,10 +31,16 @@ describe('static public pages', () => {
     ).toBe(true);
     expect(milestones.find((m) => m.id === 'm6')?.status).toBe('in-progress');
     expect(milestones.find((m) => m.id === 'm7')?.status).toBe('in-progress');
-    expect(roadmapSnapshot.verifiedAt).toBe('2026-11-06');
+    expect(roadmapSnapshot.verifiedAt).toBe('2026-11-07');
     expect(milestones.find((m) => m.id === 'm8')?.status).toBe('in-progress');
     expect(milestones.find((m) => m.id === 'm8')?.detail).toMatch(
-      /merged waveform.*warm.*cool.*Settings \(Ctrl\+,\).*CPAL.*hot cues and loops.*key lock \(Signalsmith Stretch\).*SYNC.*optional mixer.*low, mid and high bands.*"it works", with no measurements.*club gear.*CDJ\/XDJ.*latency guarantee.*600 s PipeWire run had 1 xrun.*5 ms/,
+      /merged waveform.*warm.*cool.*Settings \(Ctrl\+,\)/,
+    );
+    expect(milestones.find((m) => m.id === 'm8')?.detail).toMatch(
+      /CPAL.*hot cues and loops.*key lock \(Signalsmith Stretch\).*SYNC.*optional mixer.*low, mid and high bands.*"it works", with no measurements.*club gear.*CDJ\/XDJ.*latency guarantee.*600 s PipeWire run had 1 xrun.*5 ms/,
+    );
+    expect(milestones.find((m) => m.id === 'm8')?.detail).toMatch(
+      /exact imported location.*never by title or filename fallback.*does not autoplay.*synthetic-only.*NOT DEMONSTRATED/i,
     );
     expect(roadmapSnapshot.unfinished).toMatch(
       /no tempo-change maps.*informal owner listening check.*club gear.*CDJ\/XDJ.*no latency guarantee.*600 s.*1 audio dropout \(xrun\).*5 ms/,
@@ -59,9 +65,10 @@ describe('static public pages', () => {
     expect(milestones.find((m) => m.id === 'm4')?.detail).toMatch(
       /broader compatibility with real Rekordbox or OneLibrary.*not been demonstrated/i,
     );
-    expect(projectUpdates).toHaveLength(20);
-    expect(projectUpdates[0]?.source.href).toMatch(/\/commit\/2108b79$/);
+    expect(projectUpdates).toHaveLength(21);
+    expect(projectUpdates[0]?.source.href).toMatch(/\/commit\/8068744$/);
     expect(projectUpdates.map((u) => u.date)).toEqual([
+      '2026-11-07',
       '2026-11-05',
       '2026-11-05',
       '2026-11-05',

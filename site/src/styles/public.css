@@ -752,6 +752,9 @@ code {
   align-items: center;
   min-height: 56px;
 }
+.shot-imported-playlist-load-controls {
+  max-width: 240px;
+}
 .gallery-wide {
   display: grid;
   gap: var(--space-xl);

@@ -7,7 +7,9 @@ data) under docs/milestones/: v13-computed-beat-grid (computed BPM and beat grid
 release build of 9a9b96c), v14-merged-decks (M8 D1, release build of ef5c601),
 v15-tempo-keylock-sync (M8 D3, release build of fc46d0f) and
 v17-waveform-bands (W12 3-band deck waveforms, release build of d1e6c21; its
-01 is a copy of the v16 mixer capture and serves as the "before").
+01 is a copy of the v16 mixer capture and serves as the "before"), and
+v18-imported-playlists (approved imported-playlist UI, installed release of
+8068744).
 Each crop keeps only app window content (no desktop bar, title bar, dock or
 pointer badge). Every crop is written as a lossless WebP at native resolution
 (2x and the lightbox); full-width crops also get a half-width lossy WebP for
@@ -32,6 +34,7 @@ BANDS = MILESTONES / "v17-waveform-bands"
 BEFORE = BANDS / "01-before-v16-monochrome.png"
 PLAYING = BANDS / "03-after-both-playing-played-dimmed.png"
 SYNCED = BANDS / "04-after-sync-keylock-both-playing.png"
+PLAYLISTS = MILESTONES / "v18-imported-playlists/01-imported-playlist-load-controls.png"
 
 # Waveform section of the details panel: below the details/waveform hairline
 # (y 361), right of the panel edge (x 1080), above the window bottom bar.
@@ -63,6 +66,8 @@ CROPS = {
     "decks-collapsed": (COLLAPSED, (0, 100, 1440, 400)),
     "waveform-beat-grid": (LOOP, WAVE_PANEL),
     "waveform-click-grid": (CLICK, WAVE_PANEL),
+    # Actual imported-playlist panel, selected member and explicit Load A/B.
+    "imported-playlist-load-controls": (PLAYLISTS, (0, 0, 175, 252)),
 }
 
 HALF = {

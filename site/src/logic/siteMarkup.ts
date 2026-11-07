@@ -20,12 +20,12 @@ const pages: Record<string, { title: string; description: string }> = {
   'index.html': {
     title: 'OxiDJ | A library before the decks',
     description:
-      'A Rust-first DJ library for local collections, now with two playable decks. See what works today, try the catalog CLI and follow Rekordbox XML development.',
+      'A Rust-first DJ library for local collections, with imported-playlist browsing and two playable decks. See what works today, try the catalog CLI and follow Rekordbox XML development.',
   },
   'roadmap.html': {
     title: 'OxiDJ | Roadmap and updates',
     description:
-      'Follow the local catalog, reference-only import, prototype viewer, Rekordbox XML groundwork and the first two decks. See the milestones and recent changes.',
+      'Follow the local catalog, imported-playlist browsing, reference-only import, prototype viewer, Rekordbox XML groundwork and the first two decks. See the milestones and recent changes.',
   },
   'dossier.html': {
     title: 'OxiDJ | Classified file 0042',
@@ -74,6 +74,7 @@ export function renderSite(html: string, page: string): string {
     shotCollapsed: renderShot(screenshots.decksCollapsed, wide),
     shotSynced: renderShot(screenshots.decksSynced, narrow),
     shotRefused: renderShot(screenshots.syncRefused, narrow),
+    shotImportedPlaylists: renderShot(screenshots.importedPlaylists, '240px'),
     shotWaveGrid: renderShot(screenshots.waveformGrid, '359px'),
     shotWaveClick: renderShot(screenshots.waveformClick, '359px'),
   };
