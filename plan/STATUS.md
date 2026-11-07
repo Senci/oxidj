@@ -85,9 +85,11 @@ ordered folder/playlist attributes and every membership vector against baseline
 plus only the intended edits. Controls reject unrelated title, cue, grid,
 member replacement and order-only corruption (same counts and valid IDs).
 Source PDB/ANLZ bytes remain unchanged; audited unresolved fields are zero.
-This replaces the earlier spot-check preservation claim; independent re-review
-is pending. Synthetic evidence only: no personal catalog opened, no native/vendor,
-hardware, ADR-005, accessibility or scale qualification implied.
+This replaces the earlier spot-check preservation claim; Sol approved corrective
+commit `8eb806f` in review round 2. The focused regression passed (1 test), and
+`cargo xtask ci-full` passed (`ci=ok test=ok ui-test=ok deny=ok`). Synthetic
+evidence only: no personal catalog opened, no native/vendor, hardware, ADR-005,
+accessibility or scale qualification implied.
 
 ## M4 workstreams
 
