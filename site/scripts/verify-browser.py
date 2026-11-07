@@ -52,7 +52,31 @@ AUDIT_JS = r"""
   }
   const targets = [...document.querySelectorAll('a,button,summary,[tabindex="0"]')].filter(visible).map(el => { const r = el.getBoundingClientRect(); return { text: (el.textContent || el.getAttribute('aria-label') || '').trim().slice(0, 30), w: Math.round(r.width), h: Math.round(r.height), inline: !!el.closest('p') }; }).filter(t => !t.inline && (t.w < 44 || t.h < 44));
   const imgs = [...document.images].filter(i => !i.closest('.lightbox')).map(i => ({ src: i.currentSrc.split('/').pop(), ok: i.complete && i.naturalWidth > 0, hasSize: i.hasAttribute('width') && i.hasAttribute('height'), alt: i.alt.length }));
+  // Measure painted text, not just document width: overflow-x: clip masks overflow.
+  const clippedText = [];
+  const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+  while (walker.nextNode()) {
+    const node = walker.currentNode, el = node.parentElement;
+    if (!node.textContent.trim() || !visible(el) || el.closest('svg,script,style,pre,.lightbox,.skip-link')) continue;
+    const range = document.createRange();
+    range.selectNodeContents(node);
+    let left = 0, right = document.documentElement.clientWidth;
+    for (let parent = el; parent; parent = parent.parentElement) {
+      if (['clip', 'hidden', 'auto', 'scroll'].includes(getComputedStyle(parent).overflowX)) {
+        const box = parent.getBoundingClientRect();
+        left = Math.max(left, box.left); right = Math.min(right, box.right);
+      }
+    }
+    if ([...range.getClientRects()].some(r => r.width > 0 && (r.left < left - 1 || r.right > right + 1))) {
+      clippedText.push(el.textContent.trim().slice(0, 60));
+    }
+  }
+  const clippedNavigation = [...document.querySelectorAll('.site-header nav a,.site-footer nav a')].filter(visible).filter(el => {
+    const r = el.getBoundingClientRect();
+    return r.left < -1 || r.right > document.documentElement.clientWidth + 1;
+  }).map(el => el.textContent.trim());
   return {
+    clippedText, clippedNavigation,
     overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
     minContrast: +minRatio.toFixed(2), lowContrast: low.slice(0, 10), smallTargets: targets.slice(0, 10), images: imgs,
     fonts: [...document.fonts].filter(f => f.status === 'loaded').map(f => f.family + ' ' + f.weight),
@@ -252,6 +276,17 @@ def main():
                         if name != "404":
                             audit["enhanced"] = page.evaluate("document.getElementById('main')?.dataset.enhancementsReady === 'true'")
                         summary[tag] = audit
+                        if audit["clippedText"] or audit["clippedNavigation"]:
+                            failures.append(f"{tag}: clipped copy/navigation {audit['clippedText']} {audit['clippedNavigation']}")
+                        if width == 390 and name == "index":
+                            # Negative control: clipped copy/nav must fail even with root overflow clipped.
+                            probe = page.add_style_tag(content=".hero .lead { min-width: 600px !important; } .site-header nav { transform: translateX(200px) !important; }")
+                            mutated = page.evaluate(AUDIT_JS)
+                            probe.evaluate("el => el.remove()")
+                            detected = bool(mutated["clippedText"] and mutated["clippedNavigation"])
+                            audit["clippingNegativeControl"] = detected
+                            if not detected:
+                                failures.append("390px clipping negative control was not detected")
                         if audit["overflow"] > 0:
                             failures.append(f"{tag}: horizontal overflow {audit['overflow']}px")
                         if audit["lowContrast"]:

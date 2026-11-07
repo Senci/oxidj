@@ -73,6 +73,8 @@ h3 {
 }
 p {
   margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
   text-wrap: pretty;
 }
 img,
@@ -747,7 +749,8 @@ code {
 }
 /* Thin strip crops: keep a 56 px tap target when the image is only ~30 px tall. */
 .shot-decks-mixer .shot-link,
-.shot-sync-refused .shot-link {
+.shot-sync-refused .shot-link,
+.shot-senci-owner-library-record .shot-link {
   display: grid;
   align-items: center;
   min-height: 56px;
@@ -1391,10 +1394,11 @@ html.io-reveal .stage:not(.is-in) .shot {
     font-size: 1rem;
   }
   .site-header-inner {
+    flex-wrap: wrap;
     gap: var(--space-xs);
   }
   .site-header nav {
-    flex-wrap: nowrap;
+    flex-wrap: wrap;
     gap: 0;
   }
   .site-header nav a {

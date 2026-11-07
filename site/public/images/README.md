@@ -19,12 +19,18 @@ records are visible in the published crop. Pixels were inspected before publicat
 | `v17-waveform-bands/03-after-both-playing-played-dimmed.png`    | release of the W12 tree            | same set; 3-band waveforms, mixer shown, both decks playing                                                               |
 | `v17-waveform-bands/04-after-sync-keylock-both-playing.png`     | release `d1e6c21` (W12)            | same set; KEY and SYNC on deck B, mixer shown, both decks playing                                                         |
 | `v18-imported-playlists/01-imported-playlist-load-controls.png` | installed release `8068744`        | synthetic imported nested playlist; selected member and explicit Load A/B controls; no private data                       |
-| Owner-library Bot Screen capture (source not retained)          | installed release `8068744`        | exactly one imported-library row; metadata only, not loaded or played; no IDs, paths or other records in crop             |
+| Owner-library Bot Screen capture (source not in repository)     | installed release `8068744`        | exactly one imported-library row; metadata only, not loaded or played; no IDs, paths or other records in crop             |
 
-`scripts/crop-screenshots.py` regenerates every file below from those sources and
-deletes superseded crops (`PYTHONDONTWRITEBYTECODE=1 uv run --no-project --with pillow
-python scripts/crop-screenshots.py` from `site/`). Full-width crops also get a `-720`
-half-width lossy q80 copy for 1x screens (`srcset`); every full-size file is lossless.
+`scripts/crop-screenshots.py` regenerates the synthetic milestone crops and
+social card below, and deletes superseded synthetic crops
+(`PYTHONDONTWRITEBYTECODE=1 uv run --no-project --with pillow python
+scripts/crop-screenshots.py` from `site/`). It does not regenerate or modify
+`senci-owner-library-record.webp`: that inspected, lossless crop is retained as
+an explicitly owner-authorized asset; its private source capture is not in the
+repository. Replacement requires a fresh authorized native Bot Screen capture
+and a privacy inspection, not the synthetic crop script. Full-width synthetic
+crops also get a `-720` half-width lossy q80 copy for 1x screens (`srcset`);
+every full-size file is lossless.
 
 | File                                   | Source and crop (x0, y0, x1, y1)                       | Notes                                                                                    |
 | -------------------------------------- | ------------------------------------------------------ | ---------------------------------------------------------------------------------------- |
