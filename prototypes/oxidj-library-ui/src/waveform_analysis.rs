@@ -30,6 +30,14 @@ where
 }
 
 impl Job {
+    #[cfg(test)]
+    pub(crate) fn finished_for_test(results: Vec<(u64, Result<WaveformOutcome, String>)>) -> Self {
+        let total = results.len();
+        let (tx, rx) = channel();
+        tx.send(results).expect("test receiver is alive");
+        Self { total, done: Arc::new(AtomicUsize::new(total)), rx }
+    }
+
     pub(crate) fn start(db_path: PathBuf, ids: Vec<u64>) -> Result<Self, String> {
         Self::start_after_gate(db_path, ids, None)
     }

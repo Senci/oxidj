@@ -494,6 +494,26 @@ fn more_menu_reaches_catalog_import_and_xml_controls() {
 }
 
 #[test]
+fn waveform_job_failure_is_reported_as_failed_by_production_ui() {
+    let (root, db) = catalog_root("waveform-failure-count");
+    let mut shell = Shell::new(&db, 1200.0);
+    shell.app.waveform_job = Some(waveform_analysis::Job::finished_for_test(vec![(
+        1,
+        Err("synthetic per-track failure".into()),
+    )]));
+
+    let _ = shell.settle();
+
+    assert!(
+        shell.app.notice.contains("0 succeeded, 1 failed (of 1)"),
+        "failed track must not be reported as successful: {}",
+        shell.app.notice
+    );
+    assert!(shell.app.waveform_job.is_none(), "finished job is consumed");
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn import_references_queues_new_tracks_and_reloads_waveforms_on_completion() {
     let root = std::env::temp_dir().join(format!("oxidj-ui-waveform-{}-{}", std::process::id(),
         std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
