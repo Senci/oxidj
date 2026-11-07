@@ -125,6 +125,7 @@ pub(crate) struct LibraryApp {
     #[cfg(test)]
     pub(crate) waveform_gate: Option<std::sync::Arc<std::sync::Barrier>>,
     pub(crate) availability_filter: Option<TrackAvailability>,
+    /// Structural node path (not membership, names, or local audio IDs).
     pub(crate) imported_playlist: Option<Vec<usize>>,
     pub(crate) imported_member: Option<usize>,
     /// M8/D1 deck area (silent transport until D2).

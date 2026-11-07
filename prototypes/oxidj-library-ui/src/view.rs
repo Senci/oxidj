@@ -100,7 +100,9 @@ impl LibraryApp {
                 .default_width(168.0)
                 .width_range(140.0..=280.0)
                 .resizable(true)
-                .show(ctx, |ui| self.navigation(ui, tokens));
+                .show(ctx, |ui| {
+                    egui::ScrollArea::vertical().id_salt("navigation-scroll").show(ui, |ui| self.navigation(ui, tokens));
+                });
             self.shell.nav = Some(nav.response.rect);
         }
         if self.show_details {
@@ -869,9 +871,18 @@ impl LibraryApp {
     /// selected filter marked like the selected track row (tint + rail).
     fn navigation(&mut self, ui: &mut egui::Ui, tokens: theme::ColorTokens) {
         ui.spacing_mut().item_spacing.y = 0.0;
-        SectionHeading { title: "Collection" }.show(ui, tokens);
+        SectionHeading {
+            title: "Collection",
+        }
+        .show(ui, tokens);
         ui.add_space(4.0);
-        let all = nav_row(ui, self.availability_filter.is_none(), "All tracks", self.tracks.len(), tokens);
+        let all = nav_row(
+            ui,
+            self.availability_filter.is_none(),
+            "All tracks",
+            self.tracks.len(),
+            tokens,
+        );
         if all.clicked() {
             self.availability_filter = None;
         }
@@ -888,52 +899,117 @@ impl LibraryApp {
             (TrackAvailability::Available, "Available", available),
             (TrackAvailability::Missing, "Missing", missing),
         ] {
-            if nav_row(ui, self.availability_filter == Some(filter), label, count, tokens).clicked() {
+            if nav_row(
+                ui,
+                self.availability_filter == Some(filter),
+                label,
+                count,
+                tokens,
+            )
+            .clicked()
+            {
                 self.availability_filter = Some(filter);
             }
         }
         ui.add_space(8.0);
-        SectionHeading { title: "Imported playlists" }.show(ui, tokens);
-        let snapshot = self.catalog.as_ref().ok().and_then(|catalog| catalog.library_snapshot().ok());
-        if let Some(snapshot) = snapshot {
-            fn show_nodes(ui: &mut egui::Ui, nodes: &[oxidj_library::LibraryNode], path: &mut Vec<String>, app: &mut LibraryApp) {
-                for node in nodes {
+        SectionHeading {
+            title: "Imported playlists",
+        }
+        .show(ui, tokens);
+        let snapshot = self
+            .catalog
+            .as_ref()
+            .map_err(Clone::clone)
+            .and_then(|catalog| {
+                catalog
+                    .library_snapshot()
+                    .map_err(|error| error.to_string())
+            });
+        if let Ok(snapshot) = snapshot {
+            if snapshot.roots.is_empty() {
+                ui.label("No imported playlists");
+            }
+            fn show_nodes(
+                ui: &mut egui::Ui,
+                nodes: &[oxidj_library::LibraryNode],
+                path: &mut Vec<usize>,
+                app: &mut LibraryApp,
+            ) {
+                for (index, node) in nodes.iter().enumerate() {
+                    path.push(index);
                     match node {
                         oxidj_library::LibraryNode::Folder { name, children } => {
-                            path.push(name.clone());
-                            egui::CollapsingHeader::new(format!("📁 {name}")).default_open(true).id_salt(path.join("/" )).show(ui, |ui| show_nodes(ui, children, path, app));
-                            path.pop();
+                            egui::CollapsingHeader::new(format!("📁 {name}"))
+                                .default_open(true)
+                                .id_salt(("imported-folder", &*path))
+                                .show(ui, |ui| show_nodes(ui, children, path, app));
                         }
-                        oxidj_library::LibraryNode::Playlist { name, members } => {
+                        oxidj_library::LibraryNode::Playlist { name, .. } => {
                             let label = format!("♫ {name}");
-                            if ui.selectable_label(app.imported_playlist.as_ref() == Some(members), label).clicked() {
-                                app.imported_playlist = Some(members.clone());
+                            if ui
+                                .selectable_label(
+                                    app.imported_playlist.as_ref() == Some(path),
+                                    label,
+                                )
+                                .clicked()
+                            {
+                                app.imported_playlist = Some(path.clone());
                                 app.imported_member = None;
                             }
                         }
                     }
+                    path.pop();
+                }
+            }
+            fn node_at_path<'a>(
+                nodes: &'a [oxidj_library::LibraryNode],
+                path: &[usize],
+            ) -> Option<&'a oxidj_library::LibraryNode> {
+                let (&index, rest) = path.split_first()?;
+                let node = nodes.get(index)?;
+                if rest.is_empty() {
+                    return Some(node);
+                }
+                match node {
+                    oxidj_library::LibraryNode::Folder { children, .. } => {
+                        node_at_path(children, rest)
+                    }
+                    _ => None,
                 }
             }
             show_nodes(ui, &snapshot.roots, &mut Vec::new(), self);
-            if let Some(members) = self.imported_playlist.clone() {
+            if let Some(oxidj_library::LibraryNode::Playlist { members, .. }) = self
+                .imported_playlist
+                .as_ref()
+                .and_then(|path| node_at_path(&snapshot.roots, path))
+            {
                 ui.separator();
                 ui.label("Playlist members (stored order)");
                 for (position, &member) in members.iter().enumerate() {
-                    let Some(track) = snapshot.tracks.get(member) else { continue };
+                    let Some(track) = snapshot.tracks.get(member) else {
+                        continue;
+                    };
                     let title = format!("{} · {}", position + 1, track.title);
-                    if ui.selectable_label(self.imported_member == Some(position), title).clicked() {
+                    if ui
+                        .selectable_label(self.imported_member == Some(position), title)
+                        .clicked()
+                    {
                         self.imported_member = Some(position);
                     }
                     if self.imported_member == Some(position) {
                         ui.horizontal(|ui| {
-                            if ui.small_button("Load A").clicked() { self.load_imported_member(member, 0); }
-                            if ui.small_button("Load B").clicked() { self.load_imported_member(member, 1); }
+                            if ui.small_button("Load A").clicked() {
+                                self.load_imported_member(member, 0);
+                            }
+                            if ui.small_button("Load B").clicked() {
+                                self.load_imported_member(member, 1);
+                            }
                         });
                     }
                 }
             }
-        } else {
-            ui.label("No imported playlists");
+        } else if let Err(error) = snapshot {
+            ui.label(format!("Imported playlists unavailable: {error}"));
         }
     }
 

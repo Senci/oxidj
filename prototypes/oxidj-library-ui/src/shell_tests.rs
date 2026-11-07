@@ -952,39 +952,278 @@ fn details_show_imported_cues_read_only_and_follow_selection() {
 fn imported_nested_playlist_loads_ordered_members_to_both_decks_and_refuses_missing_audio() {
     let (root, db) = catalog_root("playlist-load");
     let paths = ["tone-a.wav", "tone-b.wav", "tone-c.wav"].map(|n| root.join("audio").join(n));
-    let tracks = paths.iter().enumerate().map(|(i, p)| {
-        let raw = p.to_string_lossy().into_owned();
-        let (location, _) = oxidj_application::location_uri(&raw);
-        LibraryTrack { title: format!("member-{i}"), location, ..LibraryTrack::default() }
-    }).collect();
-    let before = LibrarySnapshot { tracks, roots: vec![oxidj_library::LibraryNode::Folder { name: "Nested".into(), children: vec![
-        oxidj_library::LibraryNode::Playlist { name: "Set".into(), members: vec![2, 0, 2] }
-    ] }] };
+    let mut tracks: Vec<_> = paths
+        .iter()
+        .enumerate()
+        .map(|(i, p)| {
+            let raw = p.to_string_lossy().into_owned();
+            let (location, _) = oxidj_application::location_uri(&raw);
+            LibraryTrack {
+                title: format!("member-{i}"),
+                location,
+                ..LibraryTrack::default()
+            }
+        })
+        .collect();
+    // A matching local filename/title must not substitute for an absent imported location.
+    tracks.push(LibraryTrack {
+        title: "tone-c.wav".into(),
+        ..Default::default()
+    });
+    let before = LibrarySnapshot {
+        tracks,
+        roots: vec![oxidj_library::LibraryNode::Folder {
+            name: "Nested".into(),
+            children: vec![oxidj_library::LibraryNode::Playlist {
+                name: "Set".into(),
+                members: vec![2, 0, 2, 3],
+            }],
+        }],
+    };
     Catalog::open(&db).unwrap().import_library(&before).unwrap();
     let mut shell = Shell::new(&db, 1440.0);
     let click_text = |shell: &mut Shell, needle: &str| {
         let out = shell.settle();
-        let (_, rect) = texts(&out).into_iter().find(|(s, _)| s.contains(needle)).unwrap_or_else(|| panic!("visible UI text {needle:?} not found"));
+        let (_, rect) = texts(&out)
+            .into_iter()
+            .find(|(s, _)| s.contains(needle))
+            .unwrap_or_else(|| panic!("visible UI text {needle:?} not found"));
         shell.click(rect.center());
     };
     click_text(&mut shell, "♫ Set");
     let shown = shell.settle();
-    let member_texts: Vec<_> = texts(&shown).into_iter().map(|(s, _)| s).filter(|s| s.contains("member-")).collect();
-    assert_eq!(member_texts, ["1 · member-2", "2 · member-0", "3 · member-2"]);
+    let member_texts: Vec<_> = texts(&shown)
+        .into_iter()
+        .map(|(s, _)| s)
+        .filter(|s| s.contains("member-"))
+        .collect();
+    assert_eq!(
+        member_texts,
+        ["1 · member-2", "2 · member-0", "3 · member-2"]
+    );
     click_text(&mut shell, "1 · member-2");
+    assert!(
+        shell.app.decks.decks.iter().all(|d| d.track.is_none()),
+        "selection alone never loads"
+    );
     click_text(&mut shell, "Load A");
-    assert!(shell.app.decks.decks[0].track.is_some());
+    assert_eq!(
+        shell.app.decks.decks[0].track.as_ref().unwrap().path,
+        paths[2]
+    );
+    assert!(!shell.app.decks.decks[0].playing);
     assert!(shell.app.decks.decks[1].track.is_none());
+    shell.app.decks.decks[0].cue_ms = 125.0;
+    shell.app.decks.decks[0].position_ms = 250.0;
+    shell.app.decks.decks[0].loop_range = Some((125.0, 375.0));
+    click_text(&mut shell, "2 · member-0");
+    click_text(&mut shell, "Load B");
+    assert_eq!(
+        shell.app.decks.decks[1].track.as_ref().unwrap().path,
+        paths[0]
+    );
     click_text(&mut shell, "3 · member-2");
     click_text(&mut shell, "Load B");
-    assert!(shell.app.decks.decks[1].track.is_some());
-    let before_ids = [shell.app.decks.decks[0].track.as_ref().map(|t| t.id), shell.app.decks.decks[1].track.as_ref().map(|t| t.id)];
+    assert_eq!(
+        shell.app.decks.decks[1].track.as_ref().unwrap().path,
+        paths[2]
+    );
+    assert!(!shell.app.decks.decks[1].playing);
+    let before_ids = [
+        shell.app.decks.decks[0].track.as_ref().map(|t| t.id),
+        shell.app.decks.decks[1].track.as_ref().map(|t| t.id),
+    ];
+    click_text(&mut shell, "4 · tone-c.wav");
+    click_text(&mut shell, "Load A");
+    assert!(shell.app.notice.starts_with("Playlist load refused:"));
+    assert_eq!(
+        shell.app.decks.loaded(),
+        before_ids,
+        "no title/filename fallback"
+    );
     // Removing a referenced local file makes location resolution refuse without replacing the loaded target.
     std::fs::remove_file(&paths[0]).unwrap();
     click_text(&mut shell, "2 · member-0");
     click_text(&mut shell, "Load A");
-    assert!(shell.app.notice.contains("refused"));
-    assert_eq!([shell.app.decks.decks[0].track.as_ref().map(|t| t.id), shell.app.decks.decks[1].track.as_ref().map(|t| t.id)], before_ids);
-    assert_eq!(Catalog::open(&db).unwrap().library_snapshot().unwrap(), before);
+    assert!(shell.app.notice.starts_with("Playlist load refused:"));
+    assert!(shell.app.decks.decks.iter().all(|d| !d.playing));
+    assert_eq!(
+        [
+            shell.app.decks.decks[0].track.as_ref().map(|t| t.id),
+            shell.app.decks.decks[1].track.as_ref().map(|t| t.id)
+        ],
+        before_ids
+    );
+    assert_eq!(shell.app.decks.decks[0].cue_ms, 125.0);
+    assert_eq!(shell.app.decks.decks[0].position_ms, 250.0);
+    assert_eq!(shell.app.decks.decks[0].loop_range, Some((125.0, 375.0)));
+    assert_eq!(
+        Catalog::open(&db).unwrap().library_snapshot().unwrap(),
+        before
+    );
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn imported_playlist_members_scroll_to_last_member_and_load_it() {
+    let (root, _) = catalog_root("playlist-scroll");
+    // Start without scanned audio references: loading must resolve the imported location.
+    let db = root.join("imported-only.sqlite");
+    let path = root.join("audio/tone-b.wav");
+    let (location, _) = oxidj_application::location_uri(path.to_str().unwrap());
+    Catalog::open(&db)
+        .unwrap()
+        .import_library(&LibrarySnapshot {
+            tracks: vec![LibraryTrack {
+                title: "scroll-member".into(),
+                location,
+                ..Default::default()
+            }],
+            roots: vec![oxidj_library::LibraryNode::Playlist {
+                name: "Long".into(),
+                members: vec![0; 80],
+            }],
+        })
+        .unwrap();
+    let mut shell = Shell::new(&db, 1440.0);
+    let out = shell.settle();
+    let rect = texts(&out)
+        .into_iter()
+        .find(|(s, _)| s == "♫ Long")
+        .unwrap()
+        .1;
+    shell.click(rect.center());
+    let pos = shell.app.shell.nav.unwrap().center();
+    for _ in 0..30 {
+        shell.frame(
+            vec![
+                egui::Event::PointerMoved(pos),
+                egui::Event::MouseWheel {
+                    unit: egui::MouseWheelUnit::Point,
+                    delta: egui::vec2(0.0, -200.0),
+                    modifiers: Default::default(),
+                },
+            ],
+            Default::default(),
+        );
+    }
+    let out = shell.settle();
+    let rect = texts(&out)
+        .into_iter()
+        .find(|(s, r)| {
+            s == "80 · scroll-member" && shell.app.shell.nav.unwrap().contains(r.center())
+        })
+        .expect("last member must be visible after scrolling")
+        .1;
+    shell.click(rect.center());
+    // Selection inserts the load controls below the last row; scroll them into view too.
+    for _ in 0..10 {
+        shell.frame(
+            vec![
+                egui::Event::PointerMoved(pos),
+                egui::Event::MouseWheel {
+                    unit: egui::MouseWheelUnit::Point,
+                    delta: egui::vec2(0.0, -100.0),
+                    modifiers: Default::default(),
+                },
+            ],
+            Default::default(),
+        );
+    }
+    let out = shell.settle();
+    let rect = texts(&out)
+        .into_iter()
+        .find(|(s, r)| s == "Load B" && shell.app.shell.nav.unwrap().contains(r.center()))
+        .unwrap()
+        .1;
+    shell.click(rect.center());
+    assert_eq!(shell.app.decks.decks[1].track.as_ref().unwrap().path, path);
+    assert!(shell.app.decks.decks[0].track.is_none());
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    while !shell.app.decks.decks[1].ready() {
+        assert!(std::time::Instant::now() < deadline, "imported audio must decode");
+        shell.app.decks.render(512);
+        shell.settle();
+        std::thread::sleep(std::time::Duration::from_millis(1));
+    }
+    let audio = shell.app.decks.render(512);
+    shell.settle();
+    assert!(audio.iter().all(|sample| *sample == 0.0), "loading never autoplays on the real engine's fake sink");
+    assert!(!shell.app.decks.decks[1].playing);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn imported_same_named_folders_collapse_independently() {
+    let (root, db) = catalog_root("playlist-folder-ids");
+    Catalog::open(&db)
+        .unwrap()
+        .import_library(&LibrarySnapshot {
+            roots: ["First", "Second"]
+                .map(|name| oxidj_library::LibraryNode::Folder {
+                    name: "Same".into(),
+                    children: vec![oxidj_library::LibraryNode::Playlist {
+                        name: name.into(),
+                        members: vec![],
+                    }],
+                })
+                .to_vec(),
+            ..Default::default()
+        })
+        .unwrap();
+    let mut shell = Shell::new(&db, 1440.0);
+    let out = shell.settle();
+    let rect = texts(&out)
+        .into_iter()
+        .find(|(s, _)| s == "📁 Same")
+        .unwrap()
+        .1;
+    shell.click(rect.center());
+    // Complete the collapse animation without wall-clock sleeps.
+    for i in 0..30 {
+        let _ = shell.ctx.run(
+            egui::RawInput {
+                time: Some(10.0 + i as f64),
+                screen_rect: Some(shell.screen),
+                ..Default::default()
+            },
+            |ctx| shell.app.ui(ctx),
+        );
+    }
+    let out = shell.settle();
+    let labels: Vec<_> = texts(&out).into_iter().map(|(s, _)| s).collect();
+    assert!(!labels.iter().any(|s| s == "♫ First"));
+    assert!(
+        labels.iter().any(|s| s == "♫ Second"),
+        "collapsing first folder must not collapse its same-named sibling"
+    );
+    let rect = texts(&out)
+        .into_iter()
+        .find(|(s, _)| s == "♫ Second")
+        .unwrap()
+        .1;
+    shell.click(rect.center());
+    assert_eq!(
+        shell.app.imported_playlist,
+        Some(vec![1, 0]),
+        "identical membership does not identify a playlist"
+    );
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn imported_playlist_read_failure_is_not_reported_as_empty() {
+    let (root, _) = catalog_root("playlist-read-error");
+    let db = root.join("invalid.sqlite");
+    std::fs::write(&db, b"not a catalog").unwrap();
+    let mut shell = Shell::new(&db, 1440.0);
+    let out = shell.settle();
+    let labels = texts(&out);
+    assert!(
+        labels
+            .iter()
+            .any(|(s, _)| s.starts_with("Imported playlists unavailable:"))
+    );
+    assert!(!labels.iter().any(|(s, _)| s == "No imported playlists"));
     std::fs::remove_dir_all(root).unwrap();
 }
