@@ -533,7 +533,7 @@ fn below_detail_height(ui: &Ui, vendor: bool, grid_lines: u8) -> f32 {
     let small = ui.text_style_height(&egui::TextStyle::Small);
     let body = ui.text_style_height(&egui::TextStyle::Body);
     let lines = 3.0 + f32::from(grid_lines);
-    let mut h = gap + OVERVIEW_HEIGHT + lines * (small + gap);
+    let mut h = gap + OVERVIEW_HEIGHT + lines * (small + gap) + 8.0;
     if vendor {
         // separator + heading + source line + strip
         h += 2.0 * gap + 6.0 + body + gap + small + gap + VENDOR_HEIGHT + gap;
@@ -1285,7 +1285,7 @@ mod tests {
         assert!((key.center().y - value_rect.center().y).abs() <= 2.0, "one row");
         let pitch = top_in(&out, "Size", panel) - top_in(&out, "Bit depth", panel);
         let bpm_top = top_in(&out, crate::view::COMPUTED_BPM_LABEL, panel);
-        assert!((bpm_top - top_in(&out, "Size", panel) - pitch).abs() <= 1.0, "Size -> BPM rhythm");
+        assert!((bpm_top - top_in(&out, "Size", panel) - 2.0 * pitch).abs() <= 1.0, "Size -> Imported key -> BPM rhythm");
         assert!((top_in(&out, "Availability", panel) - bpm_top - pitch).abs() <= 1.0, "BPM -> Availability rhythm");
         let confident = stored.confidence() >= super::LOW_CONFIDENCE;
         assert_eq!(texts(&out).iter().any(|(t, _)| t == "low"), !confident);

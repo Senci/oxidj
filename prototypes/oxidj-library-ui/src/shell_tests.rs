@@ -744,7 +744,7 @@ fn details_sha256_is_truncated_with_full_hover_and_copy() {
     // the plain rows above them (the first W11 build left both too tall).
     let top = |label: &str| painted.iter().find(|(t, r)| t == label && details.contains_rect(*r)).unwrap().1.top();
     let pitch = top("Size") - top("Bit depth");
-    for (a, b) in [("Size", "Availability"), ("Availability", "SHA-256")] {
+    for (a, b) in [("Size", "Imported key"), ("Imported key", "Availability"), ("Availability", "SHA-256")] {
         assert!((top(b) - top(a) - pitch).abs() <= 1.0, "{a} -> {b}: {} vs {pitch}", top(b) - top(a));
     }
     let mut hovered = false;
