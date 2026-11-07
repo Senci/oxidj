@@ -539,7 +539,25 @@ fn import_references_queues_new_tracks_and_reloads_waveforms_on_completion() {
     let _ = shell.settle();
     assert!(shell.app.waveform_job.is_some(), "job remains in flight while gated");
     assert!(shell.app.notice.contains("0/1"), "progress while gated: {}", shell.app.notice);
+    let id = shell.app.tracks.iter().find(|track| track.track.path.ends_with("new-tone.wav")).unwrap().track.id;
+    shell.app.selected = Some(id.as_u64());
+    shell.app.show_details = true;
+    let out = shell.settle();
+    assert!(texts(&out).iter().any(|(text, _)| text == "No computed waveform: track not analysed"), "cache the not-yet-analysed state before completion");
+    assert!(shell.app.track_waveform.layout.view.is_none());
+    // Reopening the production menu must not discard the held job, even when
+    // importing the same (now unchanged) directory again.
+    let more = shell.app.shell.more.unwrap().center();
+    let out = shell.click(more);
+    let import = find(&nodes(&out), "Import references").2.center();
+    shell.click(import);
+    let retained_after_click = shell.app.waveform_job.is_some();
+    // Also protect the command boundary, not only the disabled widget.
+    shell.app.import();
+    let retained_after_command = shell.app.waveform_job.is_some();
     worker_gate.wait();
+    assert!(retained_after_click, "repeat Import click must retain the active job");
+    assert!(retained_after_command, "repeat Import command must retain the active job");
     let started = std::time::Instant::now();
     while shell.app.waveform_job.is_some() {
         assert!(started.elapsed().as_secs() < 20, "analysis worker completes");
@@ -547,7 +565,9 @@ fn import_references_queues_new_tracks_and_reloads_waveforms_on_completion() {
         std::thread::yield_now();
     }
     assert!(shell.app.notice.contains("1 succeeded, 0 failed"), "truthful summary: {}", shell.app.notice);
-    let id = shell.app.tracks.iter().find(|track| track.track.path.ends_with("new-tone.wav")).unwrap().track.id;
+    let out = shell.settle();
+    assert!(shell.app.track_waveform.layout.view.is_some(), "completion invalidates cached absence and renders computed peaks");
+    assert!(!texts(&out).iter().any(|(text, _)| text == "No computed waveform: track not analysed"));
     assert!(shell.app.catalog.as_ref().unwrap().read_waveform(id).unwrap().is_some(), "completion reloads stored peaks");
     assert_eq!(std::fs::read(&source).unwrap(), before, "source bytes remain untouched");
     // A second production import reports the same file as unchanged and queues nothing.

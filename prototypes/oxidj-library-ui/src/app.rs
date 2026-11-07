@@ -513,6 +513,10 @@ impl LibraryApp {
     }
 
     pub(crate) fn import(&mut self) {
+        // Keep the active job's completion receiver and avoid overlapping writers.
+        if self.waveform_job.is_some() {
+            return;
+        }
         match &mut self.catalog {
             Ok(db) => match db.import_audio_directory(&self.import_root) {
                 Ok(report) => {

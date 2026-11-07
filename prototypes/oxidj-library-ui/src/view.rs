@@ -262,7 +262,10 @@ impl LibraryApp {
                     [field, height],
                     egui::TextEdit::singleline(&mut self.import_root).hint_text("Folder path").vertical_align(egui::Align::Center),
                 );
-                if (PrimaryActionButton { label: "Import references" }).show(ui, tokens).clicked() {
+                let import = ui.add_enabled_ui(self.waveform_job.is_none(), |ui| {
+                    (PrimaryActionButton { label: "Import references" }).show(ui, tokens)
+                }).inner;
+                if import.clicked() {
                     self.import();
                     ui.ctx().request_repaint();
                     close = true;
