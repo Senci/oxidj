@@ -811,6 +811,7 @@ fn details_show_imported_cues_read_only_and_follow_selection() {
         let (uri, _) = oxidj_application::location_uri(&raw);
         LibraryTrack {
             title: format!("cue-track-{index}"), location: uri,
+            key: match index { 0 => Some(" raw-Key ".into()), 2 => Some(String::new()), _ => None },
             cues: match index {
                 0 => vec![
                     LibraryCue { hot_cue: Some(1), start_ms: 12_345, end_ms: None, name: "Drop".into(), colour: None },
@@ -834,22 +835,26 @@ fn details_show_imported_cues_read_only_and_follow_selection() {
     shell.app.selected = Some(id_a);
     let output = shell.settle();
     let painted = texts(&output).into_iter().map(|(text, _)| text).collect::<Vec<_>>();
-    for expected in ["Imported cues & loops", "Hot cue 1", "Memory cue", "0:12.345", "1:30.123", "Drop", "Loop"] {
+    for expected in ["Imported cues & loops", "Imported key", " raw-Key ", "Hot cue 1", "Memory cue", "0:12.345", "1:30.123", "Drop", "Loop"] {
         assert!(painted.iter().any(|text| text == expected), "missing {expected:?}: {painted:?}");
     }
+    assert!(!painted.iter().any(|text| text == "8A"), "raw imported key was normalized: {painted:?}");
     assert_eq!(Catalog::open(&db).unwrap().library_snapshot().unwrap(), before);
 
     shell.app.selected = Some(id_b);
     let output = shell.settle();
-    let painted = texts(&output).into_iter().map(|(text, _)| text).collect::<Vec<_>>();
-    assert!(painted.iter().any(|text| text == "No imported cues or loops."));
-    assert!(!painted.iter().any(|text| text == "Drop" || text == "Loop" || text == "Hot cue 1"), "stale cue rows: {painted:?}");
+    let painted = texts(&output);
+    let key_label_y = painted.iter().find(|(text, _)| text == "Imported key").unwrap().1.center().y;
+    assert!(painted.iter().any(|(text, rect)| text == "—" && (rect.center().y - key_label_y).abs() < 1.0), "absent imported key should be displayed distinctly: {painted:?}");
+    assert!(!painted.iter().any(|(text, _)| text == " raw-Key " || text == "Drop" || text == "Loop" || text == "Hot cue 1"), "stale details: {painted:?}");
 
     shell.app.selected = Some(id_c);
     let output = shell.settle();
-    let painted = texts(&output).into_iter().map(|(text, _)| text).collect::<Vec<_>>();
-    assert!(painted.iter().any(|text| text == "Memory cue"));
-    assert!(painted.iter().any(|text| text == "0:05.000"));
+    let painted = texts(&output);
+    let key_label_y = painted.iter().find(|(text, _)| text == "Imported key").unwrap().1.center().y;
+    assert!(painted.iter().any(|(text, rect)| text.is_empty() && (rect.center().y - key_label_y).abs() < 1.0), "present-empty key should remain an empty value: {painted:?}");
+    assert!(painted.iter().any(|(text, _)| text == "Memory cue"));
+    assert!(painted.iter().any(|(text, _)| text == "0:05.000"));
     assert_eq!(Catalog::open(&db).unwrap().library_snapshot().unwrap(), before);
     std::fs::remove_dir_all(root).unwrap();
 }

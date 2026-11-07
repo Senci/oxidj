@@ -917,6 +917,16 @@ impl LibraryApp {
         }
         let unavailable = || "Unavailable".to_owned();
         let hash: String = item.track.sha256.iter().map(|b| format!("{b:02x}")).collect();
+        let imported_key = match self.catalog.as_ref() {
+            Ok(catalog) => {
+                let (uri, _) = oxidj_application::location_uri(&item.track.path);
+                match catalog.key_for_locations(&[&item.track.path, &uri]) {
+                    Ok(key) => key,
+                    Err(error) => Some(format!("Unavailable: {error}")),
+                }
+            }
+            Err(_) => Some("Unavailable".to_owned()),
+        };
         let facts = [
             ("ID", id.to_string()),
             ("Filename", file_name(&item.track.path)),
@@ -945,6 +955,11 @@ impl LibraryApp {
                     ui.add(egui::Label::new(&value).truncate()).on_hover_text(&value);
                     ui.end_row();
                 }
+                ui.label(egui::RichText::new("Imported key").color(tokens.muted_text));
+                let imported_key_value = imported_key.as_deref().unwrap_or("—");
+                ui.add(egui::Label::new(imported_key_value).truncate())
+                    .on_hover_text(imported_key_value);
+                ui.end_row();
                 if let Some((bpm, confidence)) = tempo {
                     ui.label(egui::RichText::new(COMPUTED_BPM_LABEL).color(tokens.muted_text));
                     // One body-height row (like Availability), value then badge.

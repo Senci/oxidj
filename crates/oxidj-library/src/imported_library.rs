@@ -599,6 +599,21 @@ impl Catalog {
         Ok(beats)
     }
 
+    /// Source-supplied musical key of the imported library track matched like
+    /// [`Self::beat_grid_for_locations`]. Returns `None` when no track or key
+    /// exists, preserving a present empty string as `Some("")`. Read-only.
+    pub fn key_for_locations(&self, locations: &[&str]) -> Result<Option<String>, CatalogError> {
+        let Some(position) = self.library_position_for_locations(locations)? else {
+            return Ok(None);
+        };
+        let key = self.connection.query_row(
+            "SELECT musical_key FROM library_tracks WHERE position=?1",
+            [position],
+            |row| row.get::<_, Option<String>>(0),
+        )?;
+        Ok(key)
+    }
+
     /// Imported (vendor-derived) cue points and loops of the library track
     /// matched like [`Self::beat_grid_for_locations`], in stored order.
     /// Empty when no such track or no cues. Read-only.
