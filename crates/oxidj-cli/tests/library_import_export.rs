@@ -710,6 +710,99 @@ fn assert_aggregate_only(text: &str) {
 }
 
 #[test]
+fn pdb_imported_library_audio_is_analyzed_and_grid_persisted() {
+    let dir = scratch();
+    let audio = dir.join("known.wav");
+    let rate = 22_050u32;
+    let seconds = 24.0;
+    let bpm = 120.0;
+    let mut samples = vec![0.0f64; (seconds * f64::from(rate)) as usize];
+    for (semitone, amplitude) in [(261.63, 0.18), (329.63, 0.14), (392.0, 0.12)] {
+        for (i, sample) in samples.iter_mut().enumerate() {
+            *sample +=
+                amplitude * (std::f64::consts::TAU * semitone * i as f64 / f64::from(rate)).sin();
+        }
+    }
+    let mut beat = 0.2;
+    while beat < seconds {
+        let start = (beat * f64::from(rate)) as usize;
+        for (i, sample) in samples
+            .iter_mut()
+            .skip(start)
+            .take((0.08 * f64::from(rate)) as usize)
+            .enumerate()
+        {
+            let t = i as f64 / f64::from(rate);
+            *sample += 0.55 * (std::f64::consts::TAU * 1_800.0 * t).sin() * (-t / 0.008).exp();
+        }
+        beat += 60.0 / bpm;
+    }
+    let pcm: Vec<u8> = samples
+        .iter()
+        .flat_map(|x| ((*x * 30_000.0) as i16).to_le_bytes())
+        .collect();
+    let mut wav = b"RIFF".to_vec();
+    wav.extend((36 + pcm.len() as u32).to_le_bytes());
+    wav.extend(b"WAVEfmt ");
+    wav.extend(16u32.to_le_bytes());
+    wav.extend(1u16.to_le_bytes());
+    wav.extend(1u16.to_le_bytes());
+    wav.extend(rate.to_le_bytes());
+    wav.extend((rate * 2).to_le_bytes());
+    wav.extend(2u16.to_le_bytes());
+    wav.extend(16u16.to_le_bytes());
+    wav.extend(b"data");
+    wav.extend((pcm.len() as u32).to_le_bytes());
+    wav.extend(pcm);
+    std::fs::write(&audio, wav).unwrap();
+
+    let pdb_dir = dir.join("PIONEER/rekordbox");
+    std::fs::create_dir_all(&pdb_dir).unwrap();
+    let pdb = pdb_dir.join("export.pdb");
+    let location = format!("file://localhost{}", audio.display());
+    std::fs::write(&pdb, synthetic_pdb_with(None, &location)).unwrap();
+    let catalog = dir.join("catalog.sqlite");
+    let import = cli(&[
+        s("catalog"),
+        s("import-library"),
+        s("--pdb"),
+        pdb.as_os_str(),
+        s("--catalog"),
+        catalog.as_os_str(),
+    ]);
+    assert_eq!(
+        import.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&import.stderr)
+    );
+    let analyze = cli(&[
+        s("catalog"),
+        s("analyze-tempo"),
+        s("--db"),
+        catalog.as_os_str(),
+    ]);
+    let output = stdout(&analyze);
+    assert_eq!(analyze.status.code(), Some(0), "{output}");
+    assert!(output.contains("Analyzed: 1"), "{output}");
+    assert!(output.contains("Key\t1\tMajor(0)"), "{output}");
+    assert!(output.contains("UnavailableLibraryAudio: 2"), "{output}");
+    let db = oxidj_library::Catalog::open(&catalog).unwrap();
+    let imported = db.library_snapshot().unwrap();
+    assert_eq!(imported.tracks[2].title, "Song C");
+    assert_eq!(imported.tracks[2].location, location);
+    let grid = db
+        .computed_beat_grid_for_library_location(&location)
+        .unwrap();
+    let oxidj_library::LibraryComputedGrid::Found(grid) = grid else {
+        panic!("computed grid absent: {grid:?}; output={output}");
+    };
+    assert!((grid.grid.bpm() - bpm).abs() < 0.1);
+    assert!(!grid.grid.beats_ms().is_empty());
+    assert!((i64::from(grid.grid.beats_ms()[0]) - 200).abs() <= 5);
+}
+
+#[test]
 fn pdb_library_imports_into_new_catalog_and_exports_verified_xml_without_touching_source() {
     let dir = scratch();
     let device = dir.join("device");

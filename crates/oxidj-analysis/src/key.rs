@@ -12,6 +12,9 @@ const LAST_MIDI: i32 = 83;
 const MIN_ENERGY: f64 = 1e-8;
 const MIN_SCORE: f64 = 0.25;
 const MIN_MARGIN: f64 = 0.025;
+// A tonal spectrum must concentrate meaningful energy in a small set of pitch
+// classes; correlation alone gives random broadband noise a plausible key.
+const MIN_CHROMA_SHARE: f64 = 0.18;
 
 /// A twelve-tone equal-tempered tonic; C = 0 through B = 11.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -28,6 +31,8 @@ pub struct KeyBuilder {
     sample_rate: u32,
     frame: Vec<f32>,
     chroma: [f64; 12],
+    min_sample: f32,
+    max_sample: f32,
     invalid: bool,
 }
 
@@ -38,6 +43,8 @@ impl KeyBuilder {
             sample_rate,
             frame: Vec::with_capacity(FRAME),
             chroma: [0.0; 12],
+            min_sample: f32::INFINITY,
+            max_sample: f32::NEG_INFINITY,
             invalid: false,
         }
     }
@@ -54,6 +61,8 @@ impl KeyBuilder {
             return;
         }
         for &sample in samples {
+            self.min_sample = self.min_sample.min(sample);
+            self.max_sample = self.max_sample.max(sample);
             self.frame.push(sample);
             if self.frame.len() == FRAME {
                 self.consume_frame();
@@ -63,7 +72,7 @@ impl KeyBuilder {
 
     /// Finish and return the best unambiguous major/minor key suggestion.
     pub fn finish(mut self) -> Option<Key> {
-        if self.invalid || self.sample_rate < 8_000 {
+        if self.invalid || self.sample_rate < 8_000 || self.max_sample - self.min_sample < 1e-5 {
             return None;
         }
         if self.frame.len() >= FRAME / 2 {
@@ -71,6 +80,9 @@ impl KeyBuilder {
         }
         let total: f64 = self.chroma.iter().sum();
         if !total.is_finite() || total < MIN_ENERGY {
+            return None;
+        }
+        if self.chroma.iter().copied().fold(0.0, f64::max) / total < MIN_CHROMA_SHARE {
             return None;
         }
         let chroma = normalize(&self.chroma)?;

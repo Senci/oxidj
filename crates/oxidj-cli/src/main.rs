@@ -1872,6 +1872,12 @@ fn run_analyze_tempo(args: &[String]) -> i32 {
             println!("Unchanged: {}", report.unchanged());
             println!("NoGrid: {}", report.no_grid());
             println!("Failed: {}", report.failed());
+            if report.unavailable_library_audio > 0 {
+                println!(
+                    "UnavailableLibraryAudio: {}",
+                    report.unavailable_library_audio
+                );
+            }
             if report.failed() == 0 { OK } else { DOMAIN }
         }
         Err(error) => {

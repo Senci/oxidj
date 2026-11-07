@@ -5,8 +5,21 @@ use rusqlite_migration::{M, Migrations};
 use sha2::Digest;
 use std::error::Error;
 use std::fmt;
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
+
+static REFERENCE_OP_NONCE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// Generate a low-collision operation ID for a created audio-reference.
+pub(crate) fn next_reference_operation_id() -> String {
+    let n = REFERENCE_OP_NONCE.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    format!("oxidj-ref-{}-{now}-{n}", std::process::id())
+}
 
 mod aiff;
 #[cfg(test)]
@@ -207,9 +220,26 @@ impl From<rusqlite_migration::Error> for CatalogError {
     }
 }
 
+impl From<std::io::Error> for CatalogError {
+    fn from(value: std::io::Error) -> Self {
+        Self::Cleanup(value)
+    }
+}
+
 /// An open, migrated local catalog.
 pub struct Catalog {
     connection: Connection,
+}
+
+/// A reference to one imported (vendor) library track used by the analysis
+/// path. Metadata only: `location` names the local audio file that
+/// `catalog analyze-tempo` analyses. Vendor rows (`library_tracks`) are never
+/// modified by analysis.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LibraryTrackRef {
+    pub position: u32,
+    pub title: String,
+    pub location: String,
 }
 
 impl Catalog {
@@ -786,7 +816,77 @@ impl Catalog {
         Ok(tracks)
     }
 
-    /// List tracks with decoded technical facts and current filesystem availability.
+    /// Imported (vendor) library tracks in stored position order, for use by
+    /// the analysis path. Each row names the local audio file at
+    /// `location` for BPM/beat-grid/key analysis.
+    pub fn list_library_tracks(&self) -> Result<Vec<LibraryTrackRef>, CatalogError> {
+        let mut statement = self
+            .connection
+            .prepare("SELECT position, title, location FROM library_tracks ORDER BY position")?;
+        let rows = statement.query_map([], |row| {
+            Ok(LibraryTrackRef {
+                position: row.get(0)?,
+                title: row.get(1)?,
+                location: row.get(2)?,
+            })
+        })?;
+
+        let mut tracks = Vec::new();
+        for row in rows {
+            tracks.push(row?);
+        }
+        Ok(tracks)
+    }
+
+    /// Audio-reference record (`tracks.id`) for an imported-library location.
+    /// Reuses a matching readable reference or creates one only for readable
+    /// local audio. Vendor metadata (`library_tracks`) is never touched.
+    pub fn reference_id_for_library_location(
+        &mut self,
+        location: &str,
+    ) -> Result<Option<oxidj_core::TrackId>, CatalogError> {
+        let decoded = waveform_store::decoded_path(location).ok_or_else(|| {
+            CatalogError::InvalidRecord("library location is not a local file path")
+        })?;
+
+        let path = std::str::from_utf8(&decoded)
+            .map_err(|_| CatalogError::InvalidRecord("library location path is not valid UTF-8"))?;
+        let path_obj = Path::new(path);
+
+        // Probe the file is readable before promising a reference.
+        let mut probe = [0u8; 4096];
+        let mut f = std::fs::File::open(path_obj)
+            .map_err(|_| CatalogError::InvalidRecord("library audio is missing or unreadable"))?;
+        let _ = f
+            .read(&mut probe)
+            .map_err(|_| CatalogError::InvalidRecord("library audio is missing or unreadable"))?;
+
+        // Reuse an existing reference for this path, otherwise create a new one.
+        let existing = self
+            .connection
+            .query_row(
+                "SELECT id FROM tracks WHERE path = ?1 ORDER BY id LIMIT 1",
+                [path],
+                |row| row.get::<_, i64>(0),
+            )
+            .optional()?;
+        if let Some(id) = existing {
+            return Ok(Some(
+                oxidj_core::TrackId::new(u64::try_from(id).map_err(|_| {
+                    CatalogError::InvalidRecord("library track id is out of range")
+                })?)
+                .map_err(|_| {
+                    CatalogError::InvalidRecord("library track id does not identify a track")
+                })?,
+            ));
+        }
+
+        // Create a fresh audio-reference record for the readable imported file.
+        let (digest, byte_length) = crate::file_sha256(path_obj)?;
+        let operation_id = crate::next_reference_operation_id();
+        let record = self.insert_track(&operation_id, path, digest, byte_length)?;
+        Ok(Some(record.id))
+    }
     /// Results are ordered by stable local ID; presentation sorting belongs to callers.
     pub fn list_track_details(&self) -> Result<Vec<TrackDetails>, CatalogError> {
         let mut statement = self.connection.prepare(

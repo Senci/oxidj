@@ -84,6 +84,8 @@ pub struct TempoReport {
     pub outcomes: Vec<(TrackId, Result<TempoOutcome, TempoAnalysisError>)>,
     /// Computed key suggestions; `None` means the audio provided no confident key.
     pub keys: Vec<(TrackId, Result<Option<Key>, TempoAnalysisError>)>,
+    /// Imported-library entries whose locations could not be read as local audio.
+    pub unavailable_library_audio: usize,
 }
 
 impl TempoReport {
@@ -277,6 +279,7 @@ pub fn analyze_catalog_tempo(
         return Err(TempoAnalysisError::MissingCatalog);
     }
     let mut catalog = Catalog::open(db).map_err(catalog_error)?;
+    let mut unavailable_library_audio = 0;
     let ids = match track {
         Some(id) => {
             catalog
@@ -285,12 +288,23 @@ pub fn analyze_catalog_tempo(
                 .ok_or(TempoAnalysisError::UnknownTrack)?;
             vec![id]
         }
-        None => catalog
-            .list_tracks()
-            .map_err(catalog_error)?
-            .into_iter()
-            .map(|t| t.id)
-            .collect(),
+        None => {
+            let mut ids: Vec<TrackId> = catalog
+                .list_tracks()
+                .map_err(catalog_error)?
+                .into_iter()
+                .map(|t| t.id)
+                .collect();
+            let mut seen: std::collections::HashSet<TrackId> = ids.iter().copied().collect();
+            for imported in catalog.list_library_tracks().map_err(catalog_error)? {
+                match catalog.reference_id_for_library_location(&imported.location) {
+                    Ok(Some(id)) if seen.insert(id) => ids.push(id),
+                    Ok(Some(_)) => {}
+                    Ok(None) | Err(_) => unavailable_library_audio += 1,
+                }
+            }
+            ids
+        }
     };
     let keys = ids
         .iter()
@@ -315,7 +329,11 @@ pub fn analyze_catalog_tempo(
         .into_iter()
         .map(|id| (id, analyze_track_tempo(&mut catalog, id, range)))
         .collect();
-    Ok(TempoReport { outcomes, keys })
+    Ok(TempoReport {
+        outcomes,
+        keys,
+        unavailable_library_audio,
+    })
 }
 
 #[cfg(test)]

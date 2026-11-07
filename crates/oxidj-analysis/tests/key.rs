@@ -52,6 +52,21 @@ fn synthetic_a_minor_fixture_matches_independent_expected_key() {
 }
 
 #[test]
+fn degenerate_dc_and_broadband_noise_do_not_invent_a_key() {
+    assert_eq!(analyze(&vec![0.4; RATE as usize * 6], 257), None);
+    let mut state = 0xDEAD_BEEF_1234_5678u64;
+    let noise: Vec<f32> = (0..RATE as usize * 10)
+        .map(|_| {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            ((state >> 40) as f32 / 8_388_607.5) - 1.0
+        })
+        .collect();
+    assert_eq!(analyze(&noise, 509), None);
+}
+
+#[test]
 fn empty_silence_and_non_finite_input_do_not_invent_a_key() {
     assert_eq!(analyze(&[], 64), None);
     assert_eq!(analyze(&vec![0.0; RATE as usize * 6], 257), None);
