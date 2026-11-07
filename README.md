@@ -69,6 +69,7 @@ playlist (no manual XML parsing is needed):
 ```sh
 oxidj-cli catalog list-library-tracks --catalog lib.sqlite
 oxidj-cli catalog create-library-playlist --catalog lib.sqlite --name 'New set' --track-ids 3,1,3
+oxidj-cli catalog append-library-playlist-members --catalog lib.sqlite --playlist-name 'New set' --track-ids 2,1
 oxidj-cli catalog export-library-xml --catalog lib.sqlite --output with-playlist.xml --drive D
 ```
 
@@ -101,6 +102,15 @@ original library plus exactly one final playlist. This operation has not been
 verified in Rekordbox or on hardware; the historical round trip above is not
 qualification of playlist creation. ADR-005/A3, accessibility/platform and scale
 gates remain unverified. GUI playlist management is not included.
+
+To append members to one existing root playlist, use its exact unique name with
+`catalog append-library-playlist-members --catalog lib.sqlite --playlist-name
+'New set' --track-ids 2,1`. IDs remain the exported XML TrackIDs shown by
+`list-library-tracks`; membership appends in supplied order and retains
+duplicates. Nested playlists are not targets. Refusals (missing catalog/import,
+invalid IDs or flags, absent/ambiguous root target) leave catalog membership
+unchanged. Output is counts-only; never paste personal track names or other
+catalog metadata into task logs.
 
 ## Documentation
 

@@ -826,6 +826,38 @@ pub fn create_library_playlist(
         .map_err(|e| LibraryWorkflowError(e.to_string()))
 }
 
+/// Append one or more exported XML TrackIDs to an exact root playlist.
+pub fn append_library_playlist_members(
+    catalog: impl AsRef<Path>,
+    name: &str,
+    track_ids: &str,
+) -> Result<usize, LibraryWorkflowError> {
+    oxidj_library::validate_library_playlist_name(name)
+        .map_err(|e| LibraryWorkflowError(e.to_string()))?;
+    if track_ids.is_empty() {
+        return Err(fail("playlist membership must not be empty"));
+    }
+    let members: Vec<usize> = track_ids
+        .split(',')
+        .map(|id| {
+            if id.is_empty() || !id.bytes().all(|c| c.is_ascii_digit()) {
+                return Err(fail("track IDs must be comma-separated positive integers"));
+            }
+            id.parse::<usize>()
+                .ok()
+                .and_then(|id| id.checked_sub(1))
+                .ok_or_else(|| fail("track IDs must be positive integers within range"))
+        })
+        .collect::<Result<_, _>>()?;
+    if !catalog.as_ref().is_file() {
+        return Err(fail("catalog does not exist"));
+    }
+    let mut opened = Catalog::open(catalog).map_err(|e| LibraryWorkflowError(e.to_string()))?;
+    opened
+        .append_library_playlist_members(name, &members)
+        .map_err(|e| LibraryWorkflowError(e.to_string()))
+}
+
 /// List imported tracks with XML TrackIDs accepted by `create_library_playlist`.
 pub fn list_library_tracks(
     catalog: impl AsRef<Path>,

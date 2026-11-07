@@ -1624,6 +1624,9 @@ fn run_catalog(args: &[String]) -> i32 {
     if action == "create-library-playlist" {
         return run_create_library_playlist(&args[1..]);
     }
+    if action == "append-library-playlist-members" {
+        return run_append_library_playlist_members(&args[1..]);
+    }
     if action == "list-library-tracks" {
         return run_list_library_tracks(&args[1..]);
     }
@@ -2015,6 +2018,45 @@ fn escape_track_field(value: &str) -> String {
         .replace('\r', "\\r")
 }
 
+fn run_append_library_playlist_members(args: &[String]) -> i32 {
+    const EXPECTED: &str = "error: expected catalog append-library-playlist-members --catalog DB --playlist-name NAME --track-ids 3,1 (exported XML TrackIDs)";
+    let (mut catalog, mut name, mut ids) = (None, None, None);
+    let mut rest = args.iter();
+    while let Some(flag) = rest.next() {
+        let Some(value) = rest.next() else {
+            eprintln!("{EXPECTED}");
+            return USAGE;
+        };
+        let slot = match flag.as_str() {
+            "--catalog" => &mut catalog,
+            "--playlist-name" => &mut name,
+            "--track-ids" => &mut ids,
+            _ => {
+                eprintln!("{EXPECTED}");
+                return USAGE;
+            }
+        };
+        if slot.replace(value).is_some() {
+            eprintln!("{EXPECTED}");
+            return USAGE;
+        }
+    }
+    let (Some(catalog), Some(name), Some(ids)) = (catalog, name, ids) else {
+        eprintln!("{EXPECTED}");
+        return USAGE;
+    };
+    match oxidj_application::append_library_playlist_members(catalog, name, ids) {
+        Ok(count) => {
+            println!("AppendedMemberships: {count}");
+            OK
+        }
+        Err(error) => {
+            eprintln!("error: append-library-playlist-members refused: {error}");
+            DOMAIN
+        }
+    }
+}
+
 fn run_list_library_tracks(args: &[String]) -> i32 {
     const EXPECTED: &str = "error: expected catalog list-library-tracks --catalog DB";
     if args.len() != 2 || args[0] != "--catalog" {
@@ -2127,6 +2169,7 @@ fn print_usage(to_stdout: bool) {
   catalog import-library --pdb <src> --catalog <new> [--onelibrary-db <db> --key-stdin]   Import a PDB library into a new catalog (aggregate-only report)
   catalog list-library-tracks --catalog <db>   List exported XML TrackIDs, titles and artists as escaped TSV (PERSONAL METADATA: do not log or transmit)
   catalog create-library-playlist --catalog <db> --name <name> --track-ids <3,1,3>   Append an ordered root playlist in the catalog; IDs are exported XML TrackIDs, not audio/vendor IDs
+  catalog append-library-playlist-members --catalog <db> --playlist-name <name> --track-ids <3,1>   Append ordered members to an exact root playlist
   catalog export-library-xml --catalog <db> --output <new> [--drive <X>] [--computed-grids]   Export the imported library as new Rekordbox XML (no edits); --drive prefixes device-relative locations with X: for Windows Rekordbox; --computed-grids adds one TEMPO from OxiDJ's computed grid (confidence >= 0.5) to tracks without a Rekordbox grid",
     );
     let _ = writeln!(

@@ -1244,6 +1244,121 @@ fn catalog_playlist_creation_persists_order_and_preserves_the_exported_library()
 }
 
 #[test]
+fn catalog_playlist_members_append_updates_only_the_exact_root_membership() {
+    let dir = scratch();
+    let device = dir.join("device");
+    std::fs::create_dir_all(device.join("PIONEER/rekordbox")).unwrap();
+    let pdb = device.join("PIONEER/rekordbox/export.pdb");
+    let source = synthetic_pdb(None);
+    std::fs::write(&pdb, &source).unwrap();
+    let analysis = write_analysis(&device);
+    let analysis_source = analysis.clone();
+    let catalog = dir.join("catalog.sqlite");
+    stdout(&cli(&[
+        s("catalog"),
+        s("import-library"),
+        s("--pdb"),
+        pdb.as_os_str(),
+        s("--catalog"),
+        catalog.as_os_str(),
+    ]));
+    let baseline_path = dir.join("before.xml");
+    stdout(&cli(&[
+        s("catalog"),
+        s("export-library-xml"),
+        s("--catalog"),
+        catalog.as_os_str(),
+        s("--output"),
+        baseline_path.as_os_str(),
+    ]));
+    let baseline = decode(&std::fs::read(baseline_path).unwrap());
+    let result = cli(&[
+        s("catalog"),
+        s("append-library-playlist-members"),
+        s("--catalog"),
+        catalog.as_os_str(),
+        s("--playlist-name"),
+        s("Top"),
+        s("--track-ids"),
+        s("3,1,3"),
+    ]);
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    assert_eq!(
+        String::from_utf8(result.stdout).unwrap(),
+        "AppendedMemberships: 3\n"
+    );
+    let reopened = oxidj_library::Catalog::open(&catalog)
+        .unwrap()
+        .library_snapshot()
+        .unwrap();
+    assert_eq!(reopened.tracks.len(), 3);
+    let after_path = dir.join("after.xml");
+    stdout(&cli(&[
+        s("catalog"),
+        s("export-library-xml"),
+        s("--catalog"),
+        catalog.as_os_str(),
+        s("--output"),
+        after_path.as_os_str(),
+    ]));
+    let mut expected = baseline;
+    let Node::Folder(_, roots) = &mut expected.root else {
+        panic!("fixture root")
+    };
+    let Node::Playlist(_, members) = &mut roots[0] else {
+        panic!("expected root playlist")
+    };
+    members.extend(["3".into(), "1".into(), "3".into()]);
+    assert_eq!(decode(&std::fs::read(after_path).unwrap()), expected);
+    assert_eq!(std::fs::read(&pdb).unwrap(), source);
+    for (path, bytes) in analysis_source {
+        assert_eq!(std::fs::read(path).unwrap(), bytes);
+    }
+    for (target, ids) in [("Top", "1,,3"), ("Top", "3,99"), ("absent", "1")] {
+        let refused = cli(&[
+            s("catalog"),
+            s("append-library-playlist-members"),
+            s("--catalog"),
+            catalog.as_os_str(),
+            s("--playlist-name"),
+            s(target),
+            s("--track-ids"),
+            s(ids),
+        ]);
+        assert!(!refused.status.success());
+        assert!(refused.stdout.is_empty());
+    }
+    let invalid_flags = cli(&[
+        s("catalog"),
+        s("append-library-playlist-members"),
+        s("--catalog"),
+        catalog.as_os_str(),
+        s("--playlist-name"),
+        s("Top"),
+        s("--track-ids"),
+        s("1"),
+        s("--unexpected"),
+        s("value"),
+    ]);
+    assert!(!invalid_flags.status.success());
+    assert!(invalid_flags.stdout.is_empty());
+    let unchanged_path = dir.join("after-refusals.xml");
+    stdout(&cli(&[
+        s("catalog"),
+        s("export-library-xml"),
+        s("--catalog"),
+        catalog.as_os_str(),
+        s("--output"),
+        unchanged_path.as_os_str(),
+    ]));
+    assert_eq!(decode(&std::fs::read(unchanged_path).unwrap()), expected);
+}
+
+#[test]
 fn catalog_playlist_creation_requires_an_existing_imported_catalog() {
     let dir = scratch();
     let catalog = dir.join("catalog.sqlite");

@@ -215,6 +215,87 @@ impl Catalog {
         Ok(members.len())
     }
 
+    /// Append imported-track positions to one uniquely named root playlist.
+    /// Existing and requested order, including duplicates, is preserved.
+    pub fn append_library_playlist_members(
+        &mut self,
+        name: &str,
+        members: &[usize],
+    ) -> Result<usize, CatalogError> {
+        validate_library_playlist_name(name)?;
+        if members.is_empty() {
+            return Err(CatalogError::InvalidRecord(
+                "playlist membership must not be empty",
+            ));
+        }
+        let tx = self
+            .connection
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let track_count: i64 =
+            tx.query_row("SELECT COUNT(*) FROM library_tracks", [], |row| row.get(0))?;
+        if track_count == 0 {
+            return Err(CatalogError::InvalidRecord(
+                "catalog holds no imported tracks",
+            ));
+        }
+        let mut stmt = tx.prepare(
+            "SELECT id, is_folder FROM library_nodes WHERE parent_id IS NULL AND name = ?1",
+        )?;
+        let mut rows = stmt.query([name])?;
+        let target = rows
+            .next()?
+            .map(|row| -> Result<_, rusqlite::Error> {
+                Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?))
+            })
+            .transpose()?;
+        if rows.next()?.is_some() {
+            return Err(CatalogError::InvalidRecord(
+                "root playlist name is ambiguous",
+            ));
+        }
+        drop(rows);
+        drop(stmt);
+        let Some((node_id, is_folder)) = target else {
+            return Err(CatalogError::InvalidRecord("root playlist does not exist"));
+        };
+        if is_folder != 0 {
+            return Err(CatalogError::InvalidRecord(
+                "root name refers to a folder, not a playlist",
+            ));
+        }
+        for &member in members {
+            let exists: bool = tx.query_row(
+                "SELECT EXISTS(SELECT 1 FROM library_tracks WHERE position = ?1)",
+                [to_i64(member)?],
+                |row| row.get(0),
+            )?;
+            if !exists {
+                return Err(CatalogError::InvalidRecord(
+                    "playlist member references a missing track",
+                ));
+            }
+        }
+        let position_start: i64 = tx.query_row(
+            "SELECT COALESCE(MAX(position), -1) + 1 FROM library_members WHERE node_id = ?1",
+            [node_id],
+            |row| row.get(0),
+        )?;
+        for (offset, &member) in members.iter().enumerate() {
+            let position =
+                position_start
+                    .checked_add(to_i64(offset)?)
+                    .ok_or(CatalogError::InvalidRecord(
+                        "playlist membership position exceeds range",
+                    ))?;
+            tx.execute(
+                "INSERT INTO library_members(node_id,position,track_position) VALUES(?1,?2,?3)",
+                rusqlite::params![node_id, position, to_i64(member)?],
+            )?;
+        }
+        tx.commit()?;
+        Ok(members.len())
+    }
+
     /// Store a complete imported library in one transaction. Fails closed (and
     /// stores nothing) when the catalog already holds an imported library, a
     /// membership references a missing track, or the track cap is exceeded.
@@ -944,6 +1025,42 @@ mod tests {
             Catalog::open(&path).unwrap().library_snapshot().unwrap(),
             committed
         );
+    }
+
+    #[test]
+    fn append_library_playlist_members_preserves_order_and_rolls_back_failures() {
+        let path = path();
+        let mut catalog = Catalog::open(&path).unwrap();
+        catalog.import_library(&snapshot()).unwrap();
+        let before = catalog.library_snapshot().unwrap();
+        assert_eq!(
+            catalog
+                .append_library_playlist_members("Zeta", &[2, 0, 2])
+                .unwrap(),
+            3
+        );
+        let mut expected = before.clone();
+        let Some(LibraryNode::Playlist { members, .. }) = expected.roots.first_mut() else {
+            panic!("fixture root")
+        };
+        members.extend([2, 0, 2]);
+        assert_eq!(catalog.library_snapshot().unwrap(), expected);
+        for bad in ["missing", "Folder"] {
+            assert!(catalog.append_library_playlist_members(bad, &[0]).is_err());
+            assert_eq!(catalog.library_snapshot().unwrap(), expected);
+        }
+        assert!(
+            catalog
+                .append_library_playlist_members("Zeta", &[0, 99])
+                .is_err()
+        );
+        assert_eq!(catalog.library_snapshot().unwrap(), expected);
+        catalog.connection.execute_batch("CREATE TEMP TRIGGER fail_append BEFORE INSERT ON library_members WHEN NEW.position = 7 BEGIN SELECT RAISE(ABORT, 'injected failure'); END;").unwrap();
+        assert!(matches!(
+            catalog.append_library_playlist_members("Zeta", &[1, 2]),
+            Err(CatalogError::Sqlite(_))
+        ));
+        assert_eq!(catalog.library_snapshot().unwrap(), expected);
     }
 
     #[test]
