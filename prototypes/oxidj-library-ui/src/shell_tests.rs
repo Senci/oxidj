@@ -947,3 +947,44 @@ fn details_show_imported_cues_read_only_and_follow_selection() {
     assert_eq!(Catalog::open(&db).unwrap().library_snapshot().unwrap(), before);
     std::fs::remove_dir_all(root).unwrap();
 }
+
+#[test]
+fn imported_nested_playlist_loads_ordered_members_to_both_decks_and_refuses_missing_audio() {
+    let (root, db) = catalog_root("playlist-load");
+    let paths = ["tone-a.wav", "tone-b.wav", "tone-c.wav"].map(|n| root.join("audio").join(n));
+    let tracks = paths.iter().enumerate().map(|(i, p)| {
+        let raw = p.to_string_lossy().into_owned();
+        let (location, _) = oxidj_application::location_uri(&raw);
+        LibraryTrack { title: format!("member-{i}"), location, ..LibraryTrack::default() }
+    }).collect();
+    let before = LibrarySnapshot { tracks, roots: vec![oxidj_library::LibraryNode::Folder { name: "Nested".into(), children: vec![
+        oxidj_library::LibraryNode::Playlist { name: "Set".into(), members: vec![2, 0, 2] }
+    ] }] };
+    Catalog::open(&db).unwrap().import_library(&before).unwrap();
+    let mut shell = Shell::new(&db, 1440.0);
+    let click_text = |shell: &mut Shell, needle: &str| {
+        let out = shell.settle();
+        let (_, rect) = texts(&out).into_iter().find(|(s, _)| s.contains(needle)).unwrap_or_else(|| panic!("visible UI text {needle:?} not found"));
+        shell.click(rect.center());
+    };
+    click_text(&mut shell, "♫ Set");
+    let shown = shell.settle();
+    let member_texts: Vec<_> = texts(&shown).into_iter().map(|(s, _)| s).filter(|s| s.contains("member-")).collect();
+    assert_eq!(member_texts, ["1 · member-2", "2 · member-0", "3 · member-2"]);
+    click_text(&mut shell, "1 · member-2");
+    click_text(&mut shell, "Load A");
+    assert!(shell.app.decks.decks[0].track.is_some());
+    assert!(shell.app.decks.decks[1].track.is_none());
+    click_text(&mut shell, "3 · member-2");
+    click_text(&mut shell, "Load B");
+    assert!(shell.app.decks.decks[1].track.is_some());
+    let before_ids = [shell.app.decks.decks[0].track.as_ref().map(|t| t.id), shell.app.decks.decks[1].track.as_ref().map(|t| t.id)];
+    // Removing a referenced local file makes location resolution refuse without replacing the loaded target.
+    std::fs::remove_file(&paths[0]).unwrap();
+    click_text(&mut shell, "2 · member-0");
+    click_text(&mut shell, "Load A");
+    assert!(shell.app.notice.contains("refused"));
+    assert_eq!([shell.app.decks.decks[0].track.as_ref().map(|t| t.id), shell.app.decks.decks[1].track.as_ref().map(|t| t.id)], before_ids);
+    assert_eq!(Catalog::open(&db).unwrap().library_snapshot().unwrap(), before);
+    std::fs::remove_dir_all(root).unwrap();
+}
