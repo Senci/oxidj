@@ -2,12 +2,12 @@
 
 Condensed 2026-11-02. Full prior text (per-increment evidence, M0-09 verification, decisions, risks, F-09 oracle notes): [docs/history/status-2026-11-02.md](../docs/history/status-2026-11-02.md). Milestone contract: [plan/MVP.md](MVP.md). Live work: Kanban; this file records stages and gates only.
 
-## M8 playlist audit — awaiting independent final approval (2026-11-07)
+## M8 imported playlist browsing/loading — reviewed, audited, installed (2026-11-07)
 
-- `t_8b142e7c` audited `e6b9ad1` and `8eeeee7`: fixed unreachable long playlist members (navigation scrolling), folder-name ID collisions and membership-based playlist selection identity; imported snapshot read errors now remain visible instead of appearing empty.
-- Retained production-egui regressions cover ordered duplicates, exact imported-location loading onto A/B (including creation of an unscanned audio reference), no filename fallback, refusal preserving deck state, independent same-named folders, scrolling to member 80, stopped playback and unchanged imported snapshot.
-- Audit checks: focused production-egui playlist tests exit 0 (4 passed); `cargo xtask ci` exit 0: `layers=ok fmt=ok clippy=ok check=ok [all pass]`; `cargo xtask ci-full` exit 0: `ci=ok test=ok ui-test=ok deny=ok [all pass]` (UI 238 passed, 2 ignored); `git diff --check` exit 0.
-- Audit corrections pass focused production-egui tests (4 passed), `cargo xtask ci` and `cargo xtask ci-full`; independent final approval is pending before installation. No install, push, private-library/media/USB access, or vendor/hardware qualification performed.
+- `t_8b142e7c` audited `e6b9ad1` and `8eeeee7`; fixes committed as `8068744`: long playlist navigation scrolls, same-named folders have unique structural IDs, playlist selection uses structural identity rather than membership, and imported snapshot read errors stay visible instead of appearing empty.
+- Production-egui regressions cover ordered duplicates, exact imported-location loading onto A/B (including creation of an unscanned audio reference), no filename fallback, refusal preserving deck state, independent same-named folders, scrolling to member 80, stopped playback, read failures, and unchanged imported snapshot.
+- Sol 6.1 final approval (`t_4ca94599`) approved `8068744`. Focused production-egui tests exit 0 (4 passed); `cargo xtask ci` exit 0: `layers=ok fmt=ok clippy=ok check=ok [all pass]`; `cargo xtask ci-full` exit 0: `ci=ok test=ok ui-test=ok deny=ok [all pass]` (UI 238 passed, 2 ignored); `git diff --check` exit 0.
+- Installed with `bash scripts/install-local.sh` on local `master`; installed `oxidj-cli` and `oxidj-library-ui` are byte-identical to the release artifacts; `oxidj-cli --version` reports `0.1.0`. No push, private-library/media/USB access, or vendor/hardware qualification performed.
 
 ## TL;DR (2026-11-05)
 
