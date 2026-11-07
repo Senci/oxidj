@@ -16,10 +16,12 @@ fn scratch() -> PathBuf {
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
         .as_nanos();
-    let dir = std::env::temp_dir().join(format!(
-        "oxidj-library-import-{}-{nonce}-{seq}",
-        std::process::id()
-    ));
+    // Keep DeviceSQL's encoded file URL below its 127-byte string limit even
+    // when TMPDIR is unusually long. Use a deterministic short path under the
+    // repository-owned scratch root instead of depending on the process ID.
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/m6");
+    std::fs::create_dir_all(&root).unwrap();
+    let dir = root.join(format!("{nonce:x}-{seq:x}"));
     std::fs::create_dir(&dir).unwrap();
     dir
 }

@@ -300,7 +300,10 @@ pub fn analyze_catalog_tempo(
                 match catalog.reference_id_for_library_location(&imported.location) {
                     Ok(Some(id)) if seen.insert(id) => ids.push(id),
                     Ok(Some(_)) => {}
-                    Ok(None) | Err(_) => unavailable_library_audio += 1,
+                    Ok(None) | Err(oxidj_library::CatalogError::UnavailableLibraryAudio) => {
+                        unavailable_library_audio += 1
+                    }
+                    Err(error) => return Err(catalog_error(error)),
                 }
             }
             ids

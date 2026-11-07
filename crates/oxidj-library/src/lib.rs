@@ -177,6 +177,7 @@ pub enum CatalogError {
     OperationConflict(String),
     TrackLimit,
     InvalidRecord(&'static str),
+    UnavailableLibraryAudio,
     DestinationExists,
     Cleanup(std::io::Error),
 }
@@ -200,6 +201,9 @@ impl fmt::Display for CatalogError {
             }
             Self::TrackLimit => write!(f, "catalog track limit of 10000 reached"),
             Self::InvalidRecord(reason) => write!(f, "invalid track reference: {reason}"),
+            Self::UnavailableLibraryAudio => {
+                f.write_str("imported library audio is missing or unreadable")
+            }
             Self::DestinationExists => write!(f, "catalog destination already exists"),
             Self::Cleanup(error) => write!(f, "catalog temporary-file cleanup failed: {error}"),
         }
@@ -845,21 +849,20 @@ impl Catalog {
         &mut self,
         location: &str,
     ) -> Result<Option<oxidj_core::TrackId>, CatalogError> {
-        let decoded = waveform_store::decoded_path(location).ok_or_else(|| {
-            CatalogError::InvalidRecord("library location is not a local file path")
-        })?;
+        let decoded =
+            waveform_store::decoded_path(location).ok_or(CatalogError::UnavailableLibraryAudio)?;
 
-        let path = std::str::from_utf8(&decoded)
-            .map_err(|_| CatalogError::InvalidRecord("library location path is not valid UTF-8"))?;
+        let path =
+            std::str::from_utf8(&decoded).map_err(|_| CatalogError::UnavailableLibraryAudio)?;
         let path_obj = Path::new(path);
 
         // Probe the file is readable before promising a reference.
         let mut probe = [0u8; 4096];
-        let mut f = std::fs::File::open(path_obj)
-            .map_err(|_| CatalogError::InvalidRecord("library audio is missing or unreadable"))?;
+        let mut f =
+            std::fs::File::open(path_obj).map_err(|_| CatalogError::UnavailableLibraryAudio)?;
         let _ = f
             .read(&mut probe)
-            .map_err(|_| CatalogError::InvalidRecord("library audio is missing or unreadable"))?;
+            .map_err(|_| CatalogError::UnavailableLibraryAudio)?;
 
         // Reuse an existing reference for this path, otherwise create a new one.
         let existing = self
@@ -1844,6 +1847,35 @@ mod tests {
         let _ = std::fs::remove_file(path);
         let _ = std::fs::remove_file(path.with_extension("sqlite-wal"));
         let _ = std::fs::remove_file(path.with_extension("sqlite-shm"));
+    }
+
+    #[test]
+    fn imported_audio_reference_storage_errors_are_not_unavailable_audio() {
+        let database = database_path();
+        let audio = database.with_extension("wav");
+        std::fs::write(&audio, b"readable fixture bytes").unwrap();
+        let location = format!("file://localhost{}", audio.display());
+        let mut catalog = Catalog::open(&database).unwrap();
+        catalog
+            .connection
+            .execute_batch(
+                "CREATE TRIGGER reject_reference BEFORE INSERT ON tracks \
+                 BEGIN SELECT RAISE(ABORT, 'injected storage failure'); END;",
+            )
+            .unwrap();
+
+        assert!(matches!(
+            catalog.reference_id_for_library_location(&location),
+            Err(CatalogError::Sqlite(_))
+        ));
+        assert!(matches!(
+            catalog.reference_id_for_library_location("file://localhost/not-present.wav"),
+            Err(CatalogError::UnavailableLibraryAudio)
+        ));
+
+        drop(catalog);
+        let _ = std::fs::remove_file(audio);
+        remove_database(&database);
     }
 
     #[test]
