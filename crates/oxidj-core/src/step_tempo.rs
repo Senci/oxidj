@@ -1,5 +1,8 @@
 //! Neutral, inspection-only step-tempo result; never a persisted `TempoGrid`.
 
+pub const STEP_ALGORITHM: &str = "oxidj-step-fit-v1 / taktus 0.1.0";
+pub const STEP_POLICY: &str = "step-policy-v1:100-160;8-180s;2-changes";
+
 /// Diagnostic values for one segment. Scores are not probabilities.
 #[derive(Clone, Debug, PartialEq)]
 pub struct StepEvidence {
@@ -92,6 +95,19 @@ impl StepMap {
             segments,
         })
     }
+    /// Stable inspection representation, not a storage format identifier.
+    pub fn representation(&self) -> &'static str {
+        "computed-step-tempo-v1"
+    }
+    pub fn algorithm(&self) -> &'static str {
+        STEP_ALGORITHM
+    }
+    pub fn policy(&self) -> &'static str {
+        STEP_POLICY
+    }
+    pub fn bpm_band(&self) -> (u32, u32) {
+        (100, 160)
+    }
     pub fn sample_rate(&self) -> u32 {
         self.sample_rate
     }
@@ -121,7 +137,42 @@ pub enum StepRefusal {
 /// Separate result; it has no conversion to the existing constant grid.
 #[derive(Clone, Debug, PartialEq)]
 pub enum ComputedStepTempoV1 {
-    Constant(StepMap),
-    Variable(StepMap),
+    Constant(ConstantStepMap),
+    Variable(VariableStepMap),
     NoMap(StepRefusal),
+}
+
+/// A one-segment map, constructible only by classification.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ConstantStepMap(StepMap);
+/// A two/three-segment map, constructible only by classification.
+#[derive(Clone, Debug, PartialEq)]
+pub struct VariableStepMap(StepMap);
+impl core::ops::Deref for ConstantStepMap {
+    type Target = StepMap;
+    fn deref(&self) -> &StepMap {
+        &self.0
+    }
+}
+impl core::ops::Deref for VariableStepMap {
+    type Target = StepMap;
+    fn deref(&self) -> &StepMap {
+        &self.0
+    }
+}
+impl ComputedStepTempoV1 {
+    pub fn from_map(map: StepMap) -> Self {
+        if map.segments.len() == 1 {
+            Self::Constant(ConstantStepMap(map))
+        } else {
+            Self::Variable(VariableStepMap(map))
+        }
+    }
+    pub fn map(&self) -> Option<&StepMap> {
+        match self {
+            Self::Constant(m) => Some(m),
+            Self::Variable(m) => Some(m),
+            Self::NoMap(_) => None,
+        }
+    }
 }

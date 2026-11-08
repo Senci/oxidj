@@ -2,6 +2,17 @@
 
 Condensed 2026-11-02. Full prior text (per-increment evidence, M0-09 verification, decisions, risks, F-09 oracle notes): [docs/history/status-2026-11-02.md](../docs/history/status-2026-11-02.md). Milestone contract: [plan/MVP.md](MVP.md). Live work: Kanban; this file records stages and gates only.
 
+## M6 bounded step-tempo inspection — implementation, audit pending
+
+`t_08409dc4` implements `inspect-step-tempo --file PATH` for explicit audio,
+with a separate `ComputedStepTempoV1` constant/variable/refusal result. The
+[ADR-004 B2 addendum](../docs/adr/004-b2-step-tempo.md) fixes the synthetic
+100–160 BPM, 8–180 s, at-most-two-change contract. Normal `catalog analyze-tempo`,
+format-v1 computed storage, imported precedence, computed-grid export and SYNC
+are unchanged. No private data, installation, persistence, real-music accuracy
+or vendor/hardware claim. Independent Sol audit/fix-all and final review remain
+required on `t_4a979b1b`; M6 as a whole remains in progress.
+
 ## M8 imported playlist browsing/loading — reviewed, audited, installed (2026-11-07)
 
 - `t_8b142e7c` audited `e6b9ad1` and `8eeeee7`; fixes committed as `8068744`: long playlist navigation scrolls, same-named folders have unique structural IDs, playlist selection uses structural identity rather than membership, and imported snapshot read errors stay visible instead of appearing empty.

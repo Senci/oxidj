@@ -61,12 +61,69 @@ fn run(args: &[String]) -> i32 {
                 USAGE
             }
         },
+        "inspect-step-tempo" => run_step_inspection(&args[2..]),
         "catalog" => run_catalog(&args[2..]),
         "onelibrary" => run_onelibrary(&args[2..]),
         "rekordbox" => run_rekordbox(&args[2..]),
         unknown => {
             eprintln!("error: unknown command: {unknown}");
             USAGE
+        }
+    }
+}
+
+/// Opt-in synthetic inspection, deliberately not a catalog subcommand.
+fn run_step_inspection(args: &[String]) -> i32 {
+    use oxidj_application::step_tempo::{
+        ComputedStepTempoV1, STEP_ALGORITHM, STEP_POLICY, inspect_step_tempo_file,
+    };
+    if args.len() != 2 || args[0] != "--file" {
+        eprintln!("error: expected inspect-step-tempo --file PATH (inspection only; no catalog)");
+        return USAGE;
+    }
+    match inspect_step_tempo_file(std::path::Path::new(&args[1])) {
+        Err(error) => {
+            eprintln!("error: {error}");
+            DOMAIN
+        }
+        Ok(result) => {
+            println!(
+                "Representation: computed-step-tempo-v1\nAlgorithm: {STEP_ALGORITHM}\nPolicy: {STEP_POLICY}\nScope: inspection only; synthetic contract, no real-music accuracy claim"
+            );
+            match &result {
+                ComputedStepTempoV1::NoMap(reason) => println!("NoMap: {reason:?}"),
+                _ => {
+                    println!(
+                        "Classification: {}",
+                        if matches!(result, ComputedStepTempoV1::Constant(_)) {
+                            "Constant"
+                        } else {
+                            "Variable"
+                        }
+                    );
+                    let map = result.map().expect("successful classification has a map");
+                    println!(
+                        "SampleRate: {}\nFrames: {}\nSupportEndMs: {}\nBpmBand: 100-160",
+                        map.sample_rate(),
+                        map.frames(),
+                        map.end_ms()
+                    );
+                    for s in map.segments() {
+                        println!(
+                            "Segment\tstart_ms={}\tordinal={}\tbpm={:.6}\tsure={:.9}\tcatch={:.9}\tmax_residual_ms={:.6}\tsupported={:.9}\tunexplained={:.9}",
+                            s.start_ms,
+                            s.ordinal,
+                            s.bpm,
+                            s.evidence.sure,
+                            s.evidence.catch,
+                            s.evidence.max_residual_ms,
+                            s.evidence.supported_fraction,
+                            s.evidence.unexplained_fraction
+                        );
+                    }
+                }
+            }
+            OK
         }
     }
 }
@@ -2203,6 +2260,10 @@ fn print_usage(to_stdout: bool) {
     };
     let _ = writeln!(output, "usage: oxidj-cli <command>");
     let _ = writeln!(output, "commands:");
+    let _ = writeln!(
+        output,
+        "  inspect-step-tempo --file <path>   Synthetic step-tempo inspection only (100-160 BPM, 8-180 s, <=2 changes); no catalog, storage, export or SYNC"
+    );
     let _ = writeln!(
         output,
         "  onelibrary preview --db <path> --key-stdin   Read-only provisional native-profile preview when the pinned 22-table/4-index signature matches; otherwise synthetic v1. Supports title, artist, album, playlist hierarchy/order and membership only. Excludes BPM, length, paths, cues/ANLZ, history, tags, color, artwork and analysis.

@@ -8,6 +8,204 @@ use quick_xml::{Reader, events::Event};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 
+#[test]
+fn step_inspection_is_explicit_and_leaves_catalog_sources_and_exports_unchanged() {
+    let dir = scratch();
+    let audio = dir.join("a.wav");
+    let rate = 8000u32;
+    let render = |variable: bool| {
+        let mut samples = vec![0.0f32; 322400];
+        let mut hits = Vec::new();
+        for n in 0..40 {
+            hits.push(0.3 + n as f64 * 0.5);
+        }
+        let period = if variable { 0.4 } else { 0.5 };
+        for n in 0.. {
+            let t = 20.3 + n as f64 * period;
+            if t >= 40.3 {
+                break;
+            }
+            hits.push(t);
+        }
+        for hit in hits {
+            let start = (hit * f64::from(rate)).round() as usize;
+            for i in 0..2000 {
+                let Some(slot) = samples.get_mut(start + i) else {
+                    break;
+                };
+                let t = i as f64 / f64::from(rate);
+                *slot += (0.6 * (std::f64::consts::TAU * 55.0 * t).sin() * (-t / 0.06).exp()
+                    + 0.3 * (std::f64::consts::TAU * 1800.0 * t).sin() * (-t / 0.004).exp())
+                    as f32;
+            }
+        }
+        let pcm: Vec<_> = samples
+            .iter()
+            .flat_map(|x| ((*x * 30000.0) as i16).to_le_bytes())
+            .collect();
+        let mut wav = b"RIFF".to_vec();
+        wav.extend((36 + pcm.len() as u32).to_le_bytes());
+        wav.extend(b"WAVEfmt ");
+        wav.extend(16u32.to_le_bytes());
+        wav.extend(1u16.to_le_bytes());
+        wav.extend(1u16.to_le_bytes());
+        wav.extend(rate.to_le_bytes());
+        wav.extend((rate * 2).to_le_bytes());
+        wav.extend(2u16.to_le_bytes());
+        wav.extend(16u16.to_le_bytes());
+        wav.extend(b"data");
+        wav.extend((pcm.len() as u32).to_le_bytes());
+        wav.extend(pcm);
+        wav
+    };
+    std::fs::write(&audio, render(false)).unwrap();
+    let location = format!("file://localhost{}", audio.display());
+    let pdb = dir.join("export.pdb");
+    let source = synthetic_pdb_with(None, &location);
+    std::fs::write(&pdb, &source).unwrap();
+    let catalog = dir.join("catalog.sqlite");
+    assert_eq!(
+        cli(&[
+            s("catalog"),
+            s("import-library"),
+            s("--pdb"),
+            pdb.as_os_str(),
+            s("--catalog"),
+            catalog.as_os_str()
+        ])
+        .status
+        .code(),
+        Some(0)
+    );
+    assert_eq!(
+        cli(&[
+            s("catalog"),
+            s("analyze-tempo"),
+            s("--db"),
+            catalog.as_os_str()
+        ])
+        .status
+        .code(),
+        Some(0)
+    );
+    let db = oxidj_library::Catalog::open(&catalog).unwrap();
+    let snapshot = db.library_snapshot().unwrap();
+    let stored = db
+        .computed_beat_grid_for_library_location(&location)
+        .unwrap();
+    assert!(matches!(
+        stored,
+        oxidj_library::LibraryComputedGrid::Found(_)
+    ));
+    drop(db);
+    let export = |suffix: &str, computed: bool| {
+        let path = dir.join(format!("{suffix}.xml"));
+        let mut args = vec![
+            s("catalog"),
+            s("export-library-xml"),
+            s("--catalog"),
+            catalog.as_os_str(),
+            s("--output"),
+            path.as_os_str(),
+        ];
+        if computed {
+            args.push(s("--computed-grids"));
+        }
+        let out = cli(&args);
+        assert_eq!(out.status.code(), Some(0), "{out:?}");
+        std::fs::read(path).unwrap()
+    };
+    let normal = export("before", false);
+    let computed = export("before-computed", true);
+    // Snapshot all persistent SQL values, including versioned computed rows,
+    // cues/playlists/vendor payloads. The inspector never receives this path.
+    let dump = || {
+        let out=Command::new("python3").args(["-c","import sqlite3,sys; c=sqlite3.connect('file:'+sys.argv[1]+'?mode=ro',uri=True); print(c.execute('pragma user_version').fetchone()); print('\\n'.join(c.iterdump()))"]).arg(&catalog).output().unwrap();
+        assert!(out.status.success());
+        out.stdout
+    };
+    let before = dump();
+    let variable = dir.join("step.wav");
+    std::fs::write(&variable, render(true)).unwrap();
+    let bytes = std::fs::read(&variable).unwrap();
+    let out = cli(&[s("inspect-step-tempo"), s("--file"), variable.as_os_str()]);
+    assert_eq!(out.status.code(), Some(0), "{out:?}");
+    let text = stdout(&out);
+    assert!(text.contains("Classification: Variable"), "{text}");
+    assert_eq!(
+        text.lines().filter(|l| l.starts_with("Segment\t")).count(),
+        2
+    );
+    assert!(text.contains("Frames: 322400"));
+    assert!(text.contains("SupportEndMs: 40300"));
+    assert_eq!(std::fs::read(&variable).unwrap(), bytes);
+    assert_eq!(std::fs::read(&audio).unwrap(), render(false));
+    assert_eq!(std::fs::read(&pdb).unwrap(), source);
+    assert_eq!(dump(), before);
+    assert_eq!(export("after", false), normal);
+    assert_eq!(export("after-computed", true), computed);
+    let db = oxidj_library::Catalog::open(&catalog).unwrap();
+    assert_eq!(db.library_snapshot().unwrap(), snapshot);
+    assert_eq!(
+        db.computed_beat_grid_for_library_location(&location)
+            .unwrap(),
+        stored
+    );
+    drop(db);
+    for args in [
+        vec![s("inspect-step-tempo")],
+        vec![
+            s("inspect-step-tempo"),
+            s("--file"),
+            variable.as_os_str(),
+            s("--db"),
+            catalog.as_os_str(),
+        ],
+    ] {
+        assert_eq!(cli(&args).status.code(), Some(2));
+    }
+    assert_eq!(
+        cli(&[
+            s("inspect-step-tempo"),
+            s("--file"),
+            dir.join("absent").as_os_str()
+        ])
+        .status
+        .code(),
+        Some(1)
+    );
+    let constant_out = cli(&[s("inspect-step-tempo"), s("--file"), audio.as_os_str()]);
+    assert_eq!(constant_out.status.code(), Some(0));
+    assert!(stdout(&constant_out).contains("Classification: Constant"));
+    let silent = dir.join("silent.wav");
+    let mut wav = render(false);
+    wav[44..].fill(0);
+    std::fs::write(&silent, &wav).unwrap();
+    let out = cli(&[s("inspect-step-tempo"), s("--file"), silent.as_os_str()]);
+    assert_eq!(out.status.code(), Some(0));
+    assert!(stdout(&out).contains("NoMap: Silent"));
+    let capped = dir.join("over-cap.wav");
+    wav.resize(44 + (rate as usize * 180 + 1) * 2, 0);
+    let len = wav.len() as u32;
+    wav[4..8].copy_from_slice(&(len - 8).to_le_bytes());
+    wav[40..44].copy_from_slice(&(len - 44).to_le_bytes());
+    std::fs::write(&capped, &wav).unwrap();
+    let out = cli(&[s("inspect-step-tempo"), s("--file"), capped.as_os_str()]);
+    assert_eq!(out.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&out.stderr).contains("ResourceLimit"));
+    assert!(out.stdout.is_empty());
+    let corrupt = dir.join("corrupt.wav");
+    std::fs::write(&corrupt, &wav[..100]).unwrap();
+    assert_eq!(
+        cli(&[s("inspect-step-tempo"), s("--file"), corrupt.as_os_str()])
+            .status
+            .code(),
+        Some(1)
+    );
+    assert_eq!(dump(), before);
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
 fn scratch() -> PathBuf {
     // Parallel tests can read the same clock value; the counter keeps names unique.
     static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);

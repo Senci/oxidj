@@ -8,6 +8,7 @@ use std::{
 use zeroize::{Zeroize, Zeroizing};
 
 mod library_import;
+pub mod step_tempo;
 mod tempo;
 mod waveform;
 pub use library_import::{

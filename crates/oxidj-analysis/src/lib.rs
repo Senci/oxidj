@@ -23,6 +23,7 @@
 use oxidj_core::waveform::{Peak, WaveformError, WaveformPeaks};
 
 pub mod key;
+pub mod step_tempo;
 pub mod tempo;
 pub use key::{Key, KeyBuilder};
 pub use tempo::{BpmRange, TempoBuilder, TempoError, TempoGate, TempoOptions};
