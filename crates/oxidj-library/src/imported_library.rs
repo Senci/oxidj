@@ -83,6 +83,21 @@ pub struct LibrarySnapshot {
     pub roots: Vec<LibraryNode>,
 }
 
+/// The fields required to render imported playlist navigation. Unlike
+/// [`LibrarySnapshot`], this deliberately excludes analysis and vendor blobs.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LibraryNavigationTrack {
+    pub title: String,
+    pub location: String,
+}
+
+/// Lightweight imported-library tree used by the UI navigation panel.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct LibraryNavigation {
+    pub tracks: Vec<LibraryNavigationTrack>,
+    pub roots: Vec<LibraryNode>,
+}
+
 /// Aggregate counts of a snapshot (folders exclude the implicit root).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct LibraryCounts {
@@ -528,6 +543,79 @@ impl Catalog {
         Ok(snapshot.counts())
     }
 
+    /// Read only the fields needed to render imported-library navigation.
+    /// This does not load beat grids, cues, or vendor waveform payloads.
+    pub fn library_navigation(&self) -> Result<LibraryNavigation, CatalogError> {
+        let mut statement = self
+            .connection
+            .prepare("SELECT position,title,location FROM library_tracks ORDER BY position")?;
+        let rows = statement.query_map([], |row| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                LibraryNavigationTrack {
+                    title: row.get(1)?,
+                    location: row.get(2)?,
+                },
+            ))
+        })?;
+        let mut tracks = Vec::new();
+        for row in rows {
+            let (position, track) = row?;
+            if position != to_i64(tracks.len())? {
+                return Err(CatalogError::InvalidRecord(
+                    "library track positions are not dense",
+                ));
+            }
+            tracks.push(track);
+        }
+        let nodes: Vec<(i64, Option<i64>, String, bool)> = self.connection
+            .prepare("SELECT id,parent_id,name,is_folder FROM library_nodes ORDER BY parent_id,sibling_order")?
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)))?
+            .collect::<Result<_, _>>()?;
+        let mut members = self.connection.prepare(
+            "SELECT track_position FROM library_members WHERE node_id=?1 ORDER BY position",
+        )?;
+        fn build(
+            nodes: &[(i64, Option<i64>, String, bool)],
+            parent: Option<i64>,
+            members: &mut rusqlite::Statement<'_>,
+            track_count: usize,
+            depth: usize,
+        ) -> Result<Vec<LibraryNode>, CatalogError> {
+            if depth > 256 {
+                return Err(CatalogError::InvalidRecord("library tree is too deep"));
+            }
+            let mut out = Vec::new();
+            for (id, _, name, is_folder) in nodes.iter().filter(|node| node.1 == parent) {
+                if *is_folder {
+                    out.push(LibraryNode::Folder {
+                        name: name.clone(),
+                        children: build(nodes, Some(*id), members, track_count, depth + 1)?,
+                    });
+                } else {
+                    let ordered = members
+                        .query_map([id], |row| row.get::<_, i64>(0))?
+                        .map(|value| {
+                            usize::try_from(value?)
+                                .ok()
+                                .filter(|&position| position < track_count)
+                                .ok_or(CatalogError::InvalidRecord(
+                                    "playlist member references a missing track",
+                                ))
+                        })
+                        .collect::<Result<Vec<_>, _>>()?;
+                    out.push(LibraryNode::Playlist {
+                        name: name.clone(),
+                        members: ordered,
+                    });
+                }
+            }
+            Ok(out)
+        }
+        let roots = build(&nodes, None, &mut members, tracks.len(), 0)?;
+        Ok(LibraryNavigation { tracks, roots })
+    }
+
     /// Read the stored imported library back in stored order.
     pub fn library_snapshot(&self) -> Result<LibrarySnapshot, CatalogError> {
         let mut statement = self.connection.prepare(
@@ -905,6 +993,36 @@ mod tests {
                 },
             ],
         }
+    }
+
+    #[test]
+    fn navigation_snapshot_reads_only_titles_locations_and_ordered_memberships() {
+        let path = path();
+        let mut catalog = Catalog::open(&path).unwrap();
+        catalog.import_library(&snapshot()).unwrap();
+        catalog
+            .connection
+            .execute(
+                "UPDATE library_vendor_waveforms SET data=x'00' WHERE track_position=0",
+                [],
+            )
+            .unwrap();
+
+        let navigation = catalog.library_navigation().unwrap();
+        assert_eq!(
+            navigation
+                .tracks
+                .iter()
+                .map(|track| track.title.as_str())
+                .collect::<Vec<_>>(),
+            ["A", "B", "C"]
+        );
+        assert_eq!(navigation.tracks[0].location, "file://localhost/A.wav");
+        assert_eq!(navigation.roots, snapshot().roots);
+        assert!(
+            catalog.library_snapshot().is_err(),
+            "full snapshot parses vendor waveform blobs"
+        );
     }
 
     #[test]

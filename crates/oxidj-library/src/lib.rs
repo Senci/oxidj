@@ -29,8 +29,8 @@ pub mod pcm;
 mod tempo_store;
 mod waveform_store;
 pub use imported_library::{
-    LibraryBeat, LibraryCounts, LibraryCue, LibraryNode, LibrarySnapshot, LibraryTrack,
-    validate_library_playlist_name,
+    LibraryBeat, LibraryCounts, LibraryCue, LibraryNavigation, LibraryNavigationTrack, LibraryNode,
+    LibrarySnapshot, LibraryTrack, validate_library_playlist_name,
 };
 pub use tempo_store::{LibraryComputedGrid, StoredBeatGrid, TEMPO_GRID_FORMAT_VERSION, TempoBasis};
 pub use waveform_store::{StoredWaveform, VendorWaveform, WAVEFORM_FORMAT_VERSION};

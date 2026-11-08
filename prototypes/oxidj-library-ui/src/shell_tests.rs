@@ -891,6 +891,37 @@ fn navigation_counts_are_right_aligned_in_full_width_rows() {
 }
 
 #[test]
+fn production_ui_uses_cached_navigation_until_explicit_reload() {
+    let (root, db) = catalog_root("navigation-cache");
+    let audio = root.join("audio/tone-a.wav");
+    let raw = audio.to_string_lossy().into_owned();
+    let (location, _) = oxidj_application::location_uri(&raw);
+    Catalog::open(&db).unwrap().import_library(&LibrarySnapshot {
+        tracks: vec![LibraryTrack { title: "Cached title".into(), location, ..Default::default() }],
+        roots: vec![oxidj_library::LibraryNode::Playlist { name: "Initial set".into(), members: vec![0, 0] }],
+    }).unwrap();
+
+    let mut shell = Shell::new(&db, 1440.0);
+    shell.app.imported_playlist = Some(vec![0]);
+    for _ in 0..4 {
+        let output = shell.frame(vec![], Default::default());
+        let shown = texts(&output);
+        assert!(shown.iter().any(|(text, _)| text == "♫ Initial set"));
+        assert!(shown.iter().any(|(text, _)| text == "1 · Cached title"));
+        assert!(shown.iter().any(|(text, _)| text == "2 · Cached title"));
+    }
+
+    Catalog::open(&db).unwrap().create_library_playlist("Added set", &[0]).unwrap();
+    let output = shell.settle();
+    assert!(!texts(&output).iter().any(|(text, _)| text == "♫ Added set"), "frames must not reread the catalog");
+
+    shell.app.reload();
+    let output = shell.settle();
+    assert!(texts(&output).iter().any(|(text, _)| text == "♫ Added set"), "explicit reload refreshes navigation");
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn details_show_imported_cues_read_only_and_follow_selection() {
     let (root, db) = catalog_root("details-cues");
     let mut catalog = Catalog::open(&db).unwrap();

@@ -916,15 +916,7 @@ impl LibraryApp {
             title: "Imported playlists",
         }
         .show(ui, tokens);
-        let snapshot = self
-            .catalog
-            .as_ref()
-            .map_err(Clone::clone)
-            .and_then(|catalog| {
-                catalog
-                    .library_snapshot()
-                    .map_err(|error| error.to_string())
-            });
+        let snapshot = self.imported_navigation.clone();
         if let Ok(snapshot) = snapshot {
             if snapshot.roots.is_empty() {
                 ui.label("No imported playlists");

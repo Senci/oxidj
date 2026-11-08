@@ -128,6 +128,7 @@ pub(crate) struct LibraryApp {
     /// Structural node path (not membership, names, or local audio IDs).
     pub(crate) imported_playlist: Option<Vec<usize>>,
     pub(crate) imported_member: Option<usize>,
+    pub(crate) imported_navigation: Result<std::sync::Arc<oxidj_library::LibraryNavigation>, String>,
     /// M8/D1 deck area (silent transport until D2).
     pub(crate) decks: crate::decks::DeckArea,
     /// W8 shell panel toggles (app state only, not persisted).
@@ -291,6 +292,7 @@ impl LibraryApp {
             availability_filter: None,
             imported_playlist: None,
             imported_member: None,
+            imported_navigation: Err("Imported playlists have not been loaded".into()),
             decks: Default::default(),
             show_nav: true,
             show_details: false,
@@ -508,19 +510,27 @@ impl LibraryApp {
         self.load_error = None;
         self.track_waveform.invalidate();
         match &self.catalog {
-            Ok(db) => match db.list_track_details() {
-                Ok(rows) => self.tracks = rows,
-                Err(e) => self.load_error = Some(e.to_string()),
-            },
-            Err(e) => self.load_error = Some(e.clone()),
+            Ok(db) => {
+                self.imported_navigation = db.library_navigation()
+                    .map(std::sync::Arc::new)
+                    .map_err(|error| error.to_string());
+                match db.list_track_details() {
+                    Ok(rows) => self.tracks = rows,
+                    Err(e) => self.load_error = Some(e.to_string()),
+                }
+            }
+            Err(e) => {
+                self.imported_navigation = Err(e.clone());
+                self.load_error = Some(e.clone());
+            }
         }
         self.refresh_decks();
     }
 
     pub(crate) fn load_imported_member(&mut self, member: usize, deck: usize) {
         let result = (|| {
-            let snapshot = self.catalog.as_ref().map_err(|e| e.clone())?.library_snapshot().map_err(|e| e.to_string())?;
-            let imported = snapshot.tracks.get(member).ok_or_else(|| "playlist member is unavailable".to_owned())?;
+            let imported = self.imported_navigation.as_ref().map_err(Clone::clone)?;
+            let imported = imported.tracks.get(member).ok_or_else(|| "playlist member is unavailable".to_owned())?;
             let id = self.catalog.as_mut().map_err(|e| e.clone())?
                 .reference_id_for_library_location(&imported.location).map_err(|e| e.to_string())?
                 .ok_or_else(|| "playlist audio is unavailable".to_owned())?;
