@@ -20,6 +20,17 @@ No private data, push, persistence/export/SYNC admission, real-music accuracy,
 or vendor/hardware claim. M6 vendor accuracy, native display, accessibility and
 GPU/presented FPS remain NOT DEMONSTRATED.
 
+## M8 full-width playlist interaction — implementation pending independent review
+
+`t_811767eb` extends the reviewed playlist browser with the full central metadata
+table (ordered duplicates, search, selection/Details), row drag/drop from both
+collection and playlists to either deck, and an opt-in persisted Simple DJ keys
+mode. Context menus and deck Load buttons retain exact-location resolution and
+missing-audio refusal. Synthetic actual-egui regressions cover the new paths;
+final gate output and commit are recorded in the card handoff. Independent
+review and installation are not yet claimed. Rotary EQ/filter is a separate
+queued follow-on (`t_b5986ae6`); no mixer/DSP change is included here.
+
 ## M8 imported playlist browsing/loading — reviewed, audited, installed (2026-11-07)
 
 - `t_8b142e7c` audited `e6b9ad1` and `8eeeee7`; fixes committed as `8068744`: long playlist navigation scrolls, same-named folders have unique structural IDs, playlist selection uses structural identity rather than membership, and imported snapshot read errors stay visible instead of appearing empty.

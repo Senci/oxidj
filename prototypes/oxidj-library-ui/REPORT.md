@@ -21,6 +21,48 @@ Status: provisional local slice only; this is not production framework admission
 - Fresh GUI process reopened the same persisted catalog after the importing process exited. It showed all three rows without rescanning.
 - Fresh GUI on an empty scratch catalog rendered “Library is empty. Import a folder of supported audio references.” A nonexistent-parent catalog rendered the red catalog-open error. Neither touched the persisted acceptance catalog.
 
+## Full-width playlist and track interaction follow-on
+
+Imported playlist selection opens its ordered members (including duplicates) in
+one full-width, virtualized table: Title, Artist, Album, BPM, Key and Duration.
+The sidebar contains navigation only. Search matches title, artist and album;
+playlist order is preserved rather than silently re-sorted. Selecting a member
+shows its imported metadata in Details, including imported-only tracks without a
+scanned audio reference. All tracks returns to the sortable collection table.
+The cached lightweight navigation query includes table metadata, never waveform
+blobs; a normal frame does not re-read the whole imported snapshot.
+
+Drag a collection or playlist row onto either deck's detail waveform, overview
+or control-strip half. The target is outlined; release loads that deck stopped.
+Esc, release outside a deck, or hiding the decks cancels without loading.
+Imported audio resolves by the existing exact-location path; unavailable audio
+is refused without replacing the loaded deck. Context-menu and Load-button
+paths remain available.
+
+Settings → Keyboard offers an opt-in **Simple DJ keys (Rekordbox-inspired)**
+mode, persisted with the other settings. It is a small mapping for supported
+actions, not an exact Rekordbox shortcut compatibility promise:
+
+| Keys | Action |
+|---|---|
+| A / B | Load selected collection or playlist track onto deck A / B |
+| Z / X | Cue (hold/release) / play-pause deck A in Simple mode |
+| N / M | Cue (hold/release) / play-pause deck B in Simple mode |
+| Q / P | Cue deck A / B in the default, standard mode |
+| Space, Tab, 1–8 | Existing active-deck play, switch, and hot-cue controls |
+| Esc | Cancel an active track drag |
+
+DJ shortcuts do not steal text entry or focused-control keys and are inactive
+while Settings is open or decks are hidden. Moving focus away releases a held
+cue preview. Existing panel/theme chords are unchanged.
+
+Synthetic production-egui coverage is in `library_interaction_tests.rs` and
+`shell_tests.rs`, with settings persistence in `settings.rs`. It exercises real
+press/move/release frames, both row sources and decks, no-autoplay/cancellation,
+missing audio, metadata/details/search, scroll-to-last-member, and guarded
+transport keys. This is headless egui interaction evidence, not a fresh live
+Bot Screen/native input or accessibility qualification claim.
+
 ## Qualification boundary
 
 This smoke does not pass or claim the deferred 500k/60fps, native-display, screen-reader/platform, or final-framework review gates. The GUI crate is standalone under `prototypes/oxidj-library-ui`, not admitted into the root Cargo workspace or production application dependencies.

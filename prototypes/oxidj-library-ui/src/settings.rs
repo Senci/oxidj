@@ -30,9 +30,9 @@ pub const SHORTCUTS: [(&str, &str); 14] = [
     ("Ctrl+I", "Show or hide Details"),
     ("Ctrl+D", "Show or hide Decks"),
     ("A / B", "Load the selected track to deck A / B"),
-    ("Space", "Play or pause the active deck (silent, D1)"),
+    ("Space", "Play or pause the active deck"),
     ("Tab", "Switch the active deck (Shift+Tab enters the controls)"),
-    ("Q / P", "Cue deck A / deck B"),
+    ("Q / P", "Cue deck A / deck B (standard mode)"),
     ("1 – 8", "Hot-cue pads of the active deck"),
     ("+ / −, wheel", "Zoom the deck waveform (1–8 bars)"),
     ("Ctrl+Shift+1 – 5", "Show or hide a deck section (5 = crossfader)"),
@@ -90,6 +90,8 @@ pub struct Settings {
     pub crossfader: bool,
     /// D4 crossfader curve.
     pub xfader_curve: Curve,
+    /// Opt-in compact Rekordbox-inspired transport pairs.
+    pub simple_dj_keys: bool,
 }
 
 /// Which optional deck-area sections are expanded (D1).
@@ -151,6 +153,7 @@ impl Default for Settings {
             sections: DeckSections::default(),
             crossfader: true,
             xfader_curve: Curve::Smooth,
+            simple_dj_keys: false,
         }
     }
 }
@@ -185,7 +188,7 @@ impl Settings {
             .map(|i| format!(";{}={}", DeckSections::KEYS[i], b(self.sections.get(i))))
             .collect();
         format!(
-            "style={};smooth={};auto_gain={};beat_lines={};zoom={};deck_palette={};playhead={};phase={};tempo={};sec_xfader={};xf_curve={}",
+            "style={};smooth={};auto_gain={};beat_lines={};zoom={};deck_palette={};playhead={};phase={};tempo={};sec_xfader={};xf_curve={};simple_keys={}",
             name_of(&STYLES, self.waveform_style),
             b(self.smooth),
             b(self.auto_gain),
@@ -197,6 +200,7 @@ impl Settings {
             name_of(&TEMPOS, self.tempo_range),
             b(self.crossfader),
             name_of(&CURVES, self.xfader_curve),
+            b(self.simple_dj_keys),
         ) + &sections
     }
 
@@ -207,6 +211,7 @@ impl Settings {
         for (key, value) in raw.split(';').filter_map(|pair| pair.split_once('=')) {
             let value = value.trim();
             match key.trim() {
+                "simple_keys" => s.simple_dj_keys = parse_bool(value).unwrap_or(s.simple_dj_keys),
                 "style" => s.waveform_style = parse_in(&STYLES, value).unwrap_or(s.waveform_style),
                 "smooth" => s.smooth = parse_bool(value).unwrap_or(s.smooth),
                 "auto_gain" => s.auto_gain = parse_bool(value).unwrap_or(s.auto_gain),
@@ -415,6 +420,8 @@ impl LibraryApp {
         layout.curve = Some(rects(&responses));
 
         SectionHeading { title: "Keyboard" }.show(ui, tokens);
+        toggle_row(ui, tokens, "Simple DJ keys (Rekordbox-inspired)", &mut s.simple_dj_keys)
+            .on_hover_text("Z / X: cue / play A; N / M: cue / play B. A / B loads the selected track. Esc cancels a track drag. Not a complete Rekordbox mapping.");
         egui::Grid::new("settings-shortcuts").num_columns(2).spacing([12.0, 4.0]).show(ui, |ui| {
             for (keys, action) in SHORTCUTS {
                 ui.label(egui::RichText::new(keys).monospace().color(tokens.text));
@@ -473,6 +480,7 @@ mod tests {
             sections: DeckSections { detail: false, overviews: false, strip: false, mixer: true },
             crossfader: false,
             xfader_curve: Curve::Cut,
+            simple_dj_keys: true,
         };
         let mut storage = MemoryStorage::default();
         edited.save(&mut storage);

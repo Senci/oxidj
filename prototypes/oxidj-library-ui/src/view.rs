@@ -138,12 +138,54 @@ impl LibraryApp {
         egui::CentralPanel::default()
             .frame(egui::Frame::central_panel(&style).inner_margin(0))
             .show(ctx, |ui| self.track_table(ui, tokens));
+        self.finish_track_drop(ctx, tokens);
         // D2: this frame's deck controls go to the audio engine; D4: the
         // mixer is in the path only while visible (else exact unity bypass).
         self.decks.range = crate::decks::tempo_range(self.settings.tempo_range);
         self.decks.crossfader_on = self.settings.crossfader;
         self.decks.curve = self.settings.xfader_curve;
         self.decks.flush(self.show_decks && self.settings.sections.mixer);
+    }
+
+    /// Resolve the release after every region has been laid out. The source
+    /// survives leaving its virtual row; only primary release over a deck loads.
+    fn finish_track_drop(&mut self, ctx: &egui::Context, tokens: theme::ColorTokens) {
+        use crate::app::TrackSource;
+        if self.dragging_track.is_none() { return; }
+        if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+            self.dragging_track = None;
+            return;
+        }
+        let layout = self.decks.layout;
+        let pointer = ctx.input(|i| i.pointer.interact_pos());
+        let mut target = None;
+        if self.show_decks && !self.settings_ui.open {
+            for d in 0..2 {
+                let strip = layout.strip.map(|r| {
+                    let half = r.width() / 2.0;
+                    egui::Rect::from_min_size(egui::pos2(r.left() + d as f32 * half, r.top()), egui::vec2(half, r.height()))
+                });
+                for rect in [layout.halves.map(|r| r[d]), layout.overviews.map(|r| r[d]), strip].into_iter().flatten() {
+                    if pointer.is_some_and(|p| rect.contains(p)) {
+                        target = Some(d);
+                        ctx.layer_painter(egui::LayerId::new(egui::Order::Foreground, egui::Id::new("track-drop-highlight")))
+                            .rect_stroke(rect.shrink(1.0), 0.0, egui::Stroke::new(2.0_f32, tokens.focus), egui::StrokeKind::Inside);
+                    }
+                }
+            }
+        }
+        ctx.set_cursor_icon(if target.is_some() { egui::CursorIcon::Copy } else { egui::CursorIcon::Grabbing });
+        if ctx.input(|i| i.pointer.button_released(egui::PointerButton::Primary)) {
+            let source = self.dragging_track.take();
+            if let (Some(source), Some(deck)) = (source, target) {
+                match source {
+                    TrackSource::Catalog(id) => self.load_deck(deck, id),
+                    TrackSource::Imported(member) => self.load_imported_member(member, deck),
+                }
+            }
+        } else if !ctx.input(|i| i.pointer.primary_down()) {
+            self.dragging_track = None;
+        }
     }
 
     /// One slim row: title, growing search field, then (right-aligned) the
@@ -878,13 +920,16 @@ impl LibraryApp {
         ui.add_space(4.0);
         let all = nav_row(
             ui,
-            self.availability_filter.is_none(),
+            self.availability_filter.is_none() && self.imported_playlist.is_none(),
             "All tracks",
             self.tracks.len(),
             tokens,
         );
         if all.clicked() {
             self.availability_filter = None;
+            self.imported_playlist = None;
+            self.imported_member = None;
+            self.selected_imported = None;
         }
         let available = self
             .tracks
@@ -909,6 +954,9 @@ impl LibraryApp {
             .clicked()
             {
                 self.availability_filter = Some(filter);
+                self.imported_playlist = None;
+                self.imported_member = None;
+                self.selected_imported = None;
             }
         }
         ui.add_space(8.0);
@@ -947,59 +995,15 @@ impl LibraryApp {
                             {
                                 app.imported_playlist = Some(path.clone());
                                 app.imported_member = None;
+                                app.selected_imported = None;
+                                app.selected = None;
                             }
                         }
                     }
                     path.pop();
                 }
             }
-            fn node_at_path<'a>(
-                nodes: &'a [oxidj_library::LibraryNode],
-                path: &[usize],
-            ) -> Option<&'a oxidj_library::LibraryNode> {
-                let (&index, rest) = path.split_first()?;
-                let node = nodes.get(index)?;
-                if rest.is_empty() {
-                    return Some(node);
-                }
-                match node {
-                    oxidj_library::LibraryNode::Folder { children, .. } => {
-                        node_at_path(children, rest)
-                    }
-                    _ => None,
-                }
-            }
             show_nodes(ui, &snapshot.roots, &mut Vec::new(), self);
-            if let Some(oxidj_library::LibraryNode::Playlist { members, .. }) = self
-                .imported_playlist
-                .as_ref()
-                .and_then(|path| node_at_path(&snapshot.roots, path))
-            {
-                ui.separator();
-                ui.label("Playlist members (stored order)");
-                for (position, &member) in members.iter().enumerate() {
-                    let Some(track) = snapshot.tracks.get(member) else {
-                        continue;
-                    };
-                    let title = format!("{} · {}", position + 1, track.title);
-                    if ui
-                        .selectable_label(self.imported_member == Some(position), title)
-                        .clicked()
-                    {
-                        self.imported_member = Some(position);
-                    }
-                    if self.imported_member == Some(position) {
-                        ui.horizontal(|ui| {
-                            if ui.small_button("Load A").clicked() {
-                                self.load_imported_member(member, 0);
-                            }
-                            if ui.small_button("Load B").clicked() {
-                                self.load_imported_member(member, 1);
-                            }
-                        });
-                    }
-                }
-            }
         } else if let Err(error) = snapshot {
             ui.label(format!("Imported playlists unavailable: {error}"));
         }
@@ -1011,6 +1015,28 @@ impl LibraryApp {
             title: "Track details",
         }
         .show(ui, tokens);
+        if let Some(member) = self.selected_imported {
+            if let Ok(snapshot) = &self.imported_navigation {
+                if let Some(track) = snapshot.tracks.get(member) {
+                    egui::Grid::new("playlist-track-details").num_columns(2).show(ui, |ui| {
+                        for (label, value) in [
+                            ("Title", track.title.clone()),
+                            ("Artist", track.artist.clone().unwrap_or_else(|| "—".into())),
+                            ("Album", track.album.clone().unwrap_or_else(|| "—".into())),
+                            ("BPM", format!("{:.2}", track.tempo_hundredths_bpm as f64 / 100.0)),
+                            ("Imported key", track.key.clone().unwrap_or_else(|| "—".into())),
+                            ("Duration", format_duration(track.duration_seconds as f64)),
+                            ("Location", track.location.clone()),
+                        ] {
+                            ui.label(egui::RichText::new(label).color(tokens.muted_text));
+                            ui.add(egui::Label::new(&value).truncate()).on_hover_text(value);
+                            ui.end_row();
+                        }
+                    });
+                    return;
+                }
+            }
+        }
         let Some(id) = self.selected else {
             ui.label(egui::RichText::new("Select a track to inspect its details.").color(tokens.muted_text));
             return;
@@ -1178,6 +1204,66 @@ impl LibraryApp {
             });
             return;
         }
+        if let (Some(path), Ok(snapshot)) = (&self.imported_playlist, &self.imported_navigation) {
+            let mut nodes = snapshot.roots.as_slice();
+            let mut playlist = None;
+            for &index in path {
+                match nodes.get(index) {
+                    Some(oxidj_library::LibraryNode::Folder { children, .. }) => nodes = children,
+                    Some(oxidj_library::LibraryNode::Playlist { members, .. }) => {
+                        playlist = Some(members.clone());
+                        break;
+                    }
+                    None => break,
+                }
+            }
+            if let Some(members) = playlist {
+                let snapshot = snapshot.clone();
+                self.shell.table = Some(ui.max_rect());
+                let mut load = None;
+                let total = ui.available_width().max(720.0);
+                let widths = [total * 0.34, total * 0.23, total * 0.13, total * 0.10, total * 0.10, total * 0.10];
+                ui.spacing_mut().item_spacing = egui::Vec2::ZERO;
+                egui::ScrollArea::horizontal().id_salt("playlist-columns").auto_shrink([false, false]).show(ui, |ui| {
+                    let (header, _) = ui.allocate_exact_size(egui::vec2(total, theme::HEADER_HEIGHT), egui::Sense::hover());
+                    playlist_cells(ui, header, widths, ["Title", "Artist", "Album", "BPM", "Key", "Duration"].map(str::to_owned), tokens);
+                    if members.is_empty() { ui.label("This playlist is empty."); }
+                    let query = self.search.to_lowercase();
+                    let visible: Vec<_> = members.iter().enumerate().filter(|(_, member)| {
+                        snapshot.tracks.get(**member).is_some_and(|t| format!("{} {} {}", t.title, t.artist.as_deref().unwrap_or(""), t.album.as_deref().unwrap_or("")).to_lowercase().contains(&query))
+                    }).collect();
+                    egui::ScrollArea::vertical().id_salt(("playlist-rows", &self.imported_playlist)).auto_shrink([false, false]).show_rows(ui, theme::ROW_HEIGHT, visible.len(), |ui, range| {
+                        for index in range {
+                            let (position, &member) = visible[index];
+                            let track = &snapshot.tracks[member];
+                            let (rect, response) = ui.allocate_exact_size(egui::vec2(total, theme::ROW_HEIGHT), egui::Sense::click_and_drag());
+                            let selected = self.imported_member == Some(position);
+                            response.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, true, selected, &track.title));
+                            if selected || response.hovered() || index % 2 == 1 {
+                                ui.painter().rect_filled(rect, 0.0, if selected { theme::selection_fill(tokens) } else { theme::zebra(tokens) });
+                            }
+                            playlist_cells(ui, rect, widths, [format!("{} · {}", position + 1, track.title), track.artist.clone().unwrap_or_else(|| "—".into()), track.album.clone().unwrap_or_else(|| "—".into()), if track.tempo_hundredths_bpm == 0 { "—".into() } else { format!("{:.2}", track.tempo_hundredths_bpm as f64 / 100.0) }, track.key.clone().unwrap_or_else(|| "—".into()), format_duration(track.duration_seconds as f64)], tokens);
+                            if response.clicked() || response.drag_started() {
+                                self.imported_member = Some(position);
+                                self.selected_imported = Some(member);
+                                self.selected = None;
+                            }
+                            if response.drag_started() { self.dragging_track = Some(crate::app::TrackSource::Imported(member)); }
+                            response.context_menu(|ui| {
+                                for (deck, letter) in crate::decks::DECKS.iter().enumerate() {
+                                    if ui.button(format!("Load to deck {letter}")).clicked() {
+                                        load = Some((member, deck));
+                                        ui.close();
+                                    }
+                                }
+                            });
+                        }
+                    });
+                });
+                if let Some((member, deck)) = load { self.load_imported_member(member, deck); }
+                return;
+            }
+        }
         let query = self.search.to_lowercase();
         let mut visible: Vec<_> = self
             .tracks
@@ -1260,9 +1346,11 @@ impl LibraryApp {
                             let id = item.track.id.as_u64();
                             let on = crate::decks::badges(loaded, id);
                             let response = track_row(ui, item, self.selected, index, total, widths, tokens, on, badge_colours);
-                            if response.clicked() {
+                            if response.clicked() || response.drag_started() {
                                 self.selected = Some(id);
+                                self.selected_imported = None;
                             }
+                            if response.drag_started() { self.dragging_track = Some(crate::app::TrackSource::Catalog(id)); }
                             response.context_menu(|ui| {
                                 for (d, letter) in crate::decks::DECKS.iter().enumerate() {
                                     if ui.button(format!("Load to deck {letter}")).clicked() {
@@ -1280,6 +1368,17 @@ impl LibraryApp {
         }
     }
 
+}
+
+/// Imported metadata uses the same full-width virtual table, without inventing
+/// scanned technical facts or changing the source's member order.
+fn playlist_cells(ui: &egui::Ui, rect: egui::Rect, widths: [f32; 6], cells: [String; 6], tokens: theme::ColorTokens) {
+    let mut x = rect.left();
+    for (text, width) in cells.into_iter().zip(widths) {
+        let galley = egui::WidgetText::from(egui::RichText::new(text).color(tokens.text)).into_galley(ui, Some(egui::TextWrapMode::Truncate), width - 2.0 * CELL_INSET, egui::TextStyle::Body);
+        ui.painter().with_clip_rect(rect.intersect(ui.clip_rect())).galley(egui::pos2(x + CELL_INSET, rect.center().y - galley.size().y / 2.0), galley, tokens.text);
+        x += width;
+    }
 }
 
 /// Column labels; ID, Filename and Duration sort on click (or Enter).
@@ -1378,7 +1477,7 @@ fn track_row(
         let id = item.track.id.as_u64();
         let selected = selected == Some(id);
         let filename = file_name(&item.track.path);
-        let (rect, response) = ui.allocate_exact_size(egui::vec2(total, theme::ROW_HEIGHT), egui::Sense::click());
+        let (rect, response) = ui.allocate_exact_size(egui::vec2(total, theme::ROW_HEIGHT), egui::Sense::click_and_drag());
         response.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, true, selected, &filename));
         let painter = ui.painter();
         if selected {

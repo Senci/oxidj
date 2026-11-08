@@ -128,6 +128,8 @@ pub(crate) struct LibraryApp {
     /// Structural node path (not membership, names, or local audio IDs).
     pub(crate) imported_playlist: Option<Vec<usize>>,
     pub(crate) imported_member: Option<usize>,
+    pub(crate) selected_imported: Option<usize>,
+    pub(crate) dragging_track: Option<TrackSource>,
     pub(crate) imported_navigation: Result<std::sync::Arc<oxidj_library::LibraryNavigation>, String>,
     /// M8/D1 deck area (silent transport until D2).
     pub(crate) decks: crate::decks::DeckArea,
@@ -141,6 +143,9 @@ pub(crate) struct LibraryApp {
     pub(crate) settings: crate::settings::Settings,
     pub(crate) settings_ui: crate::settings::SettingsUi,
 }
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum TrackSource { Catalog(u64), Imported(usize) }
 
 /// Where the last frame placed each shell region; `None` when hidden.
 #[derive(Clone, Copy, Debug, Default)]
@@ -292,6 +297,8 @@ impl LibraryApp {
             availability_filter: None,
             imported_playlist: None,
             imported_member: None,
+            selected_imported: None,
+            dragging_track: None,
             imported_navigation: Err("Imported playlists have not been loaded".into()),
             decks: Default::default(),
             show_nav: true,

@@ -61,6 +61,9 @@ fn catalog_root(tag: &str) -> (std::path::PathBuf, std::path::PathBuf) {
 
 type Node = (Role, Option<String>, Rect);
 
+#[path = "library_interaction_tests.rs"]
+mod library_interaction_tests;
+
 struct Shell {
     ctx: egui::Context,
     app: LibraryApp,
@@ -113,6 +116,19 @@ impl Shell {
             vec![egui::Event::PointerMoved(pos), button(true)],
             Default::default(),
         );
+        self.frame(vec![button(false)], Default::default());
+        self.settle()
+    }
+
+    fn right_click(&mut self, pos: Pos2) -> egui::FullOutput {
+        let button = |pressed| egui::Event::PointerButton {
+            pos, button: egui::PointerButton::Secondary, pressed,
+            modifiers: Default::default(),
+        };
+        // Establish hover before pressing: a large pointer jump on the press
+        // frame can otherwise start ScrollArea's drag-to-scroll gesture.
+        self.frame(vec![egui::Event::PointerMoved(pos)], Default::default());
+        self.frame(vec![button(true)], Default::default());
         self.frame(vec![button(false)], Default::default());
         self.settle()
     }
@@ -1000,6 +1016,30 @@ fn details_show_imported_cues_read_only_and_follow_selection() {
 }
 
 #[test]
+fn imported_playlist_opens_members_in_main_table() {
+    let (root, db) = catalog_root("playlist-main-table");
+    Catalog::open(&db).unwrap().import_library(&LibrarySnapshot {
+        tracks: vec![LibraryTrack { title: "Main table member".into(), ..Default::default() }],
+        roots: vec![oxidj_library::LibraryNode::Playlist {
+            name: "Main table set".into(),
+            members: vec![0],
+        }],
+    }).unwrap();
+    let mut shell = Shell::new(&db, 1440.0);
+    let out = shell.settle();
+    let playlist = texts(&out).into_iter().find(|(s, _)| s == "♫ Main table set").unwrap().1;
+    shell.click(playlist.center());
+    let out = shell.settle();
+    let table = shell.app.shell.table.unwrap();
+    assert!(texts(&out).iter().any(|(s, rect)| s.contains("Main table member") && table.contains(rect.center())),
+        "playlist member should be visible in the main track table");
+    let all = texts(&out).into_iter().find(|(s, _)| s == "All tracks").unwrap().1;
+    shell.click(all.center());
+    assert!(shell.app.imported_playlist.is_none(), "All tracks exits the playlist");
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn imported_nested_playlist_loads_ordered_members_to_both_decks_and_refuses_missing_audio() {
     let (root, db) = catalog_root("playlist-load");
     let paths = ["tone-a.wav", "tone-b.wav", "tone-c.wav"].map(|n| root.join("audio").join(n));
@@ -1041,6 +1081,12 @@ fn imported_nested_playlist_loads_ordered_members_to_both_decks_and_refuses_miss
             .unwrap_or_else(|| panic!("visible UI text {needle:?} not found"));
         shell.click(rect.center());
     };
+    let load = |shell: &mut Shell, row: &str, deck: &str| {
+        let out = shell.settle();
+        let rect = texts(&out).into_iter().find(|(s, _)| s == row).unwrap().1;
+        shell.right_click(rect.center());
+        click_text(shell, &format!("Load to deck {deck}"));
+    };
     click_text(&mut shell, "♫ Set");
     let shown = shell.settle();
     let member_texts: Vec<_> = texts(&shown)
@@ -1057,7 +1103,7 @@ fn imported_nested_playlist_loads_ordered_members_to_both_decks_and_refuses_miss
         shell.app.decks.decks.iter().all(|d| d.track.is_none()),
         "selection alone never loads"
     );
-    click_text(&mut shell, "Load A");
+    load(&mut shell, "1 · member-2", "A");
     assert_eq!(
         shell.app.decks.decks[0].track.as_ref().unwrap().path,
         paths[2]
@@ -1068,13 +1114,13 @@ fn imported_nested_playlist_loads_ordered_members_to_both_decks_and_refuses_miss
     shell.app.decks.decks[0].position_ms = 250.0;
     shell.app.decks.decks[0].loop_range = Some((125.0, 375.0));
     click_text(&mut shell, "2 · member-0");
-    click_text(&mut shell, "Load B");
+    load(&mut shell, "2 · member-0", "B");
     assert_eq!(
         shell.app.decks.decks[1].track.as_ref().unwrap().path,
         paths[0]
     );
     click_text(&mut shell, "3 · member-2");
-    click_text(&mut shell, "Load B");
+    load(&mut shell, "3 · member-2", "B");
     assert_eq!(
         shell.app.decks.decks[1].track.as_ref().unwrap().path,
         paths[2]
@@ -1085,7 +1131,7 @@ fn imported_nested_playlist_loads_ordered_members_to_both_decks_and_refuses_miss
         shell.app.decks.decks[1].track.as_ref().map(|t| t.id),
     ];
     click_text(&mut shell, "4 · tone-c.wav");
-    click_text(&mut shell, "Load A");
+    load(&mut shell, "4 · tone-c.wav", "A");
     assert!(shell.app.notice.starts_with("Playlist load refused:"));
     assert_eq!(
         shell.app.decks.loaded(),
@@ -1095,7 +1141,7 @@ fn imported_nested_playlist_loads_ordered_members_to_both_decks_and_refuses_miss
     // Removing a referenced local file makes location resolution refuse without replacing the loaded target.
     std::fs::remove_file(&paths[0]).unwrap();
     click_text(&mut shell, "2 · member-0");
-    click_text(&mut shell, "Load A");
+    load(&mut shell, "2 · member-0", "A");
     assert!(shell.app.notice.starts_with("Playlist load refused:"));
     assert!(shell.app.decks.decks.iter().all(|d| !d.playing));
     assert_eq!(
@@ -1144,7 +1190,7 @@ fn imported_playlist_members_scroll_to_last_member_and_load_it() {
         .unwrap()
         .1;
     shell.click(rect.center());
-    let pos = shell.app.shell.nav.unwrap().center();
+    let pos = shell.app.shell.table.unwrap().center();
     for _ in 0..30 {
         shell.frame(
             vec![
@@ -1162,29 +1208,16 @@ fn imported_playlist_members_scroll_to_last_member_and_load_it() {
     let rect = texts(&out)
         .into_iter()
         .find(|(s, r)| {
-            s == "80 · scroll-member" && shell.app.shell.nav.unwrap().contains(r.center())
+            s == "80 · scroll-member" && shell.app.shell.table.unwrap().contains(r.center())
         })
         .expect("last member must be visible after scrolling")
         .1;
-    shell.click(rect.center());
-    // Selection inserts the load controls below the last row; scroll them into view too.
-    for _ in 0..10 {
-        shell.frame(
-            vec![
-                egui::Event::PointerMoved(pos),
-                egui::Event::MouseWheel {
-                    unit: egui::MouseWheelUnit::Point,
-                    delta: egui::vec2(0.0, -100.0),
-                    modifiers: Default::default(),
-                },
-            ],
-            Default::default(),
-        );
-    }
+    shell.right_click(rect.center());
     let out = shell.settle();
+
     let rect = texts(&out)
         .into_iter()
-        .find(|(s, r)| s == "Load B" && shell.app.shell.nav.unwrap().contains(r.center()))
+        .find(|(s, _)| s == "Load to deck B")
         .unwrap()
         .1;
     shell.click(rect.center());

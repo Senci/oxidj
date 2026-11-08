@@ -89,6 +89,11 @@ pub struct LibrarySnapshot {
 pub struct LibraryNavigationTrack {
     pub title: String,
     pub location: String,
+    pub artist: Option<String>,
+    pub album: Option<String>,
+    pub tempo_hundredths_bpm: u32,
+    pub duration_seconds: u32,
+    pub key: Option<String>,
 }
 
 /// Lightweight imported-library tree used by the UI navigation panel.
@@ -548,13 +553,18 @@ impl Catalog {
     pub fn library_navigation(&self) -> Result<LibraryNavigation, CatalogError> {
         let mut statement = self
             .connection
-            .prepare("SELECT position,title,location FROM library_tracks ORDER BY position")?;
+            .prepare("SELECT position,title,location,artist,album,tempo_hundredths_bpm,duration_seconds,musical_key FROM library_tracks ORDER BY position")?;
         let rows = statement.query_map([], |row| {
             Ok((
                 row.get::<_, i64>(0)?,
                 LibraryNavigationTrack {
                     title: row.get(1)?,
                     location: row.get(2)?,
+                    artist: row.get(3)?,
+                    album: row.get(4)?,
+                    tempo_hundredths_bpm: row.get(5)?,
+                    duration_seconds: row.get(6)?,
+                    key: row.get(7)?,
                 },
             ))
         })?;
@@ -996,7 +1006,7 @@ mod tests {
     }
 
     #[test]
-    fn navigation_snapshot_reads_only_titles_locations_and_ordered_memberships() {
+    fn navigation_snapshot_reads_table_metadata_without_vendor_payloads() {
         let path = path();
         let mut catalog = Catalog::open(&path).unwrap();
         catalog.import_library(&snapshot()).unwrap();
@@ -1018,6 +1028,13 @@ mod tests {
             ["A", "B", "C"]
         );
         assert_eq!(navigation.tracks[0].location, "file://localhost/A.wav");
+        for (actual, expected) in navigation.tracks.iter().zip(snapshot().tracks) {
+            assert_eq!(actual.artist, expected.artist);
+            assert_eq!(actual.album, expected.album);
+            assert_eq!(actual.tempo_hundredths_bpm, expected.tempo_hundredths_bpm);
+            assert_eq!(actual.duration_seconds, expected.duration_seconds);
+            assert_eq!(actual.key, expected.key);
+        }
         assert_eq!(navigation.roots, snapshot().roots);
         assert!(
             catalog.library_snapshot().is_err(),

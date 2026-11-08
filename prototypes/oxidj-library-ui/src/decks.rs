@@ -1369,6 +1369,16 @@ impl LibraryApp {
         if std::mem::take(&mut self.decks.pending_tab) && self.show_decks {
             self.decks.active = 1 - self.decks.active;
         }
+        // A cue preview always owes a release, even if focus/settings changes
+        // while the key is held. Never leave preview audio stuck behind a guard.
+        let cue_keys = if self.settings.simple_dj_keys { [egui::Key::Z, egui::Key::N] } else { [egui::Key::Q, egui::Key::P] };
+        let guarded = !self.show_decks || self.settings_ui.open || ctx.memory(|m| m.focused()).is_some() || ctx.wants_keyboard_input();
+        for (d, key) in cue_keys.into_iter().enumerate() {
+            if self.decks.decks[d].cue_held && (guarded || ctx.input(|i| !i.key_down(key) || !i.focused)) {
+                self.decks.decks[d].cue_held = false;
+                self.decks.decks[d].cue_up();
+            }
+        }
         if !self.show_decks || self.settings_ui.open {
             return;
         }
@@ -1405,7 +1415,8 @@ impl LibraryApp {
                 self.decks.decks[active].toggle_play();
             }
             // CUE keys: press = CUE down, release = CUE up (hold-preview).
-            for (d, key) in [(0, egui::Key::Q), (1, egui::Key::P)] {
+            let cue_keys = if self.settings.simple_dj_keys { [egui::Key::Z, egui::Key::N] } else { [egui::Key::Q, egui::Key::P] };
+            for (d, key) in cue_keys.into_iter().enumerate() {
                 let deck = &mut self.decks.decks[d];
                 if i.consume_key(none, key) && !deck.cue_held {
                     deck.cue_held = true;
@@ -1414,6 +1425,11 @@ impl LibraryApp {
                 if deck.cue_held && i.key_released(key) {
                     deck.cue_held = false;
                     deck.cue_up();
+                }
+            }
+            if self.settings.simple_dj_keys {
+                for (d, key) in [egui::Key::X, egui::Key::M].into_iter().enumerate() {
+                    if i.consume_key(none, key) { self.decks.decks[d].toggle_play(); }
                 }
             }
             for (pad, key) in digits.iter().enumerate() {
@@ -1434,8 +1450,9 @@ impl LibraryApp {
                 self.settings.zoom_bars = zoom_step(self.settings.zoom_bars, 1);
             }
         });
-        if let (Some(deck), Some(id)) = (load, self.selected) {
-            self.load_deck(deck, id);
+        if let Some(deck) = load {
+            if let Some(member) = self.selected_imported { self.load_imported_member(member, deck); }
+            else if let Some(id) = self.selected { self.load_deck(deck, id); }
         }
     }
 
@@ -1920,8 +1937,9 @@ impl LibraryApp {
         if let Some(d) = sync_press {
             self.decks.press_sync(d);
         }
-        if let (Some(deck), Some(id)) = (load, self.selected) {
-            self.load_deck(deck, id);
+        if let Some(deck) = load {
+            if let Some(member) = self.selected_imported { self.load_imported_member(member, deck); }
+            else if let Some(id) = self.selected { self.load_deck(deck, id); }
         }
     }
 
