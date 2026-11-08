@@ -2,16 +2,23 @@
 
 Condensed 2026-11-02. Full prior text (per-increment evidence, M0-09 verification, decisions, risks, F-09 oracle notes): [docs/history/status-2026-11-02.md](../docs/history/status-2026-11-02.md). Milestone contract: [plan/MVP.md](MVP.md). Live work: Kanban; this file records stages and gates only.
 
-## M6 bounded step-tempo inspection — implementation, audit pending
+## M6 bounded step-tempo inspection — reviewed and installed (2026-11-08)
 
-`t_08409dc4` implements `inspect-step-tempo --file PATH` for explicit audio,
-with a separate `ComputedStepTempoV1` constant/variable/refusal result. The
-[ADR-004 B2 addendum](../docs/adr/004-b2-step-tempo.md) fixes the synthetic
-100–160 BPM, 8–180 s, at-most-two-change contract. Normal `catalog analyze-tempo`,
-format-v1 computed storage, imported precedence, computed-grid export and SYNC
-are unchanged. No private data, installation, persistence, real-music accuracy
-or vendor/hardware claim. Independent Sol audit/fix-all and final review remain
-required on `t_4a979b1b`; M6 as a whole remains in progress.
+`inspect-step-tempo --file PATH` provides an explicit-file, inspection-only
+`ComputedStepTempoV1` constant/variable/refusal result under the synthetic
+100–160 BPM, 8–180 s, at-most-two-change contract in the
+[ADR-004 B2 addendum](../docs/adr/004-b2-step-tempo.md). Implementation landed
+in `7cb9bfe` and `fc117c5`; Sol audit/fix-all corrected unsupported-rate decoder
+admission in `9065518`. `oxidj-codex` independently approved the full diff
+`7e5fad7..9065518`; `cargo xtask ci-full` exited 0 with `ci=ok`,
+`test=ok`, `ui-test=ok`, `deny=ok`. After approval,
+`bash scripts/install-local.sh` exited 0 at
+`9065518`; installed CLI and UI binaries byte-match the release artifacts, and
+CLI help exposes the command. Normal `catalog analyze-tempo`, format-v1 computed
+storage, imported precedence, computed-grid export and SYNC remain unchanged.
+No private data, push, persistence/export/SYNC admission, real-music accuracy,
+or vendor/hardware claim. M6 vendor accuracy, native display, accessibility and
+GPU/presented FPS remain NOT DEMONSTRATED.
 
 ## M8 imported playlist browsing/loading — reviewed, audited, installed (2026-11-07)
 
