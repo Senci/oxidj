@@ -126,22 +126,28 @@ fn check_source(path: &Path, sha256: [u8; 32], length: u64) -> Result<(), Wavefo
 }
 
 /// Compute and store peaks for one catalog track. Idempotent: when peaks for the
-/// track's recorded source digest are already stored, nothing is read or written.
+/// track's recorded source digest are already stored, nothing is read or written
+/// unless `refresh` is true, in which case the audio is re-read and re-analyzed.
 pub fn analyze_track_waveform(
     catalog: &mut Catalog,
     id: TrackId,
+    refresh: bool,
 ) -> Result<WaveformOutcome, WaveformAnalysisError> {
     let track = catalog
         .read_track(id)
         .map_err(catalog_error)?
         .ok_or(WaveformAnalysisError::UnknownTrack)?;
-    if catalog
-        .read_waveform(id)
-        .map_err(catalog_error)?
-        .is_some_and(|stored| stored.source_sha256 == track.sha256)
+
+    // If not refreshing, check if peaks for this source are already stored
+    if !refresh
+        && catalog
+            .read_waveform(id)
+            .map_err(catalog_error)?
+            .is_some_and(|stored| stored.source_sha256 == track.sha256)
     {
         return Ok(WaveformOutcome::Unchanged);
     }
+
     let path = Path::new(&track.path);
     check_source(path, track.sha256, track.byte_length)?;
     let peaks = analyze_waveform_file(path)?;
@@ -154,9 +160,11 @@ pub fn analyze_track_waveform(
 
 /// `catalog analyze-waveform`: analyze one track (`Some(id)`, unknown → error) or
 /// every catalog track. Per-track refusals are reported, not fatal.
+/// When `refresh` is true, forces re-analysis even if peaks for the source digest exist.
 pub fn analyze_catalog_waveforms(
     db: impl AsRef<Path>,
     track: Option<TrackId>,
+    refresh: bool,
 ) -> Result<WaveformReport, WaveformAnalysisError> {
     let db = db.as_ref();
     if db.symlink_metadata().is_err() {
@@ -180,9 +188,18 @@ pub fn analyze_catalog_waveforms(
     };
     let outcomes = ids
         .into_iter()
-        .map(|id| (id, analyze_track_waveform(&mut catalog, id)))
+        .map(|id| (id, analyze_track_waveform(&mut catalog, id, refresh)))
         .collect();
     Ok(WaveformReport { outcomes })
+}
+
+/// Backward-compatible wrapper that defaults to no refresh (idempotent behavior).
+#[allow(dead_code)]
+pub fn analyze_catalog_waveforms_no_refresh(
+    db: impl AsRef<Path>,
+    track: Option<TrackId>,
+) -> Result<WaveformReport, WaveformAnalysisError> {
+    analyze_catalog_waveforms(db, track, false)
 }
 
 #[cfg(test)]
@@ -270,7 +287,7 @@ mod tests {
             .import_audio_directory(&audio)
             .unwrap();
 
-        let report = analyze_catalog_waveforms(&db, None).unwrap();
+        let report = analyze_catalog_waveforms_no_refresh(&db, None).unwrap();
         assert_eq!(
             (report.analyzed(), report.unchanged(), report.failed()),
             (2, 0, 0)
@@ -312,7 +329,7 @@ mod tests {
             .import_audio_directory(&audio)
             .unwrap();
         let second = TrackId::new(2).unwrap();
-        let report = analyze_catalog_waveforms(&db, Some(second)).unwrap();
+        let report = analyze_catalog_waveforms_no_refresh(&db, Some(second)).unwrap();
         assert_eq!(
             report.outcomes,
             vec![(second, Ok(WaveformOutcome::Analyzed))]
@@ -322,7 +339,7 @@ mod tests {
         let stored_second = first.read_waveform(second).unwrap();
         drop(first);
 
-        let report = analyze_catalog_waveforms(&db, None).unwrap();
+        let report = analyze_catalog_waveforms_no_refresh(&db, None).unwrap();
         assert_eq!((report.analyzed(), report.unchanged()), (1, 1));
         let snapshot = |db: &Path| {
             let c = Catalog::open(db).unwrap();
@@ -330,7 +347,7 @@ mod tests {
         };
         let once = snapshot(&db);
         assert_eq!(once[1], stored_second);
-        let report = analyze_catalog_waveforms(&db, None).unwrap();
+        let report = analyze_catalog_waveforms_no_refresh(&db, None).unwrap();
         assert_eq!((report.analyzed(), report.unchanged()), (0, 2));
         assert_eq!(snapshot(&db), once);
         // Forced recomputation (row removed) reproduces identical peaks.
@@ -347,11 +364,11 @@ mod tests {
         drop(catalog);
         assert_eq!(snapshot(&db), once);
         assert_eq!(
-            analyze_catalog_waveforms(&db, Some(TrackId::new(9).unwrap())),
+            analyze_catalog_waveforms_no_refresh(&db, Some(TrackId::new(9).unwrap())),
             Err(WaveformAnalysisError::UnknownTrack)
         );
         assert_eq!(
-            analyze_catalog_waveforms(root.join("absent.sqlite"), None),
+            analyze_catalog_waveforms_no_refresh(root.join("absent.sqlite"), None),
             Err(WaveformAnalysisError::MissingCatalog)
         );
         assert!(!root.join("absent.sqlite").exists());
@@ -405,7 +422,7 @@ mod tests {
             ),
         ];
         drop(catalog);
-        let report = analyze_catalog_waveforms(&db, None).unwrap();
+        let report = analyze_catalog_waveforms_no_refresh(&db, None).unwrap();
         let expected: Vec<_> = cases.iter().map(|(id, e)| (*id, Err(e.clone()))).collect();
         assert_eq!(report.outcomes, expected);
         let catalog = Catalog::open(&db).unwrap();
@@ -420,11 +437,142 @@ mod tests {
         std::fs::remove_file(root.join("truncated.wav")).unwrap();
         drop(catalog);
         assert_eq!(
-            analyze_catalog_waveforms(&db, Some(cases[0].0))
+            analyze_catalog_waveforms_no_refresh(&db, Some(cases[0].0))
                 .unwrap()
                 .outcomes,
             vec![(cases[0].0, Err(WaveformAnalysisError::SourceUnreadable))]
         );
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn refresh_reanalyzes_existing_tracks_and_bulk_refresh_updates_multiple() {
+        let root = scratch();
+        let audio = root.join("audio");
+        std::fs::create_dir(&audio).unwrap();
+        let samples = tone();
+        std::fs::write(audio.join("a.wav"), wav(&samples, 22_050)).unwrap();
+        std::fs::write(audio.join("b.flac"), FLAC).unwrap();
+        let db = root.join("catalog.sqlite");
+        Catalog::open(&db)
+            .unwrap()
+            .import_audio_directory(&audio)
+            .unwrap();
+
+        // First analysis: both tracks analyzed
+        let report = analyze_catalog_waveforms(&db, None, false).unwrap();
+        assert_eq!(
+            (report.analyzed(), report.unchanged(), report.failed()),
+            (2, 0, 0)
+        );
+
+        // Store the original peaks for later comparison
+        let catalog = Catalog::open(&db).unwrap();
+        let tracks = catalog.list_tracks().unwrap();
+        let original_peaks_a = catalog.read_waveform(tracks[0].id).unwrap().unwrap();
+        let original_peaks_b = catalog.read_waveform(tracks[1].id).unwrap().unwrap();
+        drop(catalog);
+
+        // Second analysis without refresh: both unchanged
+        let report = analyze_catalog_waveforms(&db, None, false).unwrap();
+        assert_eq!(
+            (report.analyzed(), report.unchanged(), report.failed()),
+            (0, 2, 0)
+        );
+
+        // Targeted refresh on track 1 only: should re-analyze track 1 (only track 1 in report)
+        let report = analyze_catalog_waveforms(&db, Some(tracks[0].id), true).unwrap();
+        assert_eq!(
+            (report.analyzed(), report.unchanged(), report.failed()),
+            (1, 0, 0)
+        );
+
+        // Verify track 1 was re-analyzed (peaks may be identical due to deterministic algorithm)
+        let catalog = Catalog::open(&db).unwrap();
+        let refreshed_peaks_a = catalog.read_waveform(tracks[0].id).unwrap().unwrap();
+        let unchanged_peaks_b = catalog.read_waveform(tracks[1].id).unwrap().unwrap();
+        drop(catalog);
+
+        // Track 1 source digest should match, track 2 should be unchanged
+        assert_eq!(
+            refreshed_peaks_a.source_sha256,
+            original_peaks_a.source_sha256
+        );
+        assert_eq!(unchanged_peaks_b, original_peaks_b);
+
+        // Bulk refresh (no track-id): should re-analyze all tracks
+        let report = analyze_catalog_waveforms(&db, None, true).unwrap();
+        assert_eq!(
+            (report.analyzed(), report.unchanged(), report.failed()),
+            (2, 0, 0)
+        );
+
+        // Verify both were refreshed
+        let catalog = Catalog::open(&db).unwrap();
+        let bulk_refreshed_a = catalog.read_waveform(tracks[0].id).unwrap().unwrap();
+        let bulk_refreshed_b = catalog.read_waveform(tracks[1].id).unwrap().unwrap();
+        drop(catalog);
+        assert_eq!(
+            bulk_refreshed_a.source_sha256,
+            original_peaks_a.source_sha256
+        );
+        assert_eq!(
+            bulk_refreshed_b.source_sha256,
+            original_peaks_b.source_sha256
+        );
+    }
+
+    #[test]
+    fn refresh_failure_leaves_old_peaks_and_vendor_metadata_intact() {
+        let root = scratch();
+        let db = root.join("catalog.sqlite");
+        let mut catalog = Catalog::open(&db).unwrap();
+
+        // Add a track with valid audio
+        let audio = root.join("audio");
+        std::fs::create_dir(&audio).unwrap();
+        let samples = tone();
+        std::fs::write(audio.join("valid.wav"), wav(&samples, 22_050)).unwrap();
+        let (sha, len) = oxidj_library::file_sha256(&audio.join("valid.wav")).unwrap();
+        let track_id = catalog
+            .insert_track(
+                "valid.wav",
+                audio.join("valid.wav").to_str().unwrap(),
+                sha,
+                len,
+            )
+            .unwrap()
+            .id;
+        drop(catalog);
+
+        // Initial analysis succeeds
+        let report = analyze_catalog_waveforms(&db, None, false).unwrap();
+        assert_eq!(
+            (report.analyzed(), report.unchanged(), report.failed()),
+            (1, 0, 0)
+        );
+
+        // Store original peaks
+        let catalog = Catalog::open(&db).unwrap();
+        let original_peaks = catalog.read_waveform(track_id).unwrap().unwrap();
+        drop(catalog);
+
+        // Now make the source file unreadable (remove it)
+        std::fs::remove_file(audio.join("valid.wav")).unwrap();
+
+        // Bulk refresh should fail for this track
+        let report = analyze_catalog_waveforms(&db, None, true).unwrap();
+        assert_eq!(
+            (report.analyzed(), report.unchanged(), report.failed()),
+            (0, 0, 1)
+        );
+
+        // Old peaks should be preserved
+        let catalog = Catalog::open(&db).unwrap();
+        let preserved_peaks = catalog.read_waveform(track_id).unwrap().unwrap();
+        drop(catalog);
+        assert_eq!(preserved_peaks, original_peaks);
+
         let _ = std::fs::remove_dir_all(root);
     }
 }

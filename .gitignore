@@ -11,3 +11,5 @@ target/
 /docs/.obsidian/themes/
 /site/.hallmark/
 /oxidj-library.sqlite
+/oxidj-library.sqlite-shm
+/oxidj-library.sqlite-wal

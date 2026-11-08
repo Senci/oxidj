@@ -1817,31 +1817,70 @@ fn run_catalog(args: &[String]) -> i32 {
     }
 }
 
-/// `catalog analyze-waveform --db DB [--track-id ID]`: compute and store waveform
+/// `catalog analyze-waveform --db DB [--track-id ID] [--refresh]`: compute and store waveform
 /// peaks. Prints one line per track (ID and outcome, never paths) and a summary;
-/// exits non-zero when any track was refused.
+/// exits non-zero when any track was refused. With `--refresh`, forces re-analysis
+/// even if peaks for the source digest already exist.
 fn run_analyze_waveform(args: &[String]) -> i32 {
-    let (db, track) = match args {
-        [a, db] if a == "--db" => (db, None),
-        [a, db, b, id] | [b, id, a, db] if a == "--db" && b == "--track-id" => {
-            match id
-                .parse::<u64>()
-                .ok()
-                .and_then(|n| oxidj_core::TrackId::new(n).ok())
-            {
-                Some(id) => (db, Some(id)),
-                None => {
-                    eprintln!("error: --track-id requires a positive integer");
+    let (mut db, mut track, mut refresh) = (None, None, false);
+    let mut rest = args.iter().peekable();
+    while let Some(flag) = rest.next() {
+        match flag.as_str() {
+            "--db" => {
+                let Some(value) = rest.next() else {
+                    eprintln!("error: --db requires a path");
+                    return USAGE;
+                };
+                if db.is_some() {
+                    eprintln!("error: --db specified multiple times");
                     return USAGE;
                 }
+                db = Some(value);
+            }
+            "--track-id" => {
+                let Some(value) = rest.next() else {
+                    eprintln!("error: --track-id requires a positive integer");
+                    return USAGE;
+                };
+                if track.is_some() {
+                    eprintln!("error: --track-id specified multiple times");
+                    return USAGE;
+                }
+                match value
+                    .parse::<u64>()
+                    .ok()
+                    .and_then(|n| oxidj_core::TrackId::new(n).ok())
+                {
+                    Some(id) => track = Some(id),
+                    None => {
+                        eprintln!("error: --track-id requires a positive integer");
+                        return USAGE;
+                    }
+                }
+            }
+            "--refresh" => {
+                if refresh {
+                    eprintln!("error: --refresh specified multiple times");
+                    return USAGE;
+                }
+                refresh = true;
+            }
+            _ => {
+                eprintln!(
+                    "error: expected catalog analyze-waveform --db PATH [--track-id ID] [--refresh]"
+                );
+                return USAGE;
             }
         }
-        _ => {
-            eprintln!("error: expected catalog analyze-waveform --db PATH [--track-id ID]");
+    }
+    let db = match db {
+        Some(db) => db,
+        None => {
+            eprintln!("error: catalog analyze-waveform requires --db PATH");
             return USAGE;
         }
     };
-    match oxidj_application::analyze_catalog_waveforms(db, track) {
+    match oxidj_application::analyze_catalog_waveforms(db, track, refresh) {
         Ok(report) => {
             for (id, outcome) in &report.outcomes {
                 match outcome {
@@ -2431,7 +2470,7 @@ fn print_usage(to_stdout: bool) {
     );
     let _ = writeln!(
         output,
-        "  catalog analyze-waveform --db <path> [--track-id <id>]   Compute and store waveform peaks (idempotent; sources only read)"
+        "  catalog analyze-waveform --db <path> [--track-id <id>] [--refresh]   Compute and store waveform peaks (idempotent; sources only read; --refresh forces re-analysis)"
     );
     let _ = writeln!(
         output,
