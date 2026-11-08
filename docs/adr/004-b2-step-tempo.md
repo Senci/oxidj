@@ -103,8 +103,11 @@ scratch, fixed-lag correlation scratch and bounded voting; a conservative
 (`StepTempoBuilder::heap_bound_bytes`), below the 8 MiB contract. Every slice or
 pulse candidate consumes one shared 4,096-candidate budget; a dense-envelope
 unit control exhausts it and returns `ResourceLimit` without a partial map.
-The explicit-file decoder stops on a source-frame cap violation. Empty pushes
-never advance source frames or the onset clock.
+The explicit-file decoder stops on a source-frame cap violation and rejects an
+unsupported sample rate at decoder `begin`, before consuming any PCM (including
+unknown-length streams). This is `NoMap(UnsupportedRate)`, not `ResourceLimit`;
+rate admission precedes content inspection. Empty pushes never advance source
+frames or the onset clock.
 
 `ConstantStepMap` and `VariableStepMap` have private construction, selected only
 from a validated `StepMap` by segment count. Public enum construction therefore

@@ -194,6 +194,27 @@ fn step_inspection_is_explicit_and_leaves_catalog_sources_and_exports_unchanged(
     assert_eq!(out.status.code(), Some(1));
     assert!(String::from_utf8_lossy(&out.stderr).contains("ResourceLimit"));
     assert!(out.stdout.is_empty());
+    let unsupported = dir.join("unsupported-rate.wav");
+    let mut unsupported_bytes = wav.clone();
+    unsupported_bytes[24..28].copy_from_slice(&48001u32.to_le_bytes());
+    unsupported_bytes[28..32].copy_from_slice(&(48001u32 * 2).to_le_bytes());
+    std::fs::write(&unsupported, &unsupported_bytes).unwrap();
+    let out = cli(&[
+        s("inspect-step-tempo"),
+        s("--file"),
+        unsupported.as_os_str(),
+    ]);
+    assert_eq!(out.status.code(), Some(0), "{out:?}");
+    assert!(stdout(&out).contains("NoMap: UnsupportedRate"));
+    assert!(!stdout(&out).contains("Segment\t"));
+    assert!(out.stderr.is_empty());
+    assert_eq!(std::fs::read(&unsupported).unwrap(), unsupported_bytes);
+    assert_eq!(std::fs::read(&capped).unwrap(), wav);
+    assert_eq!(std::fs::read(&silent).unwrap(), {
+        let mut expected = render(false);
+        expected[44..].fill(0);
+        expected
+    });
     let corrupt = dir.join("corrupt.wav");
     std::fs::write(&corrupt, &wav[..100]).unwrap();
     assert_eq!(
