@@ -134,9 +134,31 @@ fn mixer_rotary(ui: &mut Ui, cell: Rect, label: &str, value: &mut f32, name: &st
         let step = ui.input(|i| (i.key_pressed(egui::Key::ArrowRight) || i.key_pressed(egui::Key::ArrowUp)) as i32 - (i.key_pressed(egui::Key::ArrowLeft) || i.key_pressed(egui::Key::ArrowDown)) as i32);
         if step != 0 { *value = (((*value / FADER_STEP as f32).round() + step as f32) * FADER_STEP as f32).clamp(-1.0, 1.0); }
     }
+    ui.input(|input| {
+        use egui::accesskit::{Action, ActionData};
+        let delta = input.num_accesskit_action_requests(id, Action::Increment) as i32
+            - input.num_accesskit_action_requests(id, Action::Decrement) as i32;
+        if delta != 0 {
+            *value = (*value + delta as f32 * FADER_STEP as f32).clamp(-1.0, 1.0);
+        }
+        for request in input.accesskit_action_requests(id, Action::SetValue) {
+            if let Some(ActionData::NumericValue(v)) = request.data {
+                if v.is_finite() { *value = v.clamp(-1.0, 1.0) as f32; }
+            }
+        }
+    });
     if reset_clicked(&response) { *value = 0.0; }
     if *value != before { response.mark_changed(); }
     response.widget_info(|| egui::WidgetInfo::slider(true, f64::from(*value), name));
+    ui.ctx().accesskit_node_builder(id, |node| {
+        use egui::accesskit::Action;
+        node.set_min_numeric_value(-1.0);
+        node.set_max_numeric_value(1.0);
+        node.set_numeric_value_step(FADER_STEP);
+        node.add_action(Action::SetValue);
+        if *value < 1.0 { node.add_action(Action::Increment); }
+        if *value > -1.0 { node.add_action(Action::Decrement); }
+    });
     let painter = ui.painter_at(rect);
     let radius = (rect.width().min(rect.height()) * 0.5 - 3.0).max(0.0);
     painter.circle_filled(center, radius, tokens.background);

@@ -1324,6 +1324,37 @@ fn mixer_eq_and_filter_paint_rotary_controls() {
 }
 
 #[test]
+fn mixer_rotary_accesskit_value_actions() {
+    let (root, mut h) = fresh("mixrotarya11y", 10.0);
+    h.app.settings.sections.mixer = true;
+    for name in ["Deck A EQ high", "Deck B filter"] {
+        let out = h.settle();
+        let (id, n) = out.platform_output.accesskit_update.as_ref().unwrap().nodes.iter()
+            .find(|(_, n)| n.label().as_deref() == Some(name)).unwrap();
+        let id = *id;
+        assert_eq!(n.min_numeric_value(), Some(-1.0));
+        assert_eq!(n.max_numeric_value(), Some(1.0));
+        assert_eq!(n.numeric_value_step(), Some(crate::mixer_view::FADER_STEP));
+        for action in [accesskit::Action::SetValue, accesskit::Action::Increment, accesskit::Action::Decrement] {
+            assert!(n.supports_action(action), "{name} lacks {action:?}");
+        }
+        let send = |h: &mut Harness, action, data| {
+            h.frame_with(vec![egui::Event::AccessKitActionRequest(accesskit::ActionRequest { action, target: id, data })], Default::default());
+        };
+        let get = |h: &Harness| if name.ends_with("filter") { h.deck(1).channel.filter } else { crate::mixer_view::eq_pos_of(h.deck(0).channel.eq_db[2]) };
+        send(&mut h, accesskit::Action::SetValue, Some(accesskit::ActionData::NumericValue(0.5)));
+        assert!((get(&h) - 0.5).abs() < 1e-5);
+        send(&mut h, accesskit::Action::Increment, None);
+        assert!((get(&h) - 0.55).abs() < 1e-5);
+        send(&mut h, accesskit::Action::Decrement, None);
+        assert!((get(&h) - 0.5).abs() < 1e-5);
+        send(&mut h, accesskit::Action::SetValue, Some(accesskit::ActionData::NumericValue(-2.0)));
+        assert!((get(&h) + 1.0).abs() < 1e-5);
+    }
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn mixer_rotary_dead_sector_reversal_and_double_click_reset() {
     let (root, mut h) = fresh("mixrotarygestures", 10.0);
     h.app.settings.sections.mixer = true;
