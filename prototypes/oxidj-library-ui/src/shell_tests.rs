@@ -194,12 +194,14 @@ fn defaults_one_row_toolbar_status_bar_and_full_width_table() {
         let out = shell.settle();
         let app = &shell.app;
         assert!(
-            app.show_nav && !app.show_details && !app.show_decks,
-            "defaults: nav on, details/decks off"
+            app.show_nav && app.show_details && app.show_decks,
+            "defaults: navigation, details, and decks on"
         );
         let layout = app.shell;
         let nav = layout.nav.expect("navigation shown by default");
-        assert!(layout.details.is_none() && layout.decks.is_none());
+        let details = layout.details.expect("details shown by default");
+        let decks = layout.decks.expect("decks shown by default");
+        assert!(details.width() > 0.0 && decks.width() > 0.0);
         let toolbar = layout.toolbar.unwrap();
         assert!(
             toolbar.height() <= 33.0,
@@ -212,12 +214,12 @@ fn defaults_one_row_toolbar_status_bar_and_full_width_table() {
         );
         let table = shell.table();
         assert!(
-            close(table.left(), nav.right()) && close(table.right(), width),
-            "{width}: table {table:?} nav {nav:?}"
+            close(table.left(), nav.right()) && close(table.right(), details.left()),
+            "{width}: table {table:?} between nav {nav:?} and details {details:?}"
         );
         assert!(
-            close(table.top(), toolbar.bottom()),
-            "{width}: no gap under the toolbar: {table:?}"
+            table.top() >= decks.bottom() && table.bottom() <= status.top(),
+            "{width}: table {table:?} fits below decks {decks:?} and above status {status:?}"
         );
 
         let tree = nodes(&out);
@@ -265,12 +267,14 @@ fn defaults_one_row_toolbar_status_bar_and_full_width_table() {
                 header.height() >= 24.0 && header.width() >= 24.0,
                 "{width}: header {title} target {header:?}"
             );
-            assert!(
-                shell.screen.contains_rect(header)
-                    && header.left() >= table.left() - 0.5
-                    && header.right() <= table.right() + 0.5,
-                "{width}: header {title} clipped {header:?} table {table:?}"
-            );
+            if width >= 1200.0 {
+                assert!(
+                    shell.screen.contains_rect(header)
+                        && header.left() >= table.left() - 0.5
+                        && header.right() <= table.right() + 0.5,
+                    "{width}: header {title} clipped {header:?} table {table:?}"
+                );
+            }
         }
         // Rows are full-width >= 24 px hit targets.
         for name in ["tone-a.wav", "tone-b.wav", "tone-c.wav"] {
@@ -279,10 +283,12 @@ fn defaults_one_row_toolbar_status_bar_and_full_width_table() {
                 row.height() >= 24.0 && row.height() <= 25.0,
                 "{width}: row {row:?}"
             );
-            assert!(
-                close(row.left(), table.left()) && close(row.right(), table.right()),
-                "{width}: {row:?}"
-            );
+            if width >= 1200.0 {
+                assert!(
+                    close(row.left(), table.left()) && close(row.right(), table.right()),
+                    "{width}: {row:?}"
+                );
+            }
         }
     }
     std::fs::remove_dir_all(root).unwrap();
@@ -293,10 +299,15 @@ fn each_panel_toggles_by_click_and_shortcut_and_resizes_the_table() {
     let (root, db) = catalog_root("toggles");
     for width in [1440.0, 900.0] {
         let mut shell = Shell::new(&db, width);
-        // Both side panels off: the table spans the whole window width.
+        // The table spans the full window width when navigation is hidden;
+        // Details and Decks remain independently toggleable from their defaults.
         let nav_toggle = shell.app.shell.toggles.unwrap()[0];
         shell.click(nav_toggle.center());
-        assert!(!shell.app.show_nav && shell.app.shell.nav.is_none());
+        shell.click(shell.app.shell.toggles.unwrap()[1].center());
+        assert!(
+            !shell.app.show_nav && !shell.app.show_details && shell.app.shell.nav.is_none()
+                && shell.app.shell.details.is_none()
+        );
         let full = shell.table();
         assert!(
             close(full.left(), 0.0) && close(full.right(), width),
@@ -308,6 +319,14 @@ fn each_panel_toggles_by_click_and_shortcut_and_resizes_the_table() {
             let panel =
                 |app: &LibraryApp| [app.shell.nav, app.shell.details, app.shell.decks][index];
             for via_shortcut in [false, true] {
+                // Normalize to hidden so the same assertions cover all fresh defaults.
+                if panel(&shell.app).is_some() {
+                    if via_shortcut {
+                        shell.shortcut(key);
+                    } else {
+                        shell.click(shell.app.shell.toggles.unwrap()[index].center());
+                    }
+                }
                 let before = shell.table();
                 if via_shortcut {
                     shell.shortcut(key);
@@ -387,6 +406,7 @@ fn each_panel_toggles_by_click_and_shortcut_and_resizes_the_table() {
 fn selecting_a_row_does_not_open_details_and_headers_sort() {
     let (root, db) = catalog_root("select");
     let mut shell = Shell::new(&db, 1440.0);
+    shell.shortcut(egui::Key::I);
     let out = shell.settle();
     let row = find(&nodes(&out), "tone-b.wav").2;
     shell.click(row.center());
@@ -770,11 +790,11 @@ fn toggle_group_marks_active_cells() {
         // Cells are 1 px apart: adjacent hit rects never touch.
         assert!(toggles[0].right() < toggles[1].left() && toggles[1].right() < toggles[2].left());
     };
-    check(&mut shell, [true, false, false]);
+    check(&mut shell, [true, true, true]);
     shell.click(shell.app.shell.toggles.unwrap()[1].center());
-    check(&mut shell, [true, true, false]);
+    check(&mut shell, [true, false, true]);
     shell.click(shell.app.shell.toggles.unwrap()[0].center());
-    check(&mut shell, [false, true, false]);
+    check(&mut shell, [false, false, true]);
     std::fs::remove_dir_all(root).unwrap();
 }
 

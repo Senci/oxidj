@@ -257,6 +257,7 @@ fn ctrl_comma_and_gear_toggle_settings_esc_closes_and_focus_returns() {
 fn each_wired_option_changes_the_next_rendered_frame_and_persists() {
     let mut h = Harness::new(grid_catalog());
     h.app.show_details = true;
+    h.app.show_decks = false;
     let out = h.settle();
     let out = h.click(text_rect(&out, "d0-grid.wav").center());
     let view = h.app.track_waveform.layout.view.expect("detail view");

@@ -765,8 +765,9 @@ mod tests {
                 ThemeMode::TokyoNight.tokens(),
             ),
         };
-        // W8: details is a toggled panel (off by default); open it as a user would.
+        // Exercise the details panel with decks collapsed.
         h.app.show_details = true;
+        h.app.show_decks = false;
         let first = h.frame(vec![]);
         assert!(
             h.app.track_waveform.layout.view.is_none(),
@@ -971,6 +972,7 @@ mod tests {
             app: LibraryApp::new(db, ThemeMode::TokyoNight, ThemeMode::TokyoNight.tokens()),
         };
         h.app.show_details = true;
+        h.app.show_decks = false;
         let first = h.frame(vec![]);
         let out = h.click(unique_text(&first, "g grid.wav").center());
         assert_eq!(
@@ -1057,8 +1059,9 @@ mod tests {
                 ThemeMode::TokyoNight.tokens(),
             ),
         };
-        // W8: details is a toggled panel (off by default); open it as a user would.
+        // Exercise the details panel with decks collapsed.
         h.app.show_details = true;
+        h.app.show_decks = false;
         let first = h.frame(vec![]);
         let out = h.click(unique_text(&first, "g-grid.wav").center());
         let panel = &h.app.track_waveform;
@@ -1241,6 +1244,7 @@ mod tests {
             app: LibraryApp::new(db.clone(), ThemeMode::TokyoNight, ThemeMode::TokyoNight.tokens()),
         };
         h.app.show_details = true;
+        h.app.show_decks = false;
         let first = h.frame(vec![]);
 
         // 1. Computed only: W6 window from the computed beats.
@@ -1364,8 +1368,9 @@ mod tests {
         let screen = Rect::from_min_size(Pos2::ZERO, egui::vec2(900.0, 900.0));
         let ctx = egui::Context::default();
         let mut app = LibraryApp::new(db, ThemeMode::TokyoNight, ThemeMode::TokyoNight.tokens());
-        // W8: details is a toggled panel (off by default); open it as a user would.
+        // Test the details panel with the decks collapsed.
         app.show_details = true;
+        app.show_decks = false;
         let frame = |app: &mut LibraryApp, events: Vec<egui::Event>| {
             let input = egui::RawInput {
                 screen_rect: Some(screen),
@@ -1491,6 +1496,7 @@ mod tests {
                 let ctx = egui::Context::default();
                 let mut app = LibraryApp::new(db.clone(), mode, mode.tokens());
                 app.show_details = true;
+                app.show_decks = false;
                 let frame = |app: &mut LibraryApp, events: Vec<egui::Event>| {
                     let input = egui::RawInput {
                         screen_rect: Some(screen),
