@@ -57,7 +57,7 @@ fn grid_catalog() -> PathBuf {
     let mut catalog = Catalog::open(&db).unwrap();
     catalog.import_audio_directory(audio.to_str().unwrap()).unwrap();
     let track = catalog.list_track_details().unwrap().remove(0).track;
-    oxidj_application::analyze_track_waveform(&mut catalog, track.id).unwrap();
+    oxidj_application::analyze_track_waveform(&mut catalog, track.id, false).unwrap();
     let (location, _) = oxidj_application::location_uri(&track.path);
     catalog
         .import_library(&LibrarySnapshot {

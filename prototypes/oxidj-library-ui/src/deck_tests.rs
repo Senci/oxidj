@@ -100,7 +100,7 @@ pub(crate) fn deck_catalog(root: &Path, seconds: f32) -> PathBuf {
     let tracks = catalog.list_track_details().unwrap();
     let by = |name: &str| tracks.iter().find(|t| t.track.path.ends_with(name)).unwrap().track.clone();
     for name in ["a-120.wav", "b-124.wav", "c-nogrid.wav"] {
-        oxidj_application::analyze_track_waveform(&mut catalog, by(name).id).unwrap();
+        oxidj_application::analyze_track_waveform(&mut catalog, by(name).id, false).unwrap();
     }
     let s = f64::from(seconds);
     let lib = |name: &str, beat_grid: Vec<LibraryBeat>, cues: Vec<LibraryCue>| LibraryTrack {
@@ -518,7 +518,7 @@ fn time_grid_when_no_waveform_or_grid_and_the_waveform_replaces_it_in_place() {
     {
         let mut catalog = Catalog::open(&db).unwrap();
         let id = track_of(&catalog, "d-pending.wav").track.id;
-        oxidj_application::analyze_track_waveform(&mut catalog, id).unwrap();
+        oxidj_application::analyze_track_waveform(&mut catalog, id, false).unwrap();
     }
     h.app.reload();
     let out = h.settle();

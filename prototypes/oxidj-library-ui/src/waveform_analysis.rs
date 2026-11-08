@@ -70,7 +70,7 @@ impl Job {
                                             .ok_or_else(|| "track no longer exists".to_owned())
                                     })
                                     .and_then(|track| {
-                                        analyze_track_waveform(&mut catalog, track.id)
+                                        analyze_track_waveform(&mut catalog, track.id, false)
                                             .map_err(|e| e.to_string())
                                     });
                                 results.push((raw_id, result));

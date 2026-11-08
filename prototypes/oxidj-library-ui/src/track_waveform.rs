@@ -735,7 +735,7 @@ mod tests {
                 .clone()
         };
         for name in ["a-low.wav", "b-high.wav"] {
-            oxidj_application::analyze_track_waveform(&mut catalog, id_of(name).id).unwrap();
+            oxidj_application::analyze_track_waveform(&mut catalog, id_of(name).id, false).unwrap();
         }
         // Vendor-derived data for track A only, keyed by its imported location.
         let (location, _) = oxidj_application::location_uri(&id_of("a-low.wav").path);
@@ -943,7 +943,7 @@ mod tests {
             .import_audio_directory(root.join("media").to_str().unwrap())
             .unwrap();
         let track = catalog.list_track_details().unwrap()[0].track.clone();
-        oxidj_application::analyze_track_waveform(&mut catalog, track.id).unwrap();
+        oxidj_application::analyze_track_waveform(&mut catalog, track.id, false).unwrap();
         let beats: Vec<_> = (0..40u32)
             .map(|i| LibraryBeat {
                 time_ms: 250 + 500 * i,
@@ -1013,7 +1013,7 @@ mod tests {
                 .clone()
         };
         for name in ["g-grid.wav", "n-nogrid.wav"] {
-            oxidj_application::analyze_track_waveform(&mut catalog, id_of(name).id).unwrap();
+            oxidj_application::analyze_track_waveform(&mut catalog, id_of(name).id, false).unwrap();
         }
         // 120 bpm, first beat at 250 ms with a two-beat pickup: downbeats at
         // 1250 + 2000 k ms (bar 1 = 1250 ms), 40 beats → 10 bars in 20 s.
@@ -1200,7 +1200,7 @@ mod tests {
                 .clone()
         };
         for name in ["c-computed.wav", "v-both.wav", "n-none.wav"] {
-            oxidj_application::analyze_track_waveform(&mut catalog, id_of(name).id).unwrap();
+            oxidj_application::analyze_track_waveform(&mut catalog, id_of(name).id, false).unwrap();
         }
         for name in ["c-computed.wav", "v-both.wav"] {
             oxidj_application::analyze_track_tempo(
@@ -1362,7 +1362,7 @@ mod tests {
             .import_audio_directory(audio.to_str().unwrap())
             .unwrap();
         let id = catalog.list_track_details().unwrap()[0].track.id;
-        oxidj_application::analyze_track_waveform(&mut catalog, id).unwrap();
+        oxidj_application::analyze_track_waveform(&mut catalog, id, false).unwrap();
         drop(catalog);
 
         let screen = Rect::from_min_size(Pos2::ZERO, egui::vec2(900.0, 900.0));
@@ -1454,8 +1454,8 @@ mod tests {
         let by_name = |name: &str| details.iter().find(|t| t.track.path.ends_with(name)).unwrap().track.clone();
         let track = by_name("w9-grid-vendor.wav");
         let computed = by_name("w9-computed.wav");
-        oxidj_application::analyze_track_waveform(&mut catalog, track.id).unwrap();
-        oxidj_application::analyze_track_waveform(&mut catalog, computed.id).unwrap();
+        oxidj_application::analyze_track_waveform(&mut catalog, track.id, false).unwrap();
+        oxidj_application::analyze_track_waveform(&mut catalog, computed.id, false).unwrap();
         oxidj_application::analyze_track_tempo(&mut catalog, computed.id, oxidj_application::DEFAULT_TEMPO_RANGE).unwrap();
         let tempo = catalog.computed_beat_grid(computed.id).unwrap().expect("computed grid").grid;
         let computed_label = format!("beat grid: computed ({}), {:.2} BPM", tempo.algorithm(), tempo.bpm());
