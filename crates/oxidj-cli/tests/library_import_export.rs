@@ -1290,7 +1290,15 @@ fn catalog_playlist_reorder_preserves_everything_but_member_order() {
         s("--output"),
         before.as_os_str(),
     ]));
-    let mut expected = decode(&std::fs::read(before).unwrap());
+    let mut expected = expected();
+    let Node::Folder(_, roots) = &mut expected.root else {
+        panic!("fixture root")
+    };
+    roots.push(Node::Playlist(
+        "Reorder".into(),
+        vec!["3".into(), "1".into(), "3".into()],
+    ));
+    assert_eq!(decode(&std::fs::read(before).unwrap()), expected);
     let result = cli(&[
         s("catalog"),
         s("reorder-library-playlist-members"),
@@ -1331,9 +1339,22 @@ fn catalog_playlist_reorder_preserves_everything_but_member_order() {
         ("Reorder", "", "membership must not be empty"),
         ("Reorder", "3,,1", "comma-separated positive integers"),
         ("Reorder", "0", "positive integers within range"),
+        ("Reorder", "-1", "comma-separated positive integers"),
+        ("Reorder", "1.0", "comma-separated positive integers"),
+        ("Reorder", " 1", "comma-separated positive integers"),
+        ("Reorder", "1,", "comma-separated positive integers"),
+        (
+            "Reorder",
+            "99999999999999999999999999999999999999",
+            "positive integers within range",
+        ),
         ("Reorder", "3,3,99", "membership counts differ"),
         ("Reorder", "3,1,1", "membership counts differ"),
+        ("Reorder", "3,1", "membership counts differ"),
+        ("Reorder", "3,3,1,1", "membership counts differ"),
         ("absent", "1", "root playlist does not exist"),
+        ("Inner First", "1", "root playlist does not exist"),
+        ("Folder", "1", "root name refers to a folder"),
     ] {
         let refused = cli(&[
             s("catalog"),
@@ -1533,6 +1554,37 @@ fn catalog_playlist_append_refuses_non_imported_sqlite_without_mutation() {
             assert_eq!(sql(""), before, "schema/version/data changed on refusal");
         }
     }
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn catalog_playlist_reorder_requires_an_existing_imported_catalog() {
+    let dir = scratch();
+    let catalog = dir.join("catalog.sqlite");
+    let reorder = || {
+        cli(&[
+            s("catalog"),
+            s("reorder-library-playlist-members"),
+            s("--catalog"),
+            catalog.as_os_str(),
+            s("--playlist-name"),
+            s("Top"),
+            s("--track-ids"),
+            s("1"),
+        ])
+    };
+    let missing = reorder();
+    assert_eq!(missing.status.code(), Some(1));
+    assert!(missing.stdout.is_empty());
+    assert!(String::from_utf8_lossy(&missing.stderr).contains("catalog does not exist"));
+    assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 0);
+    drop(oxidj_library::Catalog::open(&catalog).unwrap());
+    let before = std::fs::read(&catalog).unwrap();
+    let empty = reorder();
+    assert_eq!(empty.status.code(), Some(1));
+    assert!(empty.stdout.is_empty());
+    assert!(String::from_utf8_lossy(&empty.stderr).contains("catalog holds no imported tracks"));
+    assert_eq!(std::fs::read(&catalog).unwrap(), before);
     std::fs::remove_dir_all(dir).unwrap();
 }
 
