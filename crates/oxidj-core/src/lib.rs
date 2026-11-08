@@ -10,6 +10,7 @@
 //! adapter crates, not here.
 
 pub mod publish;
+pub mod step_tempo;
 pub mod tempo;
 pub mod waveform;
 
