@@ -22,6 +22,63 @@ use eframe::egui::{self, pos2, vec2, FontId, Rect, Sense, Shape, Stroke, Ui};
 use oxidj_audio::{Assign, EQ_KILL_DB, EQ_MAX_DB, TRIM_DB};
 use std::ops::RangeInclusive;
 
+#[cfg(test)]
+mod wheel_tests {
+    use super::*;
+
+    #[test]
+    fn mixer_wheel_respects_parent_scroll_and_disabled_controls() {
+        let ctx = egui::Context::default();
+        let mut value = 0.5;
+        let mut pos = egui::Pos2::ZERO;
+        let mut offset = 0.0;
+        let mut frame = |events: Vec<egui::Event>, enabled: bool, rotary: bool| {
+            let input = egui::RawInput { screen_rect: Some(Rect::from_min_size(egui::Pos2::ZERO, vec2(400.0, 300.0))), events, ..Default::default() };
+            let _ = ctx.run(input, |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    let output = egui::ScrollArea::vertical().max_height(100.0).show(ui, |ui| {
+                        let (cell, _) = ui.allocate_exact_size(vec2(180.0, 28.0), Sense::hover());
+                        let tokens = crate::theme::current_tokens(ctx);
+                        ui.add_enabled_ui(enabled, |ui| {
+                            let response = if rotary {
+                                mixer_rotary(ui, cell, "FILTER", &mut value, "filter", String::new(), tokens.primary, tokens)
+                            } else {
+                                mixer_knob(ui, cell, "VOL", &mut value, 0.0..=1.0, FADER_STEP, 1.0, "volume", String::new(), tokens.primary, tokens)
+                            };
+                            pos = response.rect.center();
+                        });
+                        ui.add_space(500.0);
+                    });
+                    offset = output.state.offset.y;
+                });
+            });
+            (pos, offset, value)
+        };
+        for rotary in [true, false] {
+            let (p, _, _) = frame(vec![], true, rotary);
+            let wheel = |p| vec![egui::Event::PointerMoved(p), egui::Event::MouseWheel { unit: egui::MouseWheelUnit::Point, delta: vec2(0.0, -4.0), modifiers: Default::default() }];
+            let (_, before_offset, before_value) = frame(vec![egui::Event::PointerMoved(p)], true, rotary);
+            let (_, after_offset, after_value) = frame(wheel(p), true, rotary);
+            assert_eq!(after_offset, before_offset);
+            assert!(after_value < before_value);
+            let (_, tail_start, _) = frame(vec![egui::Event::PointerMoved(p), egui::Event::MouseWheel {
+                unit: egui::MouseWheelUnit::Line, delta: vec2(0.0, -1.0), modifiers: Default::default(),
+            }], true, rotary);
+            for _ in 0..5 {
+                let (_, tail_offset, _) = frame(vec![egui::Event::PointerMoved(egui::pos2(300.0, 50.0))], true, rotary);
+                assert_eq!(tail_offset, tail_start, "wheel smoothing must not scroll parent after pointer leaves");
+            }
+            let (_, _, disabled_before) = frame(vec![egui::Event::PointerMoved(p)], false, rotary);
+            let (_, disabled_offset, disabled_after) = frame(wheel(p), false, rotary);
+            assert_eq!(disabled_before, disabled_after);
+            assert!(disabled_offset > after_offset, "disabled control must leave scroll to parent");
+            let (_, _, outside_before) = frame(vec![], true, rotary);
+            let (_, _, outside_after) = frame(wheel(egui::pos2(300.0, 50.0)), true, rotary);
+            assert_eq!(outside_before, outside_after);
+        }
+    }
+}
+
 /// Label column of a mixer knob.
 const LABEL_W: f32 = 34.0;
 /// Level meter width.
@@ -60,6 +117,38 @@ pub(crate) const KNOB_DB_STEP: f64 = 1.0;
 /// Arrow-key step of the EQ knobs (position), filter, faders and crossfader.
 pub(crate) const FADER_STEP: f64 = 0.05;
 
+/// Consume vertical wheel input while the pointer is over a mixer control.
+fn mixer_wheel(ui: &mut Ui, response: &egui::Response, value: &mut f32, range: RangeInclusive<f32>, step: f64) -> bool {
+    let pending_id = response.id.with("mixer-wheel-smoothing");
+    let pending = ui.ctx().data(|data| data.get_temp::<bool>(pending_id).unwrap_or(false));
+    if !response.enabled() || !response.hovered() {
+        // egui smooths line-wheel deltas over subsequent frames. Do not let
+        // their tail scroll an ancestor after the pointer leaves the control.
+        if pending {
+            let (raw, smooth) = ui.input_mut(|input| {
+                let raw = input.raw_scroll_delta.y;
+                let smooth = input.smooth_scroll_delta.y;
+                if raw == 0.0 { input.smooth_scroll_delta.y = 0.0; }
+                (raw, smooth)
+            });
+            if raw != 0.0 || smooth == 0.0 {
+                ui.ctx().data_mut(|data| data.remove::<bool>(pending_id));
+            }
+        }
+        return false;
+    }
+    let delta = ui.input_mut(|input| {
+        let delta = input.raw_scroll_delta.y;
+        input.raw_scroll_delta.y = 0.0;
+        input.smooth_scroll_delta.y = 0.0;
+        delta / 40.0
+    });
+    if delta != 0.0 { ui.ctx().data_mut(|data| data.insert_temp(pending_id, true)); }
+    let before = *value;
+    *value = (*value + delta * step as f32).clamp(*range.start(), *range.end());
+    *value != before
+}
+
 /// A labelled, compact horizontal knob (native egui slider): exact rect,
 /// AccessKit name, arrow keys move by `step`, double click resets to
 /// `default`. Returns the response.
@@ -82,14 +171,15 @@ pub(crate) fn mixer_knob(
     ui.painter().galley(pos2(cell.left(), cell.center().y - g.size().y / 2.0), g, tokens.muted_text);
     let slider_r = Rect::from_min_max(pos2(cell.left() + label_w, cell.top()), cell.max);
     let mut v = *value;
-    let slider = ui
+    let mut slider = ui
         .scope(|ui| {
             crate::track_waveform::slider_look(ui, tokens);
             ui.visuals_mut().selection.bg_fill = fill;
             ui.spacing_mut().slider_width = slider_r.width().max(8.0);
-            ui.put(slider_r, egui::Slider::new(&mut v, range).show_value(false).step_by(step))
+            ui.put(slider_r, egui::Slider::new(&mut v, range.clone()).show_value(false).step_by(step))
         })
         .inner;
+    if mixer_wheel(ui, &slider, &mut v, range, step) { slider.mark_changed(); }
     slider.widget_info(|| egui::WidgetInfo::slider(true, f64::from(v), name));
     let slider = slider.on_hover_text(hover);
     if reset_clicked(&slider) {
@@ -113,6 +203,7 @@ fn mixer_rotary(ui: &mut Ui, cell: Rect, label: &str, value: &mut f32, name: &st
     let start = -std::f32::consts::FRAC_PI_2 - 3.0 * std::f32::consts::FRAC_PI_4;
     let sweep = 3.0 * std::f32::consts::FRAC_PI_2;
     let before = *value;
+    mixer_wheel(ui, &response, value, -1.0..=1.0, FADER_STEP);
     if let Some(pointer) = response.interact_pointer_pos() {
         let angle = (pointer.y - center.y).atan2(pointer.x - center.x);
         if response.drag_started() || response.dragged() {
@@ -439,13 +530,14 @@ impl LibraryApp {
             letters(ui.painter(), DECKS[1], rail.right() - 5.0);
             let slider_r = rail.shrink2(vec2(14.0, 0.0));
             let mut x = self.decks.crossfader;
-            let slider = ui
+            let mut slider = ui
                 .scope(|ui| {
                     crate::track_waveform::slider_look(ui, tokens);
                     ui.spacing_mut().slider_width = slider_r.width().max(8.0);
                     ui.put(slider_r, egui::Slider::new(&mut x, 0.0..=1.0).show_value(false).step_by(FADER_STEP))
                 })
                 .inner;
+            if mixer_wheel(ui, &slider, &mut x, 0.0..=1.0, FADER_STEP) { slider.mark_changed(); }
             slider.widget_info(|| egui::WidgetInfo::slider(true, f64::from(x), "Crossfader"));
             let slider = slider.on_hover_text(format!("Crossfader A ↔ B ({:?} curve, Settings); centre = both at unity; double-click centres", self.settings.xfader_curve));
             if reset_clicked(&slider) {

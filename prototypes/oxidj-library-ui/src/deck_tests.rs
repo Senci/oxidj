@@ -1324,6 +1324,44 @@ fn mixer_eq_and_filter_paint_rotary_controls() {
 }
 
 #[test]
+fn mixer_wheel_changes_hovered_controls_and_clamps() {
+    let (root, mut h) = fresh("mixwheel", 10.0);
+    h.app.settings.sections.mixer = true;
+    for name in ["Deck A filter", "Deck A volume", "Crossfader"] {
+        let out = h.settle();
+        let b = node(&out, name).bounds().unwrap();
+        let p = egui::pos2(((b.x0 + b.x1) / 2.0) as f32, ((b.y0 + b.y1) / 2.0) as f32);
+        let get = |h: &Harness| match name {
+            "Deck A filter" => h.deck(0).channel.filter,
+            "Deck A volume" => h.deck(0).volume.0,
+            _ => h.app.decks.crossfader,
+        };
+        let wheel = |h: &mut Harness, y| {
+            h.frame_with(vec![egui::Event::PointerMoved(p), egui::Event::MouseWheel {
+                unit: egui::MouseWheelUnit::Line, delta: egui::vec2(0.0, y), modifiers: Default::default(),
+            }], Default::default());
+        };
+        let initial = get(&h);
+        wheel(&mut h, -1.0);
+        let down = get(&h);
+        assert!(down < initial, "{name}: wheel down {initial} -> {down}");
+        wheel(&mut h, 1.0);
+        assert!(get(&h) > down, "{name}: wheel up");
+        wheel(&mut h, 100.0);
+        assert_eq!(get(&h), 1.0, "{name}: upper bound");
+        wheel(&mut h, -100.0);
+        assert_eq!(get(&h), if name.ends_with("filter") { -1.0 } else { 0.0 }, "{name}: lower bound");
+    }
+    let values = (h.deck(0).channel.filter, h.deck(0).volume.0, h.app.decks.crossfader);
+    let outside = h.layout().mixer.unwrap().left_top() - egui::vec2(10.0, 10.0);
+    h.frame_with(vec![egui::Event::PointerMoved(outside), egui::Event::MouseWheel {
+        unit: egui::MouseWheelUnit::Line, delta: egui::vec2(0.0, 1.0), modifiers: Default::default(),
+    }], Default::default());
+    assert_eq!(values, (h.deck(0).channel.filter, h.deck(0).volume.0, h.app.decks.crossfader));
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn mixer_rotary_accesskit_value_actions() {
     let (root, mut h) = fresh("mixrotarya11y", 10.0);
     h.app.settings.sections.mixer = true;
