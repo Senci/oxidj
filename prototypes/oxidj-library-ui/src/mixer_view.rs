@@ -99,6 +99,58 @@ pub(crate) fn mixer_knob(
     slider
 }
 
+/// Compact Minimal Line rotary with per-widget persistent drag state.
+#[allow(clippy::too_many_arguments)]
+fn mixer_rotary(ui: &mut Ui, cell: Rect, label: &str, value: &mut f32, name: &str, hover: String, fill: egui::Color32, tokens: ColorTokens) -> egui::Response {
+    let g = ui.painter().layout_no_wrap(label.to_owned(), FontId::proportional(10.5), tokens.muted_text);
+    let label_w = LABEL_W.max(g.size().x + 6.0);
+    ui.painter().galley(pos2(cell.left(), cell.center().y - g.size().y / 2.0), g, tokens.muted_text);
+    let rect = Rect::from_min_max(pos2(cell.left() + label_w, cell.top()), cell.max);
+    let id = ui.id().with(("mixer-rotary", name));
+    let mut response = ui.interact(rect, id, Sense::click_and_drag());
+    let drag_id = id.with("angle");
+    let center = rect.center();
+    let start = -std::f32::consts::FRAC_PI_2 - 3.0 * std::f32::consts::FRAC_PI_4;
+    let sweep = 3.0 * std::f32::consts::FRAC_PI_2;
+    let before = *value;
+    if let Some(pointer) = response.interact_pointer_pos() {
+        let angle = (pointer.y - center.y).atan2(pointer.x - center.x);
+        if response.drag_started() || response.dragged() {
+            if let Some(previous) = ui.ctx().data(|d| d.get_temp::<f32>(drag_id)) {
+                let delta = (angle - previous + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI;
+                *value = (*value + 2.0 * delta / sweep).clamp(-1.0, 1.0);
+            }
+            ui.ctx().data_mut(|d| d.insert_temp(drag_id, angle));
+        } else if response.clicked() {
+            let a = (angle - start).rem_euclid(std::f32::consts::TAU);
+            *value = if a <= sweep { 2.0 * a / sweep - 1.0 } else if a - sweep <= (std::f32::consts::TAU - sweep) / 2.0 { 1.0 } else { -1.0 };
+        } else if response.hovered() && ui.input(|i| i.pointer.primary_down()) {
+            ui.ctx().data_mut(|d| d.insert_temp(drag_id, angle));
+        }
+    }
+    if response.drag_stopped() { ui.ctx().data_mut(|d| d.remove::<f32>(drag_id)); }
+    if response.has_focus() {
+        ui.memory_mut(|m| m.set_focus_lock_filter(id, egui::EventFilter { horizontal_arrows: true, vertical_arrows: true, ..Default::default() }));
+        let step = ui.input(|i| (i.key_pressed(egui::Key::ArrowRight) || i.key_pressed(egui::Key::ArrowUp)) as i32 - (i.key_pressed(egui::Key::ArrowLeft) || i.key_pressed(egui::Key::ArrowDown)) as i32);
+        if step != 0 { *value = (((*value / FADER_STEP as f32).round() + step as f32) * FADER_STEP as f32).clamp(-1.0, 1.0); }
+    }
+    if reset_clicked(&response) { *value = 0.0; }
+    if *value != before { response.mark_changed(); }
+    response.widget_info(|| egui::WidgetInfo::slider(true, f64::from(*value), name));
+    let painter = ui.painter_at(rect);
+    let radius = (rect.width().min(rect.height()) * 0.5 - 3.0).max(0.0);
+    painter.circle_filled(center, radius, tokens.background);
+    painter.circle_stroke(center, radius, Stroke::new(1.0_f32, if response.has_focus() { tokens.focus } else { tokens.border }));
+    for tick in 0..=6 {
+        let angle = start + tick as f32 / 6.0 * sweep;
+        let dir = vec2(angle.cos(), angle.sin());
+        painter.line_segment([center + dir * (radius + 1.0), center + dir * (radius + 2.0)], Stroke::new(1.0_f32, tokens.muted_text));
+    }
+    let angle = start + ((*value + 1.0) * 0.5).clamp(0.0, 1.0) * sweep;
+    painter.line_segment([center, center + vec2(angle.cos(), angle.sin()) * (radius * 0.7)], Stroke::new(2.0_f32, fill));
+    response.on_hover_text(hover)
+}
+
 /// EQ knob position −1 (kill) .. 0 (centre, 0 dB) .. +1 (+6 dB) to dB:
 /// linear in dB on each side, like an isolator knob at 12 o'clock.
 pub(crate) fn eq_db_at(pos: f32) -> f32 {
@@ -276,7 +328,7 @@ impl LibraryApp {
             let hover = format!("Deck {letter} EQ {name}: {shown}; centre 0 dB, left stop kills the band, right +{EQ_MAX_DB:.0} dB; double-click resets");
             let mut pos = eq_pos_of(db);
             let before = pos;
-            mixer_knob(ui, r, label, &mut pos, -1.0..=1.0, FADER_STEP, 0.0, &format!("Deck {letter} EQ {name}"), hover, c.outer, tokens);
+            mixer_rotary(ui, r, label, &mut pos, &format!("Deck {letter} EQ {name}"), hover, c.outer, tokens);
             if pos != before {
                 ch.eq_db[band] = eq_db_at(pos);
             }
@@ -297,7 +349,7 @@ impl LibraryApp {
             f => format!("high-pass {:.0} %", f * 100.0),
         };
         let hover = format!("Deck {letter} colour filter: {side} (left low-pass, right high-pass, centre off); double-click resets");
-        mixer_knob(ui, filter_r, "FILTER", &mut ch.filter, -1.0..=1.0, FADER_STEP, 0.0, &format!("Deck {letter} filter"), hover, c.outer, tokens);
+        mixer_rotary(ui, filter_r, "FILTER", &mut ch.filter, &format!("Deck {letter} filter"), hover, c.outer, tokens);
         layout.filter[d] = Some(filter_r);
         let fader = &mut deck.volume.0;
         let hover = format!("Deck {letter} channel fader {:.0} % (unity at the top; double-click resets)", *fader * 100.0);

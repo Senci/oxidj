@@ -267,6 +267,20 @@ fn node(out: &Frame, name: &str) -> accesskit::Node {
         .unwrap_or_else(|| panic!("{name:?} not in the AccessKit tree"))
 }
 
+fn rotary_drag(h: &mut Harness, name: &str, angles: &[f32]) {
+    let out = h.settle();
+    let b = node(&out, name).bounds().unwrap();
+    let center = egui::pos2(((b.x0 + b.x1) / 2.0) as f32, ((b.y0 + b.y1) / 2.0) as f32);
+    let point = |degrees: f32| { let a = degrees.to_radians(); center + egui::vec2(a.cos(), a.sin()) * 10.0 };
+    let button = |pos, pressed| egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed, modifiers: Default::default() };
+    let first = point(angles[0]);
+    h.frame_with(vec![egui::Event::PointerMoved(first), button(first, true)], Default::default());
+    for angle in &angles[1..] { h.frame_with(vec![egui::Event::PointerMoved(point(*angle))], Default::default()); }
+    let last = point(*angles.last().unwrap());
+    h.frame_with(vec![button(last, false)], Default::default());
+    h.settle();
+}
+
 /// Mesh vertices (with colours) of meshes clipped to exactly `clip`.
 fn meshes_in(out: &Frame, clip: Rect) -> Vec<(Pos2, egui::Color32)> {
     out.shapes
@@ -1286,6 +1300,60 @@ fn hidden_mixer_is_bit_identical_whatever_the_knobs_say() {
 /// engine applies it (kill, crossfader, assign, meters); the crossfader's
 /// own icon toggle hides it and takes it out of the path; persisted.
 #[test]
+fn mixer_eq_and_filter_paint_rotary_controls() {
+    let (root, mut h) = fresh("mixrotary", 10.0);
+    h.app.settings.sections.mixer = true;
+    for value in [-1.0, 0.0, 1.0] {
+        for deck in &mut h.app.decks.decks {
+            deck.channel.filter = value;
+            deck.channel.eq_db = [crate::mixer_view::eq_db_at(value); 3];
+        }
+        let out = h.settle();
+        let layout = h.layout();
+        for d in 0..2 {
+            for cell in layout.eq[d].unwrap().into_iter().chain([layout.filter[d].unwrap()]) {
+                let shapes: Vec<_> = out.shapes.iter().filter(|s| cell.contains_rect(s.clip_rect) && matches!(s.shape, Shape::Circle(_) | Shape::LineSegment { .. })).collect();
+                assert!(shapes.iter().any(|s| matches!(s.shape, Shape::Circle(_))), "rotary circle missing from {cell:?}");
+                for shape in shapes {
+                    assert!(shape.clip_rect.contains_rect(shape.shape.visual_bounding_rect()), "paint exceeds clip: {:?}", shape.shape);
+                }
+            }
+        }
+    }
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn mixer_rotary_dead_sector_reversal_and_double_click_reset() {
+    let (root, mut h) = fresh("mixrotarygestures", 10.0);
+    h.app.settings.sections.mixer = true;
+    h.settle();
+    for (start, path, expected) in [
+        (1.0, vec![45.0, 89.0, 91.0, 135.0, 160.0], 1.0),
+        (-1.0, vec![135.0, 91.0, 89.0, 45.0, 20.0], -1.0),
+    ] {
+        h.app.decks.decks[0].channel.filter = start;
+        rotary_drag(&mut h, "Deck A filter", &path);
+        assert_eq!(h.deck(0).channel.filter, expected);
+        let mut reverse = path.clone();
+        reverse.push(if start > 0.0 { 130.0 } else { 50.0 });
+        h.app.decks.decks[0].channel.filter = start;
+        rotary_drag(&mut h, "Deck A filter", &reverse);
+        let v = h.deck(0).channel.filter;
+        assert!(if start > 0.0 { v < 1.0 && v > 0.7 } else { v > -1.0 && v < -0.7 }, "reverse from {start}: {v}");
+    }
+    h.app.decks.decks[0].channel.filter = 0.8;
+    let out = h.settle();
+    let b = node(&out, "Deck A filter").bounds().unwrap();
+    let p = egui::pos2(((b.x0 + b.x1) / 2.0) as f32, ((b.y0 + b.y1) / 2.0) as f32);
+    h.time += 1.0;
+    h.click(p);
+    h.click(p);
+    assert_eq!(h.deck(0).channel.filter, 0.0, "double click resets filter");
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn mixer_controls_drive_the_engine_and_meters_through_the_ui() {
     let (root, mut h) = fresh("mixui", 20.0);
     h.select_and_load("a-120.wav", egui::Key::A);
@@ -1327,9 +1395,7 @@ fn mixer_controls_drive_the_engine_and_meters_through_the_ui() {
     // and deck B both audible.
     let both = mix_block(&mut h);
     // Pointer: drag deck A's LOW knob to its left stop = kill.
-    let low = h.layout().eq[0].unwrap()[0];
-    let slider_left = egui::pos2(low.left() + 34.0, low.center().y);
-    h.drag(egui::pos2(low.center().x + 10.0, low.center().y), slider_left - egui::vec2(40.0, 0.0));
+    rotary_drag(&mut h, "Deck A EQ low", &[-90.0, -135.0, -180.0, -225.0, -240.0]);
     assert_eq!(h.deck(0).channel.eq_db[0], oxidj_audio::EQ_KILL_DB, "drag to the stop kills");
     // Crossfader hard right (pointer): deck A (side A) silent, B unchanged.
     let xf = h.layout().crossfader.unwrap();
@@ -1481,10 +1547,11 @@ fn mixer_keeps_usable_non_overlapping_controls_at_narrow_windows() {
                 let b = node(out, &format!("Deck {letter} {n}")).bounds().unwrap();
                 egui::pos2(((b.x0 + b.x1) / 2.0) as f32, ((b.y0 + b.y1) / 2.0) as f32)
             };
-            let c = at(&out, "filter");
-            h.drag(c, c - egui::vec2(200.0, 0.0));
+            h.app.decks.decks[d].channel.filter = 0.0;
+            rotary_drag(&mut h, &format!("Deck {letter} filter"), &[-90.0, -135.0, -180.0, -225.0, -240.0]);
             assert_eq!(h.deck(d).channel.filter, -1.0, "{w}x{ht}: deck {letter} filter dragged left = low-pass end");
-            h.drag(c, c + egui::vec2(200.0, 0.0));
+            h.app.decks.decks[d].channel.filter = 0.0;
+            rotary_drag(&mut h, &format!("Deck {letter} filter"), &[-90.0, -45.0, 0.0, 45.0, 60.0]);
             assert_eq!(h.deck(d).channel.filter, 1.0, "{w}x{ht}: deck {letter} filter dragged right = high-pass end");
             let out = h.settle();
             let c = at(&out, "volume");
