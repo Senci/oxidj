@@ -26,7 +26,7 @@ fn build(samples: &[f32]) -> WaveformPeaks {
 /// Largest half peak-to-peak (quantized units) in `band`, skipping the first
 /// `skip` columns so the filters have settled.
 fn amplitude(peaks: &WaveformPeaks, band: Band, skip: usize) -> u32 {
-    peaks.band(0, band).unwrap()[skip..]
+    peaks.band(3, band).unwrap()[skip..]
         .iter()
         .map(|p| u32::from(p.max() - p.min()))
         .max()
@@ -35,7 +35,7 @@ fn amplitude(peaks: &WaveformPeaks, band: Band, skip: usize) -> u32 {
 
 #[test]
 fn sine_lands_in_its_band() {
-    let skip = PEAKS_PER_SECOND as usize / 2; // 0.5 s settle
+    let skip = PEAKS_PER_SECOND as usize / 16; // 0.5 s at mip level 3
     for (freq, dominant) in [
         (60.0, Band::Low),
         (900.0, Band::Mid),
@@ -65,7 +65,7 @@ fn level0_matches_naive_full_buffer_reference() {
     let c = sine(7_000.0, 0.25, 1.31);
     let samples: Vec<f32> = (0..a.len()).map(|i| a[i] + b[i] + c[i]).collect();
     let spp = samples_per_peak(RATE) as usize;
-    assert_eq!(spp, 294);
+    assert_eq!(spp, 37);
     assert_ne!(samples.len() % spp, 0);
 
     let mut crossover = Crossover::new(RATE).unwrap();
@@ -201,7 +201,7 @@ fn extreme_finite_input_does_not_panic() {
     let peaks = build(&samples);
     assert_eq!(
         peaks.band(0, Band::Low).unwrap().len(),
-        1_004usize.div_ceil(294)
+        1_004usize.div_ceil(samples_per_peak(RATE) as usize)
     );
     // Exactly one sample: one column, one level.
     let one = build(&[0.5]);

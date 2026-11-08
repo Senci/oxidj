@@ -1594,6 +1594,33 @@ fn mixer_is_fully_keyboard_reachable_and_operable() {
 
 // ------------------------------------------------------------ W12 bands
 
+#[test]
+fn analyzed_transients_remain_distinct_in_scrolling_one_bar_detail() {
+    let rate = 48_000u32;
+    let mut signal = vec![0.0f32; rate as usize * 4];
+    for ms in [1000, 1004] {
+        signal[ms * rate as usize / 1000] = 1.0;
+    }
+    let mut builder = oxidj_analysis::WaveformBuilder::new(rate, Some(signal.len() as u64)).unwrap();
+    builder.push(&signal).unwrap();
+    let peaks = builder.finish().unwrap();
+    assert!(peaks.samples_per_peak() <= 40, "detail source needs at least 1200 columns/s");
+    let rect = Rect::from_min_size(Pos2::ZERO, egui::vec2(1880.0, 80.0));
+    let colour = decks::deck_colours(DeckPalette::WarmCool, 0, ThemeMode::TokyoNight.tokens());
+    for start in [0.0, 500.0] {
+        let mut layers: [egui::Mesh; 3] = Default::default();
+        decks::build_half(&peaks, (start, start + 2000.0), 1.0, rect, true, colour, 0.0, decks::Envelope::Peak, &mut layers);
+        let height = |ms: f32| {
+            let x = (ms - start as f32) * rect.width() / 2000.0;
+            layers[0].vertices.iter().filter(|v| v.color.a() == 255 && (v.pos.x - x.round()).abs() < 0.1)
+                .map(|v| rect.bottom() - v.pos.y).fold(0.0, f32::max)
+        };
+        assert!(height(1000.0) > 10.0 && height(1004.0) > 10.0, "both impulses visible");
+        assert!(height(1002.0) < height(1000.0) * 0.5, "separate impulses after scroll: {start}: {} {} {}", height(1000.0), height(1002.0), height(1004.0));
+        assert!(layers[0].vertices.len() <= 3 * (rect.width() as usize + 1));
+    }
+}
+
 /// Constant-per-section synthetic peaks: `sections` of `(seconds, [low, mid, high])`.
 fn band_peaks(sections: &[(u32, [f32; 3])]) -> oxidj_application::WaveformPeaks {
     const RATE: u32 = 44_100;

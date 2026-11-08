@@ -2672,6 +2672,7 @@ name = "oxidj-library-ui"
 version = "0.1.0"
 dependencies = [
  "eframe",
+ "oxidj-analysis",
  "oxidj-application",
  "oxidj-audio",
  "oxidj-library",

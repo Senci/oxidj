@@ -29,7 +29,7 @@ pub use key::{Key, KeyBuilder};
 pub use tempo::{BpmRange, TempoBuilder, TempoError, TempoGate, TempoOptions};
 
 /// Level-0 column rate (columns per second of audio).
-pub const PEAKS_PER_SECOND: u32 = 150;
+pub const PEAKS_PER_SECOND: u32 = 1200;
 /// Low/mid crossover frequency.
 pub const LOW_MID_CROSSOVER_HZ: f64 = 200.0;
 /// Mid/high crossover frequency.
