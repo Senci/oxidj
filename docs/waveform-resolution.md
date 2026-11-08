@@ -2,7 +2,7 @@
 
 New waveform analyses target 1,200 peak columns per second (rounded to whole samples per column); the 150/s format remains readable. Each peak retains the sample minima and maxima in each band, and mip levels continue to union children. Detail mesh construction stays CPU-based and bounded by visible pixel width.
 
-**Existing lower-resolution peaks are not upgraded automatically.** They need to be reanalysed from available source audio to obtain the extra detail. The current catalog analysis skips unchanged sources, so simply rerunning it does not refresh those stored peaks; a supported refresh path is still needed. No owner catalog was modified for this change.
+**Existing lower-resolution peaks are not upgraded automatically.** Default analysis skips unchanged sources. To explicitly upgrade one track, run `oxidj-cli catalog analyze-waveform --db <catalog> --track-id <id> --refresh`. To refresh **all catalog tracks**, omit `--track-id`: `oxidj-cli catalog analyze-waveform --db <catalog> --refresh`. Refresh rereads and decodes source audio and increases derived storage; unavailable or changed sources fail without replacing existing peaks. It does not run automatically on launch or import. No owner catalog was modified for this change.
 
 ## Small synthetic measurement
 

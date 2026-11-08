@@ -2470,7 +2470,7 @@ fn print_usage(to_stdout: bool) {
     );
     let _ = writeln!(
         output,
-        "  catalog analyze-waveform --db <path> [--track-id <id>] [--refresh]   Compute and store waveform peaks (idempotent; sources only read; --refresh forces re-analysis)"
+        "  catalog analyze-waveform --db <path> [--track-id <id>] [--refresh]   Compute waveform peaks; --refresh rereads audio for the selected track or all catalog tracks without --track-id; increases derived storage"
     );
     let _ = writeln!(
         output,
