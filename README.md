@@ -72,6 +72,7 @@ playlist (no manual XML parsing is needed):
 oxidj-cli catalog list-library-tracks --catalog lib.sqlite
 oxidj-cli catalog create-library-playlist --catalog lib.sqlite --name 'New set' --track-ids 3,1,3
 oxidj-cli catalog append-library-playlist-members --catalog lib.sqlite --playlist-name 'New set' --track-ids 2,1
+oxidj-cli catalog reorder-library-playlist-members --catalog lib.sqlite --playlist-name 'New set' --track-ids 1,2
 oxidj-cli catalog export-library-xml --catalog lib.sqlite --output with-playlist.xml --drive D
 ```
 
@@ -104,6 +105,11 @@ original library plus exactly one final playlist. This operation has not been
 verified in Rekordbox or on hardware; the historical round trip above is not
 qualification of playlist creation. ADR-005/A3, accessibility/platform and scale
 gates remain unverified. GUI playlist management is not included.
+
+`catalog reorder-library-playlist-members` takes the complete desired sequence of
+exported XML TrackIDs (imported catalog track position + 1), not vendor or audio
+IDs. It accepts only a permutation of the existing root playlist members,
+including duplicate counts, and changes their order atomically.
 
 To append members to one existing root playlist, use its exact unique name with
 `catalog append-library-playlist-members --catalog lib.sqlite --playlist-name

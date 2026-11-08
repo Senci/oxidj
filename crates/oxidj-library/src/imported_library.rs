@@ -296,6 +296,75 @@ impl Catalog {
         Ok(members.len())
     }
 
+    /// Reorder exactly the existing membership of one unique root playlist.
+    pub fn reorder_library_playlist_members(
+        &mut self,
+        name: &str,
+        members: &[usize],
+    ) -> Result<usize, CatalogError> {
+        validate_library_playlist_name(name)?;
+        if members.is_empty() {
+            return Err(CatalogError::InvalidRecord(
+                "playlist membership must not be empty",
+            ));
+        }
+        let tx = self
+            .connection
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let mut stmt = tx.prepare(
+            "SELECT id, is_folder FROM library_nodes WHERE parent_id IS NULL AND name = ?1",
+        )?;
+        let mut rows = stmt.query([name])?;
+        let target = rows
+            .next()?
+            .map(|r| Ok::<_, rusqlite::Error>((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?)))
+            .transpose()?;
+        if rows.next()?.is_some() {
+            return Err(CatalogError::InvalidRecord(
+                "root playlist name is ambiguous",
+            ));
+        }
+        drop(rows);
+        drop(stmt);
+        let Some((id, folder)) = target else {
+            return Err(CatalogError::InvalidRecord("root playlist does not exist"));
+        };
+        if folder != 0 {
+            return Err(CatalogError::InvalidRecord(
+                "root name refers to a folder, not a playlist",
+            ));
+        }
+        let mut stmt = tx.prepare(
+            "SELECT track_position FROM library_members WHERE node_id = ?1 ORDER BY position",
+        )?;
+        let existing = stmt
+            .query_map([id], |r| r.get::<_, i64>(0))?
+            .collect::<Result<Vec<_>, _>>()?;
+        drop(stmt);
+        let requested = members
+            .iter()
+            .map(|&m| to_i64(m))
+            .collect::<Result<Vec<_>, _>>()?;
+        let mut a = existing.clone();
+        let mut b = requested.clone();
+        a.sort_unstable();
+        b.sort_unstable();
+        if a != b {
+            return Err(CatalogError::InvalidRecord(
+                "playlist membership counts differ",
+            ));
+        }
+        tx.execute("DELETE FROM library_members WHERE node_id = ?1", [id])?;
+        for (position, member) in requested.iter().enumerate() {
+            tx.execute(
+                "INSERT INTO library_members(node_id,position,track_position) VALUES(?1,?2,?3)",
+                rusqlite::params![id, to_i64(position)?, member],
+            )?;
+        }
+        tx.commit()?;
+        Ok(members.len())
+    }
+
     /// Store a complete imported library in one transaction. Fails closed (and
     /// stores nothing) when the catalog already holds an imported library, a
     /// membership references a missing track, or the track cap is exceeded.
@@ -1060,6 +1129,76 @@ mod tests {
             catalog.append_library_playlist_members("Zeta", &[1, 2]),
             Err(CatalogError::Sqlite(_))
         ));
+        assert_eq!(catalog.library_snapshot().unwrap(), expected);
+    }
+
+    #[test]
+    fn reorder_members_preserves_multiset_and_rolls_back() {
+        let path = path();
+        let mut catalog = Catalog::open(&path).unwrap();
+        catalog.import_library(&snapshot()).unwrap();
+        catalog
+            .create_library_playlist("Reorder", &[2, 0, 2])
+            .unwrap();
+        let before = catalog.library_snapshot().unwrap();
+        for (name, values, reason) in [
+            (
+                "Reorder",
+                vec![2, 0, 0],
+                "playlist membership counts differ",
+            ),
+            (
+                "Reorder",
+                vec![2, 0, 99],
+                "playlist membership counts differ",
+            ),
+            ("Reorder", vec![], "playlist membership must not be empty"),
+            ("missing", vec![0], "root playlist does not exist"),
+            (
+                "Folder",
+                vec![0],
+                "root name refers to a folder, not a playlist",
+            ),
+        ] {
+            assert!(
+                matches!(catalog.reorder_library_playlist_members(name, &values), Err(CatalogError::InvalidRecord(actual)) if actual == reason)
+            );
+            assert_eq!(catalog.library_snapshot().unwrap(), before);
+        }
+        catalog.connection.execute("INSERT INTO library_nodes(id,parent_id,sibling_order,name,is_folder) VALUES(999,NULL,999,'Reorder',0)", []).unwrap();
+        let ambiguous = catalog.library_snapshot().unwrap();
+        assert!(matches!(
+            catalog.reorder_library_playlist_members("Reorder", &[2, 2, 0]),
+            Err(CatalogError::InvalidRecord(
+                "root playlist name is ambiguous"
+            ))
+        ));
+        assert_eq!(catalog.library_snapshot().unwrap(), ambiguous);
+        catalog
+            .connection
+            .execute("DELETE FROM library_nodes WHERE id = 999", [])
+            .unwrap();
+        catalog.connection.execute_batch("CREATE TEMP TRIGGER fail_reorder BEFORE INSERT ON library_members WHEN NEW.position = 1 BEGIN SELECT RAISE(ABORT, 'injected failure'); END;").unwrap();
+        assert!(matches!(
+            catalog.reorder_library_playlist_members("Reorder", &[2, 2, 0]),
+            Err(CatalogError::Sqlite(_))
+        ));
+        assert_eq!(catalog.library_snapshot().unwrap(), before);
+        catalog
+            .connection
+            .execute_batch("DROP TRIGGER fail_reorder")
+            .unwrap();
+        assert_eq!(
+            catalog
+                .reorder_library_playlist_members("Reorder", &[2, 2, 0])
+                .unwrap(),
+            3
+        );
+        let mut expected = before;
+        let Some(LibraryNode::Playlist { members, .. }) = expected.roots.last_mut() else {
+            panic!("playlist")
+        };
+        *members = vec![2, 2, 0];
         assert_eq!(catalog.library_snapshot().unwrap(), expected);
     }
 

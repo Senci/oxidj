@@ -47,6 +47,10 @@ Condensed 2026-11-02. Full prior text (per-increment evidence, M0-09 verificatio
 
 `catalog append-library-playlist-members --catalog DB --playlist-name NAME --track-ids 3,1` appends exported XML TrackIDs (imported snapshot position + 1) in supplied order, duplicates retained, to one exact unique root playlist. The library layer validates the target and every member inside one immediate transaction before mutation; storage errors roll back. A read-only preflight refuses non-imported SQLite inputs without changing schema, `user_version`, or sentinel data. Application maps IDs and owns composition; CLI has no SQL and emits only membership counts. Synthetic CLI coverage imports the fixture, appends to an existing root playlist, reopens and exports from a fresh process, then independently decodes the XML and compares the full baseline plus only the requested membership append; source PDB/ANLZ bytes remain unchanged. README documents the ID namespace, exact root-only target and personal-metadata privacy. Sol approved round 2 on `ca518c5`: CLI 13 passed, library rollback regression 1 passed, `cargo xtask ci-full` exit 0 (UI 229 passed, 2 ignored). Post-approval `bash scripts/install-local.sh` exit 0; installed `oxidj-cli` exposes the command and matches the release binary. No private catalog/device data used. Synthetic evidence only: vendor behavior, hardware, ADR-005/A3, global F-09, accessibility/platform and scale remain NOT DEMONSTRATED. M7 remains open.
 
+## M7 slice 8 — reorder catalog playlist members (implementation; review pending)
+
+`catalog reorder-library-playlist-members` accepts a complete permutation of the existing root playlist's exported XML TrackIDs, preserving duplicate counts, in one transaction. Synthetic-only evidence; vendor and hardware, ADR-005/A3, global F-09, accessibility/platform, and scale remain NOT DEMONSTRATED. M7 remains open; Sol audit and review pending.
+
 ## M7 catalog track selection / install (reviewed + installed)
 
 `t_05b2713d` (review round 1): `catalog list-library-tracks --catalog DB` lists
