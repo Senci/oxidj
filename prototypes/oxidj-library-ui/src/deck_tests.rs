@@ -1326,6 +1326,34 @@ fn mixer_eq_and_filter_paint_rotary_controls() {
 }
 
 #[test]
+fn mixer_trim_indicator_distinct_from_filter_across_presets() {
+    let (root, mut h) = fresh("trim_colours", 1.0);
+    h.app.settings.sections.mixer = true;
+    for theme in ThemeMode::ALL {
+        h.app.select_theme(theme);
+        for palette in [DeckPalette::WarmCool, DeckPalette::Classic] {
+            h.app.settings.deck_palette = palette;
+            let out = h.settle();
+            let layout = h.layout();
+            let indicator = |cell: Rect| {
+                out.shapes.iter().find_map(|s| match &s.shape {
+                    Shape::LineSegment { stroke, .. } if cell.contains_rect(s.clip_rect) && stroke.width == 2.0 => Some(stroke.color),
+                    _ => None,
+                }).expect("production rotary indicator")
+            };
+            for d in 0..2 {
+                let trim = indicator(layout.trim[d].unwrap());
+                let filter = indicator(layout.filter[d].unwrap());
+                assert_ne!(trim, filter, "{theme:?} {palette:?} deck {d}");
+                let tokens = theme.tokens();
+                assert_eq!(trim, if tokens.primary == filter { tokens.secondary } else { tokens.primary });
+            }
+        }
+    }
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn mixer_wheel_changes_hovered_controls_and_clamps() {
     let (root, mut h) = fresh("mixwheel", 10.0);
     h.app.settings.sections.mixer = true;

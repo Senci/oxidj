@@ -439,7 +439,9 @@ impl LibraryApp {
         let ch = &mut deck.channel;
         let trim_r = cell(0, top);
         let hover = format!("Deck {letter} trim {:+.1} dB (±{TRIM_DB:.0} dB); double-click resets", ch.trim_db);
-        mixer_rotary_range(ui, trim_r, "TRIM", &mut ch.trim_db, -TRIM_DB..=TRIM_DB, KNOB_DB_STEP, 0.0, &format!("Deck {letter} trim"), hover, tokens.primary, tokens);
+        // Classic Deck B can share the theme primary; keep TRIM distinct from FILTER.
+        let trim_ink = if tokens.primary == c.outer { tokens.secondary } else { tokens.primary };
+        mixer_rotary_range(ui, trim_r, "TRIM", &mut ch.trim_db, -TRIM_DB..=TRIM_DB, KNOB_DB_STEP, 0.0, &format!("Deck {letter} trim"), hover, trim_ink, tokens);
         layout.trim[d] = Some(trim_r);
         // HI, MID, LOW left to right, like a channel strip read top down.
         let mut eq = [Rect::NOTHING; 3];
