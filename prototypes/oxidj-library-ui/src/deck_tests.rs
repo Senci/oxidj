@@ -1538,6 +1538,7 @@ fn mixer_controls_drive_the_engine_and_meters_through_the_ui() {
     // The curve is a Setting (Ctrl+,): Cut reaches the engine's params.
     let ctrl = egui::Modifiers { ctrl: true, command: true, ..Default::default() };
     h.key(egui::Key::Comma, ctrl);
+    h.click(h.app.settings_ui.layout.tabs.unwrap()[2].center());
     let cells = h.app.settings_ui.layout.curve.expect("curve row in Settings");
     assert!(h.app.settings_ui.layout.window.unwrap().contains_rect(cells[2]), "Cut visible");
     h.click(cells[2].center());

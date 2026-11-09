@@ -5879,11 +5879,12 @@ fn toolbar_controls_fit_narrow_and_wide_viewports() {
 }
 
 #[test]
-fn day_to_custom_combo_selection_initializes_tokens_and_opens_editor() {
+fn day_to_custom_combo_selection_preserves_tokens_and_opens_editor() {
     let mut app = app();
     app.theme = ThemeMode::TokyoDay;
     app.custom_tokens.primary = egui::Color32::from_rgb(1, 2, 3);
     app.custom_tokens.secondary = egui::Color32::from_rgb(4, 5, 6);
+    let saved = app.custom_tokens;
     let ctx = egui::Context::default();
     let render = |ctx: &egui::Context, app: &mut LibraryApp, input| {
         let mut result = None;
@@ -5919,7 +5920,7 @@ fn day_to_custom_combo_selection_initializes_tokens_and_opens_editor() {
     let _ = render(&ctx, &mut app, click(custom_pos));
     assert_eq!(app.theme, ThemeMode::Custom);
     assert!(app.show_theme_editor);
-    assert_eq!(app.custom_tokens, ThemeMode::TokyoDay.tokens());
+    assert_eq!(app.custom_tokens, saved);
 }
 
 #[test]

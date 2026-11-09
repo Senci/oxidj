@@ -365,11 +365,7 @@ impl LibraryApp {
     }
 
     pub(crate) fn select_theme(&mut self, mode: ThemeMode) {
-        let previous = self.theme;
         if mode == ThemeMode::Custom {
-            if previous != ThemeMode::Custom {
-                self.custom_tokens = previous.tokens();
-            }
             self.show_theme_editor = true;
         }
         self.theme = mode;
@@ -712,6 +708,7 @@ impl LibraryApp {
         self.show_xml_preview = true;
     }
 
+    #[cfg(test)]
     pub(crate) fn theme_selection_ui(&mut self, ui: &mut egui::Ui) -> (egui::Rect, Option<[egui::Rect; 3]>) {
         let mut selected = self.theme;
         let mut option_rects = None;

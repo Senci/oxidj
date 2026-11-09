@@ -12,6 +12,51 @@ use std::path::{Path, PathBuf};
 
 type Frame = egui::FullOutput;
 
+#[test]
+fn settings_tabs_show_only_the_selected_group() {
+    let root = temp_root("tabs");
+    let mut h = Harness::new(root.join("catalog.sqlite"));
+    let out = h.ctrl_comma();
+    let labels: Vec<_> = texts(&out).into_iter().map(|(text, _)| text).collect();
+    assert!(labels.iter().any(|s| s == "Theme"));
+    assert!(!labels.iter().any(|s| s == "Smooth edges"), "waveform controls belong on their own tab");
+    let out = h.click(h.layout().tabs.unwrap()[2].center());
+    assert!(texts(&out).iter().any(|(s, _)| s == "Crossfader curve"));
+    assert!(h.layout().theme.is_none());
+    let out = h.click(h.layout().tabs.unwrap()[3].center());
+    assert!(texts(&out).iter().any(|(s, _)| s == "Ctrl+,"));
+    assert!(h.layout().curve.is_none());
+}
+
+#[test]
+fn selecting_custom_in_settings_preserves_saved_palette() {
+    let root = temp_root("saved-palette");
+    let mut h = Harness::new(root.join("catalog.sqlite"));
+    h.app.custom_tokens.primary = egui::Color32::from_rgb(12, 34, 56);
+    let saved = h.app.custom_tokens;
+    h.ctrl_comma();
+    h.click(h.layout().theme.unwrap()[1].center());
+    h.click(h.layout().theme.unwrap()[2].center());
+    assert_eq!(h.app.theme, ThemeMode::Custom);
+    assert_eq!(h.app.custom_tokens, saved);
+    assert!(h.app.show_theme_editor);
+    let mut storage = MemoryStorage::default();
+    eframe::App::save(&mut h.app, &mut storage);
+    assert_eq!(ThemeMode::load(Some(&storage)), (ThemeMode::Custom, saved));
+}
+
+#[test]
+fn custom_palette_editor_is_available_from_appearance() {
+    let root = temp_root("edit-palette");
+    let mut h = Harness::new(root.join("catalog.sqlite"));
+    let toolbar = h.settle();
+    assert!(!texts(&toolbar).iter().any(|(s, _)| s == "Theme"), "toolbar has no theme picker");
+    let out = h.ctrl_comma();
+    h.click(text_rect(&out, "Edit custom palette…").center());
+    assert_eq!(h.app.theme, ThemeMode::Custom);
+    assert!(h.app.show_theme_editor);
+}
+
 /// 16-bit mono PCM WAV: a click every 500 ms (120 BPM) for `seconds`.
 fn write_click_wav(path: &Path, seconds: f32) {
     let rate = 44_100u32;
@@ -194,18 +239,13 @@ fn ctrl_comma_and_gear_toggle_settings_esc_closes_and_focus_returns() {
     let window = h.layout().window.expect("settings window painted");
     let first = h.layout().first_control.expect("first control");
     assert_eq!(h.focused(), Some(first), "focus moves into the window");
-    for group in ["Appearance", "Waveform", "Deck view", "Keyboard"] {
-        assert!(window.contains_rect(text_rect(&out, group)), "{group}");
-    }
-    assert!(window.contains_rect(text_rect(&out, "Ctrl+,")), "shortcut list");
+    assert!(h.layout().tabs.unwrap().iter().all(|r| window.contains_rect(*r)));
 
     // AccessKit: titled window, labelled switches with their checked state.
     let nodes = accesskit_nodes(&out);
     let named = |name: &str| nodes.iter().find(|n| n.label().as_deref() == Some(name)).cloned();
     assert!(named(WINDOW_TITLE).is_some(), "window title exposed");
-    let smooth = named("Smooth edges").expect("Smooth switch exposed");
-    assert_eq!(smooth.role(), accesskit::Role::CheckBox);
-    assert_eq!(smooth.toggled(), Some(accesskit::Toggled::True));
+
     assert!(
         nodes.iter().any(|n| n.label().as_deref() == Some("Tokyo Night") && n.toggled() == Some(accesskit::Toggled::True)),
         "selected theme cell exposed"
@@ -216,6 +256,8 @@ fn ctrl_comma_and_gear_toggle_settings_esc_closes_and_focus_returns() {
     h.key(egui::Key::Tab, Default::default());
     let next = h.focused().expect("tab focus");
     assert_ne!(next, first);
+    h.key(egui::Key::Space, Default::default());
+    assert!(h.layout().smooth.is_some(), "keyboard activates Waveform tab");
     let mut guard = 0;
     while h.layout().smooth.is_some_and(|r| {
         h.ctx.memory(|m| m.focused()).and_then(|id| h.ctx.read_response(id)).map(|r| r.rect) != Some(r)
@@ -268,6 +310,7 @@ fn each_wired_option_changes_the_next_rendered_frame_and_persists() {
     assert_eq!(window.1 - window.0, 8_000.0, "default 4 bars at 120 BPM");
 
     h.ctrl_comma();
+    h.click(h.layout().tabs.unwrap()[1].center());
 
     // Waveform style: RGB.
     let out = h.click(h.layout().style.unwrap()[2].center());
@@ -304,6 +347,7 @@ fn each_wired_option_changes_the_next_rendered_frame_and_persists() {
 
     // Theme: Tokyo Day repaints the waveform plate in Day background.
     let day = ThemeMode::TokyoDay.tokens();
+    h.click(h.layout().tabs.unwrap()[0].center());
     let out = h.click(h.layout().theme.unwrap()[1].center());
     assert_eq!(h.app.theme, ThemeMode::TokyoDay);
     assert!(

@@ -189,7 +189,7 @@ impl LibraryApp {
     }
 
     /// One slim row: title, growing search field, then (right-aligned) the
-    /// panel toggles, theme picker and the "…" menu with the rarely used
+    /// panel toggles, Settings and the "…" menu with the rarely used
     /// catalog/import/XML fields and tool windows.
     pub(crate) fn toolbar(&mut self, ui: &mut egui::Ui, ctx: &egui::Context, tokens: theme::ColorTokens) {
         if self.show_theme_editor {
@@ -241,7 +241,6 @@ impl LibraryApp {
                 self.set_settings_open(ctx, open);
             }
             self.shell.settings = Some(gear.rect);
-            self.theme_selection_ui(ui);
             ui.separator();
             // W11: one segmented Nav | Details | Decks group (left to right
             // inside the right-to-left toolbar row).
@@ -339,10 +338,6 @@ impl LibraryApp {
             }
             close |= self.show_control_gallery_button(ui).clicked();
             close |= self.show_waveform_demo_button(ui).clicked();
-            if self.theme == ThemeMode::Custom && ui.button("Edit palette…").clicked() {
-                self.show_theme_editor = true;
-                close = true;
-            }
         });
         if close {
             egui::Popup::close_all(ui.ctx());

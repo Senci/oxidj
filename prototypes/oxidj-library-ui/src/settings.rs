@@ -256,6 +256,7 @@ impl Settings {
 #[derive(Clone, Copy, Debug, Default)]
 pub(crate) struct SettingsUi {
     pub(crate) open: bool,
+    pub(crate) tab: usize,
     /// Widget focused before the window opened; refocused on close.
     return_focus: Option<egui::Id>,
     /// Focus the first control on the frame after opening.
@@ -267,6 +268,7 @@ pub(crate) struct SettingsUi {
 #[derive(Clone, Debug, Default, Copy)]
 pub(crate) struct SettingsLayout {
     pub(crate) window: Option<egui::Rect>,
+    pub(crate) tabs: Option<[egui::Rect; 4]>,
     /// Theme segment cells: Tokyo Night, Tokyo Day, Custom.
     pub(crate) theme: Option<[egui::Rect; 3]>,
     pub(crate) style: Option<[egui::Rect; 3]>,
@@ -369,66 +371,93 @@ impl LibraryApp {
     }
 
     fn settings_contents(&mut self, ui: &mut egui::Ui, tokens: theme::ColorTokens, layout: &mut SettingsLayout) {
-        SectionHeading { title: "Appearance" }.show(ui, tokens);
-        let themes = [ThemeMode::TokyoNight, ThemeMode::TokyoDay, ThemeMode::Custom];
-        let mut index = themes.iter().position(|t| *t == self.theme).unwrap_or(0);
-        let cells = themes.map(ThemeMode::label);
-        let responses = segmented_row(ui, tokens, "Theme", &cells, &mut index);
-        layout.first_control = responses.first().map(|r| r.id);
-        layout.theme = Some(rects(&responses));
-        if themes[index] != self.theme {
-            self.select_theme(themes[index]);
-        }
-
-        SectionHeading { title: "Waveform" }.show(ui, tokens);
-        let s = &mut self.settings;
-        let mut index = Style::ALL.iter().position(|v| *v == s.waveform_style).unwrap_or(0);
-        let responses = segmented_row(ui, tokens, "Style", &Style::ALL.map(Style::label), &mut index);
-        s.waveform_style = Style::ALL[index];
-        layout.style = Some(rects(&responses));
-        layout.smooth = Some(toggle_row(ui, tokens, "Smooth edges", &mut s.smooth).rect);
-        toggle_row(ui, tokens, "Auto-gain (decks)", &mut s.auto_gain);
-        layout.beat_lines = Some(toggle_row(ui, tokens, "Beat and bar lines", &mut s.beat_lines).rect);
-        let mut index = ZOOM_BARS.iter().position(|z| *z == s.zoom_bars).unwrap_or(2);
-        let labels = ["1 bar", "2 bars", "4 bars", "8 bars"];
-        let responses = segmented_row(ui, tokens, "Default zoom", &labels, &mut index);
-        s.zoom_bars = ZOOM_BARS[index];
-        layout.zoom = Some(rects(&responses));
-
-        SectionHeading { title: "Deck view" }.show(ui, tokens);
-        let mut pick = |label: &str, cells: &[&str], index: &mut usize| {
-            segmented_row(ui, tokens, label, cells, index);
-        };
-        let mut i = usize::from(s.deck_palette == DeckPalette::Classic);
-        pick("Deck colours", &["Warm / Cool", "Classic cyan / purple"], &mut i);
-        s.deck_palette = PALETTES[i].0;
-        let mut i = usize::from(s.playhead == Playhead::LeftThird);
-        pick("Playhead", &["Centre", "Left third"], &mut i);
-        s.playhead = PLAYHEADS[i].0;
-        let mut i = TEMPOS.iter().position(|(t, _)| *t == s.tempo_range).unwrap_or(1);
-        pick("Tempo range", &["±6 %", "±10 %", "±16 %"], &mut i);
-        s.tempo_range = TEMPOS[i].0;
-        toggle_row(ui, tokens, "Phase readout", &mut s.show_phase);
-        let mut sections = [egui::Rect::NOTHING; 4];
-        for (i, name) in DeckSections::NAMES.iter().enumerate() {
-            sections[i] = toggle_row(ui, tokens, &format!("Show {name}"), s.sections.get_mut(i)).rect;
-        }
-        layout.sections = Some(sections);
-        let mut i = CURVES.iter().position(|(c, _)| *c == s.xfader_curve).unwrap_or(0);
-        let responses = segmented_row(ui, tokens, "Crossfader curve", &["Smooth", "Sharp", "Cut"], &mut i);
-        s.xfader_curve = CURVES[i].0;
-        layout.curve = Some(rects(&responses));
-
-        SectionHeading { title: "Keyboard" }.show(ui, tokens);
-        toggle_row(ui, tokens, "Simple DJ keys (Rekordbox-inspired)", &mut s.simple_dj_keys)
-            .on_hover_text("Z / X: cue / play A; N / M: cue / play B. A / B loads the selected track. Esc cancels a track drag. Not a complete Rekordbox mapping.");
-        egui::Grid::new("settings-shortcuts").num_columns(2).spacing([12.0, 4.0]).show(ui, |ui| {
-            for (keys, action) in SHORTCUTS {
-                ui.label(egui::RichText::new(keys).monospace().color(tokens.text));
-                ui.label(egui::RichText::new(action).color(tokens.muted_text));
-                ui.end_row();
+        let mut tabs = [egui::Rect::NOTHING; 4];
+        ui.horizontal_wrapped(|ui| {
+            for (i, name) in ["Appearance", "Waveform", "Deck view", "Keyboard"].iter().enumerate() {
+                let response = ui.selectable_label(self.settings_ui.tab == i, *name);
+                tabs[i] = response.rect;
+                if response.clicked() {
+                    self.settings_ui.tab = i;
+                }
+                if i == 0 {
+                    layout.first_control = Some(response.id);
+                }
             }
         });
+        layout.tabs = Some(tabs);
+        ui.separator();
+        if self.settings_ui.tab == 0 {
+            SectionHeading { title: "Appearance" }.show(ui, tokens);
+            let themes = [ThemeMode::TokyoNight, ThemeMode::TokyoDay, ThemeMode::Custom];
+            let mut index = themes.iter().position(|t| *t == self.theme).unwrap_or(0);
+            let cells = themes.map(ThemeMode::label);
+            let responses = segmented_row(ui, tokens, "Theme", &cells, &mut index);
+            layout.theme = Some(rects(&responses));
+            if themes[index] != self.theme {
+                self.select_theme(themes[index]);
+            }
+            if ui.button("Edit custom palette…").clicked() {
+                self.select_theme(ThemeMode::Custom);
+            }
+        }
+
+        if self.settings_ui.tab == 1 {
+            SectionHeading { title: "Waveform" }.show(ui, tokens);
+            let s = &mut self.settings;
+            let mut index = Style::ALL.iter().position(|v| *v == s.waveform_style).unwrap_or(0);
+            let responses = segmented_row(ui, tokens, "Style", &Style::ALL.map(Style::label), &mut index);
+            s.waveform_style = Style::ALL[index];
+            layout.style = Some(rects(&responses));
+            layout.smooth = Some(toggle_row(ui, tokens, "Smooth edges", &mut s.smooth).rect);
+            toggle_row(ui, tokens, "Auto-gain (decks)", &mut s.auto_gain);
+            layout.beat_lines = Some(toggle_row(ui, tokens, "Beat and bar lines", &mut s.beat_lines).rect);
+            let mut index = ZOOM_BARS.iter().position(|z| *z == s.zoom_bars).unwrap_or(2);
+            let labels = ["1 bar", "2 bars", "4 bars", "8 bars"];
+            let responses = segmented_row(ui, tokens, "Default zoom", &labels, &mut index);
+            s.zoom_bars = ZOOM_BARS[index];
+            layout.zoom = Some(rects(&responses));
+        }
+
+        if self.settings_ui.tab == 2 {
+            SectionHeading { title: "Deck view" }.show(ui, tokens);
+            let s = &mut self.settings;
+            let mut pick = |label: &str, cells: &[&str], index: &mut usize| {
+                segmented_row(ui, tokens, label, cells, index);
+            };
+            let mut i = usize::from(s.deck_palette == DeckPalette::Classic);
+            pick("Deck colours", &["Warm / Cool", "Classic cyan / purple"], &mut i);
+            s.deck_palette = PALETTES[i].0;
+            let mut i = usize::from(s.playhead == Playhead::LeftThird);
+            pick("Playhead", &["Centre", "Left third"], &mut i);
+            s.playhead = PLAYHEADS[i].0;
+            let mut i = TEMPOS.iter().position(|(t, _)| *t == s.tempo_range).unwrap_or(1);
+            pick("Tempo range", &["±6 %", "±10 %", "±16 %"], &mut i);
+            s.tempo_range = TEMPOS[i].0;
+            toggle_row(ui, tokens, "Phase readout", &mut s.show_phase);
+            let mut sections = [egui::Rect::NOTHING; 4];
+            for (i, name) in DeckSections::NAMES.iter().enumerate() {
+                sections[i] = toggle_row(ui, tokens, &format!("Show {name}"), s.sections.get_mut(i)).rect;
+            }
+            layout.sections = Some(sections);
+            let mut i = CURVES.iter().position(|(c, _)| *c == s.xfader_curve).unwrap_or(0);
+            let responses = segmented_row(ui, tokens, "Crossfader curve", &["Smooth", "Sharp", "Cut"], &mut i);
+            s.xfader_curve = CURVES[i].0;
+            layout.curve = Some(rects(&responses));
+        }
+
+        if self.settings_ui.tab == 3 {
+            SectionHeading { title: "Keyboard" }.show(ui, tokens);
+            let s = &mut self.settings;
+            toggle_row(ui, tokens, "Simple DJ keys (Rekordbox-inspired)", &mut s.simple_dj_keys)
+                .on_hover_text("Z / X: cue / play A; N / M: cue / play B. A / B loads the selected track. Esc cancels a track drag. Not a complete Rekordbox mapping.");
+            egui::Grid::new("settings-shortcuts").num_columns(2).spacing([12.0, 4.0]).show(ui, |ui| {
+                for (keys, action) in SHORTCUTS {
+                    ui.label(egui::RichText::new(keys).monospace().color(tokens.text));
+                    ui.label(egui::RichText::new(action).color(tokens.muted_text));
+                    ui.end_row();
+                }
+            });
+        }
         ui.add_space(8.0);
         let reset = ui.button("Reset to defaults").on_hover_text("Restore every setting and the Tokyo Night theme");
         layout.reset = Some(reset.rect);
