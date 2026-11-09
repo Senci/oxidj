@@ -57,6 +57,61 @@ impl Artwork {
     }
 }
 
+/// Byte-bounded in-memory LRU of decoded artwork. Oversized entries are not retained.
+pub struct ArtworkMemoryCache {
+    entries: std::collections::VecDeque<(TrackId, Artwork)>,
+    bytes: usize,
+    budget: usize,
+}
+
+impl ArtworkMemoryCache {
+    pub fn new(budget: usize) -> Self {
+        Self {
+            entries: std::collections::VecDeque::new(),
+            bytes: 0,
+            budget,
+        }
+    }
+
+    pub fn byte_len(&self) -> usize {
+        self.bytes
+    }
+
+    pub fn get(&mut self, id: TrackId) -> Option<&Artwork> {
+        let index = self.entries.iter().position(|(key, _)| *key == id)?;
+        let entry = self.entries.remove(index)?;
+        self.entries.push_back(entry);
+        self.entries.back().map(|(_, artwork)| artwork)
+    }
+
+    pub fn insert(&mut self, id: TrackId, artwork: Artwork) {
+        if let Some(index) = self.entries.iter().position(|(key, _)| *key == id)
+            && let Some((_, previous)) = self.entries.remove(index)
+        {
+            self.bytes -= previous.byte_len();
+        }
+        if artwork.byte_len() <= self.budget {
+            self.bytes += artwork.byte_len();
+            self.entries.push_back((id, artwork));
+        }
+        self.evict();
+    }
+
+    pub fn set_budget(&mut self, budget: usize) {
+        self.budget = budget;
+        self.evict();
+    }
+
+    fn evict(&mut self) {
+        while self.bytes > self.budget {
+            let Some((_, artwork)) = self.entries.pop_front() else {
+                break;
+            };
+            self.bytes -= artwork.byte_len();
+        }
+    }
+}
+
 /// Artwork extraction/decoding failure.
 #[derive(Debug)]
 pub enum ArtworkError {
@@ -468,6 +523,47 @@ mod tests {
         out.extend_from_slice(&(body.len() as u32).to_be_bytes());
         out.extend_from_slice(&body);
         out
+    }
+
+    #[test]
+    fn memory_cache_evicts_least_recently_used_and_respects_budget() {
+        let mut cache = ArtworkMemoryCache::new(32);
+        let a = TrackId::new(1).unwrap();
+        let b = TrackId::new(2).unwrap();
+        let c = TrackId::new(3).unwrap();
+        let image = Artwork::new(2, 2, vec![42; 16]).unwrap();
+        cache.insert(a, image.clone());
+        cache.insert(b, image.clone());
+        assert_eq!(cache.get(a), Some(&image));
+        cache.insert(c, image.clone());
+        assert!(cache.get(b).is_none());
+        assert_eq!(cache.get(a), Some(&image));
+        assert_eq!(cache.get(c), Some(&image));
+        assert_eq!(cache.byte_len(), 32);
+        cache.set_budget(0);
+        assert_eq!(cache.byte_len(), 0);
+        assert!(cache.get(a).is_none());
+        cache.insert(a, image);
+        assert_eq!(cache.byte_len(), 0);
+    }
+
+    #[test]
+    fn memory_cache_replacement_updates_accounting_and_rejects_oversized() {
+        let mut cache = ArtworkMemoryCache::new(20);
+        let a = TrackId::new(1).unwrap();
+        let b = TrackId::new(2).unwrap();
+        let small = Artwork::new(1, 1, vec![7; 4]).unwrap();
+        let large = Artwork::new(2, 2, vec![9; 16]).unwrap();
+        cache.insert(a, large.clone());
+        cache.insert(b, small.clone());
+        cache.insert(a, small.clone());
+        assert_eq!(cache.byte_len(), 8);
+        assert_eq!(cache.get(a), Some(&small));
+        cache.set_budget(8);
+        cache.insert(a, large);
+        assert_eq!(cache.byte_len(), 4);
+        assert!(cache.get(a).is_none());
+        assert_eq!(cache.get(b), Some(&small));
     }
 
     #[test]

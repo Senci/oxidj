@@ -29,7 +29,7 @@ mod imported_library;
 pub mod pcm;
 mod tempo_store;
 mod waveform_store;
-pub use artwork::{Artwork, ArtworkError, DEFAULT_ARTWORK_CACHE_BYTES};
+pub use artwork::{Artwork, ArtworkError, ArtworkMemoryCache, DEFAULT_ARTWORK_CACHE_BYTES};
 pub use imported_library::{
     LibraryBeat, LibraryCounts, LibraryCue, LibraryNavigation, LibraryNavigationTrack, LibraryNode,
     LibrarySnapshot, LibraryTrack, validate_library_playlist_name,
