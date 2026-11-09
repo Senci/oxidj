@@ -697,8 +697,9 @@ pub struct StatsSnapshot {
     pub errors: u64,
 }
 
-/// Peak meters: channel A, channel B, master.
-pub const METERS: usize = DECKS + 1;
+/// Peak meters: channel A, channel B, master, cue.
+pub const METERS: usize = DECKS + 2;
+pub const CUE_METER: usize = DECKS + 1;
 
 pub(crate) struct Shared {
     decks: [DeckShared; DECKS],
@@ -730,7 +731,11 @@ pub struct Renderer {
     input: Vec<f32>,
     /// One deck's chunk and the mix of all decks (interleaved stereo).
     deck_buf: Vec<f32>,
+    /// Pre-fader buffer for cue bus (interleaved stereo).
+    pre_fader: Vec<f32>,
     mix: Vec<f32>,
+    /// Cue bus output buffer (interleaved stereo).
+    cue_buf: Vec<f32>,
     /// D4 mixer (bypassed while its params are `None`).
     mixer: mixer::Mixer,
 }
@@ -779,7 +784,9 @@ impl Renderer {
             stretch,
             input,
             deck_buf,
+            pre_fader,
             mix,
+            cue_buf,
             mixer,
             shared,
             ..
@@ -789,6 +796,8 @@ impl Renderer {
             let frames = block.len().div_ceil(channels);
             let mix = &mut mix[..frames * 2];
             mix.fill(0.0);
+            let cue_buf = &mut cue_buf[..frames * 2];
+            cue_buf.fill(0.0);
             for (c, (deck, stretch)) in decks.iter_mut().zip(stretch.iter_mut()).enumerate() {
                 let buf = &mut deck_buf[..frames * 2];
                 if deck.keylock && deck.track.is_some() {
@@ -800,17 +809,29 @@ impl Renderer {
                         *f = [l, r];
                     }
                 }
+                // Capture pre-fader signal for cue bus.
+                let pre = &mut pre_fader[..frames * 2];
                 if mixing {
-                    let peak = mixer.process_channel(c, buf);
+                    let peak = mixer.process_channel(c, buf, Some(pre));
                     meter(shared, c, peak);
                 }
                 for (m, v) in mix.iter_mut().zip(buf.iter()) {
                     *m += v;
                 }
+                // Process cue channel: apply cue gain to pre-fader signal and sum into cue_buf.
+                if mixing {
+                    mixer.process_cue_channel(c, pre);
+                    for (cue, v) in cue_buf.iter_mut().zip(pre.iter()) {
+                        *cue += v;
+                    }
+                }
             }
             if mixing {
                 let peak = mixer.process_master(mix);
                 meter(shared, DECKS, peak);
+                // Process cue bus master volume and meter it.
+                let cue_peak = mixer.process_cue(cue_buf);
+                meter(shared, CUE_METER, cue_peak);
             }
             for (frame, [l, r]) in block.chunks_mut(channels).zip(mix.as_chunks::<2>().0) {
                 let (l, r) = (l.clamp(-1.0, 1.0), r.clamp(-1.0, 1.0));
@@ -879,7 +900,9 @@ fn channel(
         stretch,
         input: vec![0.0; input_frames * 2],
         deck_buf: vec![0.0; CHUNK * 2],
+        pre_fader: vec![0.0; CHUNK * 2],
         mix: vec![0.0; CHUNK * 2],
+        cue_buf: vec![0.0; CHUNK * 2],
         mixer: mixer::Mixer::new(device_rate, mixer),
     };
     (renderer, tx, shared)

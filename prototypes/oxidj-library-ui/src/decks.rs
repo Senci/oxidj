@@ -409,11 +409,13 @@ pub(crate) struct ChannelUi {
     /// −1 low-pass .. 0 off .. +1 high-pass.
     pub(crate) filter: f32,
     pub(crate) assign: Assign,
+    /// Cue button: when active, this channel is routed to the headphone cue bus.
+    pub(crate) cue: bool,
 }
 
 impl Default for ChannelUi {
     fn default() -> Self {
-        Self { trim_db: 0.0, eq_db: [0.0; 3], filter: 0.0, assign: Assign::Thru }
+        Self { trim_db: 0.0, eq_db: [0.0; 3], filter: 0.0, assign: Assign::Thru, cue: false }
     }
 }
 
@@ -632,12 +634,18 @@ pub(crate) struct DeckLayout {
     pub(crate) filter: [Option<Rect>; 2],
     /// Crossfader assign A, THRU, B.
     pub(crate) assign: [Option<[Rect; 3]>; 2],
-    /// Level meters A, B, master.
+    /// Level meters A, B, master, cue.
     pub(crate) meters: [Option<Rect>; METERS],
     pub(crate) master: Option<Rect>,
     pub(crate) crossfader: Option<Rect>,
     /// The crossfader's own show/hide icon toggle.
     pub(crate) crossfader_toggle: Option<Rect>,
+    /// Mixer CUE buttons for cue bus routing.
+    pub(crate) mixer_cue: [Option<Rect>; 2],
+    /// Cue mix rotary.
+    pub(crate) cue_mix: Option<Rect>,
+    /// Cue volume rotary.
+    pub(crate) cue_volume: Option<Rect>,
     /// Deck A overview first, deck B second.
     pub(crate) overviews: Option<[Rect; 2]>,
 }
@@ -664,9 +672,13 @@ pub(crate) struct DeckArea {
     pub(crate) crossfader_on: bool,
     /// Crossfader curve (Settings), set by the app every frame.
     pub(crate) curve: Curve,
+    /// Cue mix: 0.0 = only deck A in cue, 1.0 = only deck B in cue, 0.5 = both equal.
+    pub(crate) cue_mix: f32,
+    /// Cue volume: 0.0..1.0, controls the cue bus output level.
+    pub(crate) cue_volume: f32,
     /// Last mixer state the engine accepted (`Some(None)` = bypass).
     sent_mixer: Option<Option<MixerParams>>,
-    /// Meters A, B, master as drawn.
+    /// Meters A, B, master, cue as drawn.
     pub(crate) meters: [MeterLevel; METERS],
 }
 
@@ -690,6 +702,8 @@ impl Default for DeckArea {
             master: 1.0,
             crossfader_on: true,
             curve: Curve::default(),
+            cue_mix: 0.5,
+            cue_volume: 1.0,
             sent_mixer: None,
             meters: Default::default(),
         }
@@ -812,11 +826,14 @@ impl DeckArea {
                     filter: c.filter,
                     fader: deck.volume.0,
                     assign: c.assign,
+                    cue: c.cue,
                 }
             }),
             crossfader: self.crossfader_on.then_some(self.crossfader),
             curve: self.curve,
             master: self.master,
+            cue_mix: self.cue_mix,
+            cue_volume: self.cue_volume,
         }
     }
 

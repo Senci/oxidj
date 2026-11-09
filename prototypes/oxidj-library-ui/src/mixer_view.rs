@@ -15,6 +15,8 @@
 //! buttons Space/Enter), so the whole mixer is keyboard reachable; double
 //! click resets a knob. Meters are painted with theme tokens only.
 
+#![allow(deprecated)]
+
 use crate::decks::{chip, deck_button, reset_clicked, DeckColours, DeckLayout, MeterLevel, DECKS, GAP, ROW};
 use crate::theme::ColorTokens;
 use crate::LibraryApp;
@@ -98,20 +100,32 @@ const ICON_W: f32 = 24.0;
 pub(crate) const SLIDER_MIN_W: f32 = 40.0;
 /// Least knob cell (label column for "FILTER" + travel).
 const CELL_MIN_W: f32 = 40.0 + SLIDER_MIN_W;
+/// Compact cell for short-label rotaries (cue mix, cue volume).
+const CUE_CELL_W: f32 = 28.0 + SLIDER_MIN_W;
 /// Deck chip column before a channel's first knob.
 const CHIP_W: f32 = 24.0;
 /// Least channel-strip width: the wider of its two rows at minimum cells.
+/// Top row: chip + 5 knobs (TRIM, HI, MID, LOW, FILTER). Bottom row: chip +
+/// gap + fader + meter + 3 assign + CUE.
 const CHANNEL_MIN_W: f32 = {
-    let top = CHIP_W + 4.0 * CELL_MIN_W + 3.0 * CELL_GAP;
-    let bottom = CHIP_W + 2.0 * CELL_MIN_W + 3.0 * CELL_GAP + METER_W + 3.0 * ASSIGN_W + 4.0;
+    let top = CHIP_W + 5.0 * CELL_MIN_W + 4.0 * CELL_GAP;
+    let bottom = CHIP_W + CELL_GAP + CELL_MIN_W + CELL_GAP + METER_W + CELL_GAP + 3.0 * ASSIGN_W + CELL_GAP + CUE_W;
     if top > bottom { top } else { bottom }
 };
-/// Least centre column (master + meter) in the wide layout.
-const CENTRE_MIN_W: f32 = 180.0;
+/// Least centre column (master + meter + cue mix + cue volume + cue meter).
+const CENTRE_MIN_W: f32 = {
+    // Five controls (meter, master, cue mix, cue volume, cue meter) plus the
+    // egui item spacing between them and the three explicit CELL_GAPs.
+    METER_W + CELL_MIN_W + CUE_CELL_W + CUE_CELL_W + METER_W + 4.0 * 6.0 + 3.0 * CELL_GAP
+};
+/// Width of the CUE button in the mixer channel strip.
+const CUE_W: f32 = 40.0;
 /// Gap between a channel strip and its neighbour.
 const SPLIT: f32 = 10.0;
 /// Inset of the controls inside the section outline.
 const INSET: f32 = 4.0;
+/// Height of the vertical fader row (label + slider travel + margins).
+const FADER_ROW_H: f32 = SLIDER_MIN_W + 28.0;
 /// Arrow-key step of the trim knob (dB).
 pub(crate) const KNOB_DB_STEP: f64 = 1.0;
 /// Arrow-key step of the EQ knobs (position), filter, faders and crossfader.
@@ -152,6 +166,7 @@ fn mixer_wheel(ui: &mut Ui, response: &egui::Response, value: &mut f32, range: R
 /// A labelled, compact horizontal knob (native egui slider): exact rect,
 /// AccessKit name, arrow keys move by `step`, double click resets to
 /// `default`. Returns the response.
+#[allow(dead_code)]
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn mixer_knob(
     ui: &mut Ui,
@@ -187,6 +202,249 @@ pub(crate) fn mixer_knob(
     }
     *value = v;
     slider
+}
+
+/// A labelled, compact vertical fader (native egui slider): exact rect,
+/// AccessKit name, arrow keys move by `step` (Up = increase), double click resets to
+/// `default`. Returns the response. The label is drawn at the bottom.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn mixer_vertical_fader(
+    ui: &mut Ui,
+    cell: Rect,
+    label: &str,
+    value: &mut f32,
+    range: RangeInclusive<f32>,
+    step: f64,
+    default: f32,
+    name: &str,
+    hover: String,
+    fill: egui::Color32,
+    tokens: ColorTokens,
+) -> egui::Response {
+    // Label at the bottom of the cell.
+    let g = ui.painter().layout_no_wrap(label.to_owned(), FontId::proportional(10.5), tokens.muted_text);
+    let label_y = cell.bottom() - g.size().y - 2.0;
+    ui.painter().galley(pos2(cell.center().x - g.size().x / 2.0, label_y), g, tokens.muted_text);
+    // Slider track area: above the label, full cell width, minimum SLIDER_MIN_W height.
+    let slider_h = (cell.bottom() - label_y - 4.0).max(SLIDER_MIN_W);
+    let slider_r = Rect::from_min_size(
+        pos2(cell.left(), cell.top()),
+        vec2(cell.width(), slider_h),
+    );
+    let id = ui.id().with(("mixer-vertical-fader", name));
+    let mut v = *value;
+    let min = *range.start();
+    let max = *range.end();
+    let span = max - min;
+    let before = v;
+    // Single interact for hover, wheel, click, and drag.
+    let mut response = ui.interact(slider_r, id, Sense::click_and_drag());
+    // Wheel input.
+    mixer_wheel(ui, &response, &mut v, range.clone(), step);
+    let drag_id = id.with("drag");
+    // Pointer drag: vertical movement changes value.
+    if let Some(pointer) = response.interact_pointer_pos() {
+        if response.drag_started() || response.dragged() {
+            if let Some(previous_y) = ui.ctx().data(|d| d.get_temp::<f32>(drag_id)) {
+                let delta_y = previous_y - pointer.y; // Up = increase
+                v = (v + span * delta_y / slider_h).clamp(min, max);
+            }
+            ui.ctx().data_mut(|d| d.insert_temp(drag_id, pointer.y));
+        } else if response.clicked() {
+            let t = (slider_r.bottom() - pointer.y) / slider_h;
+            v = (min + span * t.clamp(0.0, 1.0)).clamp(min, max);
+            response.request_focus();
+        } else if response.hovered() && ui.input(|i| i.pointer.primary_down()) {
+            ui.ctx().data_mut(|d| d.insert_temp(drag_id, pointer.y));
+        }
+    }
+    if response.drag_stopped() {
+        ui.ctx().data_mut(|d| d.remove::<f32>(drag_id));
+    }
+    // Keyboard: Up/Down arrows.
+    if response.has_focus() {
+        ui.memory_mut(|m| m.set_focus_lock_filter(id, egui::EventFilter { vertical_arrows: true, ..Default::default() }));
+        let step_size = step as f32;
+        let step_dir = ui.input(|i| (i.key_pressed(egui::Key::ArrowUp) || i.key_pressed(egui::Key::ArrowRight)) as i32 - (i.key_pressed(egui::Key::ArrowDown) || i.key_pressed(egui::Key::ArrowLeft)) as i32);
+        if step_dir != 0 {
+            v = ((v / step_size).round() + step_dir as f32 * step_size).clamp(min, max);
+        }
+    }
+    // AccessKit actions: SetValue, Increment, Decrement.
+    ui.input(|input| {
+        use egui::accesskit::{Action, ActionData};
+        let delta = input.num_accesskit_action_requests(id, Action::Increment) as i32
+            - input.num_accesskit_action_requests(id, Action::Decrement) as i32;
+        if delta != 0 {
+            v = (v + delta as f32 * step as f32).clamp(min, max);
+        }
+        for request in input.accesskit_action_requests(id, Action::SetValue) {
+            if let Some(ActionData::NumericValue(val)) = request.data {
+                if val.is_finite() {
+                    v = val.clamp(f64::from(min), f64::from(max)) as f32;
+                }
+            }
+        }
+    });
+    if reset_clicked(&response) {
+        v = default;
+    }
+    if v != before {
+        response.mark_changed();
+    }
+    *value = v;
+    // Paint the slider track and thumb.
+    let painter = ui.painter_at(slider_r);
+    let track_w = (slider_r.width() * 0.3).max(4.0).min(8.0);
+    let track_r = Rect::from_center_size(slider_r.center(), vec2(track_w, slider_h - 8.0));
+    painter.rect_filled(track_r, 2.0, tokens.border);
+    let thumb_y = egui::lerp(track_r.bottom()..=track_r.top(), (v - min) / span);
+    let thumb_r = Rect::from_center_size(pos2(slider_r.center().x, thumb_y), vec2(slider_r.width(), 6.0));
+    painter.rect_filled(thumb_r, 3.0, fill);
+    painter.rect_stroke(thumb_r, 3.0, Stroke::new(1.5_f32, if response.has_focus() { tokens.focus } else { tokens.border }), egui::StrokeKind::Inside);
+    // AccessKit node metadata.
+    ui.ctx().accesskit_node_builder(id, |node| {
+        use egui::accesskit::Action;
+        node.set_label(name.to_owned());
+        node.set_min_numeric_value(f64::from(min));
+        node.set_max_numeric_value(f64::from(max));
+        node.set_numeric_value_step(step);
+        node.add_action(Action::SetValue);
+        if v < max { node.add_action(Action::Increment); }
+        if v > min { node.add_action(Action::Decrement); }
+        // Explicit bounds for AccessKit (match slider track area).
+        let bounds = egui::accesskit::Rect {
+            x0: slider_r.left() as f64,
+            y0: slider_r.top() as f64,
+            x1: slider_r.right() as f64,
+            y1: slider_r.bottom() as f64,
+        };
+        node.set_bounds(bounds);
+    });
+    response.widget_info(|| egui::WidgetInfo::slider(true, f64::from(v), name));
+    response.on_hover_text(hover)
+}
+
+/// A labelled, compact horizontal fader (native egui slider): exact rect,
+/// AccessKit name, arrow keys move by `step` (Right = increase), double click resets to
+/// `default`. Returns the response. The label is drawn at the left.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn mixer_horizontal_fader(
+    ui: &mut Ui,
+    cell: Rect,
+    label: &str,
+    value: &mut f32,
+    range: RangeInclusive<f32>,
+    step: f64,
+    default: f32,
+    name: &str,
+    hover: String,
+    fill: egui::Color32,
+    tokens: ColorTokens,
+) -> egui::Response {
+    // Label at the left of the cell.
+    let g = ui.painter().layout_no_wrap(label.to_owned(), FontId::proportional(10.5), tokens.muted_text);
+    let label_x = cell.left() + g.size().x + 6.0;
+    ui.painter().galley(pos2(cell.left() + 2.0, cell.center().y - g.size().y / 2.0), g, tokens.muted_text);
+    // Slider track area: right of the label, full cell height, minimum SLIDER_MIN_W width.
+    let slider_w = (cell.right() - label_x - 4.0).max(SLIDER_MIN_W);
+    let slider_r = Rect::from_min_size(
+        pos2(label_x, cell.top()),
+        vec2(slider_w, cell.height()),
+    );
+    let id = ui.id().with(("mixer-horizontal-fader", name));
+    let mut v = *value;
+    let min = *range.start();
+    let max = *range.end();
+    let span = max - min;
+    let before = v;
+    // Wheel input.
+    mixer_wheel(ui, &ui.interact(slider_r, id, Sense::hover()), &mut v, range.clone(), step);
+    // Custom horizontal fader widget with full keyboard/AccessKit support.
+    let mut response = ui.interact(slider_r, id, Sense::click_and_drag());
+    eprintln!("horizontal fader {name}: response.id={:?}, has_focus={}", response.id, response.has_focus());
+    let drag_id = id.with("drag");
+    // Pointer drag: horizontal movement changes value.
+    if let Some(pointer) = response.interact_pointer_pos() {
+        if response.drag_started() || response.dragged() {
+            if let Some(previous_x) = ui.ctx().data(|d| d.get_temp::<f32>(drag_id)) {
+                let delta_x = pointer.x - previous_x; // Right = increase
+                v = (v + span * delta_x / slider_w).clamp(min, max);
+            }
+            ui.ctx().data_mut(|d| d.insert_temp(drag_id, pointer.x));
+        } else if response.clicked() {
+            let t = (pointer.x - slider_r.left()) / slider_w;
+            v = (min + span * t.clamp(0.0, 1.0)).clamp(min, max);
+            response.request_focus();
+        } else if response.hovered() && ui.input(|i| i.pointer.primary_down()) {
+            ui.ctx().data_mut(|d| d.insert_temp(drag_id, pointer.x));
+        }
+    }
+    if response.drag_stopped() {
+        ui.ctx().data_mut(|d| d.remove::<f32>(drag_id));
+    }
+    // Keyboard: Left/Right arrows.
+    if response.has_focus() {
+        ui.memory_mut(|m| m.set_focus_lock_filter(id, egui::EventFilter { horizontal_arrows: true, ..Default::default() }));
+        let step_size = step as f32;
+        let step_dir = ui.input(|i| (i.key_pressed(egui::Key::ArrowRight) || i.key_pressed(egui::Key::ArrowUp)) as i32 - (i.key_pressed(egui::Key::ArrowLeft) || i.key_pressed(egui::Key::ArrowDown)) as i32);
+        if step_dir != 0 {
+            v = ((v / step_size).round() + step_dir as f32 * step_size).clamp(min, max);
+        }
+    }
+    // AccessKit actions: SetValue, Increment, Decrement.
+    ui.input(|input| {
+        use egui::accesskit::{Action, ActionData};
+        let delta = input.num_accesskit_action_requests(id, Action::Increment) as i32
+            - input.num_accesskit_action_requests(id, Action::Decrement) as i32;
+        if delta != 0 {
+            v = (v + delta as f32 * step as f32).clamp(min, max);
+        }
+        for request in input.accesskit_action_requests(id, Action::SetValue) {
+            if let Some(ActionData::NumericValue(val)) = request.data {
+                if val.is_finite() {
+                    v = val.clamp(f64::from(min), f64::from(max)) as f32;
+                }
+            }
+        }
+    });
+    if reset_clicked(&response) {
+        v = default;
+    }
+    if v != before {
+        response.mark_changed();
+    }
+    *value = v;
+    // Paint the slider track and thumb.
+    let painter = ui.painter_at(slider_r);
+    let track_h = (slider_r.height() * 0.3).max(4.0).min(8.0);
+    let track_r = Rect::from_center_size(slider_r.center(), vec2(slider_w - 8.0, track_h));
+    painter.rect_filled(track_r, 2.0, tokens.border);
+    let thumb_x = egui::lerp(track_r.left()..=track_r.right(), (v - min) / span);
+    let thumb_r = Rect::from_center_size(pos2(thumb_x, slider_r.center().y), vec2(6.0, slider_r.height()));
+    painter.rect_filled(thumb_r, 3.0, fill);
+    painter.rect_stroke(thumb_r, 3.0, Stroke::new(1.5_f32, if response.has_focus() { tokens.focus } else { tokens.border }), egui::StrokeKind::Inside);
+    // AccessKit node metadata.
+    ui.ctx().accesskit_node_builder(id, |node| {
+        use egui::accesskit::Action;
+        node.set_label(name.to_owned());
+        node.set_min_numeric_value(f64::from(min));
+        node.set_max_numeric_value(f64::from(max));
+        node.set_numeric_value_step(step);
+        node.add_action(Action::SetValue);
+        if v < max { node.add_action(Action::Increment); }
+        if v > min { node.add_action(Action::Decrement); }
+        // Explicit bounds for AccessKit (match slider track area).
+        let bounds = egui::accesskit::Rect {
+            x0: slider_r.left() as f64,
+            y0: slider_r.top() as f64,
+            x1: slider_r.right() as f64,
+            y1: slider_r.bottom() as f64,
+        };
+        node.set_bounds(bounds);
+    });
+    response.widget_info(|| egui::WidgetInfo::slider(true, f64::from(v), name));
+    response.on_hover_text(hover)
 }
 
 /// Compact Minimal Line rotary with per-widget persistent drag state.
@@ -332,10 +590,12 @@ pub(crate) fn level_meter(ui: &mut Ui, rect: Rect, meter: MeterLevel, name: &str
     response.on_hover_text(text);
 }
 
+#[allow(dead_code)]
 fn row(rect: Rect, k: usize) -> Rect {
     rows(rect, k, 1)
 }
 
+#[allow(dead_code)]
 /// Rows `k .. k + n` of `rect` (ROW high, GAP apart).
 fn rows(rect: Rect, k: usize, n: usize) -> Rect {
     let top = rect.top() + k as f32 * (ROW + GAP);
@@ -356,7 +616,7 @@ pub(crate) enum MixerFit {
 impl MixerFit {
     pub(crate) fn of(width: f32) -> Self {
         let inner = width - 2.0 * INSET;
-        let centre = (inner * 0.24).clamp(CENTRE_MIN_W, 300.0);
+        let centre = (inner * 0.24).clamp(CENTRE_MIN_W, CENTRE_MIN_W.max(300.0));
         if (inner - centre - 2.0 * SPLIT) / 2.0 >= CHANNEL_MIN_W {
             Self::Wide
         } else if (inner - SPLIT) / 2.0 >= CHANNEL_MIN_W {
@@ -381,6 +641,7 @@ pub(crate) fn mixer_height(width: f32) -> f32 {
     n * ROW + (n - 1.0) * GAP + 2.0 * INSET
 }
 
+#[allow(dead_code)]
 /// One centre row split into (master + meter on the right, crossfader on
 /// the left), the master keeping a full-size knob.
 fn split_centre(r: Rect) -> (Rect, Rect) {
@@ -396,172 +657,266 @@ impl LibraryApp {
         // Outline only: a surface fill would hide the slider rails.
         ui.painter().rect_stroke(r, 3.0, Stroke::new(1.0_f32, tokens.border), egui::StrokeKind::Inside);
         let inner = r.shrink(INSET);
+        let fit = MixerFit::of(r.width());
+        eprintln!("mixer: r.width()={}, fit={:?}, CENTRE_MIN_W={}, CHANNEL_MIN_W={}", r.width(), fit, CENTRE_MIN_W, CHANNEL_MIN_W);
         let halves = |band: Rect| {
             let w = (band.width() - SPLIT) / 2.0;
             [Rect::from_min_size(band.min, vec2(w, band.height())), Rect::from_min_max(pos2(band.right() - w, band.top()), band.max)]
         };
-        let (cols, master_row, xf_row) = match MixerFit::of(r.width()) {
+        let (cols, centre_rect) = match MixerFit::of(r.width()) {
             MixerFit::Wide => {
-                let centre_w = (inner.width() * 0.24).clamp(CENTRE_MIN_W, 300.0);
+                let centre_w = (inner.width() * 0.24).clamp(CENTRE_MIN_W, CENTRE_MIN_W.max(300.0));
                 let centre = Rect::from_center_size(inner.center(), vec2(centre_w, inner.height()));
                 let cols = [
                     Rect::from_min_max(inner.min, pos2(centre.left() - SPLIT, inner.bottom())),
                     Rect::from_min_max(pos2(centre.right() + SPLIT, inner.top()), inner.max),
                 ];
-                (cols, row(centre, 0), row(centre, 1))
+                eprintln!("Wide: inner.width()={}, centre_w={}, centre.left()={}, centre.right()={}, col0={:?}, col1={:?}", inner.width(), centre_w, centre.left(), centre.right(), cols[0], cols[1]);
+                (cols, centre)
             }
             MixerFit::CentreBelow => {
-                let (m, x) = split_centre(row(inner, 2));
-                (halves(rows(inner, 0, 2)), m, x)
+                let channel_h = ROW + GAP + FADER_ROW_H;
+                let channels_rect = Rect::from_min_size(inner.min, vec2(inner.width(), channel_h));
+                let centre_rect = Rect::from_min_max(pos2(inner.left(), channels_rect.bottom() + GAP), pos2(inner.right(), channels_rect.bottom() + GAP + FADER_ROW_H));
+                (halves(channels_rect), centre_rect)
             }
             MixerFit::Stacked => {
-                let (m, x) = split_centre(row(inner, 2));
-                ([rows(inner, 0, 2), rows(inner, 3, 2)], m, x)
+                let channel_h = ROW + GAP + FADER_ROW_H;
+                let a_rect = Rect::from_min_size(inner.min, vec2(inner.width(), channel_h));
+                let centre_rect = Rect::from_min_max(pos2(inner.left(), a_rect.bottom() + GAP), pos2(inner.right(), a_rect.bottom() + GAP + FADER_ROW_H));
+                let b_rect = Rect::from_min_max(pos2(inner.left(), centre_rect.bottom() + GAP), inner.max);
+                ([a_rect, b_rect], centre_rect)
             }
         };
-        // Creation order = Tab order: A, centre, B (left to right / top down).
-        self.channel_strip(ui, 0, cols[0], tokens, colours[0], layout);
-        self.mixer_centre(ui, master_row, xf_row, tokens, layout);
-        self.channel_strip(ui, 1, cols[1], tokens, colours[1], layout);
+        // Use a single scope for the entire mixer to preserve Tab traversal across all columns.
+        ui.scope(|ui| {
+            ui.set_min_size(inner.size());
+            ui.set_max_size(inner.size());
+            ui.horizontal(|ui| {
+                // Channel A
+                ui.vertical(|ui| {
+                    ui.set_max_width(cols[0].width());
+                    self.channel_strip(ui, 0, tokens, colours[0], layout);
+                });
+                // Centre (master + crossfader)
+                ui.vertical(|ui| {
+                    ui.set_max_width(centre_rect.width());
+                    self.mixer_centre(ui, tokens, layout);
+                });
+                // Channel B
+                ui.vertical(|ui| {
+                    ui.set_max_width(cols[1].width());
+                    self.channel_strip(ui, 1, tokens, colours[1], layout);
+                });
+            });
+        });
         layout.mixer = Some(r);
     }
 
-    fn channel_strip(&mut self, ui: &mut Ui, d: usize, col: Rect, tokens: ColorTokens, c: DeckColours, layout: &mut DeckLayout) {
+    fn channel_strip(&mut self, ui: &mut Ui, d: usize, tokens: ColorTokens, c: DeckColours, layout: &mut DeckLayout) {
         let letter = DECKS[d];
         let crossfader_on = self.decks.crossfader_on;
         let meter = self.decks.meters[d];
         let deck = &mut self.decks.decks[d];
-        let top = row(col, 0);
-        chip(ui.painter(), Rect::from_min_size(top.min + vec2(0.0, 3.0), vec2(18.0, 18.0)), letter, c);
-        let x0 = top.left() + CHIP_W;
-        let cw = ((top.right() - x0) - 3.0 * CELL_GAP) / 4.0;
-        let cell = |k: usize, rr: Rect| Rect::from_min_size(pos2(x0 + k as f32 * (cw + CELL_GAP), rr.top()), vec2(cw, ROW));
         let ch = &mut deck.channel;
-        let trim_r = cell(0, top);
-        let hover = format!("Deck {letter} trim {:+.1} dB (±{TRIM_DB:.0} dB); double-click resets", ch.trim_db);
-        // Classic Deck B can share the theme primary; keep TRIM distinct from FILTER.
-        let trim_ink = if tokens.primary == c.outer { tokens.secondary } else { tokens.primary };
-        mixer_rotary_range(ui, trim_r, "TRIM", &mut ch.trim_db, -TRIM_DB..=TRIM_DB, KNOB_DB_STEP, 0.0, &format!("Deck {letter} trim"), hover, trim_ink, tokens);
-        layout.trim[d] = Some(trim_r);
-        // HI, MID, LOW left to right, like a channel strip read top down.
-        let mut eq = [Rect::NOTHING; 3];
-        for (k, (band, label, name)) in [(2, "HI", "high"), (1, "MID", "mid"), (0, "LOW", "low")].into_iter().enumerate() {
-            let r = cell(k + 1, top);
-            let db = ch.eq_db[band];
-            let shown = if db <= EQ_KILL_DB { "kill (−∞)".to_owned() } else { format!("{db:+.1} dB") };
-            let hover = format!("Deck {letter} EQ {name}: {shown}; centre 0 dB, left stop kills the band, right +{EQ_MAX_DB:.0} dB; double-click resets");
-            let mut pos = eq_pos_of(db);
-            let before = pos;
-            mixer_rotary(ui, r, label, &mut pos, &format!("Deck {letter} EQ {name}"), hover, c.outer, tokens);
-            if pos != before {
-                ch.eq_db[band] = eq_db_at(pos);
+
+        // Top row: TRIM, HI, MID, LOW, FILTER (5 rotary knobs)
+        ui.add_space(3.0); // vertical padding
+        ui.horizontal(|ui| {
+            ui.add_space(CHIP_W);
+            // Deck chip label
+            let (chip_r, _) = ui.allocate_exact_size(vec2(18.0, 18.0), Sense::hover());
+            chip(ui.painter(), Rect::from_min_size(chip_r.min + vec2(0.0, 3.0), vec2(18.0, 18.0)), letter, c);
+
+            let available = ui.available_width();
+            let cw = (available - 4.0 * CELL_GAP) / 5.0;
+            eprintln!("channel_strip {letter}: available={available}, cw={cw}");
+
+            // TRIM
+            let hover = format!("Deck {letter} trim {:+.1} dB (±{TRIM_DB:.0} dB); double-click resets", ch.trim_db);
+            let trim_ink = if tokens.primary == c.outer { tokens.secondary } else { tokens.primary };
+            let (trim_r, _) = ui.allocate_exact_size(vec2(cw, ROW), Sense::hover());
+            mixer_rotary_range(ui, trim_r, "TRIM", &mut ch.trim_db, -TRIM_DB..=TRIM_DB, KNOB_DB_STEP, 0.0, &format!("Deck {letter} trim"), hover, trim_ink, tokens);
+            layout.trim[d] = Some(trim_r);
+
+            ui.add_space(CELL_GAP);
+
+            // HI, MID, LOW
+            let mut eq = [Rect::NOTHING; 3];
+            for (_k, (band, label, name)) in [(2, "HI", "high"), (1, "MID", "mid"), (0, "LOW", "low")].into_iter().enumerate() {
+                let db = ch.eq_db[band];
+                let shown = if db <= EQ_KILL_DB { "kill (−∞)".to_owned() } else { format!("{db:+.1} dB") };
+                let hover = format!("Deck {letter} EQ {name}: {shown}; centre 0 dB, left stop kills the band, right +{EQ_MAX_DB:.0} dB; double-click resets");
+                let mut pos = eq_pos_of(db);
+                let before = pos;
+                let (r, _) = ui.allocate_exact_size(vec2(cw, ROW), Sense::hover());
+                mixer_rotary(ui, r, label, &mut pos, &format!("Deck {letter} EQ {name}"), hover, c.outer, tokens);
+                if pos != before {
+                    ch.eq_db[band] = eq_db_at(pos);
+                }
+                eq[band] = r;
+
+                ui.add_space(CELL_GAP);
             }
-            eq[band] = r;
-        }
-        layout.eq[d] = Some(eq);
-        // Row 2: FILTER, VOL, meter, assign.
-        let bottom = row(col, 1);
-        let assign_w = 3.0 * ASSIGN_W + 2.0 * 2.0;
-        let assign_x = bottom.right() - assign_w;
-        let meter_r = Rect::from_min_size(pos2(assign_x - CELL_GAP - METER_W, bottom.top()), vec2(METER_W, ROW));
-        let rest = (meter_r.left() - CELL_GAP - x0 - CELL_GAP) / 2.0;
-        let filter_r = Rect::from_min_size(pos2(x0, bottom.top()), vec2(rest, ROW));
-        let vol_r = Rect::from_min_size(pos2(filter_r.right() + CELL_GAP, bottom.top()), vec2(rest, ROW));
-        let side = match ch.filter {
-            f if f.abs() < oxidj_audio::FILTER_DEADZONE => "off".to_owned(),
-            f if f < 0.0 => format!("low-pass {:.0} %", -f * 100.0),
-            f => format!("high-pass {:.0} %", f * 100.0),
-        };
-        let hover = format!("Deck {letter} colour filter: {side} (left low-pass, right high-pass, centre off); double-click resets");
-        mixer_rotary(ui, filter_r, "FILTER", &mut ch.filter, &format!("Deck {letter} filter"), hover, c.outer, tokens);
-        layout.filter[d] = Some(filter_r);
-        let fader = &mut deck.volume.0;
-        let hover = format!("Deck {letter} channel fader {:.0} % (unity at the top; double-click resets)", *fader * 100.0);
-        mixer_knob(ui, vol_r, "VOL", fader, 0.0..=1.0, FADER_STEP, 1.0, &format!("Deck {letter} volume"), hover, c.outer, tokens);
-        layout.volume[d] = Some(vol_r);
-        level_meter(ui, meter_r, meter, &format!("Deck {letter} level"), tokens);
-        layout.meters[d] = Some(meter_r);
-        let ch = &mut deck.channel;
-        let mut rects = [Rect::NOTHING; 3];
-        for (k, (assign, text)) in [(Assign::A, "A"), (Assign::Thru, "THRU"), (Assign::B, "B")].into_iter().enumerate() {
-            let r = Rect::from_min_size(pos2(assign_x + k as f32 * (ASSIGN_W + 2.0), bottom.top()), vec2(ASSIGN_W, ROW));
-            rects[k] = r;
-            let name = format!("Deck {letter} crossfader assign {text}");
-            let hover = if crossfader_on { format!("Deck {letter} follows crossfader side {text}") } else { "Crossfader hidden: not in the path".into() };
-            if deck_button(ui, r, text, &name, ch.assign == assign, crossfader_on, tokens.primary, tokens).on_hover_text(hover).clicked() {
-                ch.assign = assign;
+
+            // FILTER (5th cell)
+            let side = match ch.filter {
+                f if f.abs() < oxidj_audio::FILTER_DEADZONE => "off".to_owned(),
+                f if f < 0.0 => format!("low-pass {:.0} %", -f * 100.0),
+                f => format!("high-pass {:.0} %", f * 100.0),
+            };
+            let hover = format!("Deck {letter} colour filter: {side} (left low-pass, right high-pass, centre off); double-click resets");
+            let (filter_r, _) = ui.allocate_exact_size(vec2(cw, ROW), Sense::hover());
+            mixer_rotary(ui, filter_r, "FILTER", &mut ch.filter, &format!("Deck {letter} filter"), hover, c.outer, tokens);
+            layout.filter[d] = Some(filter_r);
+            layout.eq[d] = Some(eq);
+        });
+
+        // Bottom row: VOL (vertical fader), meter, assign buttons, CUE button
+        ui.add_space(GAP);
+        ui.horizontal(|ui| {
+            ui.add_space(CHIP_W + CELL_GAP);
+
+            // VOL vertical fader
+            let fader = &mut deck.volume.0;
+            let hover = format!("Deck {letter} channel fader {:.0} % (unity at the top; double-click resets)", *fader * 100.0);
+            let (vol_r, _) = ui.allocate_exact_size(vec2((ui.available_width() - METER_W - 3.0 * ASSIGN_W - CUE_W - 4.0 * 3.0 - CELL_GAP * 3.0).max(CELL_MIN_W), FADER_ROW_H), Sense::hover());
+            mixer_vertical_fader(ui, vol_r, "VOL", fader, 0.0..=1.0, FADER_STEP, 1.0, &format!("Deck {letter} volume"), hover, c.outer, tokens);
+            layout.volume[d] = Some(vol_r);
+
+            ui.add_space(CELL_GAP);
+
+            // Meter
+            let (meter_r, _) = ui.allocate_exact_size(vec2(METER_W, FADER_ROW_H), Sense::hover());
+            level_meter(ui, meter_r, meter, &format!("Deck {letter} level"), tokens);
+            layout.meters[d] = Some(meter_r);
+
+            ui.add_space(CELL_GAP);
+
+            // Assign buttons
+            let mut rects = [Rect::NOTHING; 3];
+            for (k, (assign, text)) in [(Assign::A, "A"), (Assign::Thru, "THRU"), (Assign::B, "B")].into_iter().enumerate() {
+                let (r, _) = ui.allocate_exact_size(vec2(ASSIGN_W, ROW), Sense::hover());
+                rects[k] = r;
+                let name = format!("Deck {letter} crossfader assign {text}");
+                let hover = if crossfader_on { format!("Deck {letter} follows crossfader side {text}") } else { "Crossfader hidden: not in the path".into() };
+                if deck_button(ui, r, text, &name, ch.assign == assign, crossfader_on, tokens.primary, tokens).on_hover_text(hover).clicked() {
+                    ch.assign = assign;
+                }
+                if k < 2 {
+                    ui.add_space(2.0);
+                }
             }
-        }
-        layout.assign[d] = Some(rects);
+            layout.assign[d] = Some(rects);
+
+            ui.add_space(CELL_GAP);
+
+            // CUE button for cue bus routing
+            let (cue_r, _) = ui.allocate_exact_size(vec2(CUE_W, ROW), Sense::hover());
+            let name = format!("Deck {letter} cue bus");
+            let hover = format!("Deck {letter} CUE: route this channel to the headphone cue bus");
+            if deck_button(ui, cue_r, "CUE", &name, ch.cue, true, tokens.warning, tokens).on_hover_text(hover).clicked() {
+                ch.cue = !ch.cue;
+            }
+            layout.mixer_cue[d] = Some(cue_r);
+        });
     }
 
     /// Master volume + meter in `top`, crossfader toggle + rail in `bottom`.
-    fn mixer_centre(&mut self, ui: &mut Ui, top: Rect, bottom: Rect, tokens: ColorTokens, layout: &mut DeckLayout) {
-        let meter_r = Rect::from_min_size(pos2(top.right() - METER_W, top.top()), vec2(METER_W, ROW));
-        let master_r = Rect::from_min_max(top.min, pos2(meter_r.left() - CELL_GAP, top.bottom()));
-        let hover = format!("Master volume {:.0} % (double-click resets)", self.decks.master * 100.0);
-        mixer_rotary_range(ui, master_r, "MASTER", &mut self.decks.master, 0.0..=1.0, FADER_STEP, 1.0, "Master volume", hover, tokens.primary, tokens);
-        layout.master = Some(master_r);
-        level_meter(ui, meter_r, self.decks.meters[2], "Master level", tokens);
-        layout.meters[2] = Some(meter_r);
-        // Crossfader icon toggle, then the crossfader.
-        let icon_r = Rect::from_min_size(bottom.min, vec2(ICON_W, ROW));
-        let on = self.settings.crossfader;
-        let response = ui.interact(icon_r, ui.id().with("crossfader-toggle"), Sense::click());
-        response.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Checkbox, true, on, "Crossfader section"));
-        let painter = ui.painter_at(icon_r);
-        if response.hovered() || response.has_focus() {
-            painter.rect_filled(icon_r, 3.0, tokens.background);
-        }
-        if response.has_focus() {
-            painter.rect_stroke(icon_r, 3.0, Stroke::new(2.0_f32, tokens.focus), egui::StrokeKind::Inside);
-        }
-        // Icon: a short rail with a cap (crossfader); dimmed when hidden.
-        let ink = if on { tokens.text } else { tokens.muted_text };
-        let cy = icon_r.center().y;
-        painter.line_segment([pos2(icon_r.left() + 5.0, cy), pos2(icon_r.right() - 5.0, cy)], Stroke::new(1.5_f32, ink));
-        let cap = Rect::from_center_size(pos2(icon_r.center().x, cy), vec2(5.0, 11.0));
-        if on {
-            painter.rect_filled(cap, 1.5, ink);
-        } else {
-            painter.rect_stroke(cap, 1.5, Stroke::new(1.0_f32, ink), egui::StrokeKind::Inside);
-        }
-        let verb = if on { "Hide" } else { "Show" };
-        if response.on_hover_text(format!("{verb} the crossfader (Ctrl+Shift+5; also in Settings); hidden = out of the path")).clicked() {
-            self.settings.crossfader = !on;
-        }
-        layout.crossfader_toggle = Some(icon_r);
-        let rail = Rect::from_min_max(pos2(icon_r.right() + 4.0, bottom.top()), bottom.max);
-        if on {
-            let letters = |painter: &egui::Painter, text: &str, x: f32| {
-                let g = painter.layout_no_wrap(text.to_owned(), FontId::proportional(10.5), tokens.muted_text);
-                painter.galley(pos2(x - g.size().x / 2.0, cy - g.size().y / 2.0), g, tokens.muted_text);
-            };
-            letters(ui.painter(), DECKS[0], rail.left() + 5.0);
-            letters(ui.painter(), DECKS[1], rail.right() - 5.0);
-            let slider_r = rail.shrink2(vec2(14.0, 0.0));
-            let mut x = self.decks.crossfader;
-            let mut slider = ui
-                .scope(|ui| {
-                    crate::track_waveform::slider_look(ui, tokens);
-                    ui.spacing_mut().slider_width = slider_r.width().max(8.0);
-                    ui.put(slider_r, egui::Slider::new(&mut x, 0.0..=1.0).show_value(false).step_by(FADER_STEP))
-                })
-                .inner;
-            if mixer_wheel(ui, &slider, &mut x, 0.0..=1.0, FADER_STEP) { slider.mark_changed(); }
-            slider.widget_info(|| egui::WidgetInfo::slider(true, f64::from(x), "Crossfader"));
-            let slider = slider.on_hover_text(format!("Crossfader A ↔ B ({:?} curve, Settings); centre = both at unity; double-click centres", self.settings.xfader_curve));
-            if reset_clicked(&slider) {
-                x = 0.5;
-            }
-            self.decks.crossfader = x;
-            // Centre detent mark.
-            let mid = slider_r.center().x;
-            ui.painter().add(Shape::line_segment([pos2(mid, bottom.top() + 2.0), pos2(mid, bottom.top() + 6.0)], Stroke::new(1.0_f32, tokens.muted_text)));
-            layout.crossfader = Some(slider_r);
-        } else {
-            let g = ui.painter().layout_no_wrap("crossfader hidden · out of the path".into(), FontId::proportional(11.0), tokens.muted_text);
-            ui.painter().galley(pos2(rail.left() + 4.0, cy - g.size().y / 2.0), g, tokens.muted_text);
-        }
+    fn mixer_centre(&mut self, ui: &mut Ui, tokens: ColorTokens, layout: &mut DeckLayout) {
+        ui.add_space(INSET);
+        ui.vertical(|ui| {
+            // Master row
+            ui.horizontal(|ui| {
+                let (meter_r, _) = ui.allocate_exact_size(vec2(METER_W, ui.available_height() / 2.0), Sense::hover());
+                level_meter(ui, meter_r, self.decks.meters[2], "Master level", tokens);
+                layout.meters[2] = Some(meter_r);
+
+                ui.add_space(CELL_GAP);
+
+                let hover = format!("Master volume {:.0} % (double-click resets)", self.decks.master * 100.0);
+                let (master_r, _) = ui.allocate_exact_size(vec2((ui.available_width() * 0.25).max(CELL_MIN_W), ui.available_height() / 2.0), Sense::hover());
+                mixer_vertical_fader(ui, master_r, "MASTER", &mut self.decks.master, 0.0..=1.0, FADER_STEP, 1.0, "Master volume", hover, tokens.primary, tokens);
+                layout.master = Some(master_r);
+
+                ui.add_space(CELL_GAP);
+
+                // Cue mix rotary
+                let hover = format!("Cue mix: {:.0} % deck B (0 = deck A only, 100 = deck B only; double-click centres)", self.decks.cue_mix * 100.0);
+                let (cue_mix_r, _) = ui.allocate_exact_size(vec2(CUE_CELL_W, ui.available_height() / 2.0), Sense::hover());
+                let mut cue_mix = self.decks.cue_mix;
+                mixer_rotary(ui, cue_mix_r, "CUE MIX", &mut cue_mix, "Cue mix", hover, tokens.warning, tokens);
+                self.decks.cue_mix = cue_mix.clamp(0.0, 1.0);
+                layout.cue_mix = Some(cue_mix_r);
+
+                ui.add_space(CELL_GAP);
+
+                // Cue volume rotary
+                let hover = format!("Cue volume {:.0} % (double-click resets)", self.decks.cue_volume * 100.0);
+                let (cue_vol_r, _) = ui.allocate_exact_size(vec2(CUE_CELL_W, ui.available_height() / 2.0), Sense::hover());
+                let mut cue_vol = self.decks.cue_volume;
+                mixer_rotary_range(ui, cue_vol_r, "CUE VOL", &mut cue_vol, 0.0..=1.0, FADER_STEP, 1.0, "Cue volume", hover, tokens.success, tokens);
+                self.decks.cue_volume = cue_vol.clamp(0.0, 1.0);
+                layout.cue_volume = Some(cue_vol_r);
+
+                // Cue meter
+                let (cue_meter_r, _) = ui.allocate_exact_size(vec2(METER_W, ui.available_height() / 2.0), Sense::hover());
+                level_meter(ui, cue_meter_r, self.decks.meters[3], "Cue level", tokens);
+                layout.meters[3] = Some(cue_meter_r);
+            });
+
+            // Crossfader row
+            ui.add_space(GAP);
+            ui.horizontal(|ui| {
+                // Crossfader toggle (icon)
+                let (icon_r, _) = ui.allocate_exact_size(vec2(ICON_W, ROW), Sense::click());
+                let on = self.settings.crossfader;
+                let response = ui.interact(icon_r, ui.id().with("crossfader-toggle"), Sense::click());
+                response.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Checkbox, true, on, "Crossfader section"));
+                let painter = ui.painter_at(icon_r);
+                if response.hovered() || response.has_focus() {
+                    painter.rect_filled(icon_r, 3.0, tokens.background);
+                }
+                if response.has_focus() {
+                    painter.rect_stroke(icon_r, 3.0, Stroke::new(2.0_f32, tokens.focus), egui::StrokeKind::Inside);
+                }
+                let ink = if on { tokens.text } else { tokens.muted_text };
+                let cy = icon_r.center().y;
+                painter.line_segment([pos2(icon_r.left() + 5.0, cy), pos2(icon_r.right() - 5.0, cy)], Stroke::new(1.5_f32, ink));
+                let cap = Rect::from_center_size(pos2(icon_r.center().x, cy), vec2(5.0, 11.0));
+                if on {
+                    painter.rect_filled(cap, 1.5, ink);
+                } else {
+                    painter.rect_stroke(cap, 1.5, Stroke::new(1.0_f32, ink), egui::StrokeKind::Inside);
+                }
+                let verb = if on { "Hide" } else { "Show" };
+                if response.on_hover_text(format!("{verb} the crossfader (Ctrl+Shift+5; also in Settings); hidden = out of the path")).clicked() {
+                    self.settings.crossfader = !on;
+                }
+                layout.crossfader_toggle = Some(icon_r);
+
+                if on {
+                    ui.add_space(4.0);
+                    // Crossfader horizontal fader
+                    let letters = |painter: &egui::Painter, text: &str, x: f32| {
+                        let g = painter.layout_no_wrap(text.to_owned(), FontId::proportional(10.5), tokens.muted_text);
+                        painter.galley(pos2(x - g.size().x / 2.0, cy - g.size().y / 2.0), g, tokens.muted_text);
+                    };
+                    letters(ui.painter(), DECKS[0], icon_r.right() + 19.0);
+                    letters(ui.painter(), DECKS[1], (ui.available_width() * 0.2).max(CELL_MIN_W) + icon_r.right() - 5.0);
+                    let slider_w = ui.available_width().max(SLIDER_MIN_W);
+                    let (slider_r, _) = ui.allocate_exact_size(vec2(slider_w, ui.available_height()), Sense::hover());
+                    let hover = format!("Crossfader A ↔ B ({:?} curve, Settings); centre = both at unity; double-click centres", self.settings.xfader_curve);
+                    mixer_horizontal_fader(ui, slider_r, "", &mut self.decks.crossfader, 0.0..=1.0, FADER_STEP, 0.5, "Crossfader", hover, tokens.primary, tokens);
+                    let mid = slider_r.center().x;
+                    ui.painter().add(Shape::line_segment([pos2(mid, ui.min_rect().top() + 2.0), pos2(mid, ui.min_rect().top() + 6.0)], Stroke::new(1.0_f32, tokens.muted_text)));
+                    layout.crossfader = Some(slider_r);
+                } else {
+                    let g = ui.painter().layout_no_wrap("crossfader hidden · out of the path".into(), FontId::proportional(11.0), tokens.muted_text);
+                    let rail_x = icon_r.right() + 4.0;
+                    ui.painter().galley(pos2(rail_x + 4.0, cy - g.size().y / 2.0), g, tokens.muted_text);
+                }
+            });
+        });
     }
 }

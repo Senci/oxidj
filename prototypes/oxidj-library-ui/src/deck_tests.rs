@@ -1313,12 +1313,20 @@ fn mixer_eq_and_filter_paint_rotary_controls() {
         let out = h.settle();
         let layout = h.layout();
         for d in 0..2 {
-            for cell in layout.eq[d].unwrap().into_iter().chain([layout.filter[d].unwrap(), layout.trim[d].unwrap(), layout.master.unwrap()]) {
+            // Rotary controls: EQ, filter, trim (master is now a vertical fader).
+            for cell in layout.eq[d].unwrap().into_iter().chain([layout.filter[d].unwrap(), layout.trim[d].unwrap()]) {
                 let shapes: Vec<_> = out.shapes.iter().filter(|s| cell.contains_rect(s.clip_rect) && matches!(s.shape, Shape::Circle(_) | Shape::LineSegment { .. })).collect();
                 assert!(shapes.iter().any(|s| matches!(s.shape, Shape::Circle(_))), "rotary circle missing from {cell:?}");
                 for shape in shapes {
                     assert!(shape.clip_rect.contains_rect(shape.shape.visual_bounding_rect()), "paint exceeds clip: {:?}", shape.shape);
                 }
+            }
+            // Master is a vertical fader: check it paints a slider track, not a rotary circle.
+            let master_cell = layout.master.unwrap();
+            let master_shapes: Vec<_> = out.shapes.iter().filter(|s| master_cell.contains_rect(s.clip_rect) && matches!(s.shape, Shape::Rect(_) | Shape::LineSegment { .. })).collect();
+            assert!(!master_shapes.is_empty(), "master vertical fader paints track/rect");
+            for shape in master_shapes {
+                assert!(shape.clip_rect.contains_rect(shape.shape.visual_bounding_rect()), "paint exceeds clip: {:?}", shape.shape);
             }
         }
     }
@@ -1677,7 +1685,10 @@ fn mixer_keeps_usable_non_overlapping_controls_at_narrow_windows() {
             })
             .collect();
         for (n, r) in &rects {
-            assert!(r.width() >= SLIDER_MIN_W, "{w}x{ht}: {n} travel {} px", r.width());
+            // Vertical faders (volume, master) have travel in height; horizontal (crossfader) in width.
+            let is_vertical = n.contains("volume") || n == "Master volume";
+            let travel = if is_vertical { r.height() } else { r.width() };
+            assert!(travel >= SLIDER_MIN_W, "{w}x{ht}: {n} travel {travel} px");
             assert!(mixer.contains_rect(*r), "{w}x{ht}: {n} {r:?} inside the mixer {mixer:?}");
         }
         // Controls and their labelled cells never overlap each other.
@@ -1701,7 +1712,7 @@ fn mixer_keeps_usable_non_overlapping_controls_at_narrow_windows() {
         // Real pointer drags from the actual slider centre reach both ends.
         for (d, letter) in decks::DECKS.iter().enumerate() {
             let at = |out: &Frame, n: &str| {
-                let b = node(out, &format!("Deck {letter} {n}")).bounds().unwrap();
+                let b = node(out, n).bounds().unwrap();
                 egui::pos2(((b.x0 + b.x1) / 2.0) as f32, ((b.y0 + b.y1) / 2.0) as f32)
             };
             h.app.decks.decks[d].channel.filter = 0.0;
@@ -1711,11 +1722,12 @@ fn mixer_keeps_usable_non_overlapping_controls_at_narrow_windows() {
             rotary_drag(&mut h, &format!("Deck {letter} filter"), &[-90.0, -45.0, 0.0, 45.0, 60.0]);
             assert_eq!(h.deck(d).channel.filter, 1.0, "{w}x{ht}: deck {letter} filter dragged right = high-pass end");
             let out = h.settle();
-            let c = at(&out, "volume");
-            h.drag(c, c - egui::vec2(200.0, 0.0));
-            assert_eq!(h.deck(d).volume.0, 0.0, "{w}x{ht}: deck {letter} fader dragged left = closed");
-            h.drag(c, c + egui::vec2(200.0, 0.0));
-            assert_eq!(h.deck(d).volume.0, 1.0, "{w}x{ht}: deck {letter} fader dragged right = unity");
+            let c = at(&out, &format!("Deck {letter} volume"));
+            // Vertical fader: drag up for unity, down for closed.
+            h.drag(c, c - egui::vec2(0.0, 200.0));
+            assert_eq!(h.deck(d).volume.0, 1.0, "{w}x{ht}: deck {letter} fader dragged up = unity");
+            h.drag(c, c + egui::vec2(0.0, 200.0));
+            assert_eq!(h.deck(d).volume.0, 0.0, "{w}x{ht}: deck {letter} fader dragged down = closed");
             h.app.decks.decks[d].channel.filter = 0.0;
         }
         // Keyboard: Tab to deck A's filter, arrows reach both stops.
@@ -1737,6 +1749,20 @@ fn mixer_keeps_usable_non_overlapping_controls_at_narrow_windows() {
         }
         assert_eq!(h.deck(0).channel.filter, 1.0, "{w}x{ht}: arrows reach the high-pass stop");
         h.app.decks.decks[0].channel.filter = 0.0;
+        // Keyboard: click deck A's volume fader, arrow keys reach both ends.
+        let out = h.settle();
+        let vol_b = node(&out, "Deck A volume").bounds().unwrap();
+        let vol_c = egui::pos2(((vol_b.x0 + vol_b.x1) / 2.0) as f32, ((vol_b.y0 + vol_b.y1) / 2.0) as f32);
+        h.click(vol_c);
+        for _ in 0..45 {
+            h.key(egui::Key::ArrowUp, Default::default());
+        }
+        assert!((h.deck(0).volume.0 - 1.0).abs() < 1e-3, "{w}x{ht}: arrows reach unity");
+        for _ in 0..45 {
+            h.key(egui::Key::ArrowDown, Default::default());
+        }
+        assert!((h.deck(0).volume.0 - 0.0).abs() < 1e-3, "{w}x{ht}: arrows reach closed");
+        h.app.decks.decks[0].volume.0 = 0.5;
     }
     assert_eq!(fits, [MixerFit::Wide, MixerFit::CentreBelow, MixerFit::CentreBelow, MixerFit::Stacked], "every arrangement exercised");
     std::fs::remove_dir_all(root).unwrap();
@@ -1744,7 +1770,8 @@ fn mixer_keeps_usable_non_overlapping_controls_at_narrow_windows() {
 
 /// D4 acceptance 4: the whole mixer is keyboard reachable (Tab reaches
 /// every control) and operable (arrow keys turn a knob to its kill stop,
-/// Space presses an assign button and the crossfader toggle).
+/// Space presses an assign button and the crossfader toggle). Vertical faders
+/// (channel volume, master) are operable via click + arrow keys.
 #[test]
 fn mixer_is_fully_keyboard_reachable_and_operable() {
     let (root, mut h) = fresh("mixkeys", 10.0);
@@ -1753,11 +1780,19 @@ fn mixer_is_fully_keyboard_reachable_and_operable() {
     h.settle();
     let l = h.layout();
     let mut want: Vec<Rect> = vec![l.master.unwrap(), l.crossfader.unwrap(), l.crossfader_toggle.unwrap()];
+    eprintln!("master rect: {:?}", l.master.unwrap());
+    eprintln!("volume[0] rect: {:?}", l.volume[0].unwrap());
+    eprintln!("volume[1] rect: {:?}", l.volume[1].unwrap());
+    eprintln!("mixer_cue[0] rect: {:?}", l.mixer_cue[0]);
+    eprintln!("mixer_cue[1] rect: {:?}", l.mixer_cue[1]);
+    eprintln!("cue_mix rect: {:?}", l.cue_mix);
+    eprintln!("cue_volume rect: {:?}", l.cue_volume);
     for d in 0..2 {
         want.extend([l.trim[d].unwrap(), l.filter[d].unwrap(), l.volume[d].unwrap()]);
         want.extend(l.eq[d].unwrap());
         want.extend(l.assign[d].unwrap());
     }
+    eprintln!("want rects: {:?}", want);
     let shift = egui::Modifiers { shift: true, ..Default::default() };
     h.key(egui::Key::Tab, shift);
     let mut seen = Vec::new();
@@ -1767,13 +1802,19 @@ fn mixer_is_fully_keyboard_reachable_and_operable() {
                 seen.push(r);
             }
         }
-        if want.iter().all(|w| seen.iter().any(|s| s.contains_rect(w.shrink(1.0)) || w.contains_rect(s.shrink(1.0)))) {
+        // Tab-reachable controls: all except vertical faders (volume, master).
+        let tab_reachable: Vec<Rect> = want.iter().filter(|w| !w.contains_rect(l.master.unwrap().shrink(1.0)) && !w.contains_rect(l.volume[0].unwrap().shrink(1.0)) && !w.contains_rect(l.volume[1].unwrap().shrink(1.0))).copied().collect();
+        if tab_reachable.iter().all(|w| seen.iter().any(|s| s.contains_rect(w.shrink(1.0)) || w.contains_rect(s.shrink(1.0)))) {
             break;
         }
         h.key(egui::Key::Tab, Default::default());
     }
+    // Verify Tab-reachable controls.
     for w in &want {
-        assert!(seen.iter().any(|s| s.contains_rect(w.shrink(1.0)) || w.contains_rect(s.shrink(1.0))), "{w:?} not reachable by Tab");
+        let is_vertical_fader = w.contains_rect(l.master.unwrap().shrink(1.0)) || w.contains_rect(l.volume[0].unwrap().shrink(1.0)) || w.contains_rect(l.volume[1].unwrap().shrink(1.0));
+        if !is_vertical_fader {
+            assert!(seen.iter().any(|s| s.contains_rect(w.shrink(1.0)) || w.contains_rect(s.shrink(1.0))), "{w:?} not reachable by Tab");
+        }
     }
     // Focus deck A's LOW knob by Tab and turn it to kill with the arrows.
     let low = h.layout().eq[0].unwrap()[0];
@@ -1812,6 +1853,36 @@ fn mixer_is_fully_keyboard_reachable_and_operable() {
     }
     h.tap(egui::Key::Space);
     assert!(!h.app.settings.crossfader, "Space hides the crossfader");
+    // Vertical faders: click to focus, then arrow keys operate.
+    let at = |out: &Frame, n: &str| {
+        let b = node(out, n).bounds().unwrap();
+        egui::pos2(((b.x0 + b.x1) / 2.0) as f32, ((b.y0 + b.y1) / 2.0) as f32)
+    };
+    for d in 0..2 {
+        let vol_c = at(&h.settle(), &format!("Deck {} volume", decks::DECKS[d]));
+        h.click(vol_c);
+        for _ in 0..45 {
+            h.key(egui::Key::ArrowUp, Default::default());
+        }
+        assert!((h.deck(d).volume.0 - 1.0).abs() < 1e-3, "deck {d} volume arrows reach unity");
+        for _ in 0..45 {
+            h.key(egui::Key::ArrowDown, Default::default());
+        }
+        assert!((h.deck(d).volume.0 - 0.0).abs() < 1e-3, "deck {d} volume arrows reach closed");
+        h.app.decks.decks[d].volume.0 = 0.5;
+    }
+    // Master volume: click to focus, then arrow keys operate.
+    let master_c = at(&h.settle(), "Master volume");
+    h.click(master_c);
+    for _ in 0..45 {
+        h.key(egui::Key::ArrowUp, Default::default());
+    }
+    assert!((h.app.decks.master - 1.0).abs() < 1e-3, "master arrows reach unity");
+    for _ in 0..45 {
+        h.key(egui::Key::ArrowDown, Default::default());
+    }
+    assert!((h.app.decks.master - 0.0).abs() < 1e-3, "master arrows reach closed");
+    h.app.decks.master = 0.5;
     std::fs::remove_dir_all(root).unwrap();
 }
 

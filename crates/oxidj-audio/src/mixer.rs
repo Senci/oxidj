@@ -142,6 +142,8 @@ pub struct ChannelParams {
     /// Channel fader 0..1.
     pub fader: f32,
     pub assign: Assign,
+    /// Cue button: when active, this channel is routed to the headphone cue bus.
+    pub cue: bool,
 }
 
 impl Default for ChannelParams {
@@ -152,6 +154,7 @@ impl Default for ChannelParams {
             filter: 0.0,
             fader: 1.0,
             assign: Assign::Thru,
+            cue: false,
         }
     }
 }
@@ -166,6 +169,10 @@ pub struct MixerParams {
     pub curve: Curve,
     /// Master volume 0..1.
     pub master: f32,
+    /// Cue mix: 0.0 = only deck A in cue, 1.0 = only deck B in cue, 0.5 = both equal.
+    pub cue_mix: f32,
+    /// Cue volume: 0.0..1.0, controls the cue bus output level.
+    pub cue_volume: f32,
 }
 
 impl Default for MixerParams {
@@ -179,6 +186,8 @@ impl Default for MixerParams {
             crossfader: Some(0.5),
             curve: Curve::Smooth,
             master: 1.0,
+            cue_mix: 0.5,
+            cue_volume: 1.0,
         }
     }
 }
@@ -195,6 +204,17 @@ impl MixerParams {
             _ => 1.0,
         };
         finite01(ch.fader) * side
+    }
+
+    /// Cue bus gain for deck `c`: cue_mix blends between A (0) and B (1).
+    /// Deck A gets (1 - cue_mix), deck B gets cue_mix.
+    pub fn cue_gain(&self, c: usize) -> f32 {
+        let gain = match c {
+            0 => 1.0 - self.cue_mix,
+            1 => self.cue_mix,
+            _ => 0.0,
+        };
+        finite01(gain) * finite01(self.cue_volume)
     }
 }
 
@@ -358,12 +378,20 @@ impl Strip {
         }
     }
 
-    /// Process `buf` (interleaved stereo) in place; returns the pre-fader
-    /// peak (after trim, EQ and filter). `out` is the fader × crossfader
-    /// gain this chunk ramps to.
-    fn process(&mut self, buf: &mut [f32], p: &ChannelParams, out: f32, rate: f64) -> f32 {
+    /// Process `buf` (interleaved stereo) in place through trim, EQ and filter.
+    /// If `pre_fader_out` is provided, the pre-fader signal (after filter, before
+    /// fader/crossfader) is written there. Then applies the fader×crossfader gain
+    /// `out_gain` to `buf` in place. Returns the pre-fader peak.
+    fn process(
+        &mut self,
+        buf: &mut [f32],
+        p: &ChannelParams,
+        out_gain: f32,
+        rate: f64,
+        mut pre_fader_out: Option<&mut [f32]>,
+    ) -> f32 {
         self.set_filter(p.filter, rate);
-        let target = targets(p, out);
+        let target = targets(p, out_gain);
         let frames = buf.len() / 2;
         let n = frames.max(1) as f32;
         let from = self.gains;
@@ -385,6 +413,10 @@ impl Strip {
                 }
                 let y = y as f32;
                 peak = peak.max(y.abs());
+                // Write pre-fader signal if requested.
+                if let Some(pre) = pre_fader_out.as_deref_mut() {
+                    pre.as_chunks_mut::<2>().0[i] = [y, y];
+                }
                 *s = y * g[4];
             }
         }
@@ -396,6 +428,24 @@ impl Strip {
         if !finite {
             self.reset();
             buf.fill(0.0);
+            if let Some(pre) = pre_fader_out {
+                pre.fill(0.0);
+            }
+        }
+        if peak.is_nan() { 0.0 } else { peak }
+    }
+
+    /// Process a buffer that is already at pre-fader level (after trim, EQ, filter)
+    /// and apply only the cue gain. Does not advance filter state.
+    fn apply_cue_gain(&mut self, buf: &mut [f32], cue_gain: f32) -> f32 {
+        let _frames = buf.len() / 2;
+        let mut peak = 0.0f32;
+        for frame in buf.as_chunks_mut::<2>().0.iter_mut() {
+            let g = cue_gain; // No ramping for cue gain for simplicity
+            for s in frame.iter_mut() {
+                *s *= g;
+                peak = peak.max(s.abs());
+            }
         }
         if peak.is_nan() { 0.0 } else { peak }
     }
@@ -407,6 +457,7 @@ pub(crate) struct Mixer {
     pub(crate) params: Option<MixerParams>,
     strips: [Strip; DECKS],
     master: f32,
+    cue_master: f32,
     rate: f64,
 }
 
@@ -417,6 +468,7 @@ impl Mixer {
             params: None,
             strips: [Strip::new(rate); DECKS],
             master: 1.0,
+            cue_master: 1.0,
             rate,
         };
         mixer.set(params);
@@ -433,19 +485,49 @@ impl Mixer {
                 strip.gains = targets(&p.channels[c], p.channel_out(c));
             }
             self.master = finite01(p.master);
+            self.cue_master = finite01(p.cue_volume);
         }
         self.params = params;
     }
 
     /// Channel `c` of one chunk, in place; returns its pre-fader peak.
-    pub(crate) fn process_channel(&mut self, c: usize, buf: &mut [f32]) -> f32 {
+    /// If `pre_fader_out` is provided, writes the pre-fader signal there.
+    pub(crate) fn process_channel(
+        &mut self,
+        c: usize,
+        buf: &mut [f32],
+        pre_fader_out: Option<&mut [f32]>,
+    ) -> f32 {
+        let (Some(p), Some(strip)) = (self.params.as_ref(), self.strips.get_mut(c)) else {
+            if let Some(pre) = pre_fader_out {
+                pre.fill(0.0);
+            }
+            return 0.0;
+        };
+        let Some(ch) = p.channels.get(c) else {
+            if let Some(pre) = pre_fader_out {
+                pre.fill(0.0);
+            }
+            return 0.0;
+        };
+        strip.process(buf, ch, p.channel_out(c), self.rate, pre_fader_out)
+    }
+
+    /// Process the cue channel: takes a pre-fader buffer and applies cue gain.
+    /// Does not advance filter state.
+    pub(crate) fn process_cue_channel(&mut self, c: usize, buf: &mut [f32]) -> f32 {
         let (Some(p), Some(strip)) = (self.params.as_ref(), self.strips.get_mut(c)) else {
             return 0.0;
         };
         let Some(ch) = p.channels.get(c) else {
             return 0.0;
         };
-        strip.process(buf, ch, p.channel_out(c), self.rate)
+        if !ch.cue {
+            buf.fill(0.0);
+            return 0.0;
+        }
+        let cue_gain = p.cue_gain(c);
+        strip.apply_cue_gain(buf, cue_gain)
     }
 
     /// Master volume over the summed chunk; returns the peak before the
@@ -465,6 +547,29 @@ impl Mixer {
             }
         }
         self.master = to;
+        if peak.is_nan() { 0.0 } else { peak }
+    }
+
+    /// Process the cue bus: mix both decks' pre-fader signals with cue_mix
+    /// and apply cue_volume. Returns the peak before the output clamp.
+    /// The input `buf` should contain the sum of both decks' pre-fader audio
+    /// (after cue gains have been applied per channel).
+    pub(crate) fn process_cue(&mut self, buf: &mut [f32]) -> f32 {
+        let Some(p) = self.params.as_ref() else {
+            buf.fill(0.0);
+            return 0.0;
+        };
+        let (from, to) = (self.cue_master, finite01(p.cue_volume));
+        let n = (buf.len() / 2).max(1) as f32;
+        let mut peak = 0.0f32;
+        for (i, frame) in buf.as_chunks_mut::<2>().0.iter_mut().enumerate() {
+            let g = from + (to - from) * (i + 1) as f32 / n;
+            for s in frame.iter_mut() {
+                *s *= g;
+                peak = peak.max(s.abs());
+            }
+        }
+        self.cue_master = to;
         if peak.is_nan() { 0.0 } else { peak }
     }
 }

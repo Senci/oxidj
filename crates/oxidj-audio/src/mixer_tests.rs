@@ -20,7 +20,7 @@ fn sine(hz: f64, secs: f64, amp: f32) -> Vec<f32> {
 fn run(strip: &mut Strip, buf: &mut [f32], p: &ChannelParams, out: f32) -> f32 {
     let mut peak = 0.0f32;
     for chunk in buf.chunks_mut(CHUNK * 2) {
-        peak = peak.max(strip.process(chunk, p, out, f64::from(RATE)));
+        peak = peak.max(strip.process(chunk, p, out, f64::from(RATE), None));
     }
     peak
 }
@@ -42,6 +42,7 @@ fn gain_db(p: &ChannelParams, hz: f64) -> f64 {
 fn with_eq(db: [f32; 3]) -> ChannelParams {
     ChannelParams {
         eq: db.map(eq_gain),
+        cue: false,
         ..ChannelParams::default()
     }
 }
@@ -200,16 +201,17 @@ fn no_nan_or_denormals_under_extreme_settings_silence_and_bad_input() {
         filter: ((i as f32 * 0.37).sin() * 1.2).clamp(-1.0, 1.0),
         fader: 1.0,
         assign: Assign::Thru,
+        cue: false,
     };
     let mut buf = noise(RATE as usize * 2, 7);
     for (i, chunk) in buf.chunks_mut(CHUNK * 2).enumerate() {
-        strip.process(chunk, &extreme(i), 1.0, f64::from(RATE));
+        strip.process(chunk, &extreme(i), 1.0, f64::from(RATE), None);
         assert!(chunk.iter().all(|s| s.is_finite()), "chunk {i}");
     }
     // 20 s of silence afterwards: decays to exact zero, never subnormal.
     let mut silent = vec![0.0f32; RATE as usize * 20 * 2];
     for chunk in silent.chunks_mut(CHUNK * 2) {
-        strip.process(chunk, &extreme(3), 1.0, f64::from(RATE));
+        strip.process(chunk, &extreme(3), 1.0, f64::from(RATE), None);
         assert!(chunk.iter().all(|s| s.is_finite() && !subnormal(*s)));
         for f in strip.biquads() {
             assert!(
@@ -241,6 +243,7 @@ fn no_nan_or_denormals_under_extreme_settings_silence_and_bad_input() {
         filter: f32::NAN,
         fader: f32::NAN,
         assign: Assign::A,
+        cue: false,
     };
     let mut buf = sine(1_000.0, 0.1, 0.5);
     run(&mut strip, &mut buf, &nan, f32::NAN);
@@ -366,6 +369,7 @@ fn heavy() -> MixerParams {
         filter: -0.4,
         fader: 0.6,
         assign: Assign::A,
+        cue: false,
     };
     p.channels[1].filter = 0.5;
     p
