@@ -182,7 +182,7 @@ pub(crate) const KNOB_DB_STEP: f64 = 1.0;
 pub(crate) const FADER_STEP: f64 = 0.05;
 
 /// Consume vertical wheel input while the pointer is over a mixer control.
-fn mixer_wheel(
+pub(crate) fn mixer_wheel(
     ui: &mut Ui,
     response: &egui::Response,
     value: &mut f32,

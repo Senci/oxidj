@@ -2379,7 +2379,7 @@ impl LibraryApp {
             let shown = ((deck.speed() - 1.0) * 100.0) as f32;
             // On the slider's 0.1 % step, so only real input reports a change.
             let mut tempo = ((shown * 10.0).round() / 10.0).clamp(-range, range);
-            let slider = ui
+            let mut slider = ui
                 .scope(|ui| {
                     crate::track_waveform::slider_look(ui, tokens);
                     ui.visuals_mut().selection.bg_fill = c.outer;
@@ -2392,6 +2392,12 @@ impl LibraryApp {
                     )
                 })
                 .inner;
+            // Hover-wheel takes the fader's 0.1 % step, in both directions,
+            // clamped to the Settings range. The response must be marked
+            // changed so the fader's normal SYNC release runs.
+            if crate::mixer_view::mixer_wheel(ui, &slider, &mut tempo, -range..=range, 0.1) {
+                slider.mark_changed();
+            }
             slider.widget_info(|| {
                 egui::WidgetInfo::slider(true, f64::from(tempo), format!("Deck {letter} tempo"))
             });

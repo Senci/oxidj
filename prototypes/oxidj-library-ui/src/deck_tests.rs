@@ -1091,6 +1091,223 @@ fn cue_button_sets_previews_while_held_and_returns() {
     std::fs::remove_dir_all(root).unwrap();
 }
 
+/// Hover `pos` and send one wheel notch of `y` lines through the real input
+/// path (raw-input hook, then `ui`).
+fn wheel_at(h: &mut Harness, pos: Pos2, y: f32) {
+    h.frame_with(vec![egui::Event::PointerMoved(pos)], Default::default());
+    h.frame_with(
+        vec![egui::Event::MouseWheel {
+            unit: egui::MouseWheelUnit::Line,
+            delta: egui::vec2(0.0, y),
+            modifiers: Default::default(),
+        }],
+        Default::default(),
+    );
+}
+
+/// The deck tempo fader takes the hover wheel in both directions (M8/D3):
+/// wheel up raises the tempo, wheel down lowers it, through the real UI.
+#[test]
+fn tempo_wheel_adjusts_both_decks_in_both_directions() {
+    let (root, mut h) = fresh("tempo-wheel-both", 20.0);
+    h.select_and_load("a-120.wav", egui::Key::A);
+    h.select_and_load("b-124.wav", egui::Key::B);
+    h.settle();
+    for (d, letter) in [(0, "A"), (1, "B")] {
+        let p = h.layout().tempo[d].unwrap().center();
+        let before = h.deck(d).tempo_pct;
+        wheel_at(&mut h, p, 1.0);
+        h.settle();
+        assert!(
+            h.deck(d).tempo_pct > before,
+            "deck {letter}: wheel up {before} -> {}",
+            h.deck(d).tempo_pct
+        );
+        let up = h.deck(d).tempo_pct;
+        wheel_at(&mut h, p, -1.0);
+        h.settle();
+        assert!(
+            h.deck(d).tempo_pct < up,
+            "deck {letter}: wheel down {up} -> {}",
+            h.deck(d).tempo_pct
+        );
+    }
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+/// Wheel past either end of the Settings tempo range clamps instead of
+/// running off it, in both directions.
+#[test]
+fn tempo_wheel_clamps_at_both_range_limits() {
+    let (root, mut h) = fresh("tempo-wheel-bounds", 20.0);
+    h.select_and_load("a-120.wav", egui::Key::A);
+    h.settle();
+    let range = crate::decks::tempo_range(h.app.settings.tempo_range);
+    let p = h.layout().tempo[0].unwrap().center();
+    wheel_at(&mut h, p, 100.0);
+    h.settle();
+    assert!(
+        (h.deck(0).tempo_pct - range).abs() < 1e-4,
+        "upper bound {} vs {range}",
+        h.deck(0).tempo_pct
+    );
+    wheel_at(&mut h, p, -200.0);
+    h.settle();
+    assert!(
+        (h.deck(0).tempo_pct + range).abs() < 1e-4,
+        "lower bound {} vs -{range}",
+        h.deck(0).tempo_pct
+    );
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+/// Wheel away from the fader changes nothing, and a hovered fader consumes
+/// the wheel so the deck area does not scroll.
+#[test]
+fn tempo_wheel_ignores_outside_input_and_consumes_parent_scroll() {
+    let (root, mut h) = fresh("tempo-wheel-outside", 20.0);
+    h.select_and_load("a-120.wav", egui::Key::A);
+    h.settle();
+    let before = h.deck(0).tempo_pct;
+    wheel_at(&mut h, egui::pos2(10.0, 10.0), 1.0);
+    h.settle();
+    assert_eq!(
+        h.deck(0).tempo_pct, before,
+        "wheel away from the fader changes nothing"
+    );
+    // A short window puts the deck area in its scroll area.
+    h.app.settings.sections.mixer = true;
+    h.viewport = egui::vec2(640.0, 480.0);
+    h.settle();
+    let area = h.layout().area.unwrap();
+    let mixer_before = h.layout().mixer.unwrap().top();
+    // Hovered fader: the wheel adjusts the tempo and does not scroll.
+    let p = h.layout().tempo[0].unwrap().center();
+    let tempo_before = h.deck(0).tempo_pct;
+    wheel_at(&mut h, p, 1.0);
+    h.settle();
+    assert!(
+        h.deck(0).tempo_pct > tempo_before,
+        "wheel reaches the tempo fader"
+    );
+    assert_eq!(
+        h.layout().mixer.unwrap().top(),
+        mixer_before,
+        "hovered fader consumes the wheel"
+    );
+    // Away from the fader: the same wheel still scrolls the deck area.
+    wheel_at(&mut h, area.left_top() + egui::vec2(5.0, 5.0), -100.0);
+    for _ in 0..8 {
+        h.settle();
+    }
+    assert!(
+        h.layout().mixer.unwrap().top() < mixer_before,
+        "wheel over a non-control still scrolls the deck area"
+    );
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+/// A wheel adjustment takes the tempo back from SYNC, like the pointer fader.
+#[test]
+fn tempo_wheel_disengages_sync() {
+    let (root, mut h) = fresh("tempo-wheel-sync", 20.0);
+    h.select_and_load("a-120.wav", egui::Key::A);
+    h.select_and_load("b-124.wav", egui::Key::B);
+    h.settle();
+    h.click(h.layout().sync[1].unwrap().center());
+    assert!(h.deck(1).sync, "fixture enables sync");
+    // A at 0 %: B follows A's 120 BPM, so its fader reads 120/124 - 1.
+    let synced_pct = (120.0_f64 / 124.0 - 1.0) * 100.0;
+    let fader_while_synced = (synced_pct * 10.0).round() / 10.0;
+    let p = h.layout().tempo[1].unwrap().center();
+    wheel_at(&mut h, p, 1.0);
+    h.settle();
+    assert!(
+        !h.deck(1).sync,
+        "manual tempo adjustment disengages sync"
+    );
+    assert!(
+        (h.deck(1).tempo_pct - (fader_while_synced as f32 + 0.1)).abs() < 1e-4,
+        "the fader keeps the synced tempo plus one wheel step: {} vs {}",
+        h.deck(1).tempo_pct,
+        fader_while_synced + 0.1
+    );
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+/// The wheel path leaves the fader a native control: named slider with its
+/// range and step, AccessKit increment/decrement, and Tab focus with arrows.
+#[test]
+fn tempo_wheel_preserves_accessibility_and_keyboard() {
+    let (root, mut h) = fresh("tempo-wheel-keys", 20.0);
+    h.select_and_load("a-120.wav", egui::Key::A);
+    h.settle();
+    let range = crate::decks::tempo_range(h.app.settings.tempo_range);
+    let out = h.settle();
+    let (id, n) = out
+        .platform_output
+        .accesskit_update
+        .as_ref()
+        .unwrap()
+        .nodes
+        .iter()
+        .find(|(_, n)| n.label().as_deref() == Some("Deck A tempo"))
+        .expect("Deck A tempo in the AccessKit tree");
+    let id = *id;
+    assert_eq!(n.role(), accesskit::Role::Slider);
+    assert_eq!(n.min_numeric_value(), Some(f64::from(-range)));
+    assert_eq!(n.max_numeric_value(), Some(f64::from(range)));
+    assert_eq!(n.numeric_value_step(), Some(0.1));
+    let send = |h: &mut Harness, action, data| {
+        h.frame_with(
+            vec![egui::Event::AccessKitActionRequest(accesskit::ActionRequest {
+                action,
+                target: id,
+                data,
+            })],
+            Default::default(),
+        );
+    };
+    send(&mut h, accesskit::Action::Increment, None);
+    assert!(
+        (h.deck(0).tempo_pct - 0.1).abs() < 1e-5,
+        "AccessKit increment: {}",
+        h.deck(0).tempo_pct
+    );
+    send(&mut h, accesskit::Action::Decrement, None);
+    assert!(
+        h.deck(0).tempo_pct.abs() < 1e-5,
+        "AccessKit decrement: {}",
+        h.deck(0).tempo_pct
+    );
+    // Tab into the controls and walk to the fader; arrows move it.
+    let p = h.layout().tempo[0].unwrap().center();
+    let shift = egui::Modifiers {
+        shift: true,
+        ..Default::default()
+    };
+    h.key(egui::Key::Tab, shift);
+    let mut guard = 0;
+    while !h.focused_rect().is_some_and(|r| r.contains(p)) {
+        assert!(guard < 200, "Deck A tempo Tab reachable");
+        h.key(egui::Key::Tab, shift);
+        guard += 1;
+    }
+    h.tap(egui::Key::ArrowRight);
+    assert!(
+        (h.deck(0).tempo_pct - 0.1).abs() < 1e-5,
+        "ArrowRight: {}",
+        h.deck(0).tempo_pct
+    );
+    h.tap(egui::Key::ArrowLeft);
+    assert!(
+        h.deck(0).tempo_pct.abs() < 1e-5,
+        "ArrowLeft: {}",
+        h.deck(0).tempo_pct
+    );
+    std::fs::remove_dir_all(root).unwrap();
+}
+
 /// The playhead is the engine's sample position, not the frame clock: a
 /// long UI gap without rendered audio moves nothing; rendered audio moves
 /// it exactly; the end of the track stops it exactly.
