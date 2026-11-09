@@ -2,6 +2,19 @@
 
 Condensed 2026-11-02. Full prior text (per-increment evidence, M0-09 verification, decisions, risks, F-09 oracle notes): [docs/history/status-2026-11-02.md](../docs/history/status-2026-11-02.md). Milestone contract: [plan/MVP.md](MVP.md). Live work: Kanban; this file records stages and gates only.
 
+## M8 headphone cue routing — implementation pending independent review
+
+`t_dc62491a` completes the separate post-EQ/pre-fader headphone bus and native
+CUE switches, MIX and volume controls. Main output remains independent;
+multichannel outputs 1–2 carry main and 3–4 carry headphones, with an explicit
+startup endpoint selector. Synthetic production-renderer and actual-egui tests
+cover routing, gain, selected state, keyboard/AccessKit/wheel/reset and focus.
+The real CPAL → temporary PipeWire four-channel sink → monitor check passed
+with independent main/cue frequencies, 0 reported xruns/errors and no default
+sink change. [Runbook and limits](../docs/headphone-cue.md). Physical interfaces,
+ASIO/macOS and latency remain NOT DEMONSTRATED. Review, install and the requested
+publication remain pending; preceding artwork WIP is not accepted by this card.
+
 ## Requested Settings theme presets — implementation pending independent review
 
 `t_f12bcc02` adds Catppuccin Mocha, Dracula, Ayu Dark, Dainty Dark,

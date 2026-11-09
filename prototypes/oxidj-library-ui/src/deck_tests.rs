@@ -2267,6 +2267,174 @@ fn mixer_rotary_dead_sector_reversal_and_double_click_reset() {
 }
 
 #[test]
+fn short_window_scroll_reaches_headphone_cue_without_changing_layout_preferences() {
+    let (root, mut h) = fresh("cue-scroll", 10.0);
+    h.app.settings.sections.mixer = true;
+    h.viewport = egui::vec2(640.0, 480.0);
+    h.settle();
+    let before = h.layout().mixer.unwrap().top();
+    let area = h.layout().area.unwrap();
+    h.frame_with(
+        vec![egui::Event::PointerMoved(
+            area.left_top() + egui::vec2(5.0, 5.0),
+        )],
+        Default::default(),
+    );
+    h.frame_with(
+        vec![egui::Event::MouseWheel {
+            unit: egui::MouseWheelUnit::Point,
+            delta: egui::vec2(0.0, -1000.0),
+            modifiers: Default::default(),
+        }],
+        Default::default(),
+    );
+    for _ in 0..8 {
+        h.settle();
+    }
+    assert!(h.layout().mixer.unwrap().top() < before);
+    let cue = h.layout().mixer_cue[1].unwrap();
+    assert!(h.app.shell.decks.unwrap().contains_rect(cue));
+    h.click(cue.center());
+    assert!(h.deck(1).channel.cue);
+    assert!(
+        h.app.settings.sections.detail
+            && h.app.settings.sections.strip
+            && h.app.settings.sections.overviews
+    );
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn headphone_cue_ui_routes_blends_scales_and_exposes_lit_controls() {
+    let (root, mut h) = fresh("headphonecue", 30.0);
+    h.select_and_load("a-120.wav", egui::Key::A);
+    h.select_and_load("b-124.wav", egui::Key::B);
+    h.app.settings.sections.mixer = true;
+    h.settle();
+    let capture = |h: &mut Harness| {
+        for d in 0..2 {
+            h.app.decks.decks[d].seek(4_000.0);
+            h.app.decks.decks[d].toggle_play();
+        }
+        h.settle();
+        let out = h.app.decks.render_channels(4_800, 4);
+        for d in 0..2 {
+            h.app.decks.decks[d].toggle_play();
+        }
+        h.settle();
+        out
+    };
+    let set = |h: &mut Harness, name: &str, value: f64| {
+        let out = h.settle();
+        let id = out
+            .platform_output
+            .accesskit_update
+            .as_ref()
+            .unwrap()
+            .nodes
+            .iter()
+            .find(|(_, n)| n.label() == Some(name))
+            .unwrap()
+            .0;
+        h.frame_with(
+            vec![egui::Event::AccessKitActionRequest(
+                accesskit::ActionRequest {
+                    action: accesskit::Action::SetValue,
+                    target: id,
+                    data: Some(accesskit::ActionData::NumericValue(value)),
+                },
+            )],
+            Default::default(),
+        );
+        h.settle();
+    };
+    let off = capture(&mut h);
+    assert!(off.chunks_exact(4).all(|f| f[2..] == [0.0, 0.0]));
+    for d in 0..2 {
+        let out = h.click(h.layout().mixer_cue[d].unwrap().center());
+        assert!(h.deck(d).channel.cue);
+        assert_eq!(
+            node(&out, &format!("Deck {} cue bus", decks::DECKS[d])).toggled(),
+            Some(accesskit::Toggled::True)
+        );
+    }
+    set(&mut h, "Cue mix", 0.0);
+    let a = capture(&mut h);
+    set(&mut h, "Cue mix", 1.0);
+    let b = capture(&mut h);
+    set(&mut h, "Cue mix", 0.25);
+    set(&mut h, "Cue volume", 0.5);
+    let blend = capture(&mut h);
+    assert!(a.chunks_exact(4).any(|f| f[2].abs() > 0.01));
+    assert!(b.chunks_exact(4).any(|f| f[2].abs() > 0.01));
+    for ((actual, a), b) in blend
+        .chunks_exact(4)
+        .zip(a.chunks_exact(4))
+        .zip(b.chunks_exact(4))
+    {
+        for side in 0..2 {
+            assert!(
+                (actual[2 + side] - (a[2 + side] * 0.75 + b[2 + side] * 0.25) * 0.5).abs() < 1e-4
+            );
+            assert!((actual[side] - a[side]).abs() < 1e-4, "main unaffected");
+        }
+    }
+    // Native knobs: named sliders, range, SetValue, keyboard, wheel, reset.
+    for (name, default) in [("Cue mix", 0.5), ("Cue volume", 1.0)] {
+        let out = h.settle();
+        let n = node(&out, name);
+        assert_eq!(n.role(), accesskit::Role::Slider);
+        assert_eq!(n.min_numeric_value(), Some(0.0));
+        assert_eq!(n.max_numeric_value(), Some(1.0));
+        set(&mut h, name, -10.0);
+        let out = h.settle();
+        let bounds = node(&out, name).bounds().unwrap();
+        let p = egui::pos2(
+            ((bounds.x0 + bounds.x1) / 2.0) as f32,
+            ((bounds.y0 + bounds.y1) / 2.0) as f32,
+        );
+        // Tab actually reaches the control, not programmatic focus.
+        h.key(
+            egui::Key::Tab,
+            egui::Modifiers {
+                shift: true,
+                ..Default::default()
+            },
+        );
+        for guard in 0..200 {
+            if h.focused_rect().is_some_and(|r| r.contains(p)) {
+                break;
+            }
+            assert!(guard < 199, "{name} Tab reachable");
+            h.tap(egui::Key::Tab);
+        }
+        h.tap(egui::Key::ArrowRight);
+        assert!((node(&h.settle(), name).numeric_value().unwrap() - 0.05).abs() < 1e-5);
+        h.frame_with(vec![egui::Event::PointerMoved(p)], Default::default());
+        let out = h.frame_with(
+            vec![egui::Event::MouseWheel {
+                unit: egui::MouseWheelUnit::Point,
+                delta: egui::vec2(0.0, 40.0),
+                modifiers: Default::default(),
+            }],
+            Default::default(),
+        );
+        assert!(node(&out, name).numeric_value().unwrap() > 0.05);
+        h.click(p);
+        let out = h.click(p);
+        assert_eq!(node(&out, name).numeric_value(), Some(default));
+    }
+    // Toggle off through the same actual button; selected/lit state clears.
+    let out = h.click(h.layout().mixer_cue[0].unwrap().center());
+    assert!(!h.deck(0).channel.cue);
+    assert_eq!(
+        node(&out, "Deck A cue bus").toggled(),
+        Some(accesskit::Toggled::False)
+    );
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn mixer_controls_drive_the_engine_and_meters_through_the_ui() {
     let (root, mut h) = fresh("mixui", 20.0);
     h.select_and_load("a-120.wav", egui::Key::A);
@@ -2279,6 +2447,8 @@ fn mixer_controls_drive_the_engine_and_meters_through_the_ui() {
         l.master.unwrap(),
         l.crossfader.unwrap(),
         l.crossfader_toggle.unwrap(),
+        l.cue_mix.unwrap(),
+        l.cue_volume.unwrap(),
     ];
     for d in 0..2 {
         rects.extend([
@@ -2514,6 +2684,11 @@ fn mixer_keeps_usable_non_overlapping_controls_at_narrow_windows() {
         (640.0, 480.0),
     ] {
         h.viewport = egui::vec2(w, ht);
+        // At 480 px, exercise the optional mixer alone; the complete deck
+        // area scrolls rather than compressing fader travel below 40 px.
+        h.app.settings.sections.detail = ht > 480.0;
+        h.app.settings.sections.strip = ht > 480.0;
+        h.app.settings.sections.overviews = ht > 480.0;
         let out = h.settle();
         let l = h.layout();
         let mixer = l.mixer.expect("mixer shown");
@@ -2715,24 +2890,19 @@ fn mixer_is_fully_keyboard_reachable_and_operable() {
         l.master.unwrap(),
         l.crossfader.unwrap(),
         l.crossfader_toggle.unwrap(),
+        l.cue_mix.unwrap(),
+        l.cue_volume.unwrap(),
     ];
-    eprintln!("master rect: {:?}", l.master.unwrap());
-    eprintln!("volume[0] rect: {:?}", l.volume[0].unwrap());
-    eprintln!("volume[1] rect: {:?}", l.volume[1].unwrap());
-    eprintln!("mixer_cue[0] rect: {:?}", l.mixer_cue[0]);
-    eprintln!("mixer_cue[1] rect: {:?}", l.mixer_cue[1]);
-    eprintln!("cue_mix rect: {:?}", l.cue_mix);
-    eprintln!("cue_volume rect: {:?}", l.cue_volume);
     for d in 0..2 {
         want.extend([
             l.trim[d].unwrap(),
             l.filter[d].unwrap(),
             l.volume[d].unwrap(),
+            l.mixer_cue[d].unwrap(),
         ]);
         want.extend(l.eq[d].unwrap());
         want.extend(l.assign[d].unwrap());
     }
-    eprintln!("want rects: {:?}", want);
     let shift = egui::Modifiers {
         shift: true,
         ..Default::default()
@@ -2745,16 +2915,7 @@ fn mixer_is_fully_keyboard_reachable_and_operable() {
                 seen.push(r);
             }
         }
-        // Tab-reachable controls: all except vertical faders (volume, master).
-        let tab_reachable: Vec<Rect> = want
-            .iter()
-            .filter(|w| {
-                !w.contains_rect(l.master.unwrap().shrink(1.0))
-                    && !w.contains_rect(l.volume[0].unwrap().shrink(1.0))
-                    && !w.contains_rect(l.volume[1].unwrap().shrink(1.0))
-            })
-            .copied()
-            .collect();
+        let tab_reachable = &want;
         if tab_reachable.iter().all(|w| {
             seen.iter()
                 .any(|s| s.contains_rect(w.shrink(1.0)) || w.contains_rect(s.shrink(1.0)))
@@ -2763,18 +2924,11 @@ fn mixer_is_fully_keyboard_reachable_and_operable() {
         }
         h.key(egui::Key::Tab, Default::default());
     }
-    // Verify Tab-reachable controls.
     for w in &want {
-        let is_vertical_fader = w.contains_rect(l.master.unwrap().shrink(1.0))
-            || w.contains_rect(l.volume[0].unwrap().shrink(1.0))
-            || w.contains_rect(l.volume[1].unwrap().shrink(1.0));
-        if !is_vertical_fader {
-            assert!(
-                seen.iter()
-                    .any(|s| s.contains_rect(w.shrink(1.0)) || w.contains_rect(s.shrink(1.0))),
-                "{w:?} not reachable by Tab"
-            );
-        }
+        assert!(
+            seen.iter().any(|s| w.contains_rect(s.shrink(1.0))),
+            "{w:?} not reachable by Tab"
+        );
     }
     // Focus deck A's LOW knob by Tab and turn it to kill with the arrows.
     let low = h.layout().eq[0].unwrap()[0];

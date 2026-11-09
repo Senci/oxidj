@@ -803,9 +803,14 @@ impl DeckArea {
     /// Render `frames` on the fake sink (tests; no-op with a real output).
     #[cfg(test)]
     pub(crate) fn render(&mut self, frames: usize) -> Vec<f32> {
-        let mut out = vec![0.0; frames * 2];
+        self.render_channels(frames, 2)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn render_channels(&mut self, frames: usize, channels: usize) -> Vec<f32> {
+        let mut out = vec![0.0; frames * channels];
         if let Some(renderer) = &mut self.manual {
-            renderer.render(&mut out, 2);
+            renderer.render(&mut out, channels);
         }
         out
     }

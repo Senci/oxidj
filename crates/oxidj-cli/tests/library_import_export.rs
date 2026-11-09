@@ -1740,7 +1740,18 @@ fn catalog_playlist_append_refuses_non_imported_sqlite_without_mutation() {
     };
     // Both an unrelated database and one with a coincidentally current version
     // must fail before the mutation-capable opener can create OxiDJ tables.
-    for version in [0, 7] {
+    // Derive the current version from a real catalog instead of freezing a
+    // migration number (artwork adds another schema migration).
+    drop(oxidj_library::Catalog::open(&catalog).unwrap());
+    let current = String::from_utf8(sql(""))
+        .unwrap()
+        .lines()
+        .next()
+        .unwrap()
+        .parse::<i64>()
+        .unwrap();
+    std::fs::remove_file(&catalog).unwrap();
+    for version in [0, current] {
         let before = sql(&format!(
             "CREATE TABLE IF NOT EXISTS sentinel(value TEXT); DELETE FROM sentinel; \
              INSERT INTO sentinel VALUES ('synthetic sentinel'); PRAGMA user_version={version};"

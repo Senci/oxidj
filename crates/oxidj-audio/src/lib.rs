@@ -743,7 +743,10 @@ pub struct Renderer {
 impl Renderer {
     /// Render `out` (interleaved, `channels` per frame) at the device rate:
     /// drain queued commands, mix both decks at their gains (unity = 1.0)
-    /// and publish the deck snapshots. RT-safe: see the crate docs.
+    /// and publish the deck snapshots. Channels 1–2 are main L/R, 3–4 are
+    /// headphone cue L/R when a complete pair exists; any later channels
+    /// are silent. Mono folds main only; cue is never folded into main.
+    /// RT-safe: see the crate docs.
     pub fn render(&mut self, out: &mut [f32], channels: usize) {
         while let Ok(command) = self.rx.pop() {
             if let Command::Mixer(params) = command {
@@ -833,7 +836,11 @@ impl Renderer {
                 let cue_peak = mixer.process_cue(cue_buf);
                 meter(shared, CUE_METER, cue_peak);
             }
-            for (frame, [l, r]) in block.chunks_mut(channels).zip(mix.as_chunks::<2>().0) {
+            for ((frame, [l, r]), [cue_l, cue_r]) in block
+                .chunks_mut(channels)
+                .zip(mix.as_chunks::<2>().0)
+                .zip(cue_buf.as_chunks::<2>().0)
+            {
                 let (l, r) = (l.clamp(-1.0, 1.0), r.clamp(-1.0, 1.0));
                 match frame {
                     [mono] => *mono = (l + r) * 0.5,
@@ -841,6 +848,12 @@ impl Renderer {
                         *left = l;
                         *right = r;
                         rest.fill(0.0);
+                        // A complete, separate stereo headphone pair only. A
+                        // three-channel device must not receive half a cue bus.
+                        if let [cue_left, cue_right, ..] = rest {
+                            *cue_left = cue_l.clamp(-1.0, 1.0);
+                            *cue_right = cue_r.clamp(-1.0, 1.0);
+                        }
                     }
                     [] => {}
                 }

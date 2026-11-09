@@ -112,6 +112,10 @@ fn mixer(step: u32) -> MixerParams {
     p.crossfader = (!step.is_multiple_of(3)).then_some(t);
     p.curve = [Curve::Smooth, Curve::Sharp, Curve::Cut][(step % 3) as usize];
     p.master = 0.5 + t * 0.5;
+    p.channels[0].cue = !step.is_multiple_of(3);
+    p.channels[1].cue = step.is_multiple_of(2);
+    p.cue_mix = t;
+    p.cue_volume = 1.0 - t;
     p
 }
 
@@ -137,7 +141,7 @@ fn render_never_allocates_with_key_lock_sync_transport_and_mixer() {
     engine.send(Command::TogglePlay { deck: 0 });
     engine.send(Command::TogglePlay { deck: 1 });
     let mut out = vec![0.0f32; 512 * 2];
-    let mut odd = vec![0.0f32; 333 * 2];
+    let mut odd = vec![0.0f32; 333 * 4];
     let (mut rust_events, mut heap_changes, mut renders, mut peaks) = (0u64, 0u32, 0u32, 0u32);
     for step in 0..1_500u32 {
         // UI side (unarmed): a different control every few blocks.
@@ -191,7 +195,7 @@ fn render_never_allocates_with_key_lock_sync_transport_and_mixer() {
         // Audio side (armed): exactly what the device callback runs.
         let before = heap::in_use();
         ARMED.with(|a| a.set(true));
-        renderer.render(buf, 2);
+        renderer.render(buf, if step % 5 == 0 { 4 } else { 2 });
         ARMED.with(|a| a.set(false));
         let after = heap::in_use();
         rust_events += EVENTS.with(|e| e.replace(0));

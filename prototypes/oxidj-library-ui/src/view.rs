@@ -73,7 +73,27 @@ impl LibraryApp {
             let decks = egui::TopBottomPanel::top("decks")
                 .frame(panel)
                 .resizable(false)
-                .show(ctx, |ui| self.deck_area(ui, tokens));
+                .show(ctx, |ui| {
+                    // Tall mixer faders must remain reachable on short displays.
+                    let max_height = (ctx.screen_rect().height() - 100.0).max(100.0);
+                    if decks::area_height(
+                        self.settings.sections,
+                        ctx.screen_rect(),
+                        ui.available_width(),
+                    ) > max_height
+                    {
+                        egui::ScrollArea::vertical()
+                            .id_salt("deck-area-scroll")
+                            .scroll_source(egui::scroll_area::ScrollSource {
+                                drag: false,
+                                ..Default::default()
+                            })
+                            .max_height(max_height)
+                            .show(ui, |ui| self.deck_area(ui, tokens));
+                    } else {
+                        self.deck_area(ui, tokens);
+                    }
+                });
             self.shell.decks = Some(decks.response.rect);
         } else {
             self.decks.layout = Default::default();

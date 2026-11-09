@@ -214,7 +214,7 @@ impl MixerParams {
             1 => self.cue_mix,
             _ => 0.0,
         };
-        finite01(gain) * finite01(self.cue_volume)
+        finite01(gain)
     }
 }
 
@@ -414,8 +414,10 @@ impl Strip {
                 let y = y as f32;
                 peak = peak.max(y.abs());
                 // Write pre-fader signal if requested.
-                if let Some(pre) = pre_fader_out.as_deref_mut() {
-                    pre.as_chunks_mut::<2>().0[i] = [y, y];
+                if let Some(pre) = pre_fader_out.as_deref_mut()
+                    && let Some(sample) = pre.get_mut(i * 2 + side)
+                {
+                    *sample = y;
                 }
                 *s = y * g[4];
             }

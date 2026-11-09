@@ -115,12 +115,52 @@ pub(crate) struct Device {
 impl Device {
     pub(crate) fn open() -> Result<Self, String> {
         let host = cpal::default_host();
-        let device = host
-            .default_output_device()
-            .ok_or_else(|| "no audio output device".to_owned())?;
-        let config = device
-            .default_output_config()
-            .map_err(|e| format!("audio output unavailable: {e}"))?;
+        // Exact endpoint selection is opt-in and never changes the OS default.
+        // A named cue endpoint must support four channels; fail closed rather
+        // than leaking cue into a stereo/default output.
+        let selected = std::env::var("OXIDJ_AUDIO_DEVICE").ok();
+        let device = if let Some(name) = selected.as_deref() {
+            let mut matches = host
+                .output_devices()
+                .map_err(|e| format!("cannot enumerate audio outputs: {e}"))?
+                .filter(|d| d.description().is_ok_and(|d| d.name() == name));
+            let device = matches
+                .next()
+                .ok_or_else(|| format!("audio output not found: {name}"))?;
+            if matches.next().is_some() {
+                return Err(format!("audio output name is ambiguous: {name}"));
+            }
+            device
+        } else {
+            host.default_output_device()
+                .ok_or_else(|| "no audio output device".to_owned())?
+        };
+        let config = if selected.is_some() {
+            device
+                .supported_output_configs()
+                .map_err(|e| format!("audio output unavailable: {e}"))?
+                .find(|c| {
+                    c.channels() == 4
+                        && c.min_sample_rate() <= 48_000
+                        && c.max_sample_rate() >= 48_000
+                        && matches!(
+                            c.sample_format(),
+                            cpal::SampleFormat::F32
+                                | cpal::SampleFormat::F64
+                                | cpal::SampleFormat::I16
+                                | cpal::SampleFormat::I32
+                                | cpal::SampleFormat::U16
+                        )
+                })
+                .ok_or_else(|| {
+                    "selected headphone output requires 4 channels at 48000 Hz".to_owned()
+                })?
+                .with_sample_rate(48_000)
+        } else {
+            device
+                .default_output_config()
+                .map_err(|e| format!("audio output unavailable: {e}"))?
+        };
         let name = device
             .description()
             .map(|d| d.name().to_owned())
