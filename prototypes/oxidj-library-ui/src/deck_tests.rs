@@ -3610,6 +3610,46 @@ fn deck_artwork_loads_async_and_swaps_the_placeholder() {
 }
 
 #[test]
+fn deck_artwork_budget_change_releases_both_textures_and_rejects_stale_jobs() {
+    let root = temp_root("artwork-budget");
+    let db = artwork_catalog(&root, true);
+    std::fs::write(root.join("audio/cover.jpg"), artwork_jpeg(240, 120)).unwrap();
+    let mut h = Harness::new(db);
+    let id = h.app.tracks[0].track.id.as_u64();
+    h.app.load_deck(0, id);
+    h.app.load_deck(1, id);
+    wait_artwork(&mut h, 0);
+    wait_artwork(&mut h, 1);
+    assert!(h.deck(0).art.texture().is_some());
+    assert!(h.deck(1).art.texture().is_some());
+    assert_eq!(h.deck(0).art.size(), [240, 120]);
+    assert!(h.app.artwork_cache.bytes() > 0);
+    let gate = std::sync::Arc::new(std::sync::Barrier::new(2));
+    h.app.artwork_gate = Some(gate.clone());
+    h.app.load_deck(0, id);
+    h.app.settings.show_artwork = false;
+    h.settle();
+    assert_eq!(h.app.artwork_cache.bytes(), 0);
+    for d in 0..2 {
+        assert!(!h.deck(d).art.is_loading());
+        assert!(h.deck(d).art.texture().is_none());
+    }
+    gate.wait(); // the cancelled old request must not repopulate either deck
+    h.app.settings.artwork_cache_mib = 1;
+    h.app.settings.show_artwork = true;
+    h.settle();
+    wait_artwork(&mut h, 0);
+    wait_artwork(&mut h, 1);
+    for d in 0..2 {
+        assert_eq!(h.deck(d).art.size(), [90, 45]);
+        let texture = h.deck(d).art.texture().unwrap();
+        assert!(texture.size()[0] * texture.size()[1] * 4 <= 1024 * 1024 / 32);
+    }
+    assert!(h.app.artwork_cache.bytes() <= 1024 * 1024 / 4);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn deck_artwork_placeholder_is_shown_when_the_track_has_none() {
     let root = temp_root("artwork-none");
     let db = artwork_catalog(&root, false);
@@ -3672,6 +3712,29 @@ fn deck_artwork_toggle_in_settings_hides_and_shows_the_artwork() {
     assert!(h.app.settings_ui.open, "Settings opens");
     let tabs = h.app.settings_ui.layout.tabs.unwrap();
     h.click(tabs[2].center());
+    let budget = h
+        .app
+        .settings_ui
+        .layout
+        .artwork_budget
+        .expect("artwork memory budget");
+    assert!(
+        h.app
+            .settings_ui
+            .layout
+            .window
+            .unwrap()
+            .contains_rect(budget)
+    );
+    h.drag(budget.center(), budget.center() + egui::vec2(30.0, 0.0));
+    assert!(
+        h.app.settings.artwork_cache_mib > 100,
+        "real budget control changes Settings"
+    );
+    assert_eq!(
+        Settings::decode(&h.app.settings.encode()).artwork_cache_mib,
+        h.app.settings.artwork_cache_mib
+    );
     let toggle = h.app.settings_ui.layout.artwork.expect("artwork toggle");
     assert!(
         h.app

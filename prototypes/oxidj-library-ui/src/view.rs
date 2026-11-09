@@ -55,6 +55,7 @@ impl LibraryApp {
         self.handle_panel_shortcuts(ctx);
         self.handle_deck_keys(ctx);
         self.decks.pump();
+        self.sync_artwork_settings();
         self.decks.pump_artwork(ctx);
         self.pump_waveform_job(ctx);
         self.theme.apply(self.custom_tokens, ctx);

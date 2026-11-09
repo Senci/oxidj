@@ -1723,22 +1723,52 @@ impl LibraryApp {
         }
     }
 
+    /// Apply Settings without waiting on a decoder; stale jobs and textures are
+    /// dropped, and both loaded decks restart under the new budget.
+    pub(crate) fn sync_artwork_settings(&mut self) {
+        let bytes = if self.settings.show_artwork {
+            self.settings.artwork_cache_mib.clamp(1, 1024) as usize * 1024 * 1024
+        } else {
+            0
+        };
+        if self.artwork_cache.configure(bytes) {
+            for d in 0..2 {
+                self.decks.decks[d].art = Default::default();
+                if bytes > 0
+                    && let Some(id) = self.decks.decks[d].track.as_ref().map(|t| t.id)
+                {
+                    self.decks.decks[d].art.load(
+                        id,
+                        self.artwork_cache.clone(),
+                        self.db_path.clone(),
+                        None,
+                    );
+                }
+            }
+        }
+    }
+
     /// Load catalog track `id` onto `deck` (0 = A).
     pub(crate) fn load_deck(&mut self, deck: usize, id: u64) {
         let Some(item) = self.tracks.iter().find(|t| t.track.id.as_u64() == id) else {
             return;
         };
         let track = DeckTrack::read(self.catalog.as_ref().ok(), item);
+        self.sync_artwork_settings();
         self.notice = format!("Loaded {} to deck {}", track.name, DECKS[deck]);
         self.decks.decks[deck].load(track);
-        #[cfg(test)]
-        self.decks.decks[deck]
-            .art
-            .load(id, self.db_path.clone(), self.artwork_gate.take());
-        #[cfg(not(test))]
-        self.decks.decks[deck]
-            .art
-            .load(id, self.db_path.clone(), None);
+        if self.settings.show_artwork {
+            #[cfg(test)]
+            let gate = self.artwork_gate.take();
+            #[cfg(not(test))]
+            let gate = None;
+            self.decks.decks[deck].art.load(
+                id,
+                self.artwork_cache.clone(),
+                self.db_path.clone(),
+                gate,
+            );
+        }
     }
 
     /// Re-read loaded tracks after a catalog reload (a waveform analysed

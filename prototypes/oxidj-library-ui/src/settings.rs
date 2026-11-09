@@ -99,6 +99,8 @@ pub struct Settings {
     /// Deck album artwork: show the artwork (or vinyl placeholder) in the
     /// detail view. Off = no artwork and no placeholder.
     pub show_artwork: bool,
+    /// Pixel/cache memory budget in MiB, including the deck texture allowance.
+    pub artwork_cache_mib: u32,
     /// Opt-in compact Rekordbox-inspired transport pairs.
     pub simple_dj_keys: bool,
 }
@@ -173,6 +175,7 @@ impl Default for Settings {
             crossfader: true,
             xfader_curve: Curve::Smooth,
             show_artwork: true,
+            artwork_cache_mib: 100,
             simple_dj_keys: false,
         }
     }
@@ -229,7 +232,7 @@ impl Settings {
             .map(|i| format!(";{}={}", DeckSections::KEYS[i], b(self.sections.get(i))))
             .collect();
         format!(
-            "style={};smooth={};auto_gain={};beat_lines={};zoom={};deck_palette={};playhead={};phase={};tempo={};sec_xfader={};xf_curve={};artwork={};simple_keys={}",
+            "style={};smooth={};auto_gain={};beat_lines={};zoom={};deck_palette={};playhead={};phase={};tempo={};sec_xfader={};xf_curve={};artwork={};artwork_mib={};simple_keys={}",
             name_of(&STYLES, self.waveform_style),
             b(self.smooth),
             b(self.auto_gain),
@@ -242,6 +245,7 @@ impl Settings {
             b(self.crossfader),
             name_of(&CURVES, self.xfader_curve),
             b(self.show_artwork),
+            self.artwork_cache_mib,
             b(self.simple_dj_keys),
         ) + &sections
     }
@@ -274,6 +278,13 @@ impl Settings {
                 "sec_xfader" => s.crossfader = parse_bool(value).unwrap_or(s.crossfader),
                 "xf_curve" => s.xfader_curve = parse_in(&CURVES, value).unwrap_or(s.xfader_curve),
                 "artwork" => s.show_artwork = parse_bool(value).unwrap_or(s.show_artwork),
+                "artwork_mib" => {
+                    s.artwork_cache_mib = value
+                        .parse::<u32>()
+                        .ok()
+                        .filter(|v| (1..=1024).contains(v))
+                        .unwrap_or(s.artwork_cache_mib)
+                }
                 other => {
                     if let Some(i) = DeckSections::KEYS.iter().position(|k| *k == other) {
                         let slot = s.sections.get_mut(i);
@@ -327,6 +338,7 @@ pub(crate) struct SettingsLayout {
     pub(crate) curve: Option<[egui::Rect; 3]>,
     /// Deck artwork display toggle.
     pub(crate) artwork: Option<egui::Rect>,
+    pub(crate) artwork_budget: Option<egui::Rect>,
     pub(crate) first_control: Option<egui::Id>,
 }
 
@@ -555,6 +567,11 @@ impl LibraryApp {
             layout.curve = Some(rects(&responses));
             layout.artwork =
                 Some(toggle_row(ui, tokens, "Deck album artwork", &mut s.show_artwork).rect);
+            ui.horizontal(|ui| {
+                ui.label("Artwork cache (MiB)");
+                layout.artwork_budget = Some(ui.add(egui::DragValue::new(&mut s.artwork_cache_mib)
+                    .range(1..=1024)).on_hover_text("Default 100 MiB. Shared LRU plus bounded deck textures and decoder pixel scratch; not total process RAM. Oversized images use the placeholder.").rect);
+            });
         }
 
         if self.settings_ui.tab == 3 {
@@ -641,6 +658,7 @@ mod tests {
             crossfader: false,
             xfader_curve: Curve::Cut,
             show_artwork: false,
+            artwork_cache_mib: 42,
             simple_dj_keys: true,
         };
         let mut storage = MemoryStorage::default();
@@ -685,6 +703,14 @@ mod tests {
         assert!(Settings::decode(old).crossfader);
         assert_eq!(Settings::decode(old).xfader_curve, Curve::Smooth);
         // Artwork defaults on, including for a store written before the toggle.
+        assert_eq!(Settings::decode(old).artwork_cache_mib, 100);
+        assert_eq!(Settings::decode("artwork_mib=17").artwork_cache_mib, 17);
+        for invalid in ["0", "1025", "-1", "bad"] {
+            assert_eq!(
+                Settings::decode(&format!("artwork_mib={invalid}")).artwork_cache_mib,
+                100
+            );
+        }
         assert!(Settings::decode(old).show_artwork);
         assert!(Settings::decode("artwork=0").show_artwork == false);
         assert_eq!(

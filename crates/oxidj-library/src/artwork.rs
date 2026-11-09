@@ -37,7 +37,10 @@ impl Artwork {
                 "artwork has zero dimension ({width}x{height})"
             )));
         }
-        let expected = width as usize * height as usize * 4;
+        let expected = (width as usize)
+            .checked_mul(height as usize)
+            .and_then(|n| n.checked_mul(4))
+            .ok_or_else(|| ArtworkError::Decode("artwork dimensions overflow".into()))?;
         if rgba.len() != expected {
             return Err(ArtworkError::Decode(format!(
                 "artwork buffer is {} bytes, expected {expected} for {width}x{height}",
@@ -196,8 +199,7 @@ pub fn decode_image_bytes(bytes: &[u8]) -> Result<Option<Artwork>, ArtworkError>
     if bytes.is_empty() {
         return Ok(None);
     }
-    let image = image::load_from_memory(bytes)
-        .map_err(|error| ArtworkError::Decode(format!("cannot decode artwork: {error}")))?;
+    let image = decode_limited(bytes, 64 * 1024 * 1024)?;
     Ok(Some(dynamic_to_artwork(image)))
 }
 
@@ -205,6 +207,31 @@ pub fn decode_image_bytes(bytes: &[u8]) -> Result<Option<Artwork>, ArtworkError>
 pub fn decode_image_file(path: &Path) -> Result<Option<Artwork>, ArtworkError> {
     let bytes = std::fs::read(path)?;
     decode_image_bytes(&bytes)
+}
+
+fn decode_limited(bytes: &[u8], max_bytes: u64) -> Result<image::DynamicImage, ArtworkError> {
+    let (width, height) = image::ImageReader::new(std::io::Cursor::new(bytes))
+        .with_guessed_format()?
+        .into_dimensions()
+        .map_err(|e| ArtworkError::Decode(e.to_string()))?;
+    if u64::from(width)
+        .saturating_mul(u64::from(height))
+        .saturating_mul(4)
+        > max_bytes
+    {
+        return Err(ArtworkError::Decode(
+            "decoded pixels exceed artwork budget".into(),
+        ));
+    }
+    let mut reader = image::ImageReader::new(std::io::Cursor::new(bytes)).with_guessed_format()?;
+    let mut limits = image::Limits::default();
+    limits.max_alloc = Some(max_bytes);
+    limits.max_image_width = Some(8192);
+    limits.max_image_height = Some(8192);
+    reader.limits(limits);
+    reader
+        .decode()
+        .map_err(|error| ArtworkError::Decode(error.to_string()))
 }
 
 fn dynamic_to_artwork(image: image::DynamicImage) -> Artwork {
@@ -241,6 +268,77 @@ pub fn find_cover_file(track: &Path) -> Option<PathBuf> {
 }
 
 impl Catalog {
+    /// Load a display-sized RGBA image. The caller serializes decodes and reserves
+    /// `decode_bytes` for decoder pixel scratch; retained pixels are at most
+    /// `side * side * 4`. Oversized persistent rows are not materialized.
+    /// This is a pixel/cache budget, not a process RSS or metadata-parser limit.
+    pub fn load_display_artwork(
+        &mut self,
+        id: TrackId,
+        decode_bytes: u64,
+        side: u32,
+    ) -> Result<Option<Artwork>, ArtworkError> {
+        if side == 0 {
+            return Ok(None);
+        }
+        let side = side.min(512);
+        let decode_bytes = decode_bytes.min(64 * 1024 * 1024);
+        let key = track_key(id)?;
+        let retained = u64::from(side) * u64::from(side) * 4;
+        let cached_size: Option<i64> = self.connection.query_row(
+            "SELECT length(rgba) FROM track_artwork WHERE track_id=?1 AND width<=?2 AND height<=?2", rusqlite::params![key, side],
+            |row| row.get(0),
+        ).optional().map_err(CatalogError::from)?;
+        if cached_size.is_some_and(|size| size >= 0 && size as u64 <= retained)
+            && let Some(art) = self.read_artwork(id)?
+        {
+            return Ok(Some(art));
+        }
+        let track = self
+            .read_track(id)?
+            .ok_or_else(|| ArtworkError::Decode("unknown track".into()))?;
+        let path = Path::new(&track.path);
+        use lofty::prelude::*;
+        let tagged = lofty::probe::Probe::open(path)
+            .map_err(|e| ArtworkError::Decode(e.to_string()))?
+            .guess_file_type()?
+            .read()
+            .map_err(|e| ArtworkError::Decode(e.to_string()))?;
+        let picture = tagged
+            .primary_tag()
+            .or_else(|| tagged.first_tag())
+            .and_then(|tag| {
+                tag.pictures()
+                    .iter()
+                    .find(|p| p.pic_type() == lofty::picture::PictureType::CoverFront)
+                    .or_else(|| tag.pictures().first())
+            });
+        let image = if let Some(picture) = picture {
+            decode_limited(picture.data(), decode_bytes)?
+        } else if let Some(cover) = find_cover_file(path) {
+            // Bound compressed cover input too (metadata buffers are owned by lofty).
+            use std::io::Read;
+            let mut bytes = Vec::new();
+            std::fs::File::open(cover)?
+                .take(decode_bytes.saturating_add(1))
+                .read_to_end(&mut bytes)?;
+            if bytes.len() as u64 > decode_bytes {
+                return Err(ArtworkError::Decode("cover exceeds decode budget".into()));
+            }
+            decode_limited(&bytes, decode_bytes)?
+        } else {
+            return Ok(None);
+        };
+        let image = if image.width() > side || image.height() > side {
+            image.thumbnail(side, side)
+        } else {
+            image
+        };
+        let art = dynamic_to_artwork(image);
+        self.store_artwork(id, track.sha256, &art)?;
+        Ok(Some(art))
+    }
+
     /// Read the cached decoded artwork for `id`, marking it most-recently used.
     pub fn read_artwork(&mut self, id: TrackId) -> Result<Option<Artwork>, CatalogError> {
         let key = track_key(id)?;
@@ -285,7 +383,10 @@ impl Catalog {
         let key = track_key(id)?;
         if artwork.width == 0
             || artwork.height == 0
-            || artwork.rgba.len() != artwork.width as usize * artwork.height as usize * 4
+            || (artwork.width as usize)
+                .checked_mul(artwork.height as usize)
+                .and_then(|n| n.checked_mul(4))
+                != Some(artwork.rgba.len())
         {
             return Err(CatalogError::InvalidRecord(
                 "artwork dimensions do not match its buffer",
@@ -526,6 +627,11 @@ mod tests {
     }
 
     #[test]
+    fn artwork_dimensions_cannot_overflow_rgba_accounting() {
+        assert!(Artwork::new(u32::MAX, u32::MAX, vec![]).is_err());
+    }
+
+    #[test]
     fn memory_cache_evicts_least_recently_used_and_respects_budget() {
         let mut cache = ArtworkMemoryCache::new(32);
         let a = TrackId::new(1).unwrap();
@@ -666,6 +772,37 @@ mod tests {
         drop(catalog);
         remove_db(&database);
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn display_artwork_bounds_decode_and_retained_pixels_and_uses_disk_cache() {
+        let root = scratch("display");
+        let path = root.join("track.aiff");
+        std::fs::write(&path, aiff_with_cover(&jpeg_bytes())).unwrap();
+        let mut catalog = Catalog::open(db(&root)).unwrap();
+        let track = catalog
+            .insert_track("art", path.to_str().unwrap(), [5; 32], 1)
+            .unwrap();
+        let err = catalog.load_display_artwork(track.id, 8, 1).unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("decoded pixels exceed artwork budget")
+        );
+        assert_eq!(catalog.artwork_cache_bytes().unwrap(), 0);
+        let art = catalog
+            .load_display_artwork(track.id, 1024 * 1024, 1)
+            .unwrap()
+            .unwrap();
+        assert_eq!((art.width, art.height, art.byte_len()), (1, 1, 4));
+        std::fs::remove_file(path).unwrap();
+        assert_eq!(
+            catalog
+                .load_display_artwork(track.id, 1024 * 1024, 1)
+                .unwrap(),
+            Some(art)
+        );
+        drop(catalog);
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

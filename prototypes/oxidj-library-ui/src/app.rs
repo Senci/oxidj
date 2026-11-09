@@ -136,6 +136,7 @@ pub(crate) struct LibraryApp {
         Result<std::sync::Arc<oxidj_library::LibraryNavigation>, String>,
     /// M8/D1 deck area (silent transport until D2).
     pub(crate) decks: crate::decks::DeckArea,
+    pub(crate) artwork_cache: crate::artwork::Cache,
     /// W8 shell panel toggles (app state only, not persisted).
     pub(crate) show_nav: bool,
     pub(crate) show_details: bool,
@@ -313,6 +314,7 @@ impl LibraryApp {
             dragging_track: None,
             imported_navigation: Err("Imported playlists have not been loaded".into()),
             decks: Default::default(),
+            artwork_cache: Default::default(),
             show_nav: true,
             show_details: true,
             show_decks: true,

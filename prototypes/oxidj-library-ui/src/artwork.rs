@@ -11,23 +11,120 @@ use crate::decks::DeckColours;
 use crate::theme::ColorTokens;
 use eframe::egui::{self, Color32, Pos2, Rect, TextureHandle, pos2};
 use oxidj_library::{Artwork, Catalog, TrackId};
+use oxidj_library::{ArtworkMemoryCache, DEFAULT_ARTWORK_CACHE_BYTES};
 use std::path::PathBuf;
 use std::sync::mpsc::{Receiver, TryRecvError, channel};
+use std::sync::{
+    Arc, Mutex,
+    atomic::{AtomicBool, Ordering},
+};
+
+/// Shared across both decks. Only one decoder runs at a time. A quarter of
+/// the setting is the decoded LRU; each deck image is <= 1/32 of the setting
+/// (512px maximum), leaving room for queued pixels, CPU/GPU textures and decode
+/// scratch. Decoder allocation limit is 1/4, capped at 64 MiB. These are pixel
+/// budgets, not a claim about process RSS, driver or metadata-parser overhead.
+#[derive(Clone)]
+pub(crate) struct Cache {
+    state: Arc<Mutex<CacheState>>,
+    decoder: Arc<Mutex<()>>,
+}
+struct CacheState {
+    pixels: ArtworkMemoryCache,
+    budget: usize,
+    generation: u64,
+}
+impl Default for Cache {
+    fn default() -> Self {
+        Self {
+            state: Arc::new(Mutex::new(CacheState {
+                pixels: ArtworkMemoryCache::new(DEFAULT_ARTWORK_CACHE_BYTES as usize / 4),
+                budget: DEFAULT_ARTWORK_CACHE_BYTES as usize,
+                generation: 0,
+            })),
+            decoder: Arc::new(Mutex::new(())),
+        }
+    }
+}
+impl Cache {
+    /// Never takes the decoder lock: a Settings change cannot stall a UI frame.
+    pub(crate) fn configure(&self, bytes: usize) -> bool {
+        let mut state = self.state.lock().unwrap();
+        if state.budget == bytes {
+            return false;
+        }
+        state.budget = bytes;
+        state.generation += 1;
+        state.pixels = ArtworkMemoryCache::new(bytes / 4);
+        true
+    }
+
+    fn load(
+        &self,
+        db: &std::path::Path,
+        id: TrackId,
+        cancelled: &AtomicBool,
+    ) -> Result<Option<Artwork>, String> {
+        let generation = self.state.lock().unwrap().generation;
+        let _decoder = self.decoder.lock().unwrap();
+        if cancelled.load(Ordering::Relaxed) {
+            return Ok(None);
+        }
+        let budget = {
+            let mut state = self.state.lock().unwrap();
+            if state.generation != generation {
+                return Ok(None);
+            }
+            if let Some(art) = state.pixels.get(id) {
+                return Ok(Some(art.clone()));
+            }
+            state.budget
+        };
+        let side = ((budget / 128) as f64).sqrt().floor().min(512.0) as u32;
+        if side == 0 {
+            return Ok(None);
+        }
+        let mut catalog = Catalog::open(db).map_err(|e| e.to_string())?;
+        catalog
+            .set_artwork_cache_budget(budget as u64)
+            .map_err(|e| e.to_string())?;
+        let art = catalog
+            .load_display_artwork(id, (budget as u64 / 4).min(64 * 1024 * 1024), side)
+            .map_err(|e| e.to_string())?;
+        let mut state = self.state.lock().unwrap();
+        if state.generation != generation || cancelled.load(Ordering::Relaxed) {
+            return Ok(None);
+        }
+        if let Some(art) = &art {
+            state.pixels.insert(id, art.clone());
+        }
+        Ok(art)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn bytes(&self) -> usize {
+        self.state.lock().unwrap().pixels.byte_len()
+    }
+}
 
 /// A per-deck artwork load in progress.
 pub(crate) struct Job {
     rx: Receiver<Result<Option<Artwork>, String>>,
+    cancelled: Arc<AtomicBool>,
 }
 
 impl Job {
     /// Start extraction; `gate` (when present) blocks the worker
     /// until the test releases it, so the placeholder state is observable.
     pub(crate) fn start_after_gate(
+        cache: Cache,
         db_path: PathBuf,
         track_id: u64,
         gate: Option<std::sync::Arc<std::sync::Barrier>>,
     ) -> Self {
         let (tx, rx) = channel();
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let worker_cancelled = cancelled.clone();
         let started = std::thread::Builder::new()
             .name("oxidj-artwork".into())
             .spawn(move || {
@@ -35,18 +132,17 @@ impl Job {
                     gate.wait();
                 }
                 let result = (|| {
-                    let mut catalog = Catalog::open(&db_path).map_err(|error| error.to_string())?;
                     let id = TrackId::new(track_id).map_err(|_| "invalid track id".to_owned())?;
-                    catalog.load_artwork(id).map_err(|error| error.to_string())
+                    cache.load(&db_path, id, &worker_cancelled)
                 })();
                 let _ = tx.send(result);
             });
         if started.is_err() {
             let (tx, rx) = channel();
             let _ = tx.send(Err("could not start the artwork worker".into()));
-            return Self { rx };
+            return Self { rx, cancelled };
         }
-        Self { rx }
+        Self { rx, cancelled }
     }
 
     /// The result once the worker finished.
@@ -56,6 +152,12 @@ impl Job {
             Err(TryRecvError::Empty) => None,
             Err(TryRecvError::Disconnected) => Some(Err("artwork worker stopped".into())),
         }
+    }
+}
+
+impl Drop for Job {
+    fn drop(&mut self) {
+        self.cancelled.store(true, Ordering::Relaxed);
     }
 }
 
@@ -72,10 +174,11 @@ impl DeckArt {
     pub(crate) fn load(
         &mut self,
         track_id: u64,
+        cache: Cache,
         db_path: PathBuf,
         gate: Option<std::sync::Arc<std::sync::Barrier>>,
     ) {
-        self.job = Some(Job::start_after_gate(db_path, track_id, gate));
+        self.job = Some(Job::start_after_gate(cache, db_path, track_id, gate));
         self.texture = None;
         self.size = [0, 0];
     }
@@ -176,6 +279,75 @@ fn paint_vinyl(painter: &egui::Painter, rect: Rect, colours: DeckColours, tokens
         egui::Stroke::new(1.0_f32, alpha(colours.outer, 170)),
     );
     painter.circle_filled(centre, (radius * 0.08).max(1.5), tokens.background);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn artwork_async_jobs_share_lru_and_evict_the_oldest_not_the_touched_track() {
+        let root = std::env::temp_dir().join(format!("artwork-lru-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let db = root.join("catalog.sqlite");
+        let mut catalog = Catalog::open(&db).unwrap();
+        let ids: Vec<_> = (0..9)
+            .map(|n| {
+                let track = catalog
+                    .insert_track(
+                        &format!("art-{n}"),
+                        &format!("/not-present-{n}.flac"),
+                        [n; 32],
+                        1,
+                    )
+                    .unwrap();
+                catalog
+                    .store_artwork(track.id, [n; 32], &Artwork::new(2, 2, vec![n; 16]).unwrap())
+                    .unwrap();
+                track.id
+            })
+            .collect();
+        let cache = Cache::default();
+        cache.configure(512); // 128-byte LRU, plus decoder/texture allowances.
+        let load = |id: TrackId| {
+            let job = Job::start_after_gate(cache.clone(), db.clone(), id.as_u64(), None);
+            let start = std::time::Instant::now();
+            loop {
+                if let Some(result) = job.poll() {
+                    break result.unwrap().unwrap();
+                }
+                assert!(start.elapsed().as_secs() < 10);
+                std::thread::yield_now();
+            }
+        };
+        for id in &ids[..8] {
+            assert_eq!(load(*id).byte_len(), 16);
+        }
+        assert_eq!(cache.bytes(), 128);
+        load(ids[0]); // promote the first entry
+        load(ids[8]); // evict the second
+        assert_eq!(cache.bytes(), 128);
+        {
+            let mut state = cache.state.lock().unwrap();
+            assert!(state.pixels.get(ids[0]).is_some());
+            assert!(state.pixels.get(ids[1]).is_none());
+            assert!(state.pixels.get(ids[8]).is_some());
+        }
+        // Remove disk entries and source files are absent: only the shared RAM
+        // hit can succeed, proving deck jobs really consume the LRU.
+        catalog.set_artwork_cache_budget(0).unwrap();
+        assert_eq!(load(ids[0]).byte_len(), 16);
+        cache.configure(0);
+        assert_eq!(cache.bytes(), 0);
+        assert!(
+            cache
+                .load(&db, ids[0], &AtomicBool::new(false))
+                .unwrap()
+                .is_none()
+        );
+        drop(catalog);
+        std::fs::remove_dir_all(root).unwrap();
+    }
 }
 
 /// `color` at `alpha` (0..=255), unmultiplied.

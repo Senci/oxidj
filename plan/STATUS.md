@@ -2,6 +2,20 @@
 
 Condensed 2026-11-02. Full prior text (per-increment evidence, M0-09 verification, decisions, risks, F-09 oracle notes): [docs/history/status-2026-11-02.md](../docs/history/status-2026-11-02.md). Milestone contract: [plan/MVP.md](MVP.md). Live work: Kanban; this file records stages and gates only.
 
+## M8 deck album artwork — implementation pending independent review
+
+`t_383435d2` adds read-only FLAC/MP3/AIFF embedded artwork extraction,
+cover/folder-file fallback, a decoded SQLite cache and shared in-memory LRU.
+Both decks load asynchronously, start with a deck-tinted vinyl placeholder and
+swap in centered aspect-preserving images. Settings controls visibility and a
+persisted 1–1024 MiB budget (default 100 MiB). Budget changes drop stale jobs and
+textures; display images are capped at 512 px with smaller budget-based caps,
+and decoding is serialized with pixel allocation limits. The budget accounts
+for cached pixels and deck texture allowances, not total process RSS or metadata
+parser/graphics-driver overhead. Synthetic regressions and final gates are
+recorded on the card; independent acceptance and installation remain pending.
+Personal catalogs/media were not used for this work.
+
 ## M8 headphone cue routing — implementation pending independent review
 
 `t_dc62491a` completes the separate post-filter/pre-fader headphone bus and
