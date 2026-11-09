@@ -269,8 +269,8 @@ pub(crate) struct SettingsUi {
 pub(crate) struct SettingsLayout {
     pub(crate) window: Option<egui::Rect>,
     pub(crate) tabs: Option<[egui::Rect; 4]>,
-    /// Theme segment cells: Tokyo Night, Tokyo Day, Custom.
-    pub(crate) theme: Option<[egui::Rect; 3]>,
+    /// Theme cells in ThemeMode::ALL order.
+    pub(crate) theme: Option<[egui::Rect; 12]>,
     pub(crate) style: Option<[egui::Rect; 3]>,
     pub(crate) smooth: Option<egui::Rect>,
     pub(crate) beat_lines: Option<egui::Rect>,
@@ -388,14 +388,29 @@ impl LibraryApp {
         ui.separator();
         if self.settings_ui.tab == 0 {
             SectionHeading { title: "Appearance" }.show(ui, tokens);
-            let themes = [ThemeMode::TokyoNight, ThemeMode::TokyoDay, ThemeMode::Custom];
-            let mut index = themes.iter().position(|t| *t == self.theme).unwrap_or(0);
-            let cells = themes.map(ThemeMode::label);
-            let responses = segmented_row(ui, tokens, "Theme", &cells, &mut index);
-            layout.theme = Some(rects(&responses));
-            if themes[index] != self.theme {
-                self.select_theme(themes[index]);
+            ui.label("Theme");
+            let mut cells = [egui::Rect::NOTHING; 12];
+            for (row, modes) in ThemeMode::ALL.chunks(3).enumerate() {
+                let options: Vec<_> = modes
+                    .iter()
+                    .map(|mode| (mode.label(), self.theme == *mode))
+                    .collect();
+                let responses = crate::components::segmented_toggles(ui, tokens, &options);
+                for (column, response) in responses.iter().enumerate() {
+                    cells[row * 3 + column] = response.rect;
+                    if response.clicked() {
+                        self.select_theme(modes[column]);
+                    }
+                }
             }
+            layout.theme = Some(cells);
+            ui.collapsing("Theme sources and licenses", |ui| {
+                egui::ScrollArea::vertical()
+                    .max_height(180.0)
+                    .show(ui, |ui| {
+                        ui.label(include_str!("../THIRD-PARTY-THEMES.md"));
+                    });
+            });
             if ui.button("Edit custom palette…").clicked() {
                 self.select_theme(ThemeMode::Custom);
             }

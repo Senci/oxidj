@@ -3,12 +3,21 @@ use eframe::egui::{self, Color32, Stroke, Visuals};
 const THEME_KEY: &str = "ui_theme";
 const CUSTOM_KEY: &str = "ui_custom_tokens";
 
-/// The selectable palette: two Tokyo presets plus one user-edited palette.
+/// Selectable, persisted semantic palettes; upstream attribution is bundled in the app.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum ThemeMode {
     #[default]
     TokyoNight,
     TokyoDay,
+    Catppuccin,
+    Dracula,
+    Ayu,
+    Dainty,
+    GitHub,
+    AtomOneDark,
+    Houston,
+    NightOwl,
+    Matcha,
     Custom,
 }
 
@@ -68,6 +77,22 @@ pub fn zebra(t: ColorTokens) -> Color32 {
 }
 
 impl ThemeMode {
+    /// Picker order retains the original three choices first.
+    pub const ALL: [Self; 12] = [
+        Self::TokyoNight,
+        Self::TokyoDay,
+        Self::Custom,
+        Self::Catppuccin,
+        Self::Dracula,
+        Self::Ayu,
+        Self::Dainty,
+        Self::GitHub,
+        Self::AtomOneDark,
+        Self::Houston,
+        Self::NightOwl,
+        Self::Matcha,
+    ];
+
     /// The preset palette (Custom starts from Tokyo Night).
     pub fn tokens(self) -> ColorTokens {
         match self {
@@ -97,16 +122,60 @@ impl ThemeMode {
                 warning: Color32::from_rgb(0x8c, 0x6c, 0x3d),
                 error: Color32::from_rgb(0xc6, 0x43, 0x43),
             },
+            // Catppuccin Mocha palette, copyright 2021 Catppuccin (MIT):
+            // https://github.com/catppuccin/palette/blob/main/palette.json
+            Self::Catppuccin => ColorTokens {
+                background: Color32::from_rgb(0x1e, 0x1e, 0x2e),
+                surface: Color32::from_rgb(0x31, 0x32, 0x44),
+                text: Color32::from_rgb(0xcd, 0xd6, 0xf4),
+                muted_text: Color32::from_rgb(0xba, 0xc2, 0xde),
+                primary: Color32::from_rgb(0xcb, 0xa6, 0xf7),
+                secondary: Color32::from_rgb(0x89, 0xdc, 0xeb),
+                border: Color32::from_rgb(0x93, 0x99, 0xb2),
+                focus: Color32::from_rgb(0x89, 0xdc, 0xeb),
+                success: Color32::from_rgb(0xa6, 0xe3, 0xa1),
+                warning: Color32::from_rgb(0xf9, 0xe2, 0xaf),
+                error: Color32::from_rgb(0xf3, 0x8b, 0xa8),
+            },
+            Self::Dracula => ColorTokens::from_hex([
+                0x282a36, 0x343746, 0xf8f8f2, 0xd6acff, 0xbd93f9, 0x8be9fd, 0xbd93f9, 0x8be9fd,
+                0x50fa7b, 0xf1fa8c, 0xff6e6e,
+            ]),
+            Self::Ayu => ColorTokens::from_hex([
+                0x10141c, 0x141821, 0xfcf8ec, 0xc4d6fe, 0xe6b450, 0x39bae6, 0x5a6673, 0xe6b450,
+                0x70bf56, 0xffb454, 0xf26d78,
+            ]),
+            Self::Dainty => ColorTokens::from_hex([
+                0x161b31, 0x1c2137, 0xdadbed, 0xa3a5b8, 0x8099f4, 0x93b1eb, 0x6f7287, 0x8099f4,
+                0x61c0ae, 0xbfae73, 0xe99a9a,
+            ]),
+            Self::GitHub => ColorTokens::from_hex([
+                0x24292e, 0x2f363d, 0xe1e4e8, 0xd1d5da, 0xb392f0, 0x79b8ff, 0x959da5, 0x79b8ff,
+                0x85e89d, 0xffdf5d, 0xf97583,
+            ]),
+            Self::AtomOneDark => ColorTokens::from_hex([
+                0x282c34, 0x21252b, 0xabb2bf, 0xabb2bf, 0xc678dd, 0x61afef, 0x828997, 0x61afef,
+                0x98c379, 0xe5c07b, 0xe06c75,
+            ]),
+            Self::Houston => ColorTokens::from_hex([
+                0x17191e, 0x23262d, 0xeef0f9, 0xbfc1c9, 0xcc75f4, 0x54b9ff, 0x858b98, 0x00daef,
+                0x4bf3c8, 0xffd493, 0xf4587e,
+            ]),
+            Self::NightOwl => ColorTokens::from_hex([
+                0x011627, 0x0b253a, 0xd6deeb, 0x89a4bb, 0xc792ea, 0x82aaff, 0x5f7e97, 0x7fdbca,
+                0xc5e478, 0xffeb95, 0xef5350,
+            ]),
+            Self::Matcha => ColorTokens::from_hex([
+                0x273136, 0x323e45, 0xd1ded3, 0xd9d4b8, 0xa4b07e, 0xd9d4b8, 0xa4b07e, 0xd9d4b8,
+                0xa4b07e, 0xc0ae69, 0xc6a685,
+            ]),
             Self::Custom => Self::TokyoNight.tokens(),
         }
     }
 
-    /// Replace custom tokens with the selected Tokyo preset.
+    /// Replace custom tokens with the selected preset.
     pub fn reset_custom_tokens(preset: Self) -> ColorTokens {
-        match preset {
-            Self::TokyoNight | Self::TokyoDay => preset.tokens(),
-            Self::Custom => Self::TokyoNight.tokens(),
-        }
+        preset.tokens()
     }
 
     /// Human-readable preset name shown in the theme picker.
@@ -114,6 +183,16 @@ impl ThemeMode {
         match self {
             Self::TokyoNight => "Tokyo Night",
             Self::TokyoDay => "Tokyo Day",
+            Self::Catppuccin => "Catppuccin",
+            Self::Dracula => "Dracula",
+            Self::Ayu => "Ayu",
+            Self::Dainty => "Dainty",
+            Self::GitHub => "GitHub",
+            Self::AtomOneDark => "Atom One Dark",
+            Self::Houston => "Houston",
+            Self::NightOwl => "Night Owl",
+            Self::Matcha => "Matcha",
+
             Self::Custom => "Custom",
         }
     }
@@ -122,16 +201,25 @@ impl ThemeMode {
         match self {
             Self::TokyoNight => "tokyo-night",
             Self::TokyoDay => "tokyo-day",
+            Self::Catppuccin => "catppuccin",
+            Self::Dracula => "dracula",
+            Self::Ayu => "ayu",
+            Self::Dainty => "dainty",
+            Self::GitHub => "github",
+            Self::AtomOneDark => "atom-one-dark",
+            Self::Houston => "houston",
+            Self::NightOwl => "night-owl",
+            Self::Matcha => "matcha",
+
             Self::Custom => "custom",
         }
     }
 
     fn from_persisted(value: Option<&str>) -> Self {
-        match value {
-            Some("tokyo-day") => Self::TokyoDay,
-            Some("custom") => Self::Custom,
-            _ => Self::TokyoNight,
-        }
+        Self::ALL
+            .into_iter()
+            .find(|m| Some(m.persisted_name()) == value)
+            .unwrap_or_default()
     }
 
     /// Restore the persisted mode and custom palette (Tokyo Night when absent).
@@ -159,7 +247,7 @@ impl ThemeMode {
         };
         let mut visuals = match self {
             Self::TokyoDay => Visuals::light(),
-            Self::TokyoNight | Self::Custom => Visuals::dark(),
+            _ => Visuals::dark(),
         };
         visuals.panel_fill = t.background;
         visuals.window_fill = t.surface;
@@ -245,6 +333,26 @@ pub fn current_tokens(ctx: &egui::Context) -> ColorTokens {
 const TOKENS_ID: &str = "oxidj_theme_tokens";
 
 impl ColorTokens {
+    /// Adapted upstream RGB (see THIRD-PARTY-THEMES.md), in this order:
+    /// background, surface, text, muted, primary, secondary, border, focus,
+    /// success, warning, error.
+    fn from_hex(values: [u32; 11]) -> Self {
+        let c = values.map(|v| Color32::from_rgb((v >> 16) as u8, (v >> 8) as u8, v as u8));
+        Self {
+            background: c[0],
+            surface: c[1],
+            text: c[2],
+            muted_text: c[3],
+            primary: c[4],
+            secondary: c[5],
+            border: c[6],
+            focus: c[7],
+            success: c[8],
+            warning: c[9],
+            error: c[10],
+        }
+    }
+
     fn encode(self) -> String {
         self.as_array()
             .iter()
@@ -362,7 +470,7 @@ mod tests {
 
     #[test]
     fn semantic_palette_colors_meet_contrast_thresholds_on_both_fills() {
-        for mode in [ThemeMode::TokyoNight, ThemeMode::TokyoDay] {
+        for mode in ThemeMode::ALL {
             let tokens = mode.tokens();
             for (name, color) in [
                 ("text", tokens.text),
@@ -397,7 +505,7 @@ mod tests {
 
     #[test]
     fn control_outlines_and_selection_meet_contrast_thresholds() {
-        for mode in [ThemeMode::TokyoNight, ThemeMode::TokyoDay] {
+        for mode in ThemeMode::ALL {
             let tokens = mode.tokens();
             for fill in [tokens.background, tokens.surface] {
                 let ratio = contrast_ratio(tokens.border, fill);
@@ -428,17 +536,29 @@ mod tests {
             let m = |c: u8, b: u8| (f32::from(c) * a + f32::from(b) * (1.0 - a)).round() as u8;
             Color32::from_rgb(m(c.r(), b.r()), m(c.g(), b.g()), m(c.b(), b.b()))
         };
-        for mode in [ThemeMode::TokyoNight, ThemeMode::TokyoDay] {
+        for mode in ThemeMode::ALL {
             let t = mode.tokens();
             let zebra = over(t.surface, ZEBRA_TINT, t.background);
             for (name, fg, fill) in [
                 ("text on zebra", t.text, zebra),
                 ("muted on zebra", t.muted_text, zebra),
                 ("muted on hover", t.muted_text, t.surface),
-                ("text on selection", t.text, over(t.primary, SELECTION_TINT, t.background)),
+                (
+                    "text on selection",
+                    t.text,
+                    over(t.primary, SELECTION_TINT, t.background),
+                ),
                 // B2c: the muted "low" confidence badge (16 % muted tint).
-                ("text on muted badge", t.text, over(t.muted_text, 0.16, t.background)),
-                ("text on muted badge (surface)", t.text, over(t.muted_text, 0.16, t.surface)),
+                (
+                    "text on muted badge",
+                    t.text,
+                    over(t.muted_text, 0.16, t.background),
+                ),
+                (
+                    "text on muted badge (surface)",
+                    t.text,
+                    over(t.muted_text, 0.16, t.surface),
+                ),
             ] {
                 let ratio = contrast_ratio(fg, fill);
                 assert!(ratio >= 4.5, "{} {name} {ratio:.2}:1", mode.label());
@@ -459,7 +579,7 @@ mod tests {
 
     #[test]
     fn both_palettes_define_focus_and_status_tokens() {
-        for mode in [ThemeMode::TokyoNight, ThemeMode::TokyoDay] {
+        for mode in ThemeMode::ALL {
             let tokens = mode.tokens();
             if mode == ThemeMode::TokyoDay {
                 assert_ne!(tokens.focus, tokens.secondary);
@@ -472,7 +592,7 @@ mod tests {
 
     #[test]
     fn applied_visuals_use_shared_surface_border_and_focus_tokens() {
-        for mode in [ThemeMode::TokyoNight, ThemeMode::TokyoDay] {
+        for mode in ThemeMode::ALL {
             let ctx = egui::Context::default();
             mode.apply(mode.tokens(), &ctx);
             let style = ctx.style();
@@ -495,6 +615,45 @@ mod tests {
             assert_eq!(visuals.widgets.hovered.bg_stroke.color, tokens.focus);
             assert_eq!(visuals.widgets.active.bg_stroke.color, tokens.focus);
             assert_eq!(visuals.widgets.open.bg_stroke.color, tokens.focus);
+        }
+    }
+
+    #[test]
+    fn catppuccin_round_trips_and_applies_tokens() {
+        let mut storage = MemoryStorage::default();
+        let mode = ThemeMode::from_persisted(Some("catppuccin"));
+        assert_eq!(mode, ThemeMode::Catppuccin);
+        let custom = ThemeMode::TokyoDay.tokens();
+        mode.save(custom, &mut storage);
+        assert_eq!(ThemeMode::load(Some(&storage)), (mode, custom));
+        let ctx = egui::Context::default();
+        mode.apply(custom, &ctx);
+        assert_eq!(current_tokens(&ctx), mode.tokens());
+        assert_eq!(ctx.style().visuals.panel_fill, mode.tokens().background);
+    }
+
+    #[test]
+    fn requested_presets_are_distinct_and_persist() {
+        let mut storage = MemoryStorage::default();
+        let custom = ThemeMode::TokyoNight.tokens();
+        let mut modes = Vec::new();
+        for name in [
+            "catppuccin",
+            "dracula",
+            "ayu",
+            "dainty",
+            "github",
+            "atom-one-dark",
+            "houston",
+            "night-owl",
+            "matcha",
+        ] {
+            let mode = ThemeMode::from_persisted(Some(name));
+            assert_ne!(mode, ThemeMode::TokyoNight, "missing preset {name}");
+            assert!(!modes.contains(&mode), "duplicate preset {name}");
+            mode.save(custom, &mut storage);
+            assert_eq!(ThemeMode::load(Some(&storage)), (mode, custom));
+            modes.push(mode);
         }
     }
 

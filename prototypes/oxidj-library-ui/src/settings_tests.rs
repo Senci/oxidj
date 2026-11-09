@@ -29,6 +29,65 @@ fn settings_tabs_show_only_the_selected_group() {
 }
 
 #[test]
+fn every_theme_is_selectable_persisted_and_truthfully_exposed_in_settings() {
+    let root = temp_root("all-presets");
+    let mut h = Harness::new(root.join("catalog.sqlite"));
+    h.app.custom_tokens.primary = egui::Color32::from_rgb(12, 34, 56);
+    let custom = h.app.custom_tokens;
+    h.app.settings.smooth = false;
+    let settings = h.app.settings;
+    h.ctrl_comma();
+    for (i, mode) in ThemeMode::ALL.into_iter().enumerate() {
+        let cell = h.layout().theme.unwrap()[i];
+        assert!(h.layout().window.unwrap().contains_rect(cell));
+        let out = h.click(cell.center());
+        assert_eq!(h.app.theme, mode, "{} pointer selection", mode.label());
+        assert_eq!(h.app.custom_tokens, custom);
+        assert_eq!(h.app.settings, settings);
+        let tokens = if mode == ThemeMode::Custom {
+            custom
+        } else {
+            mode.tokens()
+        };
+        assert_eq!(theme::current_tokens(&h.ctx), tokens);
+        assert_eq!(h.ctx.style().visuals.panel_fill, tokens.background);
+        let nodes = accesskit_nodes(&out);
+        for candidate in ThemeMode::ALL {
+            let node = nodes
+                .iter()
+                .find(|n| n.label().as_deref() == Some(candidate.label()))
+                .expect("preset accessible by name");
+            assert_eq!(
+                node.toggled(),
+                Some(if candidate == mode {
+                    accesskit::Toggled::True
+                } else {
+                    accesskit::Toggled::False
+                }),
+                "{} selected state",
+                candidate.label()
+            );
+        }
+        let mut storage = MemoryStorage::default();
+        eframe::App::save(&mut h.app, &mut storage);
+        let (restored, saved_custom) = ThemeMode::load(Some(&storage));
+        assert_eq!((restored, saved_custom), (mode, custom));
+        assert_eq!(Settings::load(Some(&storage)), settings);
+        let reopened = LibraryApp::new(root.join("catalog.sqlite"), restored, saved_custom);
+        assert_eq!(reopened.theme, mode);
+        assert_eq!(reopened.custom_tokens, custom);
+        if mode == ThemeMode::Custom {
+            // Exercise the existing Esc/Settings shortcut path after opening Custom.
+            h.key(egui::Key::Escape, Default::default());
+            if !h.app.settings_ui.open {
+                h.ctrl_comma();
+            }
+        }
+    }
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn selecting_custom_in_settings_preserves_saved_palette() {
     let root = temp_root("saved-palette");
     let mut h = Harness::new(root.join("catalog.sqlite"));

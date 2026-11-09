@@ -2,6 +2,21 @@
 
 Condensed 2026-11-02. Full prior text (per-increment evidence, M0-09 verification, decisions, risks, F-09 oracle notes): [docs/history/status-2026-11-02.md](../docs/history/status-2026-11-02.md). Milestone contract: [plan/MVP.md](MVP.md). Live work: Kanban; this file records stages and gates only.
 
+## Requested Settings theme presets — implementation pending independent review
+
+`t_f12bcc02` adds Catppuccin Mocha, Dracula, Ayu Dark, Dainty Dark,
+GitHub Dark Classic, Atom One Dark, Houston, Night Owl and Matcha alongside
+Tokyo Night, Tokyo Day and Custom. One picker reports the actual selected
+preset; existing storage keys, custom colors, settings and shortcuts are kept.
+Upstream sources and MIT notices are embedded in Settings. Synthetic
+actual-egui pointer selection, AccessKit selected-state, storage restoration,
+semantic-token and contrast regressions cover all presets. Independent review
+and installation remain required; native-display and full accessibility
+qualification are not claimed. The standing follow-on objective remains Lucide
+SVG icons, club-standard mixer/faders, distinct trim/filter/master knobs,
+per-deck headphone cue routing with cue mix/volume, and deck artwork; this card
+does not complete that objective.
+
 ## M6 bounded step-tempo inspection — reviewed and installed (2026-11-08)
 
 `inspect-step-tempo --file PATH` provides an explicit-file, inspection-only
