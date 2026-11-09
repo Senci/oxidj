@@ -2,13 +2,16 @@
 
 The mixer CUE buttons are headphone routing switches, **not** the transport CUE
 buttons. A lit/selected switch sends that deck's post-trim/EQ/filter,
-pre-channel-fader signal to the independent cue bus. The crossfader and main
-master volume never attenuate this bus. MIX blends cued A (0) to cued B (1),
-with a linear 50/50 blend at the centre. An unselected deck contributes silence;
-there is no automatic gain compensation when only one deck is cued. CUE volume
-scales the resulting stereo bus once. Both knobs clamp to 0–1; double-click
-resets MIX to 0.5 and CUE volume to 1.0. Native egui focus, arrows, wheel,
-AccessKit value actions and selected CUE state are regression-tested.
+pre-channel-fader signal to the independent cue bus. The tap is taken after the
+colour filter, so the cue hears the same filter as the main bus. The crossfader
+and main master volume never attenuate this bus. MIX blends cued A (0) to cued B
+(1), with a linear 50/50 blend at the centre. An unselected deck contributes
+silence; there is no automatic gain compensation when only one deck is cued.
+CUE volume scales the resulting stereo bus once. The per-deck cue gain, the CUE
+volume and the master volume all ramp linearly across each chunk, so a CUE
+switch or a knob move fades instead of clicking. Both knobs clamp to 0–1;
+double-click resets MIX to 0.5 and CUE volume to 1.0. Native egui focus, arrows,
+wheel, AccessKit value actions and selected CUE state are regression-tested.
 
 ## Device layout and selection
 
@@ -55,7 +58,10 @@ main L/R RMS 0.070697/0.035342, cue L/R 0.070697/0.035341; frequency isolation
 passed. The test also caught and fixed inherited stereo duplication and a
 squared cue-volume gain. Manual-renderer regressions cover all cue switches,
 blend positions, half-volume linear scaling, clamping, NaN, main invariance,
-pre-fader/master isolation, bypass and incomplete/extra channel layouts.
+pre-fader/master isolation, bypass and incomplete/extra channel layouts. The
+post-filter tap is asserted against the main bus with the colour filter engaged,
+settled cue levels are checked at the end of each of the last four chunks, and
+CUE/MIX changes are asserted click-free.
 The allocation harness exercises four-channel cue while controls change.
 
 **Not demonstrated:** physical headphone/interface routing, ASIO, macOS,

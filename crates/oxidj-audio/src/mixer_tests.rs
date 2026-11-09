@@ -461,6 +461,94 @@ fn mixer_routes_faders_crossfader_and_meters() {
     assert!(block(&mut r, 2_048).iter().all(|s| *s == 0.0));
 }
 
+/// The cue tap is the post-filter signal, and its gain ramps to the target.
+#[test]
+fn cue_tap_is_post_filter_and_its_gain_ramps() {
+    let rate = f64::from(RATE);
+    let mut strip = Strip::new(rate);
+    let p = ChannelParams {
+        filter: -1.0, // 120 Hz low-pass
+        ..ChannelParams::default()
+    };
+    let input = sine(440.0, 0.5, 0.5);
+    let mut buf = input.clone();
+    let mut tap = vec![0.0f32; input.len()];
+    strip.process(&mut buf, &p, 1.0, rate, Some(&mut tap));
+    let in_peak = input.iter().fold(0.0f32, |m, s| m.max(s.abs()));
+    let tap_peak = tap.iter().fold(0.0f32, |m, s| m.max(s.abs()));
+    assert!(
+        tap_peak < in_peak * 0.25,
+        "tap must be post-filter: {tap_peak} of {in_peak}"
+    );
+    assert!(
+        buf.iter().zip(&tap).all(|(a, b)| (a - b).abs() < 1e-6),
+        "unity fader: main is the tap"
+    );
+
+    // A CUE enable ramps up from silence instead of jumping to full level.
+    let mut cue = tap.clone();
+    strip.apply_cue_gain(&mut cue, 1.0);
+    let early = cue[..128].iter().fold(0.0f32, |m, s| m.max(s.abs()));
+    assert!(
+        early < tap_peak * 0.5,
+        "cue must ramp in: early peak {early} of {tap_peak}"
+    );
+    assert!((cue[cue.len() - 1] - tap[tap.len() - 1]).abs() < 1e-6);
+    // A CUE disable (or MIX to the other deck) fades back to silence.
+    let mut back = tap.clone();
+    strip.apply_cue_gain(&mut back, 0.0);
+    assert!(
+        back[back.len() - 1].abs() < 1e-6,
+        "cue must fade to silence"
+    );
+    // The target clamps to unity.
+    let mut loud = tap.clone();
+    strip.apply_cue_gain(&mut loud, 4.0);
+    assert!((loud[loud.len() - 1] - tap[tap.len() - 1]).abs() < 1e-6);
+}
+
+/// Cue mix/volume clamp at the mixer level and blend A into B.
+#[test]
+fn cue_bus_gains_clamp_and_blend() {
+    let mut mixer = Mixer::new(RATE, None);
+    let mut p = MixerParams {
+        cue_mix: -1.0,
+        cue_volume: 4.0,
+        ..MixerParams::default()
+    };
+    p.channels.iter_mut().for_each(|c| c.cue = true);
+    mixer.set(Some(p));
+    assert_eq!(p.cue_gain(0), 1.0, "mix clamps low: A only");
+    assert_eq!(p.cue_gain(1), 0.0, "mix clamps low: B silent");
+
+    let mut a = vec![0.5f32; CHUNK * 2];
+    mixer.process_cue_channel(0, &mut a);
+    assert!(a.iter().all(|s| (*s - 0.5).abs() < 1e-6), "A at unity");
+    let mut b = vec![0.5f32; CHUNK * 2];
+    mixer.process_cue_channel(1, &mut b);
+    assert!(b.iter().all(|s| s.abs() < 1e-6), "B faded to silence");
+
+    let mut bus = vec![0.5f32; CHUNK * 2];
+    mixer.process_cue(&mut bus);
+    assert!(
+        bus.iter().all(|s| (*s - 0.5).abs() < 1e-6),
+        "cue volume clamps to unity"
+    );
+
+    // MIX at the centre blends both decks equally.
+    let mut centre = MixerParams {
+        cue_mix: 0.5,
+        ..MixerParams::default()
+    };
+    centre.channels.iter_mut().for_each(|c| c.cue = true);
+    assert_eq!(centre.cue_gain(0), 0.5);
+    assert_eq!(centre.cue_gain(1), 0.5);
+    let mut nan = centre;
+    nan.cue_mix = f32::NAN;
+    assert_eq!(nan.cue_gain(0), 0.0, "NaN mix is silence, not a stale gain");
+    assert_eq!(nan.cue_gain(1), 0.0);
+}
+
 /// Magnitude of `hz` in `x` (mono, at [`RATE`]).
 fn goertzel(x: &[f32], hz: f64) -> f64 {
     let w = 2.0 * PI * hz / f64::from(RATE);

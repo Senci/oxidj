@@ -4,16 +4,20 @@ Condensed 2026-11-02. Full prior text (per-increment evidence, M0-09 verificatio
 
 ## M8 headphone cue routing — implementation pending independent review
 
-`t_dc62491a` completes the separate post-EQ/pre-fader headphone bus and native
-CUE switches, MIX and volume controls. Main output remains independent;
-multichannel outputs 1–2 carry main and 3–4 carry headphones, with an explicit
-startup endpoint selector. Synthetic production-renderer and actual-egui tests
-cover routing, gain, selected state, keyboard/AccessKit/wheel/reset and focus.
-The real CPAL → temporary PipeWire four-channel sink → monitor check passed
-with independent main/cue frequencies, 0 reported xruns/errors and no default
-sink change. [Runbook and limits](../docs/headphone-cue.md). Physical interfaces,
-ASIO/macOS and latency remain NOT DEMONSTRATED. Review, install and the requested
-publication remain pending; preceding artwork WIP is not accepted by this card.
+`t_dc62491a` completes the separate post-filter/pre-fader headphone bus and
+native CUE switches, MIX and volume controls. The tap follows the colour
+filter, and the per-deck cue gain, CUE volume and master volume ramp across
+each chunk so CUE switches and knob moves fade instead of clicking. Main output
+remains independent; multichannel outputs 1–2 carry main and 3–4 carry
+headphones, with an explicit startup endpoint selector. Synthetic
+production-renderer and actual-egui tests cover routing, gain, the post-filter
+tap, click-free gain changes, selected state, keyboard/AccessKit/wheel/reset
+and focus. The real CPAL → temporary PipeWire four-channel sink → monitor
+check passed with independent main/cue frequencies, 0 reported xruns/errors
+and no default sink change. [Runbook and limits](../docs/headphone-cue.md).
+Physical interfaces, ASIO/macOS and latency remain NOT DEMONSTRATED. Review,
+install and the requested publication remain pending; preceding artwork WIP is
+not accepted by this card.
 
 ## Requested Settings theme presets — implementation pending independent review
 

@@ -23,6 +23,11 @@
 //!
 //! The mixer is optional: with no [`MixerParams`] the renderer skips this
 //! module entirely and the decks sum at unity exactly as before (D2/D3).
+//!
+//! **Headphone cue**: every channel's post-filter, pre-fader signal is tapped
+//! for the independent cue bus ([`Strip::apply_cue_gain`]). The per-deck cue
+//! gain (`cue_mix`), the cue volume and the master volume all ramp linearly
+//! across each chunk, so CUE switches and knob moves fade instead of clicking.
 
 use crate::DECKS;
 use std::f64::consts::PI;
@@ -325,6 +330,8 @@ struct Strip {
     filter_at: f32,
     /// Current (ramped) gains: trim, low, mid, high, out.
     gains: [f32; 5],
+    /// Current (ramped) cue gain applied to the post-filter cue tap.
+    cue_gain: f32,
 }
 
 impl Strip {
@@ -340,6 +347,7 @@ impl Strip {
             filter: Biquad::default(),
             filter_at: 0.0,
             gains: [1.0; 5],
+            cue_gain: 0.0,
         }
     }
 
@@ -378,10 +386,12 @@ impl Strip {
         }
     }
 
-    /// Process `buf` (interleaved stereo) in place through trim, EQ and filter.
-    /// If `pre_fader_out` is provided, the pre-fader signal (after filter, before
-    /// fader/crossfader) is written there. Then applies the fader×crossfader gain
-    /// `out_gain` to `buf` in place. Returns the pre-fader peak.
+    /// Process `buf` (interleaved stereo) in place through trim, EQ and the
+    /// colour filter. If `pre_fader_out` is provided, the post-filter signal
+    /// (trim, EQ and colour filter applied; before the channel fader and
+    /// crossfader) is written there — that is the headphone cue tap. Then
+    /// applies the fader×crossfader gain `out_gain` to `buf` in place. Returns
+    /// the post-filter peak.
     fn process(
         &mut self,
         buf: &mut [f32],
@@ -413,7 +423,7 @@ impl Strip {
                 }
                 let y = y as f32;
                 peak = peak.max(y.abs());
-                // Write pre-fader signal if requested.
+                // Write the post-filter cue tap if requested.
                 if let Some(pre) = pre_fader_out.as_deref_mut()
                     && let Some(sample) = pre.get_mut(i * 2 + side)
                 {
@@ -437,18 +447,22 @@ impl Strip {
         if peak.is_nan() { 0.0 } else { peak }
     }
 
-    /// Process a buffer that is already at pre-fader level (after trim, EQ, filter)
-    /// and apply only the cue gain. Does not advance filter state.
-    fn apply_cue_gain(&mut self, buf: &mut [f32], cue_gain: f32) -> f32 {
-        let _frames = buf.len() / 2;
+    /// Ramp the cue tap from its current gain to `target` across `buf` (one
+    /// chunk), so a CUE switch or a MIX move fades instead of clicking. `buf`
+    /// holds the post-filter, pre-fader signal captured by [`Strip::process`];
+    /// the filter state is not touched here.
+    fn apply_cue_gain(&mut self, buf: &mut [f32], target: f32) -> f32 {
+        let (from, to) = (self.cue_gain, finite01(target));
+        let n = (buf.len() / 2).max(1) as f32;
         let mut peak = 0.0f32;
-        for frame in buf.as_chunks_mut::<2>().0.iter_mut() {
-            let g = cue_gain; // No ramping for cue gain for simplicity
+        for (i, frame) in buf.as_chunks_mut::<2>().0.iter_mut().enumerate() {
+            let g = from + (to - from) * (i + 1) as f32 / n;
             for s in frame.iter_mut() {
                 *s *= g;
                 peak = peak.max(s.abs());
             }
         }
+        self.cue_gain = to;
         if peak.is_nan() { 0.0 } else { peak }
     }
 }
@@ -485,6 +499,11 @@ impl Mixer {
                 strip.reset();
                 strip.filter_at = 0.0;
                 strip.gains = targets(&p.channels[c], p.channel_out(c));
+                strip.cue_gain = if p.channels[c].cue {
+                    p.cue_gain(c)
+                } else {
+                    0.0
+                };
             }
             self.master = finite01(p.master);
             self.cue_master = finite01(p.cue_volume);
@@ -515,8 +534,8 @@ impl Mixer {
         strip.process(buf, ch, p.channel_out(c), self.rate, pre_fader_out)
     }
 
-    /// Process the cue channel: takes a pre-fader buffer and applies cue gain.
-    /// Does not advance filter state.
+    /// Process the cue tap: ramp the captured post-filter, pre-fader buffer to
+    /// this channel's cue gain (silence when its CUE switch is off).
     pub(crate) fn process_cue_channel(&mut self, c: usize, buf: &mut [f32]) -> f32 {
         let (Some(p), Some(strip)) = (self.params.as_ref(), self.strips.get_mut(c)) else {
             return 0.0;
@@ -524,12 +543,8 @@ impl Mixer {
         let Some(ch) = p.channels.get(c) else {
             return 0.0;
         };
-        if !ch.cue {
-            buf.fill(0.0);
-            return 0.0;
-        }
-        let cue_gain = p.cue_gain(c);
-        strip.apply_cue_gain(buf, cue_gain)
+        let target = if ch.cue { p.cue_gain(c) } else { 0.0 };
+        strip.apply_cue_gain(buf, target)
     }
 
     /// Master volume over the summed chunk; returns the peak before the
