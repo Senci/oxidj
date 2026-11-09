@@ -124,13 +124,16 @@ pub(crate) struct LibraryApp {
     pub(crate) waveform_job: Option<waveform_analysis::Job>,
     #[cfg(test)]
     pub(crate) waveform_gate: Option<std::sync::Arc<std::sync::Barrier>>,
+    #[cfg(test)]
+    pub(crate) artwork_gate: Option<std::sync::Arc<std::sync::Barrier>>,
     pub(crate) availability_filter: Option<TrackAvailability>,
     /// Structural node path (not membership, names, or local audio IDs).
     pub(crate) imported_playlist: Option<Vec<usize>>,
     pub(crate) imported_member: Option<usize>,
     pub(crate) selected_imported: Option<usize>,
     pub(crate) dragging_track: Option<TrackSource>,
-    pub(crate) imported_navigation: Result<std::sync::Arc<oxidj_library::LibraryNavigation>, String>,
+    pub(crate) imported_navigation:
+        Result<std::sync::Arc<oxidj_library::LibraryNavigation>, String>,
     /// M8/D1 deck area (silent transport until D2).
     pub(crate) decks: crate::decks::DeckArea,
     /// W8 shell panel toggles (app state only, not persisted).
@@ -145,7 +148,10 @@ pub(crate) struct LibraryApp {
 }
 
 #[derive(Clone, Copy, Debug)]
-pub(crate) enum TrackSource { Catalog(u64), Imported(usize) }
+pub(crate) enum TrackSource {
+    Catalog(u64),
+    Imported(usize),
+}
 
 /// Where the last frame placed each shell region; `None` when hidden.
 #[derive(Clone, Copy, Debug, Default)]
@@ -168,7 +174,11 @@ pub(crate) struct ShellLayout {
 }
 
 impl LibraryApp {
-    pub(crate) fn new(db_path: PathBuf, theme: ThemeMode, custom_tokens: theme::ColorTokens) -> Self {
+    pub(crate) fn new(
+        db_path: PathBuf,
+        theme: ThemeMode,
+        custom_tokens: theme::ColorTokens,
+    ) -> Self {
         let catalog = Catalog::open(&db_path).map_err(|e| e.to_string());
         let mut app = Self {
             db_path,
@@ -294,6 +304,8 @@ impl LibraryApp {
             waveform_job: None,
             #[cfg(test)]
             waveform_gate: None,
+            #[cfg(test)]
+            artwork_gate: None,
             availability_filter: None,
             imported_playlist: None,
             imported_member: None,
@@ -320,7 +332,11 @@ impl LibraryApp {
         response
     }
 
-    pub(crate) fn show_control_gallery_window(&mut self, ctx: &egui::Context, tokens: theme::ColorTokens) {
+    pub(crate) fn show_control_gallery_window(
+        &mut self,
+        ctx: &egui::Context,
+        tokens: theme::ColorTokens,
+    ) {
         if self.show_control_gallery {
             let mut open = self.show_control_gallery;
             egui::Window::new("OxiDJ · Control concept gallery")
@@ -514,7 +530,8 @@ impl LibraryApp {
         self.track_waveform.invalidate();
         match &self.catalog {
             Ok(db) => {
-                self.imported_navigation = db.library_navigation()
+                self.imported_navigation = db
+                    .library_navigation()
                     .map(std::sync::Arc::new)
                     .map_err(|error| error.to_string());
                 match db.list_track_details() {
@@ -533,12 +550,21 @@ impl LibraryApp {
     pub(crate) fn load_imported_member(&mut self, member: usize, deck: usize) {
         let result = (|| {
             let imported = self.imported_navigation.as_ref().map_err(Clone::clone)?;
-            let imported = imported.tracks.get(member).ok_or_else(|| "playlist member is unavailable".to_owned())?;
-            let id = self.catalog.as_mut().map_err(|e| e.clone())?
-                .reference_id_for_library_location(&imported.location).map_err(|e| e.to_string())?
+            let imported = imported
+                .tracks
+                .get(member)
+                .ok_or_else(|| "playlist member is unavailable".to_owned())?;
+            let id = self
+                .catalog
+                .as_mut()
+                .map_err(|e| e.clone())?
+                .reference_id_for_library_location(&imported.location)
+                .map_err(|e| e.to_string())?
                 .ok_or_else(|| "playlist audio is unavailable".to_owned())?;
             self.reload();
-            self.tracks.iter().find(|item| item.track.id == id)
+            self.tracks
+                .iter()
+                .find(|item| item.track.id == id)
                 .map(|item| item.track.id.as_u64())
                 .ok_or_else(|| "resolved audio reference is unavailable".to_owned())
         })();
@@ -557,13 +583,21 @@ impl LibraryApp {
             Ok(db) => match db.import_audio_directory(&self.import_root) {
                 Ok(report) => {
                     let imported = waveform_analysis::imported_paths(&report);
-                    let ids = db.list_track_details().map(|tracks| tracks.into_iter()
-                        .filter(|track| imported.contains(track.track.path.as_str()))
-                        .map(|track| track.track.id.as_u64()).collect::<Vec<_>>());
+                    let ids = db.list_track_details().map(|tracks| {
+                        tracks
+                            .into_iter()
+                            .filter(|track| imported.contains(track.track.path.as_str()))
+                            .map(|track| track.track.id.as_u64())
+                            .collect::<Vec<_>>()
+                    });
                     self.notice = format!(
                         "Import: {} outcomes{}",
                         report.outcomes.len(),
-                        if report.complete { "" } else { " (incomplete; missing states unchanged)" }
+                        if report.complete {
+                            ""
+                        } else {
+                            " (incomplete; missing states unchanged)"
+                        }
                     );
                     self.reload();
                     match ids {
@@ -571,9 +605,17 @@ impl LibraryApp {
                             let count = ids.len();
                             let start_result = {
                                 #[cfg(test)]
-                                { waveform_analysis::Job::start_after_gate(self.db_path.clone(), ids, self.waveform_gate.take()) }
+                                {
+                                    waveform_analysis::Job::start_after_gate(
+                                        self.db_path.clone(),
+                                        ids,
+                                        self.waveform_gate.take(),
+                                    )
+                                }
                                 #[cfg(not(test))]
-                                { waveform_analysis::Job::start(self.db_path.clone(), ids) }
+                                {
+                                    waveform_analysis::Job::start(self.db_path.clone(), ids)
+                                }
                             };
                             self.waveform_job = match start_result {
                                 Ok(job) => {
@@ -581,12 +623,18 @@ impl LibraryApp {
                                     Some(job)
                                 }
                                 Err(error) => {
-                                    self.notice = format!("{count} imported; waveform analysis could not start: {error}");
+                                    self.notice = format!(
+                                        "{count} imported; waveform analysis could not start: {error}"
+                                    );
                                     None
                                 }
                             };
                         }
-                        Err(error) => self.notice = format!("Import complete; could not queue waveform analysis: {error}"),
+                        Err(error) => {
+                            self.notice = format!(
+                                "Import complete; could not queue waveform analysis: {error}"
+                            )
+                        }
                         _ => self.waveform_job = None,
                     }
                 }
@@ -597,7 +645,9 @@ impl LibraryApp {
     }
 
     pub(crate) fn pump_waveform_job(&mut self, ctx: &egui::Context) {
-        let Some(job) = &self.waveform_job else { return; };
+        let Some(job) = &self.waveform_job else {
+            return;
+        };
         if let Some(result) = job.poll() {
             let total = job.total();
             self.waveform_job = None;
@@ -605,10 +655,14 @@ impl LibraryApp {
                 Ok(results) => {
                     let succeeded = results.iter().filter(|(_, result)| result.is_ok()).count();
                     let failed = results.len() - succeeded;
-                    self.notice = format!("Waveform analysis complete: {succeeded} succeeded, {failed} failed (of {total})");
+                    self.notice = format!(
+                        "Waveform analysis complete: {succeeded} succeeded, {failed} failed (of {total})"
+                    );
                     self.reload();
                 }
-                Err(()) => self.notice = "Waveform analysis worker stopped; results unavailable".into(),
+                Err(()) => {
+                    self.notice = "Waveform analysis worker stopped; results unavailable".into()
+                }
             }
         } else {
             let (done, total) = (job.completed(), job.total());
@@ -709,7 +763,10 @@ impl LibraryApp {
     }
 
     #[cfg(test)]
-    pub(crate) fn theme_selection_ui(&mut self, ui: &mut egui::Ui) -> (egui::Rect, Option<[egui::Rect; 3]>) {
+    pub(crate) fn theme_selection_ui(
+        &mut self,
+        ui: &mut egui::Ui,
+    ) -> (egui::Rect, Option<[egui::Rect; 3]>) {
         let mut selected = self.theme;
         let mut option_rects = None;
         // Combo first, then its label: the W8 toolbar lays this group out
@@ -726,7 +783,11 @@ impl LibraryApp {
         // W11: a short muted caption; the shortcuts moved to its tooltip.
         let tokens = self.active_tokens();
         let label = ui
-            .label(egui::RichText::new("Theme").small().color(tokens.muted_text))
+            .label(
+                egui::RichText::new("Theme")
+                    .small()
+                    .color(tokens.muted_text),
+            )
             .on_hover_text("Theme: Ctrl+Alt+1 Night · Ctrl+Alt+2 Day · Ctrl+Alt+3 Custom");
         if selected != self.theme {
             self.select_theme(selected);

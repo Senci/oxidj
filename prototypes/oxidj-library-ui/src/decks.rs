@@ -21,16 +21,18 @@
 //! Hot cues set on the pads live for the session only; imported Rekordbox
 //! cues and loops are drawn as stored and never written back.
 
+use crate::LibraryApp;
 use crate::beat_grid::{self, BeatGrid, GridColours};
 use crate::deck_audio::Loading;
 use crate::settings::{DeckPalette, DeckSections, Playhead, TempoRange};
 use crate::theme::ColorTokens;
 use crate::track_waveform::{GridSource, Loaded};
 use crate::waveform_view::pick_level;
-use crate::LibraryApp;
-use eframe::egui::{self, pos2, vec2, Color32, FontId, Mesh, Pos2, Rect, Sense, Shape, Stroke, Ui};
+use eframe::egui::{self, Color32, FontId, Mesh, Pos2, Rect, Sense, Shape, Stroke, Ui, pos2, vec2};
 use oxidj_application::{WaveformBand, WaveformPeaks};
-use oxidj_audio::{Assign, ChannelParams, Command, Curve, Engine, Meter, MixerParams, Renderer, METERS};
+use oxidj_audio::{
+    Assign, ChannelParams, Command, Curve, Engine, METERS, Meter, MixerParams, Renderer,
+};
 use oxidj_library::{Catalog, LibraryCue, TrackDetails};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -106,7 +108,11 @@ fn alpha(c: Color32, a: u8) -> Color32 {
 pub fn luminance(c: Color32) -> f32 {
     let lin = |v: u8| {
         let s = f32::from(v) / 255.0;
-        if s <= 0.040_45 { s / 12.92 } else { ((s + 0.055) / 1.055).powf(2.4) }
+        if s <= 0.040_45 {
+            s / 12.92
+        } else {
+            ((s + 0.055) / 1.055).powf(2.4)
+        }
     };
     0.2126 * lin(c.r()) + 0.7152 * lin(c.g()) + 0.0722 * lin(c.b())
 }
@@ -135,19 +141,55 @@ pub fn deck_colours(palette: DeckPalette, deck: usize, tokens: ColorTokens) -> D
     // W12 bands: [low, mid, high].
     let [low, mid, high] = match (palette, a, light) {
         // Warm A: deep red-orange low, amber mid, pale-yellow core.
-        (DeckPalette::WarmCool, true, false) => [rgb(0xe8, 0x59, 0x0c), rgb(0xff, 0xb3, 0x40), rgb(0xff, 0xf4, 0xc2)],
-        (DeckPalette::WarmCool, true, true) => [rgb(0xdc, 0x4c, 0x0c), rgb(0x7a, 0x4a, 0x00), rgb(0x2e, 0x16, 0x00)],
+        (DeckPalette::WarmCool, true, false) => [
+            rgb(0xe8, 0x59, 0x0c),
+            rgb(0xff, 0xb3, 0x40),
+            rgb(0xff, 0xf4, 0xc2),
+        ],
+        (DeckPalette::WarmCool, true, true) => [
+            rgb(0xdc, 0x4c, 0x0c),
+            rgb(0x7a, 0x4a, 0x00),
+            rgb(0x2e, 0x16, 0x00),
+        ],
         // Cool B: deep blue low, cyan mid, ice-white core.
-        (DeckPalette::WarmCool, false, false) => [rgb(0x3a, 0x6d, 0xf0), rgb(0x22, 0xd3, 0xee), rgb(0xe6, 0xfb, 0xff)],
-        (DeckPalette::WarmCool, false, true) => [rgb(0x3b, 0x7d, 0xdd), rgb(0x00, 0x68, 0x7e), rgb(0x00, 0x1f, 0x33)],
+        (DeckPalette::WarmCool, false, false) => [
+            rgb(0x3a, 0x6d, 0xf0),
+            rgb(0x22, 0xd3, 0xee),
+            rgb(0xe6, 0xfb, 0xff),
+        ],
+        (DeckPalette::WarmCool, false, true) => [
+            rgb(0x3b, 0x7d, 0xdd),
+            rgb(0x00, 0x68, 0x7e),
+            rgb(0x00, 0x1f, 0x33),
+        ],
         // Classic: cyan A, purple B.
-        (DeckPalette::Classic, true, false) => [rgb(0x2a, 0x8f, 0xd6), rgb(0x7d, 0xcf, 0xff), rgb(0xe6, 0xf7, 0xff)],
-        (DeckPalette::Classic, true, true) => [rgb(0x2f, 0x7f, 0xbf), rgb(0x00, 0x5f, 0x87), rgb(0x00, 0x24, 0x3a)],
-        (DeckPalette::Classic, false, false) => [rgb(0x7a, 0x4f, 0xd8), rgb(0xbb, 0x9a, 0xf7), rgb(0xf3, 0xec, 0xff)],
-        (DeckPalette::Classic, false, true) => [rgb(0x8a, 0x5a, 0xd8), rgb(0x5a, 0x2f, 0xa8), rgb(0x24, 0x0f, 0x4a)],
+        (DeckPalette::Classic, true, false) => [
+            rgb(0x2a, 0x8f, 0xd6),
+            rgb(0x7d, 0xcf, 0xff),
+            rgb(0xe6, 0xf7, 0xff),
+        ],
+        (DeckPalette::Classic, true, true) => [
+            rgb(0x2f, 0x7f, 0xbf),
+            rgb(0x00, 0x5f, 0x87),
+            rgb(0x00, 0x24, 0x3a),
+        ],
+        (DeckPalette::Classic, false, false) => [
+            rgb(0x7a, 0x4f, 0xd8),
+            rgb(0xbb, 0x9a, 0xf7),
+            rgb(0xf3, 0xec, 0xff),
+        ],
+        (DeckPalette::Classic, false, true) => [
+            rgb(0x8a, 0x5a, 0xd8),
+            rgb(0x5a, 0x2f, 0xa8),
+            rgb(0x24, 0x0f, 0x4a),
+        ],
     };
     let dark = rgb(0x10, 0x10, 0x18);
-    let chip_text = if contrast(outer, dark) >= contrast(outer, Color32::WHITE) { dark } else { Color32::WHITE };
+    let chip_text = if contrast(outer, dark) >= contrast(outer, Color32::WHITE) {
+        dark
+    } else {
+        Color32::WHITE
+    };
     DeckColours {
         outer,
         low,
@@ -276,7 +318,9 @@ pub(crate) enum DeckAudio {
     None,
     Loading(Loading),
     /// Handed to the engine; positions convert at the track's own rate.
-    Ready { rate: u32 },
+    Ready {
+        rate: u32,
+    },
     Failed(String),
 }
 
@@ -314,7 +358,11 @@ impl GridFit {
             .enumerate()
             .map(|(i, (t, _))| (t - (anchor_ms + i as f64 * beat_ms)).abs())
             .fold(0.0, f64::max);
-        (beat_ms.is_finite() && beat_ms > 0.0 && anchor_ms.is_finite()).then_some(Self { beat_ms, anchor_ms, residual_ms })
+        (beat_ms.is_finite() && beat_ms > 0.0 && anchor_ms.is_finite()).then_some(Self {
+            beat_ms,
+            anchor_ms,
+            residual_ms,
+        })
     }
 
     pub(crate) fn constant(&self) -> bool {
@@ -357,8 +405,13 @@ pub(crate) fn sync_plan(decks: &[Deck; 2], d: usize, range_pct: f32) -> Result<S
         if track.beat_grid().is_none() {
             return Err(format!("SYNC: deck {letter} has no beat grid"));
         }
-        if let Some(c) = track.confidence.filter(|c| *c < crate::track_waveform::LOW_CONFIDENCE) {
-            return Err(format!("SYNC: deck {letter} grid confidence is low ({c:.2})"));
+        if let Some(c) = track
+            .confidence
+            .filter(|c| *c < crate::track_waveform::LOW_CONFIDENCE)
+        {
+            return Err(format!(
+                "SYNC: deck {letter} grid confidence is low ({c:.2})"
+            ));
         }
         match track.fit {
             Some(fit) if fit.constant() => fits[k] = Some(fit),
@@ -371,9 +424,16 @@ pub(crate) fn sync_plan(decks: &[Deck; 2], d: usize, range_pct: f32) -> Result<S
     let speed = master_fit.bpm() * decks[master].speed() / fit.bpm();
     let pct = (speed - 1.0) * 100.0;
     if pct.abs() > f64::from(range_pct) + 1e-9 {
-        return Err(format!("SYNC: needs {pct:+.1} %, beyond the ±{range_pct:.0} % tempo range"));
+        return Err(format!(
+            "SYNC: needs {pct:+.1} %, beyond the ±{range_pct:.0} % tempo range"
+        ));
     }
-    Ok(SyncPlan { speed, fit, master, master_fit })
+    Ok(SyncPlan {
+        speed,
+        fit,
+        master,
+        master_fit,
+    })
 }
 
 /// A deck-local engine request (converted to source frames on flush).
@@ -415,7 +475,13 @@ pub(crate) struct ChannelUi {
 
 impl Default for ChannelUi {
     fn default() -> Self {
-        Self { trim_db: 0.0, eq_db: [0.0; 3], filter: 0.0, assign: Assign::Thru, cue: false }
+        Self {
+            trim_db: 0.0,
+            eq_db: [0.0; 3],
+            filter: 0.0,
+            assign: Assign::Thru,
+            cue: false,
+        }
     }
 }
 
@@ -436,12 +502,20 @@ const METER_DECAY: f32 = 0.88;
 
 impl MeterLevel {
     pub(crate) fn update(&mut self, reading: Meter) {
-        let peak = if reading.peak.is_finite() { reading.peak.max(0.0) } else { 0.0 };
+        let peak = if reading.peak.is_finite() {
+            reading.peak.max(0.0)
+        } else {
+            0.0
+        };
         self.level = peak.max(self.level * METER_DECAY);
         if self.level < 1e-4 {
             self.level = 0.0;
         }
-        self.clip_frames = if reading.clip { CLIP_HOLD_FRAMES } else { self.clip_frames.saturating_sub(1) };
+        self.clip_frames = if reading.clip {
+            CLIP_HOLD_FRAMES
+        } else {
+            self.clip_frames.saturating_sub(1)
+        };
     }
 
     pub(crate) fn clipping(&self) -> bool {
@@ -489,6 +563,8 @@ pub(crate) struct Deck {
     pub(crate) cue_held: bool,
     /// CUE button is held by the pointer and owes a release.
     pub(crate) cue_pointer: bool,
+    /// Album artwork: async load, decoded texture, or the placeholder.
+    pub(crate) art: crate::artwork::DeckArt,
     outbox: Vec<Op>,
     /// The engine still plays the previous track: unload it before anything
     /// else is sent for this deck (a failed replacement must not leave
@@ -534,7 +610,8 @@ impl Deck {
 
     /// Effective speed multiplier: SYNC's while it is on, else the fader's.
     pub(crate) fn speed(&self) -> f64 {
-        self.sync_speed.unwrap_or(1.0 + f64::from(self.tempo_pct) / 100.0)
+        self.sync_speed
+            .unwrap_or(1.0 + f64::from(self.tempo_pct) / 100.0)
     }
 
     /// SYNC off; the fader keeps the synced tempo (clamped to `range`).
@@ -648,6 +725,8 @@ pub(crate) struct DeckLayout {
     pub(crate) cue_volume: Option<Rect>,
     /// Deck A overview first, deck B second.
     pub(crate) overviews: Option<[Rect; 2]>,
+    /// Centered artwork/placeholder rect of each deck half.
+    pub(crate) artwork: [Option<Rect>; 2],
 }
 
 /// The whole deck area's state.
@@ -744,14 +823,20 @@ impl DeckArea {
             if deck.unload {
                 continue; // ring full: retry next frame, keep Unload before Load
             }
-            let Some(id) = deck.track.as_ref().map(|t| t.id) else { continue };
+            let Some(id) = deck.track.as_ref().map(|t| t.id) else {
+                continue;
+            };
             if let DeckAudio::Loading(loading) = &deck.audio {
                 match loading.poll() {
                     None => {}
                     Some(Err(reason)) => deck.audio = DeckAudio::Failed(reason),
                     Some(Ok(pcm)) => {
                         let rate = pcm.sample_rate();
-                        if self.engine.send(Command::Load { deck: d, id, track: Arc::new(pcm) }) {
+                        if self.engine.send(Command::Load {
+                            deck: d,
+                            id,
+                            track: Arc::new(pcm),
+                        }) {
                             deck.audio = DeckAudio::Ready { rate };
                         } else {
                             deck.audio = DeckAudio::Failed("audio engine busy".into());
@@ -759,7 +844,9 @@ impl DeckArea {
                     }
                 }
             }
-            let DeckAudio::Ready { rate } = deck.audio else { continue };
+            let DeckAudio::Ready { rate } = deck.audio else {
+                continue;
+            };
             let snap = self.engine.deck(d);
             if snap.id != Some(id) || self.engine.pending(d) {
                 continue;
@@ -863,10 +950,16 @@ impl DeckArea {
                 deck.sent_gain = Some(gain);
             }
             let speed = deck.speed();
-            if deck.sent_speed != Some(speed) && self.engine.send(Command::Speed { deck: d, speed }) {
+            if deck.sent_speed != Some(speed) && self.engine.send(Command::Speed { deck: d, speed })
+            {
                 deck.sent_speed = Some(speed);
             }
-            if deck.sent_keylock != Some(deck.keylock) && self.engine.send(Command::KeyLock { deck: d, on: deck.keylock }) {
+            if deck.sent_keylock != Some(deck.keylock)
+                && self.engine.send(Command::KeyLock {
+                    deck: d,
+                    on: deck.keylock,
+                })
+            {
                 deck.sent_keylock = Some(deck.keylock);
             }
             let DeckAudio::Ready { rate } = deck.audio else {
@@ -895,7 +988,10 @@ impl DeckArea {
                     Op::TogglePlay => Command::TogglePlay { deck: d },
                     Op::CueDown => Command::CueDown { deck: d },
                     Op::CueUp => Command::CueUp { deck: d },
-                    Op::Seek(ms) => Command::Seek { deck: d, frame: frame(ms) },
+                    Op::Seek(ms) => Command::Seek {
+                        deck: d,
+                        frame: frame(ms),
+                    },
                     Op::LoopIn => Command::LoopIn { deck: d },
                     Op::LoopOut => Command::LoopOut { deck: d },
                     Op::LoopScale(f) => Command::LoopScale { deck: d, factor: f },
@@ -928,7 +1024,19 @@ impl DeckArea {
 
     /// Any deck still decoding (repaint for progress).
     pub(crate) fn any_loading(&self) -> bool {
-        self.decks.iter().any(|d| matches!(d.audio, DeckAudio::Loading(_)))
+        self.decks
+            .iter()
+            .any(|d| matches!(d.audio, DeckAudio::Loading(_)))
+    }
+
+    /// Collect finished artwork jobs; textures are built on the UI thread.
+    pub(crate) fn pump_artwork(&mut self, ctx: &egui::Context) {
+        for (d, deck) in self.decks.iter_mut().enumerate() {
+            deck.art.poll(ctx, d);
+            if deck.art.is_loading() {
+                ctx.request_repaint_after(std::time::Duration::from_millis(100));
+            }
+        }
     }
     /// Track id loaded on each deck.
     pub(crate) fn loaded(&self) -> [Option<u64>; 2] {
@@ -952,7 +1060,9 @@ impl DeckArea {
 /// Beat length (ms) of `grid` around `t`.
 pub(crate) fn beat_len_at(grid: &BeatGrid, t: f64) -> Option<f64> {
     let beats = grid.beats_in((f64::NEG_INFINITY, f64::INFINITY));
-    let i = beats.partition_point(|b| b.0 <= t).clamp(1, beats.len().saturating_sub(1).max(1));
+    let i = beats
+        .partition_point(|b| b.0 <= t)
+        .clamp(1, beats.len().saturating_sub(1).max(1));
     let len = beats.get(i)?.0 - beats.get(i - 1)?.0;
     (len > 0.0).then_some(len)
 }
@@ -962,7 +1072,11 @@ pub(crate) fn phase_at(grid: &BeatGrid, t: f64) -> Option<(f64, f64)> {
     let beats = grid.beats_in((f64::NEG_INFINITY, f64::INFINITY));
     let len = beat_len_at(grid, t)?;
     let i = beats.partition_point(|b| b.0 <= t);
-    let last = if i == 0 { beats[0].0 - len } else { beats[i - 1].0 };
+    let last = if i == 0 {
+        beats[0].0 - len
+    } else {
+        beats[i - 1].0
+    };
     Some((len, ((t - last) / len).rem_euclid(1.0)))
 }
 
@@ -1068,8 +1182,15 @@ pub fn overview_gain(peaks: &WaveformPeaks, window: (f64, f64), width: f32, auto
     }
     let px = width.floor() as usize;
     let columns = Columns::new(peaks, window, px, Envelope::Mean);
-    let loudest = (0..=px).filter_map(|i| columns.at(i)).flatten().fold(0.0, f32::max);
-    if loudest > f32::EPSILON { (GAIN_TARGET / loudest).clamp(1.0, MAX_OVERVIEW_GAIN) } else { 1.0 }
+    let loudest = (0..=px)
+        .filter_map(|i| columns.at(i))
+        .flatten()
+        .fold(0.0, f32::max);
+    if loudest > f32::EPSILON {
+        (GAIN_TARGET / loudest).clamp(1.0, MAX_OVERVIEW_GAIN)
+    } else {
+        1.0
+    }
 }
 
 /// Nested `[low, mid, high]` layer extents of one column (`raw` band
@@ -1152,13 +1273,22 @@ pub fn build_half(
 /// Append one strip point `[fringe, edge, base]`; joins the previous point
 /// when `connect`.
 fn push(mesh: &mut Mesh, x: f32, fringe: f32, edge: f32, base: f32, color: Color32, connect: bool) {
-    let v = |y: f32, color| egui::epaint::Vertex { pos: Pos2::new(x, y), uv: egui::epaint::WHITE_UV, color };
+    let v = |y: f32, color| egui::epaint::Vertex {
+        pos: Pos2::new(x, y),
+        uv: egui::epaint::WHITE_UV,
+        color,
+    };
     let n = mesh.vertices.len() as u32;
-    mesh.vertices.extend_from_slice(&[v(fringe, Color32::TRANSPARENT), v(edge, color), v(base, color)]);
+    mesh.vertices.extend_from_slice(&[
+        v(fringe, Color32::TRANSPARENT),
+        v(edge, color),
+        v(base, color),
+    ]);
     if connect && n >= 3 {
         let a = n - 3;
         for k in 0..2 {
-            mesh.indices.extend_from_slice(&[a + k, a + k + 1, n + k, a + k + 1, n + k + 1, n + k]);
+            mesh.indices
+                .extend_from_slice(&[a + k, a + k + 1, n + k, a + k + 1, n + k + 1, n + k]);
         }
     }
 }
@@ -1173,10 +1303,17 @@ struct Buffers(Arc<Mutex<[Arc<Mesh>; 4]>>);
 
 /// Paint deck `colours` waveform (3 layers) and the grid `lines` mesh with
 /// reused buffers keyed by `id`.
-fn paint_meshes(ui: &Ui, painter: &egui::Painter, id: egui::Id, fill: impl FnOnce(&mut [Mesh; 3], &mut Mesh)) {
+fn paint_meshes(
+    ui: &Ui,
+    painter: &egui::Painter,
+    id: egui::Id,
+    fill: impl FnOnce(&mut [Mesh; 3], &mut Mesh),
+) {
     let buffers = ui.data_mut(|d| d.get_temp_mut_or_default::<Buffers>(id).clone());
     let mut slots = buffers.0.lock().unwrap_or_else(|e| e.into_inner());
-    let mut owned: [Mesh; 4] = slots.each_mut().map(|s| Arc::get_mut(s).map(std::mem::take).unwrap_or_default());
+    let mut owned: [Mesh; 4] = slots
+        .each_mut()
+        .map(|s| Arc::get_mut(s).map(std::mem::take).unwrap_or_default());
     let [a, b, c, lines] = &mut owned;
     let mut layers = [std::mem::take(a), std::mem::take(b), std::mem::take(c)];
     fill(&mut layers, lines);
@@ -1198,7 +1335,16 @@ fn paint_meshes(ui: &Ui, painter: &egui::Painter, id: egui::Id, fill: impl FnOnc
 
 /// Time grid (mm:ss) for a half or overview without a beat grid: minor
 /// lines every `step` ms, labelled majors every 4 steps (inside the track).
-fn time_grid(painter: &egui::Painter, rect: Rect, window: (f64, f64), duration: f64, colours: DeckColours, label: Color32, step: f64, labels_at_top: bool) {
+fn time_grid(
+    painter: &egui::Painter,
+    rect: Rect,
+    window: (f64, f64),
+    duration: f64,
+    colours: DeckColours,
+    label: Color32,
+    step: f64,
+    labels_at_top: bool,
+) {
     let (t0, t1) = window;
     if !(t1 > t0 && step > 0.0) {
         return;
@@ -1211,11 +1357,23 @@ fn time_grid(painter: &egui::Painter, rect: Rect, window: (f64, f64), duration: 
         let major = k % 4 == 0;
         let w = if major { 1.5 } else { 1.0 };
         let x0 = (x - w / 2.0).clamp(rect.left(), rect.right() - w);
-        let color = if major { alpha(colours.outer, 150) } else { colours.beat };
-        painter.rect_filled(Rect::from_min_max(pos2(x0, rect.top()), pos2(x0 + w, rect.bottom())), 0.0, color);
+        let color = if major {
+            alpha(colours.outer, 150)
+        } else {
+            colours.beat
+        };
+        painter.rect_filled(
+            Rect::from_min_max(pos2(x0, rect.top()), pos2(x0 + w, rect.bottom())),
+            0.0,
+            color,
+        );
         if major {
             let galley = painter.layout_no_wrap(format_clock(t), FontId::monospace(10.0), label);
-            let y = if labels_at_top { rect.top() + 2.0 } else { rect.bottom() - 2.0 - galley.size().y };
+            let y = if labels_at_top {
+                rect.top() + 2.0
+            } else {
+                rect.bottom() - 2.0 - galley.size().y
+            };
             let pos = pos2(x0 + w + 2.0, y);
             if Rect::from_min_size(pos, galley.size()).max.x <= rect.right() && y >= rect.top() {
                 painter.galley(pos, galley, label);
@@ -1233,11 +1391,20 @@ const CUE_HOVER_PX: f32 = 6.0;
 
 /// One 1 px full-height phrase tick every [`PHRASE_BARS`] bars (bar 1, 17,
 /// 33, …) of `grid` in `window`, clamped into `rect`, appended to `mesh`.
-pub fn phrase_lines(grid: &BeatGrid, window: (f64, f64), rect: Rect, colour: Color32, mesh: &mut Mesh) {
+pub fn phrase_lines(
+    grid: &BeatGrid,
+    window: (f64, f64),
+    rect: Rect,
+    colour: Color32,
+    mesh: &mut Mesh,
+) {
     for &(t, bar) in grid.beats_in(window) {
         if bar.is_some_and(|n| (n - 1) % PHRASE_BARS == 0) {
             let x0 = (x_at(t, window, rect) - 0.5).clamp(rect.left(), rect.right() - 1.0);
-            mesh.add_colored_rect(Rect::from_min_max(pos2(x0, rect.top()), pos2(x0 + 1.0, rect.bottom())), colour);
+            mesh.add_colored_rect(
+                Rect::from_min_max(pos2(x0, rect.top()), pos2(x0 + 1.0, rect.bottom())),
+                colour,
+            );
         }
     }
 }
@@ -1263,7 +1430,9 @@ pub(crate) fn cue_label_at(deck: &Deck, window: (f64, f64), rect: Rect, x: f32) 
         match (cue.hot_cue, cue.end_ms) {
             (_, Some(end)) => {
                 let range = format!("{}–{}", format_clock(start), format_clock(f64::from(end)));
-                let name = cue.hot_cue.map_or("Loop".to_owned(), |n| format!("Loop (hot cue {n})"));
+                let name = cue
+                    .hot_cue
+                    .map_or("Loop".to_owned(), |n| format!("Loop (hot cue {n})"));
                 consider(start, format!("{name} · {range}"));
                 consider(f64::from(end), format!("{name} end · {range}"));
             }
@@ -1283,7 +1452,16 @@ pub(crate) fn cue_label_at(deck: &Deck, window: (f64, f64), rect: Rect, x: f32) 
 /// as numbered coloured markers with a flag at the `outer` edge, memory
 /// cues as small triangles there. Everything is clamped into `rect`.
 #[allow(clippy::too_many_arguments)]
-fn paint_cues(painter: &egui::Painter, rect: Rect, window: (f64, f64), deck: &Deck, top_edge: bool, flag: f32, memory: Color32, label: Color32) {
+fn paint_cues(
+    painter: &egui::Painter,
+    rect: Rect,
+    window: (f64, f64),
+    deck: &Deck,
+    top_edge: bool,
+    flag: f32,
+    memory: Color32,
+    label: Color32,
+) {
     let Some(track) = &deck.track else { return };
     let span = |a: f64, b: f64| {
         let (x0, x1) = (x_at(a, window, rect), x_at(b, window, rect));
@@ -1298,17 +1476,36 @@ fn paint_cues(painter: &egui::Painter, rect: Rect, window: (f64, f64), deck: &De
         }
         painter.rect_filled(r, 0.0, alpha(colour, fill));
         let tick = (flag * 0.6).max(6.0).min(r.height());
-        let (y0, y1) = if top_edge { (r.top(), r.top() + tick) } else { (r.bottom() - tick, r.bottom()) };
-        let bar = if top_edge { r.top()..=r.top() + 2.0 } else { r.bottom() - 2.0..=r.bottom() };
+        let (y0, y1) = if top_edge {
+            (r.top(), r.top() + tick)
+        } else {
+            (r.bottom() - tick, r.bottom())
+        };
+        let bar = if top_edge {
+            r.top()..=r.top() + 2.0
+        } else {
+            r.bottom() - 2.0..=r.bottom()
+        };
         painter.rect_filled(Rect::from_x_y_ranges(r.x_range(), bar), 0.0, colour);
         for x in [r.left(), r.right() - 2.0] {
             let x = x.clamp(rect.left(), rect.right() - 2.0);
-            painter.rect_filled(Rect::from_min_max(pos2(x, y0), pos2(x + 2.0, y1)), 0.0, colour);
+            painter.rect_filled(
+                Rect::from_min_max(pos2(x, y0), pos2(x + 2.0, y1)),
+                0.0,
+                colour,
+            );
         }
     };
     for cue in track.cues.iter().filter(|c| c.end_ms.is_some()) {
-        let colour = cue.hot_cue.map_or(memory, |n| pad_colour(n as usize, Some(cue)));
-        bracket(f64::from(cue.start_ms), f64::from(cue.end_ms.unwrap_or(cue.start_ms)), colour, 46);
+        let colour = cue
+            .hot_cue
+            .map_or(memory, |n| pad_colour(n as usize, Some(cue)));
+        bracket(
+            f64::from(cue.start_ms),
+            f64::from(cue.end_ms.unwrap_or(cue.start_ms)),
+            colour,
+            46,
+        );
     }
     if let Some((a, b)) = deck.loop_range {
         bracket(a, b, label, 40);
@@ -1323,7 +1520,11 @@ fn paint_cues(painter: &egui::Painter, rect: Rect, window: (f64, f64), deck: &De
         let s = (flag * 0.5).min(5.0);
         let x = x.clamp(rect.left() + s, rect.right() - s);
         painter.add(Shape::convex_polygon(
-            vec![pos2(x - s, edge_y), pos2(x + s, edge_y), pos2(x, edge_y + dir * s * 1.4)],
+            vec![
+                pos2(x - s, edge_y),
+                pos2(x + s, edge_y),
+                pos2(x, edge_y + dir * s * 1.4),
+            ],
             memory,
             Stroke::NONE,
         ));
@@ -1337,15 +1538,31 @@ fn paint_cues(painter: &egui::Painter, rect: Rect, window: (f64, f64), deck: &De
         let n = index + 1;
         let colour = pad_colour(n, track.hot_cue(n));
         let x0 = (x - 1.0).clamp(rect.left(), rect.right() - 2.0);
-        painter.rect_filled(Rect::from_min_max(pos2(x0, rect.top()), pos2(x0 + 2.0, rect.bottom())), 0.0, colour);
+        painter.rect_filled(
+            Rect::from_min_max(pos2(x0, rect.top()), pos2(x0 + 2.0, rect.bottom())),
+            0.0,
+            colour,
+        );
         let size = vec2(flag, flag.min(rect.height()));
         let fx = x0.min(rect.right() - size.x).max(rect.left());
-        let fy = if top_edge { rect.top() } else { rect.bottom() - size.y };
+        let fy = if top_edge {
+            rect.top()
+        } else {
+            rect.bottom() - size.y
+        };
         let f = Rect::from_min_size(pos2(fx, fy), size);
         painter.rect_filled(f, 2.0, colour);
         let dark = rgb(0x10, 0x10, 0x18);
-        let text = if contrast(colour, dark) >= contrast(colour, Color32::WHITE) { dark } else { Color32::WHITE };
-        let galley = painter.layout_no_wrap(n.to_string(), FontId::proportional((size.y - 2.0).clamp(6.0, 11.0)), text);
+        let text = if contrast(colour, dark) >= contrast(colour, Color32::WHITE) {
+            dark
+        } else {
+            Color32::WHITE
+        };
+        let galley = painter.layout_no_wrap(
+            n.to_string(),
+            FontId::proportional((size.y - 2.0).clamp(6.0, 11.0)),
+            text,
+        );
         let gp = f.center() - galley.size() / 2.0;
         if f.contains_rect(Rect::from_min_size(gp, galley.size())) {
             painter.galley(gp, galley, text);
@@ -1356,8 +1573,16 @@ fn paint_cues(painter: &egui::Painter, rect: Rect, window: (f64, f64), deck: &De
 /// Deck letter chip (fill + letter) inside `rect`.
 pub(crate) fn chip(painter: &egui::Painter, rect: Rect, letter: &str, colours: DeckColours) {
     painter.rect_filled(rect, 3.0, colours.outer);
-    let galley = painter.layout_no_wrap(letter.to_owned(), FontId::proportional(12.0), colours.chip_text);
-    painter.galley(rect.center() - galley.size() / 2.0, galley, colours.chip_text);
+    let galley = painter.layout_no_wrap(
+        letter.to_owned(),
+        FontId::proportional(12.0),
+        colours.chip_text,
+    );
+    painter.galley(
+        rect.center() - galley.size() / 2.0,
+        galley,
+        colours.chip_text,
+    );
 }
 
 // ------------------------------------------------------------------ input
@@ -1370,10 +1595,12 @@ impl LibraryApp {
         if !self.show_decks || self.settings_ui.open || ctx.memory(|m| m.focused()).is_some() {
             return;
         }
-        let is_tab = |e: &egui::Event| {
-            matches!(e, egui::Event::Key { key: egui::Key::Tab, modifiers, .. } if modifiers.is_none())
-        };
-        if raw.events.iter().any(|e| is_tab(e) && matches!(e, egui::Event::Key { pressed: true, .. })) {
+        let is_tab = |e: &egui::Event| matches!(e, egui::Event::Key { key: egui::Key::Tab, modifiers, .. } if modifiers.is_none());
+        if raw
+            .events
+            .iter()
+            .any(|e| is_tab(e) && matches!(e, egui::Event::Key { pressed: true, .. }))
+        {
             self.decks.pending_tab = true;
         }
         raw.events.retain(|e| !is_tab(e));
@@ -1388,10 +1615,19 @@ impl LibraryApp {
         }
         // A cue preview always owes a release, even if focus/settings changes
         // while the key is held. Never leave preview audio stuck behind a guard.
-        let cue_keys = if self.settings.simple_dj_keys { [egui::Key::Z, egui::Key::N] } else { [egui::Key::Q, egui::Key::P] };
-        let guarded = !self.show_decks || self.settings_ui.open || ctx.memory(|m| m.focused()).is_some() || ctx.wants_keyboard_input();
+        let cue_keys = if self.settings.simple_dj_keys {
+            [egui::Key::Z, egui::Key::N]
+        } else {
+            [egui::Key::Q, egui::Key::P]
+        };
+        let guarded = !self.show_decks
+            || self.settings_ui.open
+            || ctx.memory(|m| m.focused()).is_some()
+            || ctx.wants_keyboard_input();
         for (d, key) in cue_keys.into_iter().enumerate() {
-            if self.decks.decks[d].cue_held && (guarded || ctx.input(|i| !i.key_down(key) || !i.focused)) {
+            if self.decks.decks[d].cue_held
+                && (guarded || ctx.input(|i| !i.key_down(key) || !i.focused))
+            {
                 self.decks.decks[d].cue_held = false;
                 self.decks.decks[d].cue_up();
             }
@@ -1432,7 +1668,11 @@ impl LibraryApp {
                 self.decks.decks[active].toggle_play();
             }
             // CUE keys: press = CUE down, release = CUE up (hold-preview).
-            let cue_keys = if self.settings.simple_dj_keys { [egui::Key::Z, egui::Key::N] } else { [egui::Key::Q, egui::Key::P] };
+            let cue_keys = if self.settings.simple_dj_keys {
+                [egui::Key::Z, egui::Key::N]
+            } else {
+                [egui::Key::Q, egui::Key::P]
+            };
             for (d, key) in cue_keys.into_iter().enumerate() {
                 let deck = &mut self.decks.decks[d];
                 if i.consume_key(none, key) && !deck.cue_held {
@@ -1446,7 +1686,9 @@ impl LibraryApp {
             }
             if self.settings.simple_dj_keys {
                 for (d, key) in [egui::Key::X, egui::Key::M].into_iter().enumerate() {
-                    if i.consume_key(none, key) { self.decks.decks[d].toggle_play(); }
+                    if i.consume_key(none, key) {
+                        self.decks.decks[d].toggle_play();
+                    }
                 }
             }
             for (pad, key) in digits.iter().enumerate() {
@@ -1468,25 +1710,42 @@ impl LibraryApp {
             }
         });
         if let Some(deck) = load {
-            if let Some(member) = self.selected_imported { self.load_imported_member(member, deck); }
-            else if let Some(id) = self.selected { self.load_deck(deck, id); }
+            if let Some(member) = self.selected_imported {
+                self.load_imported_member(member, deck);
+            } else if let Some(id) = self.selected {
+                self.load_deck(deck, id);
+            }
         }
     }
 
     /// Load catalog track `id` onto `deck` (0 = A).
     pub(crate) fn load_deck(&mut self, deck: usize, id: u64) {
-        let Some(item) = self.tracks.iter().find(|t| t.track.id.as_u64() == id) else { return };
+        let Some(item) = self.tracks.iter().find(|t| t.track.id.as_u64() == id) else {
+            return;
+        };
         let track = DeckTrack::read(self.catalog.as_ref().ok(), item);
         self.notice = format!("Loaded {} to deck {}", track.name, DECKS[deck]);
         self.decks.decks[deck].load(track);
+        #[cfg(test)]
+        self.decks.decks[deck]
+            .art
+            .load(id, self.db_path.clone(), self.artwork_gate.take());
+        #[cfg(not(test))]
+        self.decks.decks[deck]
+            .art
+            .load(id, self.db_path.clone(), None);
     }
 
     /// Re-read loaded tracks after a catalog reload (a waveform analysed
     /// meanwhile replaces the time grid in place); position is kept.
     pub(crate) fn refresh_decks(&mut self) {
         for d in 0..2 {
-            let Some(id) = self.decks.decks[d].track.as_ref().map(|t| t.id) else { continue };
-            let Some(item) = self.tracks.iter().find(|t| t.track.id.as_u64() == id) else { continue };
+            let Some(id) = self.decks.decks[d].track.as_ref().map(|t| t.id) else {
+                continue;
+            };
+            let Some(item) = self.tracks.iter().find(|t| t.track.id.as_u64() == id) else {
+                continue;
+            };
             let track = DeckTrack::read(self.catalog.as_ref().ok(), item);
             self.decks.decks[d].track = Some(track);
         }
@@ -1518,7 +1777,11 @@ pub(crate) fn detail_height(screen_h: f32) -> f32 {
 /// Control-strip height for one deck column `width` (loops wrap to a third
 /// row when the second row does not fit).
 fn strip_height(width: f32) -> f32 {
-    if width >= ROW2_WIDTH { 2.0 * ROW + GAP } else { 3.0 * ROW + 2.0 * GAP }
+    if width >= ROW2_WIDTH {
+        2.0 * ROW + GAP
+    } else {
+        3.0 * ROW + 2.0 * GAP
+    }
 }
 
 const CUE_W: f32 = 40.0;
@@ -1587,7 +1850,10 @@ impl LibraryApp {
         if sections.overviews {
             let r = take(2.0 * OVERVIEW_HEIGHT + 2.0, &mut y);
             let a = Rect::from_min_size(r.min, vec2(width, OVERVIEW_HEIGHT));
-            let b = Rect::from_min_size(pos2(r.left(), a.bottom() + 2.0), vec2(width, OVERVIEW_HEIGHT));
+            let b = Rect::from_min_size(
+                pos2(r.left(), a.bottom() + 2.0),
+                vec2(width, OVERVIEW_HEIGHT),
+            );
             for (d, rect) in [a, b].into_iter().enumerate() {
                 self.overview(ui, d, rect, tokens, colours[d], &layout);
             }
@@ -1596,23 +1862,44 @@ impl LibraryApp {
         if self.decks.any_playing() || (sections.mixer && self.decks.meters_active()) {
             ui.ctx().request_repaint();
         } else if self.decks.any_loading() {
-            ui.ctx().request_repaint_after(std::time::Duration::from_millis(100));
+            ui.ctx()
+                .request_repaint_after(std::time::Duration::from_millis(100));
         }
         self.decks.layout = layout;
     }
 
     /// Section bar: deck chips with the active deck marked, then the four
     /// chevron toggles at the right edge.
-    fn section_bar(&mut self, ui: &mut Ui, bar: Rect, tokens: ColorTokens, colours: [DeckColours; 2], layout: &mut DeckLayout) {
+    fn section_bar(
+        &mut self,
+        ui: &mut Ui,
+        bar: Rect,
+        tokens: ColorTokens,
+        colours: [DeckColours; 2],
+        layout: &mut DeckLayout,
+    ) {
         let painter = ui.painter_at(bar);
-        let label = painter.layout_no_wrap("DECKS".into(), FontId::proportional(11.0), tokens.muted_text);
-        painter.galley(pos2(bar.left() + 2.0, bar.center().y - label.size().y / 2.0), label, tokens.muted_text);
+        let label = painter.layout_no_wrap(
+            "DECKS".into(),
+            FontId::proportional(11.0),
+            tokens.muted_text,
+        );
+        painter.galley(
+            pos2(bar.left() + 2.0, bar.center().y - label.size().y / 2.0),
+            label,
+            tokens.muted_text,
+        );
         let mut x = bar.left() + 48.0;
         for d in 0..2 {
             let r = Rect::from_min_size(pos2(x, bar.center().y - 9.0), vec2(18.0, 18.0));
             chip(&painter, r, DECKS[d], colours[d]);
             if self.decks.active == d {
-                painter.rect_stroke(r.expand(1.5), 4.0, Stroke::new(1.5_f32, tokens.focus), egui::StrokeKind::Outside);
+                painter.rect_stroke(
+                    r.expand(1.5),
+                    4.0,
+                    Stroke::new(1.5_f32, tokens.focus),
+                    egui::StrokeKind::Outside,
+                );
             }
             x += 24.0;
         }
@@ -1621,12 +1908,17 @@ impl LibraryApp {
             FontId::proportional(11.0),
             tokens.muted_text,
         );
-        painter.galley(pos2(x + 4.0, bar.center().y - active.size().y / 2.0), active, tokens.muted_text);
+        painter.galley(
+            pos2(x + 4.0, bar.center().y - active.size().y / 2.0),
+            active,
+            tokens.muted_text,
+        );
         let labels = ["Detail", "Overviews", "Controls", "Mixer"];
         let mut rects = [Rect::NOTHING; 4];
         let mut right = bar.right();
         for i in (0..4).rev() {
-            let text = painter.layout_no_wrap(labels[i].into(), FontId::proportional(11.5), tokens.text);
+            let text =
+                painter.layout_no_wrap(labels[i].into(), FontId::proportional(11.5), tokens.text);
             let w = text.size().x + 24.0;
             let r = Rect::from_min_max(pos2(right - w, bar.top()), pos2(right, bar.bottom()));
             right -= w + 2.0;
@@ -1634,25 +1926,52 @@ impl LibraryApp {
             let expanded = self.settings.sections.get(i);
             let name = format!("{} section", DeckSections::NAMES[i]);
             let response = ui.interact(r, ui.id().with(("deck-section", i)), Sense::click());
-            response.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Checkbox, true, expanded, &name));
+            response.widget_info(|| {
+                egui::WidgetInfo::selected(egui::WidgetType::Checkbox, true, expanded, &name)
+            });
             if response.hovered() || response.has_focus() {
                 painter.rect_filled(r, 3.0, tokens.surface);
             }
             if response.has_focus() {
-                painter.rect_stroke(r, 3.0, Stroke::new(2.0_f32, tokens.focus), egui::StrokeKind::Inside);
+                painter.rect_stroke(
+                    r,
+                    3.0,
+                    Stroke::new(2.0_f32, tokens.focus),
+                    egui::StrokeKind::Inside,
+                );
             }
-            let ink = if expanded { tokens.text } else { tokens.muted_text };
+            let ink = if expanded {
+                tokens.text
+            } else {
+                tokens.muted_text
+            };
             let c = pos2(r.left() + 10.0, r.center().y);
             let pts = if expanded {
-                vec![pos2(c.x - 4.0, c.y - 2.0), pos2(c.x + 4.0, c.y - 2.0), pos2(c.x, c.y + 3.0)]
+                vec![
+                    pos2(c.x - 4.0, c.y - 2.0),
+                    pos2(c.x + 4.0, c.y - 2.0),
+                    pos2(c.x, c.y + 3.0),
+                ]
             } else {
-                vec![pos2(c.x - 2.0, c.y - 4.0), pos2(c.x - 2.0, c.y + 4.0), pos2(c.x + 3.0, c.y)]
+                vec![
+                    pos2(c.x - 2.0, c.y - 4.0),
+                    pos2(c.x - 2.0, c.y + 4.0),
+                    pos2(c.x + 3.0, c.y),
+                ]
             };
             painter.add(Shape::convex_polygon(pts, ink, Stroke::NONE));
-            painter.galley(pos2(r.left() + 18.0, r.center().y - text.size().y / 2.0), text, ink);
+            painter.galley(
+                pos2(r.left() + 18.0, r.center().y - text.size().y / 2.0),
+                text,
+                ink,
+            );
             let verb = if expanded { "Hide" } else { "Show" };
             if response
-                .on_hover_text(format!("{verb} the {} (Ctrl+Shift+{}; also in Settings)", DeckSections::NAMES[i].to_lowercase(), i + 1))
+                .on_hover_text(format!(
+                    "{verb} the {} (Ctrl+Shift+{}; also in Settings)",
+                    DeckSections::NAMES[i].to_lowercase(),
+                    i + 1
+                ))
                 .clicked()
             {
                 let slot = self.settings.sections.get_mut(i);
@@ -1663,9 +1982,22 @@ impl LibraryApp {
     }
 
     /// The merged detail waveform.
-    fn detail_view(&mut self, ui: &mut Ui, rect: Rect, tokens: ColorTokens, colours: [DeckColours; 2], layout: &mut DeckLayout) {
+    fn detail_view(
+        &mut self,
+        ui: &mut Ui,
+        rect: Rect,
+        tokens: ColorTokens,
+        colours: [DeckColours; 2],
+        layout: &mut DeckLayout,
+    ) {
         let response = ui.interact(rect, ui.id().with("merged-detail"), Sense::click_and_drag());
-        response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Other, true, "Merged deck waveform: deck A above, deck B below"));
+        response.widget_info(|| {
+            egui::WidgetInfo::labeled(
+                egui::WidgetType::Other,
+                true,
+                "Merged deck waveform: deck A above, deck B below",
+            )
+        });
         let seam = (rect.center().y).round();
         let halves = [
             Rect::from_min_max(rect.min, pos2(rect.right(), seam)),
@@ -1682,7 +2014,8 @@ impl LibraryApp {
         if response.hovered() {
             let scroll = ui.input(|i| i.raw_scroll_delta.y);
             if scroll != 0.0 {
-                self.settings.zoom_bars = zoom_step(self.settings.zoom_bars, if scroll > 0.0 { -1 } else { 1 });
+                self.settings.zoom_bars =
+                    zoom_step(self.settings.zoom_bars, if scroll > 0.0 { -1 } else { 1 });
             }
         }
         // Drag scrubs the deck under the pointer (content moves with it).
@@ -1705,8 +2038,12 @@ impl LibraryApp {
             painter.rect_filled(half, 0.0, c.wash);
             // Large faint watermark letter at the right end.
             let size = (half.height() * 0.85).min(110.0);
-            let wm = painter.layout_no_wrap(DECKS[d].into(), FontId::proportional(size), c.watermark);
-            let wpos = pos2(half.right() - wm.size().x - 16.0, half.center().y - wm.size().y / 2.0);
+            let wm =
+                painter.layout_no_wrap(DECKS[d].into(), FontId::proportional(size), c.watermark);
+            let wpos = pos2(
+                half.right() - wm.size().x - 16.0,
+                half.center().y - wm.size().y / 2.0,
+            );
             if half.contains_rect(Rect::from_min_size(wpos, wm.size())) {
                 painter.galley(wpos, wm, c.watermark);
             }
@@ -1717,65 +2054,155 @@ impl LibraryApp {
             let window = (t0, t1);
             if let Some(track) = &deck.track {
                 layout.windows[d] = Some(window);
-                paint_meshes(ui, &painter, ui.id().with(("deck-half", d)), |layers, lines| {
-                    match &track.peaks {
-                        Some(peaks) => build_half(peaks, window, track.gain(auto_gain), half, up, c, if smooth { FRINGE } else { 0.0 }, Envelope::Peak, layers),
-                        None => layers.iter_mut().for_each(|m| {
-                            m.vertices.clear();
-                            m.indices.clear();
-                        }),
-                    }
-                    lines.vertices.clear();
-                    lines.indices.clear();
-                    if let (true, Some(grid)) = (beat_lines, track.beat_grid()) {
-                        let gc = GridColours { beat: c.beat, bar: c.outer, label: tokens.text };
-                        beat_grid::build_lines(grid, window, half, gc, lines);
-                    }
-                });
+                paint_meshes(
+                    ui,
+                    &painter,
+                    ui.id().with(("deck-half", d)),
+                    |layers, lines| {
+                        match &track.peaks {
+                            Some(peaks) => build_half(
+                                peaks,
+                                window,
+                                track.gain(auto_gain),
+                                half,
+                                up,
+                                c,
+                                if smooth { FRINGE } else { 0.0 },
+                                Envelope::Peak,
+                                layers,
+                            ),
+                            None => layers.iter_mut().for_each(|m| {
+                                m.vertices.clear();
+                                m.indices.clear();
+                            }),
+                        }
+                        lines.vertices.clear();
+                        lines.indices.clear();
+                        if let (true, Some(grid)) = (beat_lines, track.beat_grid()) {
+                            let gc = GridColours {
+                                beat: c.beat,
+                                bar: c.outer,
+                                label: tokens.text,
+                            };
+                            beat_grid::build_lines(grid, window, half, gc, lines);
+                        }
+                    },
+                );
                 if track.beat_grid().is_none() {
-                    time_grid(&painter, half, window, track.duration_ms, c, tokens.muted_text, 1000.0 * speed, up);
+                    time_grid(
+                        &painter,
+                        half,
+                        window,
+                        track.duration_ms,
+                        c,
+                        tokens.muted_text,
+                        1000.0 * speed,
+                        up,
+                    );
                 }
-                paint_cues(&painter, half, window, deck, up, 14.0, tokens.error, tokens.text);
+                paint_cues(
+                    &painter,
+                    half,
+                    window,
+                    deck,
+                    up,
+                    14.0,
+                    tokens.error,
+                    tokens.text,
+                );
+                if self.settings.show_artwork {
+                    let rect = crate::artwork::artwork_rect(half, deck.art.size());
+                    crate::artwork::paint(&painter, rect, &deck.art, c, &tokens);
+                    layout.artwork[d] = Some(rect);
+                }
                 if track.peaks.is_none() {
-                    let g = painter.layout_no_wrap(NOT_READY.into(), FontId::proportional(11.0), tokens.muted_text);
-                    let y = if up { half.top() + 16.0 } else { half.bottom() - 16.0 - g.size().y };
+                    let g = painter.layout_no_wrap(
+                        NOT_READY.into(),
+                        FontId::proportional(11.0),
+                        tokens.muted_text,
+                    );
+                    let y = if up {
+                        half.top() + 16.0
+                    } else {
+                        half.bottom() - 16.0 - g.size().y
+                    };
                     painter.galley(pos2(half.left() + 30.0, y), g, tokens.muted_text);
                 }
             } else {
                 let g = painter.layout_no_wrap(
-                    format!("Deck {} empty · select a track and press {} (or Load)", DECKS[d], DECKS[d]),
+                    format!(
+                        "Deck {} empty · select a track and press {} (or Load)",
+                        DECKS[d], DECKS[d]
+                    ),
                     FontId::proportional(12.0),
                     tokens.muted_text,
                 );
                 painter.galley(half.center() - g.size() / 2.0, g, tokens.muted_text);
             }
             // Coloured rail and deck chip at the outer-left corner.
-            painter.rect_filled(Rect::from_min_size(half.min, vec2(RAIL, half.height())), 0.0, c.outer);
-            let cy = if up { half.top() + 4.0 } else { half.bottom() - 22.0 };
-            chip(&painter, Rect::from_min_size(pos2(half.left() + RAIL + 4.0, cy), vec2(18.0, 18.0)), DECKS[d], c);
+            painter.rect_filled(
+                Rect::from_min_size(half.min, vec2(RAIL, half.height())),
+                0.0,
+                c.outer,
+            );
+            let cy = if up {
+                half.top() + 4.0
+            } else {
+                half.bottom() - 22.0
+            };
+            chip(
+                &painter,
+                Rect::from_min_size(pos2(half.left() + RAIL + 4.0, cy), vec2(18.0, 18.0)),
+                DECKS[d],
+                c,
+            );
         }
         let painter = ui.painter_at(rect);
         // The seam: a 1 px rect (a line's caps would poke past the clip).
-        painter.rect_filled(Rect::from_x_y_ranges(rect.x_range(), seam - 0.5..=seam + 0.5), 0.0, tokens.border);
+        painter.rect_filled(
+            Rect::from_x_y_ranges(rect.x_range(), seam - 0.5..=seam + 0.5),
+            0.0,
+            tokens.border,
+        );
         // One playhead across both halves, with small caps inside the rect.
-        painter.rect_filled(Rect::from_min_max(pos2(ph - 1.0, rect.top()), pos2(ph + 1.0, rect.bottom())), 0.0, tokens.error);
+        painter.rect_filled(
+            Rect::from_min_max(pos2(ph - 1.0, rect.top()), pos2(ph + 1.0, rect.bottom())),
+            0.0,
+            tokens.error,
+        );
         painter.add(Shape::convex_polygon(
-            vec![pos2(ph - 5.0, rect.top()), pos2(ph + 5.0, rect.top()), pos2(ph, rect.top() + 6.0)],
+            vec![
+                pos2(ph - 5.0, rect.top()),
+                pos2(ph + 5.0, rect.top()),
+                pos2(ph, rect.top() + 6.0),
+            ],
             tokens.error,
             Stroke::NONE,
         ));
         painter.add(Shape::convex_polygon(
-            vec![pos2(ph - 5.0, rect.bottom()), pos2(ph, rect.bottom() - 6.0), pos2(ph + 5.0, rect.bottom())],
+            vec![
+                pos2(ph - 5.0, rect.bottom()),
+                pos2(ph, rect.bottom() - 6.0),
+                pos2(ph + 5.0, rect.bottom()),
+            ],
             tokens.error,
             Stroke::NONE,
         ));
         if self.settings.show_phase {
             if let Some(text) = seam_readout(&self.decks.decks) {
                 let g = painter.layout_no_wrap(text, FontId::monospace(11.0), tokens.text);
-                let box_ = Rect::from_min_size(pos2(ph + 8.0, seam - g.size().y / 2.0 - 3.0), g.size() + vec2(12.0, 6.0));
+                let box_ = Rect::from_min_size(
+                    pos2(ph + 8.0, seam - g.size().y / 2.0 - 3.0),
+                    g.size() + vec2(12.0, 6.0),
+                );
                 let box_ = box_.translate(vec2((rect.right() - box_.right()).min(0.0), 0.0));
                 painter.rect_filled(box_, 3.0, tokens.surface);
-                painter.rect_stroke(box_, 3.0, Stroke::new(1.0_f32, tokens.border), egui::StrokeKind::Inside);
+                painter.rect_stroke(
+                    box_,
+                    3.0,
+                    Stroke::new(1.0_f32, tokens.border),
+                    egui::StrokeKind::Inside,
+                );
                 painter.galley(box_.min + vec2(6.0, 3.0), g, tokens.text);
                 layout.readout = Some(box_);
             }
@@ -1787,12 +2214,22 @@ impl LibraryApp {
 
     /// Club-standard strip: deck A in the left column, deck B mirrored in
     /// the right column; CUE and PLAY sit at the outer edges.
-    fn control_strip(&mut self, ui: &mut Ui, rect: Rect, tokens: ColorTokens, colours: [DeckColours; 2], layout: &mut DeckLayout) {
+    fn control_strip(
+        &mut self,
+        ui: &mut Ui,
+        rect: Rect,
+        tokens: ColorTokens,
+        colours: [DeckColours; 2],
+        layout: &mut DeckLayout,
+    ) {
         layout.strip = Some(rect);
         let column = (rect.width() - 12.0) / 2.0;
         let cols = [
             Rect::from_min_size(rect.min, vec2(column, rect.height())),
-            Rect::from_min_size(pos2(rect.right() - column, rect.top()), vec2(column, rect.height())),
+            Rect::from_min_size(
+                pos2(rect.right() - column, rect.top()),
+                vec2(column, rect.height()),
+            ),
         ];
         let range = tempo_range(self.settings.tempo_range);
         self.decks.range = range;
@@ -1804,10 +2241,19 @@ impl LibraryApp {
             // Mirror x for deck B so its CUE/PLAY end up at the right edge.
             let place = |x: f32, row: usize, w: f32| {
                 let y = col.top() + row as f32 * (ROW + GAP);
-                let left = if d == 0 { col.left() + x } else { col.right() - x - w };
+                let left = if d == 0 {
+                    col.left() + x
+                } else {
+                    col.right() - x - w
+                };
                 Rect::from_min_size(pos2(left, y), vec2(w, ROW))
             };
-            ui.painter().rect_filled(Rect::from_min_size(col.min, vec2(RAIL, col.height())).translate(vec2(if d == 0 { 0.0 } else { col.width() - RAIL }, 0.0)), 0.0, c.outer);
+            ui.painter().rect_filled(
+                Rect::from_min_size(col.min, vec2(RAIL, col.height()))
+                    .translate(vec2(if d == 0 { 0.0 } else { col.width() - RAIL }, 0.0)),
+                0.0,
+                c.outer,
+            );
             let inset = RAIL + 4.0;
             let deck = &mut self.decks.decks[d];
             let loaded = deck.ready();
@@ -1815,31 +2261,86 @@ impl LibraryApp {
             let chip_r = place(inset, 0, 22.0);
             chip(ui.painter(), chip_r.shrink2(vec2(0.0, 2.0)), letter, c);
             let load_r = place(inset + 26.0, 0, 44.0);
-            let r = deck_button(ui, load_r, "Load", &format!("Load selected track to deck {letter}"), false, true, c.outer, tokens);
-            if r.on_hover_text(format!("Load the selected library track to deck {letter} ({letter} key)")).clicked() {
+            let r = deck_button(
+                ui,
+                load_r,
+                "Load",
+                &format!("Load selected track to deck {letter}"),
+                false,
+                true,
+                c.outer,
+                tokens,
+            );
+            if r.on_hover_text(format!(
+                "Load the selected library track to deck {letter} ({letter} key)"
+            ))
+            .clicked()
+            {
                 load = Some(d);
             }
             layout.load[d] = Some(load_r);
             let key_r = place(column - 36.0, 0, 36.0);
             let sync_r = place(column - 36.0 - BTN_GAP - 44.0, 0, 44.0);
             let tempo_w = 120.0;
-            let tempo_r = place(column - 36.0 - 44.0 - 2.0 * BTN_GAP - GROUP_GAP - tempo_w, 0, tempo_w);
+            let tempo_r = place(
+                column - 36.0 - 44.0 - 2.0 * BTN_GAP - GROUP_GAP - tempo_w,
+                0,
+                tempo_w,
+            );
             let sync_hover = match &deck.sync_note {
                 Some(note) => note.clone(),
-                None if deck.sync => format!("Deck {letter} SYNC on: follows deck {}'s tempo; press to release", DECKS[1 - d]),
-                None => format!("Deck {letter} SYNC: match deck {}'s tempo and align to the nearest beat", DECKS[1 - d]),
+                None if deck.sync => format!(
+                    "Deck {letter} SYNC on: follows deck {}'s tempo; press to release",
+                    DECKS[1 - d]
+                ),
+                None => format!(
+                    "Deck {letter} SYNC: match deck {}'s tempo and align to the nearest beat",
+                    DECKS[1 - d]
+                ),
             };
-            if deck_button(ui, sync_r, "SYNC", &format!("Deck {letter} sync"), deck.sync, loaded, c.outer, tokens).on_hover_text(sync_hover).clicked() {
+            if deck_button(
+                ui,
+                sync_r,
+                "SYNC",
+                &format!("Deck {letter} sync"),
+                deck.sync,
+                loaded,
+                c.outer,
+                tokens,
+            )
+            .on_hover_text(sync_hover)
+            .clicked()
+            {
                 sync_press = Some(d);
             }
-            let key_hover = format!("Deck {letter} key lock (master tempo): {}", if deck.keylock { "on, tempo changes keep the pitch" } else { "off, pitch follows tempo" });
-            if deck_button(ui, key_r, "KEY", &format!("Deck {letter} key lock"), deck.keylock, loaded, c.outer, tokens).on_hover_text(key_hover).clicked() {
+            let key_hover = format!(
+                "Deck {letter} key lock (master tempo): {}",
+                if deck.keylock {
+                    "on, tempo changes keep the pitch"
+                } else {
+                    "off, pitch follows tempo"
+                }
+            );
+            if deck_button(
+                ui,
+                key_r,
+                "KEY",
+                &format!("Deck {letter} key lock"),
+                deck.keylock,
+                loaded,
+                c.outer,
+                tokens,
+            )
+            .on_hover_text(key_hover)
+            .clicked()
+            {
                 deck.toggle_keylock();
             }
             layout.sync[d] = Some(sync_r);
             layout.key_lock[d] = Some(key_r);
             let slider_r = Rect::from_min_size(tempo_r.min, vec2(tempo_w - 46.0, ROW));
-            let value_r = Rect::from_min_max(pos2(slider_r.right() + 2.0, tempo_r.top()), tempo_r.max);
+            let value_r =
+                Rect::from_min_max(pos2(slider_r.right() + 2.0, tempo_r.top()), tempo_r.max);
             let shown = ((deck.speed() - 1.0) * 100.0) as f32;
             // On the slider's 0.1 % step, so only real input reports a change.
             let mut tempo = ((shown * 10.0).round() / 10.0).clamp(-range, range);
@@ -1848,11 +2349,20 @@ impl LibraryApp {
                     crate::track_waveform::slider_look(ui, tokens);
                     ui.visuals_mut().selection.bg_fill = c.outer;
                     ui.spacing_mut().slider_width = slider_r.width();
-                    ui.put(slider_r, egui::Slider::new(&mut tempo, -range..=range).show_value(false).step_by(0.1))
+                    ui.put(
+                        slider_r,
+                        egui::Slider::new(&mut tempo, -range..=range)
+                            .show_value(false)
+                            .step_by(0.1),
+                    )
                 })
                 .inner;
-            slider.widget_info(|| egui::WidgetInfo::slider(true, f64::from(tempo), format!("Deck {letter} tempo")));
-            let slider = slider.on_hover_text(format!("Deck {letter} tempo (±{range:.0} %, Settings → Decks); double-click resets"));
+            slider.widget_info(|| {
+                egui::WidgetInfo::slider(true, f64::from(tempo), format!("Deck {letter} tempo"))
+            });
+            let slider = slider.on_hover_text(format!(
+                "Deck {letter} tempo (±{range:.0} %, Settings → Decks); double-click resets"
+            ));
             let reset = reset_clicked(&slider);
             if reset {
                 tempo = 0.0;
@@ -1865,35 +2375,88 @@ impl LibraryApp {
                 // A narrower Settings range clamps the fader.
                 deck.tempo_pct = deck.tempo_pct.clamp(-range, range);
             }
-            let value = ui.painter().layout_no_wrap(format!("{:+.1}%", ((deck.speed() - 1.0) * 100.0) as f32), FontId::monospace(11.0), tokens.text);
-            ui.painter().galley(pos2(value_r.right() - value.size().x, value_r.center().y - value.size().y / 2.0), value, tokens.text);
+            let value = ui.painter().layout_no_wrap(
+                format!("{:+.1}%", ((deck.speed() - 1.0) * 100.0) as f32),
+                FontId::monospace(11.0),
+                tokens.text,
+            );
+            ui.painter().galley(
+                pos2(
+                    value_r.right() - value.size().x,
+                    value_r.center().y - value.size().y / 2.0,
+                ),
+                value,
+                tokens.text,
+            );
             layout.tempo[d] = Some(slider_r);
             // Title / clock / BPM between Load and the tempo group.
-            let (a, b) = if d == 0 { (load_r.right() + 6.0, tempo_r.left() - 6.0) } else { (tempo_r.right() + 6.0, load_r.left() - 6.0) };
+            let (a, b) = if d == 0 {
+                (load_r.right() + 6.0, tempo_r.left() - 6.0)
+            } else {
+                (tempo_r.right() + 6.0, load_r.left() - 6.0)
+            };
             if b > a + 20.0 {
                 let info = Rect::from_min_max(pos2(a, load_r.top()), pos2(b, load_r.bottom()));
                 let (text, ink) = match (&deck.track, &deck.audio) {
-                    (Some(t), DeckAudio::Failed(reason)) => (format!("{} · cannot play: {reason}", t.name), tokens.error),
+                    (Some(t), DeckAudio::Failed(reason)) => {
+                        (format!("{} · cannot play: {reason}", t.name), tokens.error)
+                    }
                     (Some(t), DeckAudio::Loading(l)) => {
-                        let pct = l.fraction().map(|f| format!(" {:.0} %", f * 100.0)).unwrap_or_default();
+                        let pct = l
+                            .fraction()
+                            .map(|f| format!(" {:.0} %", f * 100.0))
+                            .unwrap_or_default();
                         (format!("{} · decoding{pct}…", t.name), tokens.muted_text)
                     }
-                    (Some(t), _) if deck.sync_note.is_some() => (format!("{} · {}", t.name, deck.sync_note.as_deref().unwrap_or_default()), tokens.error),
+                    (Some(t), _) if deck.sync_note.is_some() => (
+                        format!(
+                            "{} · {}",
+                            t.name,
+                            deck.sync_note.as_deref().unwrap_or_default()
+                        ),
+                        tokens.error,
+                    ),
                     (Some(t), _) => {
-                        let bpm = t.bpm_at(deck.position_ms).map(|b| format!(" · {:.2} BPM", b * deck.speed())).unwrap_or_default();
-                        (format!("{} · {} / {}{bpm}", t.name, format_clock(deck.position_ms), format_clock(t.duration_ms)), tokens.text)
+                        let bpm = t
+                            .bpm_at(deck.position_ms)
+                            .map(|b| format!(" · {:.2} BPM", b * deck.speed()))
+                            .unwrap_or_default();
+                        (
+                            format!(
+                                "{} · {} / {}{bpm}",
+                                t.name,
+                                format_clock(deck.position_ms),
+                                format_clock(t.duration_ms)
+                            ),
+                            tokens.text,
+                        )
                     }
                     (None, _) => (format!("Deck {letter} · empty"), tokens.muted_text),
                 };
                 let g = egui::WidgetText::from(egui::RichText::new(text).small().color(ink))
-                    .into_galley(ui, Some(egui::TextWrapMode::Truncate), info.width(), egui::TextStyle::Small);
-                let x = if d == 0 { info.left() } else { info.right() - g.size().x };
-                ui.painter_at(info).galley(pos2(x, info.center().y - g.size().y / 2.0), g, tokens.text);
+                    .into_galley(
+                        ui,
+                        Some(egui::TextWrapMode::Truncate),
+                        info.width(),
+                        egui::TextStyle::Small,
+                    );
+                let x = if d == 0 {
+                    info.left()
+                } else {
+                    info.right() - g.size().x
+                };
+                ui.painter_at(info).galley(
+                    pos2(x, info.center().y - g.size().y / 2.0),
+                    g,
+                    tokens.text,
+                );
             }
             // Row 2: CUE, PLAY (outermost), pads 1–8, loops.
             let cue_r = place(inset, 1, CUE_W);
             let play_r = place(inset + CUE_W + BTN_GAP, 1, PLAY_W);
-            let at_cue = loaded && (deck.previewing || (!deck.playing && (deck.position_ms - deck.cue_ms).abs() < 1.0));
+            let at_cue = loaded
+                && (deck.previewing
+                    || (!deck.playing && (deck.position_ms - deck.cue_ms).abs() < 1.0));
             let cue = deck_button(ui, cue_r, "CUE", &format!("Deck {letter} cue"), at_cue, loaded, tokens.warning, tokens)
                 .on_hover_text(format!("Deck {letter} CUE ({}): stopped, sets the cue point; on it, hold to preview; playing, returns to it", ["Q", "P"][d]));
             // Pointer: press = CUE down, release = CUE up; keyboard
@@ -1910,7 +2473,18 @@ impl LibraryApp {
                 deck.cue_up();
             }
             let play_label = if deck.playing { "PAUSE" } else { "PLAY" };
-            if deck_button(ui, play_r, play_label, &format!("Deck {letter} play/pause"), deck.playing, loaded, tokens.success, tokens).clicked() {
+            if deck_button(
+                ui,
+                play_r,
+                play_label,
+                &format!("Deck {letter} play/pause"),
+                deck.playing,
+                loaded,
+                tokens.success,
+                tokens,
+            )
+            .clicked()
+            {
                 deck.toggle_play();
             }
             layout.cue[d] = Some(cue_r);
@@ -1920,27 +2494,65 @@ impl LibraryApp {
             let pads_block = place(pads_x, 1, PADS_W);
             let mut pad_rects = [Rect::NOTHING; PADS];
             for (p, pad_rect) in pad_rects.iter_mut().enumerate() {
-                let r = Rect::from_min_size(pos2(pads_block.left() + p as f32 * (PAD_W + PAD_GAP), pads_block.top()), vec2(PAD_W, ROW));
+                let r = Rect::from_min_size(
+                    pos2(
+                        pads_block.left() + p as f32 * (PAD_W + PAD_GAP),
+                        pads_block.top(),
+                    ),
+                    vec2(PAD_W, ROW),
+                );
                 *pad_rect = r;
                 let n = p + 1;
                 let set = deck.pads[p].is_some();
                 let colour = pad_colour(n, deck.track.as_ref().and_then(|t| t.hot_cue(n)));
-                let name = format!("Deck {letter} hot cue {n} ({})", if set { "set" } else { "empty" });
+                let name = format!(
+                    "Deck {letter} hot cue {n} ({})",
+                    if set { "set" } else { "empty" }
+                );
                 if pad_button(ui, r, n, set, colour, loaded, &name, tokens).clicked() {
                     deck.pad(p);
                 }
             }
             layout.pads[d] = Some(pad_rects);
-            let (loop_row, loop_x) = if column >= ROW2_WIDTH { (1, pads_x + PADS_W + GROUP_GAP) } else { (2, inset + CUE_W + BTN_GAP + PLAY_W + GROUP_GAP) };
+            let (loop_row, loop_x) = if column >= ROW2_WIDTH {
+                (1, pads_x + PADS_W + GROUP_GAP)
+            } else {
+                (2, inset + CUE_W + BTN_GAP + PLAY_W + GROUP_GAP)
+            };
             let loops_block = place(loop_x, loop_row, LOOPS_W);
             let mut loop_rects = [Rect::NOTHING; 4];
             let has_loop = deck.loop_range.is_some();
-            for (k, (text, name)) in [("IN", "loop in"), ("OUT", "loop out / exit"), ("½", "halve loop"), ("×2", "double loop")].into_iter().enumerate() {
-                let r = Rect::from_min_size(pos2(loops_block.left() + k as f32 * (LOOP_W + BTN_GAP), loops_block.top()), vec2(LOOP_W, ROW));
+            for (k, (text, name)) in [
+                ("IN", "loop in"),
+                ("OUT", "loop out / exit"),
+                ("½", "halve loop"),
+                ("×2", "double loop"),
+            ]
+            .into_iter()
+            .enumerate()
+            {
+                let r = Rect::from_min_size(
+                    pos2(
+                        loops_block.left() + k as f32 * (LOOP_W + BTN_GAP),
+                        loops_block.top(),
+                    ),
+                    vec2(LOOP_W, ROW),
+                );
                 loop_rects[k] = r;
                 let enabled = loaded && (k < 2 || has_loop);
                 let active = (k == 0 && deck.loop_in.is_some()) || (k == 1 && has_loop);
-                if deck_button(ui, r, text, &format!("Deck {letter} {name}"), active, enabled, c.outer, tokens).clicked() {
+                if deck_button(
+                    ui,
+                    r,
+                    text,
+                    &format!("Deck {letter} {name}"),
+                    active,
+                    enabled,
+                    c.outer,
+                    tokens,
+                )
+                .clicked()
+                {
                     match k {
                         0 => deck.loop_in(),
                         1 => deck.loop_out(),
@@ -1955,23 +2567,44 @@ impl LibraryApp {
             self.decks.press_sync(d);
         }
         if let Some(deck) = load {
-            if let Some(member) = self.selected_imported { self.load_imported_member(member, deck); }
-            else if let Some(id) = self.selected { self.load_deck(deck, id); }
+            if let Some(member) = self.selected_imported {
+                self.load_imported_member(member, deck);
+            } else if let Some(id) = self.selected {
+                self.load_deck(deck, id);
+            }
         }
     }
 
     /// Deck `d`'s full-track overview: seek by click/drag, played part
     /// dimmed, detail-window box, cues and loops.
-    fn overview(&mut self, ui: &mut Ui, d: usize, rect: Rect, tokens: ColorTokens, c: DeckColours, layout: &DeckLayout) {
+    fn overview(
+        &mut self,
+        ui: &mut Ui,
+        d: usize,
+        rect: Rect,
+        tokens: ColorTokens,
+        c: DeckColours,
+        layout: &DeckLayout,
+    ) {
         let letter = DECKS[d];
-        let response = ui.interact(rect, ui.id().with(("deck-overview", d)), Sense::click_and_drag());
+        let response = ui.interact(
+            rect,
+            ui.id().with(("deck-overview", d)),
+            Sense::click_and_drag(),
+        );
         let deck = &mut self.decks.decks[d];
         let duration = deck.duration();
         let inner = Rect::from_min_max(pos2(rect.left() + OVERVIEW_INSET, rect.top()), rect.max);
         response.widget_info(|| {
-            egui::WidgetInfo::slider(deck.track.is_some(), deck.position_ms / 1000.0, format!("Deck {letter} overview: click or drag to seek"))
+            egui::WidgetInfo::slider(
+                deck.track.is_some(),
+                deck.position_ms / 1000.0,
+                format!("Deck {letter} overview: click or drag to seek"),
+            )
         });
-        if duration > 0.0 && (response.is_pointer_button_down_on() || response.clicked() || response.dragged()) {
+        if duration > 0.0
+            && (response.is_pointer_button_down_on() || response.clicked() || response.dragged())
+        {
             if let Some(p) = response.interact_pointer_pos() {
                 let f = ((p.x - inner.left()) / inner.width()).clamp(0.0, 1.0);
                 deck.seek(f64::from(f) * duration);
@@ -1991,47 +2624,138 @@ impl LibraryApp {
                     let gain = overview_gain(peaks, window, up.width(), self.settings.auto_gain);
                     let phrase = alpha(tokens.text, 110);
                     for (k, (half, is_up)) in [(up, true), (down, false)].into_iter().enumerate() {
-                        paint_meshes(ui, &painter, ui.id().with(("deck-overview-mesh", d, k)), |layers, lines| {
-                            build_half(peaks, window, gain, half, is_up, c, FRINGE, Envelope::Mean, layers);
-                            lines.vertices.clear();
-                            lines.indices.clear();
-                            if let (0, Some(grid)) = (k, track.beat_grid()) {
-                                phrase_lines(grid, window, inner, phrase, lines);
-                            }
-                        });
+                        paint_meshes(
+                            ui,
+                            &painter,
+                            ui.id().with(("deck-overview-mesh", d, k)),
+                            |layers, lines| {
+                                build_half(
+                                    peaks,
+                                    window,
+                                    gain,
+                                    half,
+                                    is_up,
+                                    c,
+                                    FRINGE,
+                                    Envelope::Mean,
+                                    layers,
+                                );
+                                lines.vertices.clear();
+                                lines.indices.clear();
+                                if let (0, Some(grid)) = (k, track.beat_grid()) {
+                                    phrase_lines(grid, window, inner, phrase, lines);
+                                }
+                            },
+                        );
                     }
                 }
                 None => {
-                    time_grid(&painter, inner, window, duration, c, tokens.muted_text, 15_000.0, true);
-                    let g = painter.layout_no_wrap(NOT_READY.into(), FontId::proportional(11.0), tokens.muted_text);
-                    painter.galley(pos2(inner.center().x - g.size().x / 2.0, inner.bottom() - g.size().y - 1.0), g, tokens.muted_text);
+                    time_grid(
+                        &painter,
+                        inner,
+                        window,
+                        duration,
+                        c,
+                        tokens.muted_text,
+                        15_000.0,
+                        true,
+                    );
+                    let g = painter.layout_no_wrap(
+                        NOT_READY.into(),
+                        FontId::proportional(11.0),
+                        tokens.muted_text,
+                    );
+                    painter.galley(
+                        pos2(
+                            inner.center().x - g.size().x / 2.0,
+                            inner.bottom() - g.size().y - 1.0,
+                        ),
+                        g,
+                        tokens.muted_text,
+                    );
                 }
             }
             let x = x_at(deck.position_ms, window, inner).clamp(inner.left(), inner.right());
             // Played part dimmed.
-            painter.rect_filled(Rect::from_min_max(inner.min, pos2(x, inner.bottom())), 0.0, alpha(tokens.background, 150));
+            painter.rect_filled(
+                Rect::from_min_max(inner.min, pos2(x, inner.bottom())),
+                0.0,
+                alpha(tokens.background, 150),
+            );
             // Cues over the dimming so played markers stay readable.
-            paint_cues(&painter, inner, window, deck, true, OVERVIEW_FLAG, tokens.error, tokens.text);
-            if let Some(label) = response.hover_pos().and_then(|p| cue_label_at(deck, window, inner, p.x)) {
+            paint_cues(
+                &painter,
+                inner,
+                window,
+                deck,
+                true,
+                OVERVIEW_FLAG,
+                tokens.error,
+                tokens.text,
+            );
+            if let Some(label) = response
+                .hover_pos()
+                .and_then(|p| cue_label_at(deck, window, inner, p.x))
+            {
                 response.clone().on_hover_text_at_pointer(label);
             }
             if let Some((a, b)) = layout.windows[d] {
-                let (x0, x1) = (x_at(a, window, inner).max(inner.left()), x_at(b, window, inner).min(inner.right()));
+                let (x0, x1) = (
+                    x_at(a, window, inner).max(inner.left()),
+                    x_at(b, window, inner).min(inner.right()),
+                );
                 if x1 > x0 {
-                    let r = Rect::from_x_y_ranges(x0..=x1.max(x0 + 2.0).min(inner.right()), inner.y_range());
-                    painter.rect_stroke(r, 1.0, Stroke::new(1.0_f32, tokens.focus), egui::StrokeKind::Inside);
+                    let r = Rect::from_x_y_ranges(
+                        x0..=x1.max(x0 + 2.0).min(inner.right()),
+                        inner.y_range(),
+                    );
+                    painter.rect_stroke(
+                        r,
+                        1.0,
+                        Stroke::new(1.0_f32, tokens.focus),
+                        egui::StrokeKind::Inside,
+                    );
                 }
             }
             let px = x.clamp(inner.left(), inner.right() - 2.0);
-            painter.rect_filled(Rect::from_min_max(pos2(px, inner.top()), pos2(px + 2.0, inner.bottom())), 0.0, tokens.error);
+            painter.rect_filled(
+                Rect::from_min_max(pos2(px, inner.top()), pos2(px + 2.0, inner.bottom())),
+                0.0,
+                tokens.error,
+            );
         } else {
-            let g = painter.layout_no_wrap(format!("Deck {letter} · empty"), FontId::proportional(11.0), tokens.muted_text);
-            painter.galley(inner.left_center() + vec2(8.0, -g.size().y / 2.0), g, tokens.muted_text);
+            let g = painter.layout_no_wrap(
+                format!("Deck {letter} · empty"),
+                FontId::proportional(11.0),
+                tokens.muted_text,
+            );
+            painter.galley(
+                inner.left_center() + vec2(8.0, -g.size().y / 2.0),
+                g,
+                tokens.muted_text,
+            );
         }
-        painter.rect_filled(Rect::from_min_size(rect.min, vec2(RAIL, rect.height())), 0.0, c.outer);
-        chip(&painter, Rect::from_center_size(pos2(rect.left() + RAIL + 11.0, rect.center().y), vec2(18.0, 18.0)), letter, c);
+        painter.rect_filled(
+            Rect::from_min_size(rect.min, vec2(RAIL, rect.height())),
+            0.0,
+            c.outer,
+        );
+        chip(
+            &painter,
+            Rect::from_center_size(
+                pos2(rect.left() + RAIL + 11.0, rect.center().y),
+                vec2(18.0, 18.0),
+            ),
+            letter,
+            c,
+        );
         if response.has_focus() {
-            painter.rect_stroke(rect, 0.0, Stroke::new(2.0_f32, tokens.focus), egui::StrokeKind::Inside);
+            painter.rect_stroke(
+                rect,
+                0.0,
+                Stroke::new(2.0_f32, tokens.focus),
+                egui::StrokeKind::Inside,
+            );
         }
     }
 }
@@ -2039,24 +2763,67 @@ impl LibraryApp {
 /// A strip button painted at `rect` (exact size, centred label): `active`
 /// fills it with `accent`; native click/keyboard response and AccessKit name.
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn deck_button(ui: &mut Ui, rect: Rect, text: &str, name: &str, active: bool, enabled: bool, accent: Color32, tokens: ColorTokens) -> egui::Response {
-    let sense = if enabled { Sense::click() } else { Sense::hover() };
+pub(crate) fn deck_button(
+    ui: &mut Ui,
+    rect: Rect,
+    text: &str,
+    name: &str,
+    active: bool,
+    enabled: bool,
+    accent: Color32,
+    tokens: ColorTokens,
+) -> egui::Response {
+    let sense = if enabled {
+        Sense::click()
+    } else {
+        Sense::hover()
+    };
     let response = ui.interact(rect, ui.id().with(("deck-button", name)), sense);
-    response.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, enabled, active, name));
+    response.widget_info(|| {
+        egui::WidgetInfo::selected(egui::WidgetType::Button, enabled, active, name)
+    });
     let painter = ui.painter_at(rect);
     let dark = rgb(0x10, 0x10, 0x18);
     let (fill, ink) = if active {
-        (accent, if contrast(accent, dark) >= contrast(accent, Color32::WHITE) { dark } else { Color32::WHITE })
+        (
+            accent,
+            if contrast(accent, dark) >= contrast(accent, Color32::WHITE) {
+                dark
+            } else {
+                Color32::WHITE
+            },
+        )
     } else if response.hovered() && enabled {
         (tokens.surface, tokens.text)
     } else {
-        (tokens.background, if enabled { tokens.text } else { tokens.muted_text })
+        (
+            tokens.background,
+            if enabled {
+                tokens.text
+            } else {
+                tokens.muted_text
+            },
+        )
     };
     painter.rect_filled(rect.shrink(0.5), 3.0, fill);
-    let outline = if enabled { tokens.border } else { alpha(tokens.border, 110) };
-    painter.rect_stroke(rect.shrink(0.5), 3.0, Stroke::new(1.0_f32, outline), egui::StrokeKind::Inside);
+    let outline = if enabled {
+        tokens.border
+    } else {
+        alpha(tokens.border, 110)
+    };
+    painter.rect_stroke(
+        rect.shrink(0.5),
+        3.0,
+        Stroke::new(1.0_f32, outline),
+        egui::StrokeKind::Inside,
+    );
     if response.has_focus() {
-        painter.rect_stroke(rect, 3.0, Stroke::new(2.0_f32, tokens.focus), egui::StrokeKind::Inside);
+        painter.rect_stroke(
+            rect,
+            3.0,
+            Stroke::new(2.0_f32, tokens.focus),
+            egui::StrokeKind::Inside,
+        );
     }
     let g = painter.layout_no_wrap(text.to_owned(), FontId::proportional(11.0), ink);
     painter.galley(rect.center() - g.size() / 2.0, g, ink);
@@ -2066,25 +2833,74 @@ pub(crate) fn deck_button(ui: &mut Ui, rect: Rect, text: &str, name: &str, activ
 /// A double click on a fader (egui's `Slider` senses drags only, so its
 /// own `double_clicked()` never fires).
 pub(crate) fn reset_clicked(slider: &egui::Response) -> bool {
-    slider.hovered() && slider.ctx.input(|i| i.pointer.button_double_clicked(egui::PointerButton::Primary))
+    slider.hovered()
+        && slider.ctx.input(|i| {
+            i.pointer
+                .button_double_clicked(egui::PointerButton::Primary)
+        })
 }
 
 /// A hot-cue pad: filled with its colour when set, outlined when empty.
 #[allow(clippy::too_many_arguments)]
-fn pad_button(ui: &mut Ui, rect: Rect, n: usize, set: bool, colour: Color32, enabled: bool, name: &str, tokens: ColorTokens) -> egui::Response {
-    let response = ui.interact(rect, ui.id().with(("pad", name)), if enabled { Sense::click() } else { Sense::hover() });
-    response.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, enabled, set, name));
+fn pad_button(
+    ui: &mut Ui,
+    rect: Rect,
+    n: usize,
+    set: bool,
+    colour: Color32,
+    enabled: bool,
+    name: &str,
+    tokens: ColorTokens,
+) -> egui::Response {
+    let response = ui.interact(
+        rect,
+        ui.id().with(("pad", name)),
+        if enabled {
+            Sense::click()
+        } else {
+            Sense::hover()
+        },
+    );
+    response
+        .widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, enabled, set, name));
     let painter = ui.painter_at(rect);
     let dark = rgb(0x10, 0x10, 0x18);
     let (fill, ink) = if set {
-        (colour, if contrast(colour, dark) >= contrast(colour, Color32::WHITE) { dark } else { Color32::WHITE })
+        (
+            colour,
+            if contrast(colour, dark) >= contrast(colour, Color32::WHITE) {
+                dark
+            } else {
+                Color32::WHITE
+            },
+        )
     } else {
-        (tokens.surface, if enabled { tokens.text } else { tokens.muted_text })
+        (
+            tokens.surface,
+            if enabled {
+                tokens.text
+            } else {
+                tokens.muted_text
+            },
+        )
     };
     painter.rect_filled(rect.shrink(0.5), 3.0, fill);
-    painter.rect_stroke(rect.shrink(0.5), 3.0, Stroke::new(1.0_f32, alpha(colour, if set { 255 } else { 170 })), egui::StrokeKind::Inside);
+    painter.rect_stroke(
+        rect.shrink(0.5),
+        3.0,
+        Stroke::new(1.0_f32, alpha(colour, if set { 255 } else { 170 })),
+        egui::StrokeKind::Inside,
+    );
     if response.hovered() || response.has_focus() {
-        painter.rect_stroke(rect, 3.0, Stroke::new(if response.has_focus() { 2.0_f32 } else { 1.0 }, tokens.focus), egui::StrokeKind::Inside);
+        painter.rect_stroke(
+            rect,
+            3.0,
+            Stroke::new(
+                if response.has_focus() { 2.0_f32 } else { 1.0 },
+                tokens.focus,
+            ),
+            egui::StrokeKind::Inside,
+        );
     }
     let g = painter.layout_no_wrap(n.to_string(), FontId::proportional(12.0), ink);
     painter.galley(rect.center() - g.size() / 2.0, g, ink);
@@ -2095,4 +2911,3 @@ fn pad_button(ui: &mut Ui, rect: Rect, n: usize, set: bool, colour: Color32, ena
 pub(crate) fn badges(loaded: [Option<u64>; 2], id: u64) -> [bool; 2] {
     loaded.map(|l| l == Some(id))
 }
-

@@ -136,6 +136,9 @@ const AUDIO_CRATES: &[&str] = &[
     "audiobuffer",
     "wavr",
     "soundpipe",
+    // Metadata-only reader admitted to `oxidj-library` for deck artwork
+    // (ADR-004 amendment); it decodes no audio.
+    "lofty",
 ];
 const UI_CRATES: &[&str] = &[
     "egui",
@@ -369,6 +372,16 @@ fn check_layers(meta: &serde_json::Value) -> Result<(), Vec<String>> {
                 && dep.kind.is_none()
                 && !dep.default_features
                 && dep.features.is_empty();
+            // Deck artwork (ADR-004 amendment): `lofty` reads container
+            // metadata only (exact pin, defaults on; its ID3v2 error types are
+            // feature-gated on `id3v2_compression_support`), and `image`
+            // decodes the extracted artwork to RGBA. Neither decodes audio.
+            let accepted_library_artwork = name == "oxidj-library"
+                && dep.kind.is_none()
+                && matches!(
+                    (dep_name.as_str(), dep.req.as_str(), dep.default_features),
+                    ("lofty", "=0.25.5", true) | ("image", "=0.25.8", false)
+                );
             let accepted_rekordbox_pdb = name == "oxidj-rekordbox"
                 && dep_name == "rekordbox-pdb"
                 && dep.kind.is_none()
@@ -377,6 +390,7 @@ fn check_layers(meta: &serde_json::Value) -> Result<(), Vec<String>> {
                 });
             if !accepted_library_persistence
                 && !accepted_library_audio
+                && !accepted_library_artwork
                 && !accepted_rekordbox_pdb
                 && let Some(category) = denied_category(dep_name)
             {

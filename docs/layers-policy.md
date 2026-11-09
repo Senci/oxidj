@@ -31,10 +31,12 @@ layer 4. Persistence remains owned by the library; the core cannot depend upward
 other persistence dependencies remain forbidden. For the bounded M2 importer,
 `oxidj-library` may also have normal dependencies on Hound `=3.5.1`, Claxon
 `=0.4.3`, and nanomp3 `=0.2.0`, each with `default-features = false` and no
-explicit features. These decoders remain forbidden in core and CLI; every other
-audio crate remains forbidden in every product crate. `nanomp3-core` is not a
-separate direct-dependency exception. The dependencies are not added by this
-policy change. `xtask` is outside the product dependency graph.
+explicit features. These decoders remain forbidden in core and CLI; other audio
+crates remain forbidden except for the metadata reader `lofty =0.25.5` in
+`oxidj-library`. `nanomp3-core` is not a separate direct-dependency exception.
+Deck artwork also uses `image =0.25.8` in the library to decode images, not
+sound. The UI consumes decoded artwork through the library, not the realtime
+engine. `xtask` is outside the product dependency graph.
 
 ```mermaid
 flowchart TB

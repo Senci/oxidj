@@ -1,18 +1,19 @@
 //! OxiDJ provisional local-library UI (prototype; outside the workspace).
 
 mod app;
+mod artwork;
 mod beat_grid;
 mod components;
 mod control_gallery;
 mod deck_audio;
-mod waveform_analysis;
-mod decks;
 #[cfg(test)]
 mod deck_tests;
+mod decks;
 mod folder_ops;
-mod mixer_view;
 #[cfg(test)]
 mod keyboard_tests;
+mod mixer_view;
+mod waveform_analysis;
 // Addressed by the tests as `super::f02_playlist_member_insert_oracle`.
 #[cfg(test)]
 #[path = "../../../xtask/tests/f02_playlist_member_insert_oracle.rs"]
@@ -32,7 +33,7 @@ mod widgets;
 mod xml_order;
 
 use app::*;
-use components::{text_field, PrimaryActionButton, SectionHeading, StatusBadge, StatusKind};
+use components::{PrimaryActionButton, SectionHeading, StatusBadge, StatusKind, text_field};
 use eframe::egui;
 use folder_ops::*;
 use oxidj_library::{Catalog, TrackAvailability, TrackDetails};

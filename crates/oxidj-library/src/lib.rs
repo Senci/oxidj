@@ -24,18 +24,21 @@ pub(crate) fn next_reference_operation_id() -> String {
 mod aiff;
 #[cfg(test)]
 mod aiff_tests;
+mod artwork;
 mod imported_library;
 pub mod pcm;
 mod tempo_store;
 mod waveform_store;
+pub use artwork::{Artwork, ArtworkError, DEFAULT_ARTWORK_CACHE_BYTES};
 pub use imported_library::{
     LibraryBeat, LibraryCounts, LibraryCue, LibraryNavigation, LibraryNavigationTrack, LibraryNode,
     LibrarySnapshot, LibraryTrack, validate_library_playlist_name,
 };
+pub use oxidj_core::TrackId;
 pub use tempo_store::{LibraryComputedGrid, StoredBeatGrid, TEMPO_GRID_FORMAT_VERSION, TempoBasis};
 pub use waveform_store::{StoredWaveform, VendorWaveform, WAVEFORM_FORMAT_VERSION};
 
-const SCHEMA_VERSION: i64 = 7;
+const SCHEMA_VERSION: i64 = 8;
 const MIGRATION_LIST: &[M<'static>] = &[
     M::up(
         "CREATE TABLE tracks (\
@@ -165,6 +168,19 @@ const MIGRATION_LIST: &[M<'static>] = &[
             beats BLOB NOT NULL CHECK (length(beats) >= 8 AND length(beats) % 4 = 0)\
         );",
     ),
+    // Deck artwork: decoded RGBA pixels per catalog track, keyed by the source
+    // digest they were extracted from; `last_used` drives LRU eviction.
+    // See artwork.rs.
+    M::up(
+        "CREATE TABLE track_artwork (\
+            track_id INTEGER PRIMARY KEY REFERENCES tracks(id),\
+            width INTEGER NOT NULL CHECK (width > 0),\
+            height INTEGER NOT NULL CHECK (height > 0),\
+            rgba BLOB NOT NULL CHECK (length(rgba) > 0 AND length(rgba) % 4 = 0),\
+            source_sha256 BLOB NOT NULL CHECK (length(source_sha256) = 32),\
+            last_used INTEGER NOT NULL CHECK (last_used >= 0)\
+        );",
+    ),
 ];
 const MIGRATIONS: Migrations<'static> = Migrations::from_slice(MIGRATION_LIST);
 
@@ -233,6 +249,8 @@ impl From<std::io::Error> for CatalogError {
 /// An open, migrated local catalog.
 pub struct Catalog {
     connection: Connection,
+    /// Decoded-artwork cache budget in bytes (LRU eviction on insert).
+    artwork_budget: u64,
 }
 
 /// A reference to one imported (vendor) library track used by the analysis
@@ -378,7 +396,10 @@ impl Catalog {
         if version != SCHEMA_VERSION {
             return Err(CatalogError::UnsupportedSchema(version));
         }
-        Ok(Self { connection })
+        Ok(Self {
+            connection,
+            artwork_budget: crate::artwork::DEFAULT_ARTWORK_CACHE_BYTES,
+        })
     }
 
     /// Open or create a catalog, applying known migrations without resetting data.
@@ -402,7 +423,10 @@ impl Catalog {
             return Err(CatalogError::UnsupportedSchema(version));
         }
         MIGRATIONS.to_latest(&mut connection)?;
-        Ok(Self { connection })
+        Ok(Self {
+            connection,
+            artwork_budget: crate::artwork::DEFAULT_ARTWORK_CACHE_BYTES,
+        })
     }
 
     /// Backwards-compatible WAV import entry point.

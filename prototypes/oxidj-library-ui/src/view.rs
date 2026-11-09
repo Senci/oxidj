@@ -17,7 +17,6 @@ impl eframe::App for LibraryApp {
     }
 }
 
-
 /// Fixed track-table columns (W11): availability dot, ID, Duration, Format.
 const STATUS_COLUMN: f32 = 24.0;
 const ID_COLUMN: f32 = 52.0;
@@ -56,6 +55,7 @@ impl LibraryApp {
         self.handle_panel_shortcuts(ctx);
         self.handle_deck_keys(ctx);
         self.decks.pump();
+        self.decks.pump_artwork(ctx);
         self.pump_waveform_job(ctx);
         self.theme.apply(self.custom_tokens, ctx);
         let tokens = self.active_tokens();
@@ -101,7 +101,9 @@ impl LibraryApp {
                 .width_range(140.0..=280.0)
                 .resizable(true)
                 .show(ctx, |ui| {
-                    egui::ScrollArea::vertical().id_salt("navigation-scroll").show(ui, |ui| self.navigation(ui, tokens));
+                    egui::ScrollArea::vertical()
+                        .id_salt("navigation-scroll")
+                        .show(ui, |ui| self.navigation(ui, tokens));
                 });
             self.shell.nav = Some(nav.response.rect);
         }
@@ -144,14 +146,17 @@ impl LibraryApp {
         self.decks.range = crate::decks::tempo_range(self.settings.tempo_range);
         self.decks.crossfader_on = self.settings.crossfader;
         self.decks.curve = self.settings.xfader_curve;
-        self.decks.flush(self.show_decks && self.settings.sections.mixer);
+        self.decks
+            .flush(self.show_decks && self.settings.sections.mixer);
     }
 
     /// Resolve the release after every region has been laid out. The source
     /// survives leaving its virtual row; only primary release over a deck loads.
     fn finish_track_drop(&mut self, ctx: &egui::Context, tokens: theme::ColorTokens) {
         use crate::app::TrackSource;
-        if self.dragging_track.is_none() { return; }
+        if self.dragging_track.is_none() {
+            return;
+        }
         if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
             self.dragging_track = None;
             return;
@@ -163,18 +168,40 @@ impl LibraryApp {
             for d in 0..2 {
                 let strip = layout.strip.map(|r| {
                     let half = r.width() / 2.0;
-                    egui::Rect::from_min_size(egui::pos2(r.left() + d as f32 * half, r.top()), egui::vec2(half, r.height()))
+                    egui::Rect::from_min_size(
+                        egui::pos2(r.left() + d as f32 * half, r.top()),
+                        egui::vec2(half, r.height()),
+                    )
                 });
-                for rect in [layout.halves.map(|r| r[d]), layout.overviews.map(|r| r[d]), strip].into_iter().flatten() {
+                for rect in [
+                    layout.halves.map(|r| r[d]),
+                    layout.overviews.map(|r| r[d]),
+                    strip,
+                ]
+                .into_iter()
+                .flatten()
+                {
                     if pointer.is_some_and(|p| rect.contains(p)) {
                         target = Some(d);
-                        ctx.layer_painter(egui::LayerId::new(egui::Order::Foreground, egui::Id::new("track-drop-highlight")))
-                            .rect_stroke(rect.shrink(1.0), 0.0, egui::Stroke::new(2.0_f32, tokens.focus), egui::StrokeKind::Inside);
+                        ctx.layer_painter(egui::LayerId::new(
+                            egui::Order::Foreground,
+                            egui::Id::new("track-drop-highlight"),
+                        ))
+                        .rect_stroke(
+                            rect.shrink(1.0),
+                            0.0,
+                            egui::Stroke::new(2.0_f32, tokens.focus),
+                            egui::StrokeKind::Inside,
+                        );
                     }
                 }
             }
         }
-        ctx.set_cursor_icon(if target.is_some() { egui::CursorIcon::Copy } else { egui::CursorIcon::Grabbing });
+        ctx.set_cursor_icon(if target.is_some() {
+            egui::CursorIcon::Copy
+        } else {
+            egui::CursorIcon::Grabbing
+        });
         if ctx.input(|i| i.pointer.button_released(egui::PointerButton::Primary)) {
             let source = self.dragging_track.take();
             if let (Some(source), Some(deck)) = (source, target) {
@@ -191,7 +218,12 @@ impl LibraryApp {
     /// One slim row: title, growing search field, then (right-aligned) the
     /// panel toggles, Settings and the "…" menu with the rarely used
     /// catalog/import/XML fields and tool windows.
-    pub(crate) fn toolbar(&mut self, ui: &mut egui::Ui, ctx: &egui::Context, tokens: theme::ColorTokens) {
+    pub(crate) fn toolbar(
+        &mut self,
+        ui: &mut egui::Ui,
+        ctx: &egui::Context,
+        tokens: theme::ColorTokens,
+    ) {
         if self.show_theme_editor {
             let mut editor_open = self.show_theme_editor;
             egui::Window::new("Custom palette")
@@ -209,65 +241,90 @@ impl LibraryApp {
         // A fixed one-control-high row: separators and right-to-left layouts
         // fill the available height, which would otherwise grow the panel.
         let row = egui::vec2(ui.available_width(), theme::CONTROL_HEIGHT);
-        ui.allocate_ui_with_layout(row, egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            // Right-to-left: the first widget added is the rightmost.
-            let more = ui
-                .add(egui::Button::new("…").min_size(egui::vec2(theme::CONTROL_HEIGHT + 8.0, 0.0)))
-                .on_hover_text("More: catalog, import, Rekordbox XML and tool windows");
-            self.shell.more = Some(more.rect);
-            // Placed from its fixed width, not from egui's previous-frame size
-            // estimate: egui repaints only on input, so a freshly opened popup
-            // positioned by pivot stayed half off-screen on the live build.
-            let corner = egui::pos2((more.rect.right() - MORE_MENU_WIDTH).max(0.0), more.rect.bottom() + 2.0);
-            let popup = egui::Popup::from_toggle_button_response(&more)
-                .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
-                .anchor(corner)
-                .align(egui::RectAlign::BOTTOM_START)
-                .gap(0.0)
-                .width(MORE_MENU_WIDTH)
-                .show(|ui| {
-                    // Outer width = MORE_MENU_WIDTH: subtract the frame margin and stroke.
-                    let frame = ui.style().spacing.menu_margin.sum().x + 2.0 * ui.visuals().window_stroke.width;
-                    ui.set_width(MORE_MENU_WIDTH - frame);
-                    self.more_menu(ui, tokens)
+        ui.allocate_ui_with_layout(
+            row,
+            egui::Layout::right_to_left(egui::Align::Center),
+            |ui| {
+                // Right-to-left: the first widget added is the rightmost.
+                let more = ui
+                    .add(
+                        egui::Button::new("…")
+                            .min_size(egui::vec2(theme::CONTROL_HEIGHT + 8.0, 0.0)),
+                    )
+                    .on_hover_text("More: catalog, import, Rekordbox XML and tool windows");
+                self.shell.more = Some(more.rect);
+                // Placed from its fixed width, not from egui's previous-frame size
+                // estimate: egui repaints only on input, so a freshly opened popup
+                // positioned by pivot stayed half off-screen on the live build.
+                let corner = egui::pos2(
+                    (more.rect.right() - MORE_MENU_WIDTH).max(0.0),
+                    more.rect.bottom() + 2.0,
+                );
+                let popup = egui::Popup::from_toggle_button_response(&more)
+                    .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
+                    .anchor(corner)
+                    .align(egui::RectAlign::BOTTOM_START)
+                    .gap(0.0)
+                    .width(MORE_MENU_WIDTH)
+                    .show(|ui| {
+                        // Outer width = MORE_MENU_WIDTH: subtract the frame margin and stroke.
+                        let frame = ui.style().spacing.menu_margin.sum().x
+                            + 2.0 * ui.visuals().window_stroke.width;
+                        ui.set_width(MORE_MENU_WIDTH - frame);
+                        self.more_menu(ui, tokens)
+                    });
+                self.shell.more_popup = popup.map(|popup| popup.response.rect);
+                let gear = ui
+                    .add(
+                        egui::Button::new("⚙")
+                            .min_size(egui::vec2(theme::CONTROL_HEIGHT + 8.0, 0.0)),
+                    )
+                    .on_hover_text("Settings (Ctrl+,)");
+                gear.widget_info(|| {
+                    egui::WidgetInfo::labeled(egui::WidgetType::Button, true, "Settings")
                 });
-            self.shell.more_popup = popup.map(|popup| popup.response.rect);
-            let gear = ui
-                .add(egui::Button::new("⚙").min_size(egui::vec2(theme::CONTROL_HEIGHT + 8.0, 0.0)))
-                .on_hover_text("Settings (Ctrl+,)");
-            gear.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, "Settings"));
-            if gear.clicked() {
-                let open = !self.settings_ui.open;
-                self.set_settings_open(ctx, open);
-            }
-            self.shell.settings = Some(gear.rect);
-            ui.separator();
-            // W11: one segmented Nav | Details | Decks group (left to right
-            // inside the right-to-left toolbar row).
-            let cells = [("Nav", self.show_nav), ("Details", self.show_details), ("Decks", self.show_decks)];
-            let group = crate::components::segmented_toggles(ui, tokens, &cells);
-            let mut toggles = [egui::Rect::NOTHING; 3];
-            for (index, (response, shortcut)) in group.into_iter().zip(["Ctrl+B", "Ctrl+I", "Ctrl+D"]).enumerate() {
-                let label = cells[index].0;
-                let response = response.on_hover_text(format!("Show or hide the {label} panel ({shortcut})"));
-                if response.clicked() {
-                    let open = match index {
-                        0 => &mut self.show_nav,
-                        1 => &mut self.show_details,
-                        _ => &mut self.show_decks,
-                    };
-                    *open = !*open;
+                if gear.clicked() {
+                    let open = !self.settings_ui.open;
+                    self.set_settings_open(ctx, open);
                 }
-                toggles[index] = response.rect;
-            }
-            self.shell.toggles = Some(toggles);
-            ui.separator();
-            ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
-                ui.label(egui::RichText::new("OxiDJ").strong().color(tokens.text));
-                ui.add_space(4.0);
-                self.search_field(ui, tokens);
-            });
-        });
+                self.shell.settings = Some(gear.rect);
+                ui.separator();
+                // W11: one segmented Nav | Details | Decks group (left to right
+                // inside the right-to-left toolbar row).
+                let cells = [
+                    ("Nav", self.show_nav),
+                    ("Details", self.show_details),
+                    ("Decks", self.show_decks),
+                ];
+                let group = crate::components::segmented_toggles(ui, tokens, &cells);
+                let mut toggles = [egui::Rect::NOTHING; 3];
+                for (index, (response, shortcut)) in group
+                    .into_iter()
+                    .zip(["Ctrl+B", "Ctrl+I", "Ctrl+D"])
+                    .enumerate()
+                {
+                    let label = cells[index].0;
+                    let response = response
+                        .on_hover_text(format!("Show or hide the {label} panel ({shortcut})"));
+                    if response.clicked() {
+                        let open = match index {
+                            0 => &mut self.show_nav,
+                            1 => &mut self.show_details,
+                            _ => &mut self.show_decks,
+                        };
+                        *open = !*open;
+                    }
+                    toggles[index] = response.rect;
+                }
+                self.shell.toggles = Some(toggles);
+                ui.separator();
+                ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                    ui.label(egui::RichText::new("OxiDJ").strong().color(tokens.text));
+                    ui.add_space(4.0);
+                    self.search_field(ui, tokens);
+                });
+            },
+        );
     }
 
     /// The "…" popup: catalog path + reload, import folder, Rekordbox XML
@@ -289,8 +346,12 @@ impl LibraryApp {
                     |ui| {
                         ui.set_min_width(field);
                         ui.add(
-                            egui::Label::new(egui::RichText::new(&full_path).monospace().color(tokens.muted_text))
-                                .truncate(),
+                            egui::Label::new(
+                                egui::RichText::new(&full_path)
+                                    .monospace()
+                                    .color(tokens.muted_text),
+                            )
+                            .truncate(),
                         )
                         .on_hover_text(&full_path);
                     },
@@ -303,11 +364,18 @@ impl LibraryApp {
                 ui.label("Import folder");
                 ui.add_sized(
                     [field, height],
-                    egui::TextEdit::singleline(&mut self.import_root).hint_text("Folder path").vertical_align(egui::Align::Center),
+                    egui::TextEdit::singleline(&mut self.import_root)
+                        .hint_text("Folder path")
+                        .vertical_align(egui::Align::Center),
                 );
-                let import = ui.add_enabled_ui(self.waveform_job.is_none(), |ui| {
-                    (PrimaryActionButton { label: "Import references" }).show(ui, tokens)
-                }).inner;
+                let import = ui
+                    .add_enabled_ui(self.waveform_job.is_none(), |ui| {
+                        (PrimaryActionButton {
+                            label: "Import references",
+                        })
+                        .show(ui, tokens)
+                    })
+                    .inner;
                 if import.clicked() {
                     self.import();
                     ui.ctx().request_repaint();
@@ -318,13 +386,20 @@ impl LibraryApp {
                 let source_changed = ui
                     .add_sized(
                         [field, height],
-                        egui::TextEdit::singleline(&mut self.xml_path).hint_text("XML file path (read-only)").vertical_align(egui::Align::Center),
+                        egui::TextEdit::singleline(&mut self.xml_path)
+                            .hint_text("XML file path (read-only)")
+                            .vertical_align(egui::Align::Center),
                     )
                     .changed();
                 if source_changed {
                     self.on_xml_source_changed();
                 }
-                if (PrimaryActionButton { label: "Preview XML" }).show(ui, tokens).clicked() {
+                if (PrimaryActionButton {
+                    label: "Preview XML",
+                })
+                .show(ui, tokens)
+                .clicked()
+                {
                     self.preview_xml();
                     close = true;
                 }
@@ -352,9 +427,14 @@ impl LibraryApp {
         let width = ui.available_width().max(160.0);
         let (outer, _) = ui.allocate_exact_size(egui::vec2(width, h), egui::Sense::hover());
         let glyph = egui::Rect::from_min_size(outer.min, egui::vec2(h, h));
-        let clear = egui::Rect::from_min_size(egui::pos2(outer.right() - h, outer.top()), egui::vec2(h, h));
-        let field = egui::Rect::from_min_max(egui::pos2(glyph.right(), outer.top()), egui::pos2(clear.left() - 1.0, outer.bottom()));
-        ui.painter().rect_filled(outer, crate::components::CONTROL_RADIUS, tokens.background);
+        let clear =
+            egui::Rect::from_min_size(egui::pos2(outer.right() - h, outer.top()), egui::vec2(h, h));
+        let field = egui::Rect::from_min_max(
+            egui::pos2(glyph.right(), outer.top()),
+            egui::pos2(clear.left() - 1.0, outer.bottom()),
+        );
+        ui.painter()
+            .rect_filled(outer, crate::components::CONTROL_RADIUS, tokens.background);
         let edit = ui.put(
             field,
             egui::TextEdit::singleline(&mut self.search)
@@ -374,26 +454,47 @@ impl LibraryApp {
             egui::Stroke::new(1.0_f32, tokens.border)
         };
         let painter = ui.painter();
-        painter.rect_stroke(outer, crate::components::CONTROL_RADIUS, stroke, egui::StrokeKind::Inside);
+        painter.rect_stroke(
+            outer,
+            crate::components::CONTROL_RADIUS,
+            stroke,
+            egui::StrokeKind::Inside,
+        );
         // Magnifier: a 5 px lens and a short handle, painted (no font glyph).
         let lens = glyph.center() - egui::vec2(1.5, 1.5);
         let ink = egui::Stroke::new(1.5_f32, tokens.muted_text);
         painter.circle_stroke(lens, 4.5, ink);
         let d = 4.5 / std::f32::consts::SQRT_2;
-        painter.line_segment([lens + egui::vec2(d, d), lens + egui::vec2(d + 3.5, d + 3.5)], ink);
+        painter.line_segment(
+            [lens + egui::vec2(d, d), lens + egui::vec2(d + 3.5, d + 3.5)],
+            ink,
+        );
         self.shell.search = Some(edit.rect);
         self.shell.search_clear = None;
         if !self.search.is_empty() {
             let response = ui.interact(clear, ui.id().with("clear-search"), egui::Sense::click());
-            response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, "Clear search"));
-            let color = if response.hovered() || response.has_focus() { tokens.text } else { tokens.muted_text };
+            response.widget_info(|| {
+                egui::WidgetInfo::labeled(egui::WidgetType::Button, true, "Clear search")
+            });
+            let color = if response.hovered() || response.has_focus() {
+                tokens.text
+            } else {
+                tokens.muted_text
+            };
             if response.has_focus() {
-                ui.painter().rect_stroke(clear.shrink(2.0), crate::components::CONTROL_RADIUS, egui::Stroke::new(2.0_f32, tokens.focus), egui::StrokeKind::Inside);
+                ui.painter().rect_stroke(
+                    clear.shrink(2.0),
+                    crate::components::CONTROL_RADIUS,
+                    egui::Stroke::new(2.0_f32, tokens.focus),
+                    egui::StrokeKind::Inside,
+                );
             }
             let c = clear.center();
             let x = egui::Stroke::new(1.5_f32, color);
-            ui.painter().line_segment([c - egui::vec2(4.0, 4.0), c + egui::vec2(4.0, 4.0)], x);
-            ui.painter().line_segment([c + egui::vec2(-4.0, 4.0), c + egui::vec2(4.0, -4.0)], x);
+            ui.painter()
+                .line_segment([c - egui::vec2(4.0, 4.0), c + egui::vec2(4.0, 4.0)], x);
+            ui.painter()
+                .line_segment([c + egui::vec2(-4.0, 4.0), c + egui::vec2(4.0, -4.0)], x);
             self.shell.search_clear = Some(clear);
             if response.on_hover_text("Clear search").clicked() {
                 self.search.clear();
@@ -1013,27 +1114,39 @@ impl LibraryApp {
         if let Some(member) = self.selected_imported {
             if let Ok(snapshot) = &self.imported_navigation {
                 if let Some(track) = snapshot.tracks.get(member) {
-                    egui::Grid::new("playlist-track-details").num_columns(2).show(ui, |ui| {
-                        for (label, value) in [
-                            ("Title", track.title.clone()),
-                            ("Artist", track.artist.clone().unwrap_or_else(|| "—".into())),
-                            ("Album", track.album.clone().unwrap_or_else(|| "—".into())),
-                            ("BPM", format!("{:.2}", track.tempo_hundredths_bpm as f64 / 100.0)),
-                            ("Imported key", track.key.clone().unwrap_or_else(|| "—".into())),
-                            ("Duration", format_duration(track.duration_seconds as f64)),
-                            ("Location", track.location.clone()),
-                        ] {
-                            ui.label(egui::RichText::new(label).color(tokens.muted_text));
-                            ui.add(egui::Label::new(&value).truncate()).on_hover_text(value);
-                            ui.end_row();
-                        }
-                    });
+                    egui::Grid::new("playlist-track-details")
+                        .num_columns(2)
+                        .show(ui, |ui| {
+                            for (label, value) in [
+                                ("Title", track.title.clone()),
+                                ("Artist", track.artist.clone().unwrap_or_else(|| "—".into())),
+                                ("Album", track.album.clone().unwrap_or_else(|| "—".into())),
+                                (
+                                    "BPM",
+                                    format!("{:.2}", track.tempo_hundredths_bpm as f64 / 100.0),
+                                ),
+                                (
+                                    "Imported key",
+                                    track.key.clone().unwrap_or_else(|| "—".into()),
+                                ),
+                                ("Duration", format_duration(track.duration_seconds as f64)),
+                                ("Location", track.location.clone()),
+                            ] {
+                                ui.label(egui::RichText::new(label).color(tokens.muted_text));
+                                ui.add(egui::Label::new(&value).truncate())
+                                    .on_hover_text(value);
+                                ui.end_row();
+                            }
+                        });
                     return;
                 }
             }
         }
         let Some(id) = self.selected else {
-            ui.label(egui::RichText::new("Select a track to inspect its details.").color(tokens.muted_text));
+            ui.label(
+                egui::RichText::new("Select a track to inspect its details.")
+                    .color(tokens.muted_text),
+            );
             return;
         };
         let Some(item) = self.tracks.iter().find(|x| x.track.id.as_u64() == id) else {
@@ -1053,7 +1166,12 @@ impl LibraryApp {
             ui.ctx().request_repaint();
         }
         let unavailable = || "Unavailable".to_owned();
-        let hash: String = item.track.sha256.iter().map(|b| format!("{b:02x}")).collect();
+        let hash: String = item
+            .track
+            .sha256
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect();
         let imported_key = match self.catalog.as_ref() {
             Ok(catalog) => {
                 let (uri, _) = oxidj_application::location_uri(&item.track.path);
@@ -1068,14 +1186,36 @@ impl LibraryApp {
             ("ID", id.to_string()),
             ("Filename", file_name(&item.track.path)),
             ("Path", item.track.path.clone()),
-            ("Duration", item.duration_seconds.map(|v| format!("{v:.3} s")).unwrap_or_else(unavailable)),
-            ("Sample rate", item.sample_rate.map(|v| format!("{v} Hz")).unwrap_or_else(unavailable)),
-            ("Channels", item.channels.map(|v| v.to_string()).unwrap_or_else(unavailable)),
-            ("Bit depth", item.bit_depth.map(|v| format!("{v} bit")).unwrap_or_else(unavailable)),
+            (
+                "Duration",
+                item.duration_seconds
+                    .map(|v| format!("{v:.3} s"))
+                    .unwrap_or_else(unavailable),
+            ),
+            (
+                "Sample rate",
+                item.sample_rate
+                    .map(|v| format!("{v} Hz"))
+                    .unwrap_or_else(unavailable),
+            ),
+            (
+                "Channels",
+                item.channels
+                    .map(|v| v.to_string())
+                    .unwrap_or_else(unavailable),
+            ),
+            (
+                "Bit depth",
+                item.bit_depth
+                    .map(|v| format!("{v} bit"))
+                    .unwrap_or_else(unavailable),
+            ),
             ("Size", format!("{} bytes", item.track.byte_length)),
         ];
         // B2c: computed BPM (OxiDJ analysis), only when a current grid is stored.
-        let tempo = self.track_waveform.computed_tempo(self.catalog.as_ref().ok(), item);
+        let tempo = self
+            .track_waveform
+            .computed_tempo(self.catalog.as_ref().ok(), item);
         ui.add_space(4.0);
         egui::Grid::new("track-facts")
             .num_columns(2)
@@ -1150,8 +1290,16 @@ impl LibraryApp {
 
     /// Display imported cue metadata verbatim from the catalog. Lookup follows
     /// the same path/URI matching used by decks and is read-only.
-    fn show_imported_cues(&self, ui: &mut egui::Ui, item: &TrackDetails, tokens: theme::ColorTokens) {
-        SectionHeading { title: "Imported cues & loops" }.show(ui, tokens);
+    fn show_imported_cues(
+        &self,
+        ui: &mut egui::Ui,
+        item: &TrackDetails,
+        tokens: theme::ColorTokens,
+    ) {
+        SectionHeading {
+            title: "Imported cues & loops",
+        }
+        .show(ui, tokens);
         let cues = match self.catalog.as_ref() {
             Ok(catalog) => {
                 let (uri, _) = oxidj_application::location_uri(&item.track.path);
@@ -1172,16 +1320,38 @@ impl LibraryApp {
             ui.label(egui::RichText::new("No imported cues or loops.").color(tokens.muted_text));
             return;
         }
-        egui::Grid::new("imported-track-cues").num_columns(4).spacing([8.0, 4.0]).show(ui, |ui| {
-            ui.strong("Cue"); ui.strong("Start"); ui.strong("Loop end"); ui.strong("Name"); ui.end_row();
-            for cue in cues {
-                ui.label(cue.hot_cue.map(|index| format!("Hot cue {index}")).unwrap_or_else(|| "Memory cue".into()));
-                ui.label(format_cue_time(cue.start_ms));
-                ui.label(cue.end_ms.map(format_cue_time).unwrap_or_else(|| "—".into()));
-                ui.add(egui::Label::new(if cue.name.is_empty() { "—" } else { &cue.name }).truncate());
+        egui::Grid::new("imported-track-cues")
+            .num_columns(4)
+            .spacing([8.0, 4.0])
+            .show(ui, |ui| {
+                ui.strong("Cue");
+                ui.strong("Start");
+                ui.strong("Loop end");
+                ui.strong("Name");
                 ui.end_row();
-            }
-        });
+                for cue in cues {
+                    ui.label(
+                        cue.hot_cue
+                            .map(|index| format!("Hot cue {index}"))
+                            .unwrap_or_else(|| "Memory cue".into()),
+                    );
+                    ui.label(format_cue_time(cue.start_ms));
+                    ui.label(
+                        cue.end_ms
+                            .map(format_cue_time)
+                            .unwrap_or_else(|| "—".into()),
+                    );
+                    ui.add(
+                        egui::Label::new(if cue.name.is_empty() {
+                            "—"
+                        } else {
+                            &cue.name
+                        })
+                        .truncate(),
+                    );
+                    ui.end_row();
+                }
+            });
     }
 
     /// The track table: a sortable header (click a column to sort, again to
@@ -1217,45 +1387,128 @@ impl LibraryApp {
                 self.shell.table = Some(ui.max_rect());
                 let mut load = None;
                 let total = ui.available_width().max(720.0);
-                let widths = [total * 0.34, total * 0.23, total * 0.13, total * 0.10, total * 0.10, total * 0.10];
+                let widths = [
+                    total * 0.34,
+                    total * 0.23,
+                    total * 0.13,
+                    total * 0.10,
+                    total * 0.10,
+                    total * 0.10,
+                ];
                 ui.spacing_mut().item_spacing = egui::Vec2::ZERO;
-                egui::ScrollArea::horizontal().id_salt("playlist-columns").auto_shrink([false, false]).show(ui, |ui| {
-                    let (header, _) = ui.allocate_exact_size(egui::vec2(total, theme::HEADER_HEIGHT), egui::Sense::hover());
-                    playlist_cells(ui, header, widths, ["Title", "Artist", "Album", "BPM", "Key", "Duration"].map(str::to_owned), tokens);
-                    if members.is_empty() { ui.label("This playlist is empty."); }
-                    let query = self.search.to_lowercase();
-                    let visible: Vec<_> = members.iter().enumerate().filter(|(_, member)| {
-                        snapshot.tracks.get(**member).is_some_and(|t| format!("{} {} {}", t.title, t.artist.as_deref().unwrap_or(""), t.album.as_deref().unwrap_or("")).to_lowercase().contains(&query))
-                    }).collect();
-                    egui::ScrollArea::vertical().id_salt(("playlist-rows", &self.imported_playlist)).auto_shrink([false, false]).show_rows(ui, theme::ROW_HEIGHT, visible.len(), |ui, range| {
-                        for index in range {
-                            let (position, &member) = visible[index];
-                            let track = &snapshot.tracks[member];
-                            let (rect, response) = ui.allocate_exact_size(egui::vec2(total, theme::ROW_HEIGHT), egui::Sense::click_and_drag());
-                            let selected = self.imported_member == Some(position);
-                            response.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, true, selected, &track.title));
-                            if selected || response.hovered() || index % 2 == 1 {
-                                ui.painter().rect_filled(rect, 0.0, if selected { theme::selection_fill(tokens) } else { theme::zebra(tokens) });
-                            }
-                            playlist_cells(ui, rect, widths, [format!("{} · {}", position + 1, track.title), track.artist.clone().unwrap_or_else(|| "—".into()), track.album.clone().unwrap_or_else(|| "—".into()), if track.tempo_hundredths_bpm == 0 { "—".into() } else { format!("{:.2}", track.tempo_hundredths_bpm as f64 / 100.0) }, track.key.clone().unwrap_or_else(|| "—".into()), format_duration(track.duration_seconds as f64)], tokens);
-                            if response.clicked() || response.drag_started() {
-                                self.imported_member = Some(position);
-                                self.selected_imported = Some(member);
-                                self.selected = None;
-                            }
-                            if response.drag_started() { self.dragging_track = Some(crate::app::TrackSource::Imported(member)); }
-                            response.context_menu(|ui| {
-                                for (deck, letter) in crate::decks::DECKS.iter().enumerate() {
-                                    if ui.button(format!("Load to deck {letter}")).clicked() {
-                                        load = Some((member, deck));
-                                        ui.close();
+                egui::ScrollArea::horizontal()
+                    .id_salt("playlist-columns")
+                    .auto_shrink([false, false])
+                    .show(ui, |ui| {
+                        let (header, _) = ui.allocate_exact_size(
+                            egui::vec2(total, theme::HEADER_HEIGHT),
+                            egui::Sense::hover(),
+                        );
+                        playlist_cells(
+                            ui,
+                            header,
+                            widths,
+                            ["Title", "Artist", "Album", "BPM", "Key", "Duration"]
+                                .map(str::to_owned),
+                            tokens,
+                        );
+                        if members.is_empty() {
+                            ui.label("This playlist is empty.");
+                        }
+                        let query = self.search.to_lowercase();
+                        let visible: Vec<_> = members
+                            .iter()
+                            .enumerate()
+                            .filter(|(_, member)| {
+                                snapshot.tracks.get(**member).is_some_and(|t| {
+                                    format!(
+                                        "{} {} {}",
+                                        t.title,
+                                        t.artist.as_deref().unwrap_or(""),
+                                        t.album.as_deref().unwrap_or("")
+                                    )
+                                    .to_lowercase()
+                                    .contains(&query)
+                                })
+                            })
+                            .collect();
+                        egui::ScrollArea::vertical()
+                            .id_salt(("playlist-rows", &self.imported_playlist))
+                            .auto_shrink([false, false])
+                            .show_rows(ui, theme::ROW_HEIGHT, visible.len(), |ui, range| {
+                                for index in range {
+                                    let (position, &member) = visible[index];
+                                    let track = &snapshot.tracks[member];
+                                    let (rect, response) = ui.allocate_exact_size(
+                                        egui::vec2(total, theme::ROW_HEIGHT),
+                                        egui::Sense::click_and_drag(),
+                                    );
+                                    let selected = self.imported_member == Some(position);
+                                    response.widget_info(|| {
+                                        egui::WidgetInfo::selected(
+                                            egui::WidgetType::SelectableLabel,
+                                            true,
+                                            selected,
+                                            &track.title,
+                                        )
+                                    });
+                                    if selected || response.hovered() || index % 2 == 1 {
+                                        ui.painter().rect_filled(
+                                            rect,
+                                            0.0,
+                                            if selected {
+                                                theme::selection_fill(tokens)
+                                            } else {
+                                                theme::zebra(tokens)
+                                            },
+                                        );
                                     }
+                                    playlist_cells(
+                                        ui,
+                                        rect,
+                                        widths,
+                                        [
+                                            format!("{} · {}", position + 1, track.title),
+                                            track.artist.clone().unwrap_or_else(|| "—".into()),
+                                            track.album.clone().unwrap_or_else(|| "—".into()),
+                                            if track.tempo_hundredths_bpm == 0 {
+                                                "—".into()
+                                            } else {
+                                                format!(
+                                                    "{:.2}",
+                                                    track.tempo_hundredths_bpm as f64 / 100.0
+                                                )
+                                            },
+                                            track.key.clone().unwrap_or_else(|| "—".into()),
+                                            format_duration(track.duration_seconds as f64),
+                                        ],
+                                        tokens,
+                                    );
+                                    if response.clicked() || response.drag_started() {
+                                        self.imported_member = Some(position);
+                                        self.selected_imported = Some(member);
+                                        self.selected = None;
+                                    }
+                                    if response.drag_started() {
+                                        self.dragging_track =
+                                            Some(crate::app::TrackSource::Imported(member));
+                                    }
+                                    response.context_menu(|ui| {
+                                        for (deck, letter) in crate::decks::DECKS.iter().enumerate()
+                                        {
+                                            if ui.button(format!("Load to deck {letter}")).clicked()
+                                            {
+                                                load = Some((member, deck));
+                                                ui.close();
+                                            }
+                                        }
+                                    });
                                 }
                             });
-                        }
                     });
-                });
-                if let Some((member, deck)) = load { self.load_imported_member(member, deck); }
+                if let Some((member, deck)) = load {
+                    self.load_imported_member(member, deck);
+                }
                 return;
             }
         }
@@ -1295,7 +1548,14 @@ impl LibraryApp {
         let fixed = STATUS_COLUMN + ID_COLUMN + DURATION_COLUMN + FORMAT_COLUMN;
         let total = ui.available_width().max(fixed + MIN_FLEX_COLUMNS);
         let name = ((total - fixed) * 0.6).floor();
-        let widths = [STATUS_COLUMN, ID_COLUMN, name, total - fixed - name, DURATION_COLUMN, FORMAT_COLUMN];
+        let widths = [
+            STATUS_COLUMN,
+            ID_COLUMN,
+            name,
+            total - fixed - name,
+            DURATION_COLUMN,
+            FORMAT_COLUMN,
+        ];
         // The visible table viewport (wider content scrolls inside it).
         self.shell.table = Some(ui.max_rect());
         ui.spacing_mut().item_spacing = egui::vec2(0.0, 0.0);
@@ -1362,16 +1622,33 @@ impl LibraryApp {
             self.load_deck(deck, id);
         }
     }
-
 }
 
 /// Imported metadata uses the same full-width virtual table, without inventing
 /// scanned technical facts or changing the source's member order.
-fn playlist_cells(ui: &egui::Ui, rect: egui::Rect, widths: [f32; 6], cells: [String; 6], tokens: theme::ColorTokens) {
+fn playlist_cells(
+    ui: &egui::Ui,
+    rect: egui::Rect,
+    widths: [f32; 6],
+    cells: [String; 6],
+    tokens: theme::ColorTokens,
+) {
     let mut x = rect.left();
     for (text, width) in cells.into_iter().zip(widths) {
-        let galley = egui::WidgetText::from(egui::RichText::new(text).color(tokens.text)).into_galley(ui, Some(egui::TextWrapMode::Truncate), width - 2.0 * CELL_INSET, egui::TextStyle::Body);
-        ui.painter().with_clip_rect(rect.intersect(ui.clip_rect())).galley(egui::pos2(x + CELL_INSET, rect.center().y - galley.size().y / 2.0), galley, tokens.text);
+        let galley = egui::WidgetText::from(egui::RichText::new(text).color(tokens.text))
+            .into_galley(
+                ui,
+                Some(egui::TextWrapMode::Truncate),
+                width - 2.0 * CELL_INSET,
+                egui::TextStyle::Body,
+            );
+        ui.painter()
+            .with_clip_rect(rect.intersect(ui.clip_rect()))
+            .galley(
+                egui::pos2(x + CELL_INSET, rect.center().y - galley.size().y / 2.0),
+                galley,
+                tokens.text,
+            );
         x += width;
     }
 }
@@ -1385,72 +1662,117 @@ fn table_header(
     current: &mut Sort,
     descending: &mut bool,
 ) {
-        let painter = ui.painter();
-        painter.rect_filled(rect, 0.0, tokens.surface);
-        painter.hline(rect.x_range(), rect.bottom() - 0.5, egui::Stroke::new(1.0_f32, theme::hairline(tokens)));
-        // W11: the availability column is a dot only (state on row hover);
-        // "Folder" replaces "Path", which repeated the filename.
-        let columns: [(&str, Option<Sort>); COLUMNS] = [
-            ("", None),
-            ("ID", Some(Sort::Id)),
-            ("Filename", Some(Sort::Filename)),
-            ("Folder", None),
-            ("Duration", Some(Sort::Duration)),
-            ("Format", None),
-        ];
-        let mut x = rect.left();
-        for (column, ((title, sort), width)) in columns.into_iter().zip(widths).enumerate() {
-            let right = RIGHT_ALIGNED[column];
-            let cell = egui::Rect::from_min_size(egui::pos2(x, rect.top()), egui::vec2(width, rect.height()));
-            x += width;
-            let active = sort == Some(*current);
-            // The default fonts lack ▲/▼, so the sort arrow is painted.
-            let name = if active {
-                format!("{title}, sorted {}", if *descending { "descending" } else { "ascending" })
-            } else {
-                title.to_owned()
-            };
-            let text = title;
-            let color = if active { tokens.text } else { tokens.muted_text };
-            let galley = egui::WidgetText::from(egui::RichText::new(text).small().strong().color(color)).into_galley(
-                ui,
-                Some(egui::TextWrapMode::Truncate),
-                width - 2.0 * CELL_INSET,
-                egui::TextStyle::Small,
+    let painter = ui.painter();
+    painter.rect_filled(rect, 0.0, tokens.surface);
+    painter.hline(
+        rect.x_range(),
+        rect.bottom() - 0.5,
+        egui::Stroke::new(1.0_f32, theme::hairline(tokens)),
+    );
+    // W11: the availability column is a dot only (state on row hover);
+    // "Folder" replaces "Path", which repeated the filename.
+    let columns: [(&str, Option<Sort>); COLUMNS] = [
+        ("", None),
+        ("ID", Some(Sort::Id)),
+        ("Filename", Some(Sort::Filename)),
+        ("Folder", None),
+        ("Duration", Some(Sort::Duration)),
+        ("Format", None),
+    ];
+    let mut x = rect.left();
+    for (column, ((title, sort), width)) in columns.into_iter().zip(widths).enumerate() {
+        let right = RIGHT_ALIGNED[column];
+        let cell =
+            egui::Rect::from_min_size(egui::pos2(x, rect.top()), egui::vec2(width, rect.height()));
+        x += width;
+        let active = sort == Some(*current);
+        // The default fonts lack ▲/▼, so the sort arrow is painted.
+        let name = if active {
+            format!(
+                "{title}, sorted {}",
+                if *descending {
+                    "descending"
+                } else {
+                    "ascending"
+                }
+            )
+        } else {
+            title.to_owned()
+        };
+        let text = title;
+        let color = if active {
+            tokens.text
+        } else {
+            tokens.muted_text
+        };
+        let galley =
+            egui::WidgetText::from(egui::RichText::new(text).small().strong().color(color))
+                .into_galley(
+                    ui,
+                    Some(egui::TextWrapMode::Truncate),
+                    width - 2.0 * CELL_INSET,
+                    egui::TextStyle::Small,
+                );
+        let tx = if right {
+            cell.right() - CELL_INSET - galley.size().x
+        } else {
+            cell.left() + CELL_INSET
+        };
+        let pos = egui::pos2(tx, cell.center().y - galley.size().y / 2.0);
+        if let Some(sort) = sort {
+            let response = ui.interact(
+                cell,
+                ui.id().with(("sort-header", title)),
+                egui::Sense::click(),
             );
-            let tx = if right { cell.right() - CELL_INSET - galley.size().x } else { cell.left() + CELL_INSET };
-            let pos = egui::pos2(tx, cell.center().y - galley.size().y / 2.0);
-            if let Some(sort) = sort {
-                let response = ui.interact(cell, ui.id().with(("sort-header", title)), egui::Sense::click());
-                response.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, true, active, &name));
-                if response.hovered() || response.has_focus() {
-                    let stroke: f32 = if response.has_focus() { 2.0 } else { 1.0 };
-                    ui.painter().rect_stroke(cell.shrink(1.0), 2.0, egui::Stroke::new(stroke, tokens.focus), egui::StrokeKind::Inside);
-                }
-                if response.on_hover_text(format!("Sort by {title}")).clicked() {
-                    if active {
-                        *descending = !*descending;
-                    } else {
-                        *current = sort;
-                        *descending = false;
-                    }
+            response.widget_info(|| {
+                egui::WidgetInfo::selected(egui::WidgetType::Button, true, active, &name)
+            });
+            if response.hovered() || response.has_focus() {
+                let stroke: f32 = if response.has_focus() { 2.0 } else { 1.0 };
+                ui.painter().rect_stroke(
+                    cell.shrink(1.0),
+                    2.0,
+                    egui::Stroke::new(stroke, tokens.focus),
+                    egui::StrokeKind::Inside,
+                );
+            }
+            if response.on_hover_text(format!("Sort by {title}")).clicked() {
+                if active {
+                    *descending = !*descending;
+                } else {
+                    *current = sort;
+                    *descending = false;
                 }
             }
-            if active {
-                let size = galley.size();
-                // Right-aligned titles carry the arrow on their left.
-                let ax = if right { pos.x - 8.0 } else { pos.x + size.x + 8.0 };
-                let c = egui::pos2(ax, cell.center().y);
-                let (tip, base) = if *descending { (3.0, -3.0) } else { (-3.0, 3.0) };
-                ui.painter().add(egui::Shape::convex_polygon(
-                    vec![egui::pos2(c.x, c.y + tip), egui::pos2(c.x + 4.0, c.y + base), egui::pos2(c.x - 4.0, c.y + base)],
-                    color,
-                    egui::Stroke::NONE,
-                ));
-            }
-            ui.painter().galley(pos, galley, color);
         }
+        if active {
+            let size = galley.size();
+            // Right-aligned titles carry the arrow on their left.
+            let ax = if right {
+                pos.x - 8.0
+            } else {
+                pos.x + size.x + 8.0
+            };
+            let c = egui::pos2(ax, cell.center().y);
+            let (tip, base) = if *descending {
+                (3.0, -3.0)
+            } else {
+                (-3.0, 3.0)
+            };
+            ui.painter().add(egui::Shape::convex_polygon(
+                vec![
+                    egui::pos2(c.x, c.y + tip),
+                    egui::pos2(c.x + 4.0, c.y + base),
+                    egui::pos2(c.x - 4.0, c.y + base),
+                ],
+                color,
+                egui::Stroke::NONE,
+            ));
+        }
+        ui.painter().galley(pos, galley, color);
     }
+}
 
 /// One full-width selectable row (true when clicked), W11 states:
 /// odd rows a faint zebra, hover the full surface, selected the selection
@@ -1459,98 +1781,146 @@ fn table_header(
 /// focus ring. Missing tracks are dimmed (muted text). Numbers are
 /// right-aligned; the availability column is a dot, its word on hover.
 fn track_row(
-        ui: &mut egui::Ui,
-        item: &TrackDetails,
-        selected: Option<u64>,
-        index: usize,
-        total: f32,
-        widths: [f32; COLUMNS],
-        tokens: theme::ColorTokens,
-        on_decks: [bool; 2],
-        deck_colours: [crate::decks::DeckColours; 2],
-    ) -> egui::Response {
-        let id = item.track.id.as_u64();
-        let selected = selected == Some(id);
-        let filename = file_name(&item.track.path);
-        let (rect, response) = ui.allocate_exact_size(egui::vec2(total, theme::ROW_HEIGHT), egui::Sense::click_and_drag());
-        response.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, true, selected, &filename));
-        let painter = ui.painter();
-        if selected {
-            painter.rect_filled(rect, 0.0, theme::selection_fill(tokens));
-            let rail = egui::Rect::from_x_y_ranges(rect.left()..=rect.left() + 3.0, rect.y_range());
-            painter.rect_filled(rail, 0.0, tokens.primary);
-        } else if response.hovered() {
-            painter.rect_filled(rect, 0.0, tokens.surface);
-        } else if index % 2 == 1 {
-            painter.rect_filled(rect, 0.0, theme::zebra(tokens));
-        }
-        if response.has_focus() {
-            painter.rect_stroke(rect.shrink(0.5), 0.0, egui::Stroke::new(2.0_f32, tokens.focus), egui::StrokeKind::Inside);
-        }
-        let (availability, kind) = availability_status(item.availability);
-        let missing = item.availability == TrackAvailability::Missing;
-        let (primary, secondary) = if selected {
-            (tokens.text, tokens.text)
-        } else if missing {
-            (tokens.muted_text, tokens.muted_text)
+    ui: &mut egui::Ui,
+    item: &TrackDetails,
+    selected: Option<u64>,
+    index: usize,
+    total: f32,
+    widths: [f32; COLUMNS],
+    tokens: theme::ColorTokens,
+    on_decks: [bool; 2],
+    deck_colours: [crate::decks::DeckColours; 2],
+) -> egui::Response {
+    let id = item.track.id.as_u64();
+    let selected = selected == Some(id);
+    let filename = file_name(&item.track.path);
+    let (rect, response) = ui.allocate_exact_size(
+        egui::vec2(total, theme::ROW_HEIGHT),
+        egui::Sense::click_and_drag(),
+    );
+    response.widget_info(|| {
+        egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, true, selected, &filename)
+    });
+    let painter = ui.painter();
+    if selected {
+        painter.rect_filled(rect, 0.0, theme::selection_fill(tokens));
+        let rail = egui::Rect::from_x_y_ranges(rect.left()..=rect.left() + 3.0, rect.y_range());
+        painter.rect_filled(rail, 0.0, tokens.primary);
+    } else if response.hovered() {
+        painter.rect_filled(rect, 0.0, tokens.surface);
+    } else if index % 2 == 1 {
+        painter.rect_filled(rect, 0.0, theme::zebra(tokens));
+    }
+    if response.has_focus() {
+        painter.rect_stroke(
+            rect.shrink(0.5),
+            0.0,
+            egui::Stroke::new(2.0_f32, tokens.focus),
+            egui::StrokeKind::Inside,
+        );
+    }
+    let (availability, kind) = availability_status(item.availability);
+    let missing = item.availability == TrackAvailability::Missing;
+    let (primary, secondary) = if selected {
+        (tokens.text, tokens.text)
+    } else if missing {
+        (tokens.muted_text, tokens.muted_text)
+    } else {
+        (tokens.text, tokens.muted_text)
+    };
+    let cells = [
+        (String::new(), primary, false),
+        (id.to_string(), secondary, false),
+        (filename, primary, selected),
+        (folder_name(&item.track.path), secondary, false),
+        (
+            item.duration_seconds
+                .map(format_duration)
+                .unwrap_or_else(|| "—".into()),
+            primary,
+            false,
+        ),
+        (
+            format_facts(item.sample_rate, item.channels, item.bit_depth),
+            secondary,
+            false,
+        ),
+    ];
+    let dot = egui::pos2(rect.left() + STATUS_COLUMN / 2.0 + 1.0, rect.center().y);
+    ui.painter()
+        .circle_filled(dot, 3.5, kind_color(kind, tokens));
+    // D1 deck badges at the right end of the Filename cell.
+    let badge_w = 18.0;
+    let badges = on_decks.iter().filter(|b| **b).count() as f32;
+    let mut x = rect.left();
+    for (column, ((text, color, strong), width)) in cells.into_iter().zip(widths).enumerate() {
+        let width = if column == 2 {
+            width - badges * (badge_w + 2.0)
         } else {
-            (tokens.text, tokens.muted_text)
+            width
         };
-        let cells = [
-            (String::new(), primary, false),
-            (id.to_string(), secondary, false),
-            (filename, primary, selected),
-            (folder_name(&item.track.path), secondary, false),
-            (item.duration_seconds.map(format_duration).unwrap_or_else(|| "—".into()), primary, false),
-            (format_facts(item.sample_rate, item.channels, item.bit_depth), secondary, false),
-        ];
-        let dot = egui::pos2(rect.left() + STATUS_COLUMN / 2.0 + 1.0, rect.center().y);
-        ui.painter().circle_filled(dot, 3.5, kind_color(kind, tokens));
-        // D1 deck badges at the right end of the Filename cell.
-        let badge_w = 18.0;
-        let badges = on_decks.iter().filter(|b| **b).count() as f32;
-        let mut x = rect.left();
-        for (column, ((text, color, strong), width)) in cells.into_iter().zip(widths).enumerate() {
-            let width = if column == 2 { width - badges * (badge_w + 2.0) } else { width };
-            if column == 3 {
-                let mut bx = x;
-                for (d, on) in on_decks.into_iter().enumerate() {
-                    if on {
-                        let r = egui::Rect::from_min_size(egui::pos2(bx, rect.center().y - 8.0), egui::vec2(badge_w, 16.0));
-                        ui.painter().rect_filled(r, 3.0, deck_colours[d].outer);
-                        let g = ui.painter().layout_no_wrap(crate::decks::DECKS[d].into(), egui::FontId::proportional(11.0), deck_colours[d].chip_text);
-                        ui.painter().galley(r.center() - g.size() / 2.0, g, deck_colours[d].chip_text);
-                        bx += badge_w + 2.0;
-                    }
+        if column == 3 {
+            let mut bx = x;
+            for (d, on) in on_decks.into_iter().enumerate() {
+                if on {
+                    let r = egui::Rect::from_min_size(
+                        egui::pos2(bx, rect.center().y - 8.0),
+                        egui::vec2(badge_w, 16.0),
+                    );
+                    ui.painter().rect_filled(r, 3.0, deck_colours[d].outer);
+                    let g = ui.painter().layout_no_wrap(
+                        crate::decks::DECKS[d].into(),
+                        egui::FontId::proportional(11.0),
+                        deck_colours[d].chip_text,
+                    );
+                    ui.painter()
+                        .galley(r.center() - g.size() / 2.0, g, deck_colours[d].chip_text);
+                    bx += badge_w + 2.0;
                 }
-                x += badges * (badge_w + 2.0);
             }
-            if !text.is_empty() {
-                let rich = egui::RichText::new(text).color(color);
-                let galley = egui::WidgetText::from(if strong { rich.strong() } else { rich }).into_galley(
+            x += badges * (badge_w + 2.0);
+        }
+        if !text.is_empty() {
+            let rich = egui::RichText::new(text).color(color);
+            let galley = egui::WidgetText::from(if strong { rich.strong() } else { rich })
+                .into_galley(
                     ui,
                     Some(egui::TextWrapMode::Truncate),
                     width - 2.0 * CELL_INSET,
                     egui::TextStyle::Body,
                 );
-                let left = if RIGHT_ALIGNED[column] {
-                    x + width - CELL_INSET - galley.size().x
-                } else {
-                    x + CELL_INSET
-                };
-                let pos = egui::pos2(left, rect.center().y - galley.size().y / 2.0);
-                ui.painter().galley(pos, galley, color);
-            }
-            x += width;
+            let left = if RIGHT_ALIGNED[column] {
+                x + width - CELL_INSET - galley.size().x
+            } else {
+                x + CELL_INSET
+            };
+            let pos = egui::pos2(left, rect.center().y - galley.size().y / 2.0);
+            ui.painter().galley(pos, galley, color);
         }
-        let decks: Vec<&str> = on_decks.iter().zip(crate::decks::DECKS).filter(|(on, _)| **on).map(|(_, l)| l).collect();
-        let on = if decks.is_empty() { String::new() } else { format!(" · on deck {}", decks.join(" and ")) };
-        response.on_hover_text(format!("{availability}{on} · {}", item.track.path))
+        x += width;
+    }
+    let decks: Vec<&str> = on_decks
+        .iter()
+        .zip(crate::decks::DECKS)
+        .filter(|(on, _)| **on)
+        .map(|(_, l)| l)
+        .collect();
+    let on = if decks.is_empty() {
+        String::new()
+    } else {
+        format!(" · on deck {}", decks.join(" and "))
+    };
+    response.on_hover_text(format!("{availability}{on} · {}", item.track.path))
 }
 
 /// Cue positions are source milliseconds; show all stored precision.
 fn format_cue_time(milliseconds: u32) -> String {
-    format!("{}:{:02}.{:03}", milliseconds / 60_000, (milliseconds / 1_000) % 60, milliseconds % 1_000)
+    format!(
+        "{}:{:02}.{:03}",
+        milliseconds / 60_000,
+        (milliseconds / 1_000) % 60,
+        milliseconds % 1_000
+    )
 }
 
 /// Track length as `m:ss` (rounded to the second), like DJ library tables.
@@ -1565,7 +1935,11 @@ fn format_facts(rate: Option<u32>, channels: Option<u16>, bits: Option<u16>) -> 
         return "—".into();
     };
     let khz = f64::from(rate) / 1000.0;
-    let khz = if rate % 1000 == 0 { format!("{khz:.0}") } else { format!("{khz:.1}") };
+    let khz = if rate % 1000 == 0 {
+        format!("{khz:.0}")
+    } else {
+        format!("{khz:.1}")
+    };
     let layout = match channels {
         1 => "mono".to_owned(),
         2 => "stereo".to_owned(),
@@ -1596,10 +1970,21 @@ pub(crate) fn truncate_middle(text: &str, edge: usize) -> String {
 
 /// A navigation row (W11): label left, count right-aligned in muted text,
 /// selected = selection tint + 3 px rail; native selectable widget.
-fn nav_row(ui: &mut egui::Ui, selected: bool, label: &str, count: usize, tokens: theme::ColorTokens) -> egui::Response {
-    let (rect, response) = ui.allocate_exact_size(egui::vec2(ui.available_width(), theme::ROW_HEIGHT), egui::Sense::click());
+fn nav_row(
+    ui: &mut egui::Ui,
+    selected: bool,
+    label: &str,
+    count: usize,
+    tokens: theme::ColorTokens,
+) -> egui::Response {
+    let (rect, response) = ui.allocate_exact_size(
+        egui::vec2(ui.available_width(), theme::ROW_HEIGHT),
+        egui::Sense::click(),
+    );
     let name = format!("{label} · {count}");
-    response.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, true, selected, &name));
+    response.widget_info(|| {
+        egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, true, selected, &name)
+    });
     let painter = ui.painter();
     if selected {
         painter.rect_filled(rect, 2.0, theme::selection_fill(tokens));
@@ -1609,7 +1994,12 @@ fn nav_row(ui: &mut egui::Ui, selected: bool, label: &str, count: usize, tokens:
         painter.rect_filled(rect, 2.0, tokens.surface);
     }
     if response.has_focus() {
-        painter.rect_stroke(rect, 2.0, egui::Stroke::new(2.0_f32, tokens.focus), egui::StrokeKind::Inside);
+        painter.rect_stroke(
+            rect,
+            2.0,
+            egui::Stroke::new(2.0_f32, tokens.focus),
+            egui::StrokeKind::Inside,
+        );
     }
     let text = |t: String, color| {
         egui::WidgetText::from(egui::RichText::new(t).color(color)).into_galley(
@@ -1619,7 +2009,14 @@ fn nav_row(ui: &mut egui::Ui, selected: bool, label: &str, count: usize, tokens:
             egui::TextStyle::Body,
         )
     };
-    let count = text(count.to_string(), if selected { tokens.text } else { tokens.muted_text });
+    let count = text(
+        count.to_string(),
+        if selected {
+            tokens.text
+        } else {
+            tokens.muted_text
+        },
+    );
     let label = text(label.to_owned(), tokens.text);
     let y = |g: &std::sync::Arc<egui::Galley>| rect.center().y - g.size().y / 2.0;
     let count_pos = egui::pos2(rect.right() - NAV_INSET - count.size().x, y(&count));
