@@ -1306,12 +1306,14 @@ fn mixer_eq_and_filter_paint_rotary_controls() {
     for value in [-1.0, 0.0, 1.0] {
         for deck in &mut h.app.decks.decks {
             deck.channel.filter = value;
+            deck.channel.trim_db = value * oxidj_audio::TRIM_DB;
             deck.channel.eq_db = [crate::mixer_view::eq_db_at(value); 3];
         }
+        h.app.decks.master = (value + 1.0) / 2.0;
         let out = h.settle();
         let layout = h.layout();
         for d in 0..2 {
-            for cell in layout.eq[d].unwrap().into_iter().chain([layout.filter[d].unwrap()]) {
+            for cell in layout.eq[d].unwrap().into_iter().chain([layout.filter[d].unwrap(), layout.trim[d].unwrap(), layout.master.unwrap()]) {
                 let shapes: Vec<_> = out.shapes.iter().filter(|s| cell.contains_rect(s.clip_rect) && matches!(s.shape, Shape::Circle(_) | Shape::LineSegment { .. })).collect();
                 assert!(shapes.iter().any(|s| matches!(s.shape, Shape::Circle(_))), "rotary circle missing from {cell:?}");
                 for shape in shapes {
@@ -1388,6 +1390,63 @@ fn mixer_rotary_accesskit_value_actions() {
         assert!((get(&h) - 0.5).abs() < 1e-5);
         send(&mut h, accesskit::Action::SetValue, Some(accesskit::ActionData::NumericValue(-2.0)));
         assert!((get(&h) + 1.0).abs() < 1e-5);
+    }
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn trim_and_master_rotaries_accessibility_input_and_audio() {
+    let (root, mut h) = fresh("trim_master_rotary", 10.0);
+    h.app.settings.sections.mixer = true;
+    for (name, min, max, step, set) in [
+        ("Deck A trim", -12.0, 12.0, 1.0, 6.0),
+        ("Deck B trim", -12.0, 12.0, 1.0, 6.0),
+        ("Master volume", 0.0, 1.0, 0.05, 0.5),
+    ] {
+        let out = h.settle();
+        let (id, n) = out.platform_output.accesskit_update.as_ref().unwrap().nodes.iter()
+            .find(|(_, n)| n.label().as_deref() == Some(name)).unwrap();
+        let id = *id;
+        assert_eq!((n.min_numeric_value(), n.max_numeric_value(), n.numeric_value_step()), (Some(min), Some(max), Some(step)));
+        let send = |h: &mut Harness, action, data| {
+            h.frame_with(vec![egui::Event::AccessKitActionRequest(accesskit::ActionRequest { action, target: id, data })], Default::default());
+        };
+        let value = |h: &Harness| match name { "Deck A trim" => h.deck(0).channel.trim_db, "Deck B trim" => h.deck(1).channel.trim_db, _ => h.app.decks.master };
+        send(&mut h, accesskit::Action::SetValue, Some(accesskit::ActionData::NumericValue(set)));
+        assert!((f64::from(value(&h)) - set).abs() < 1e-5);
+        let out = h.settle();
+        let n = node(&out, name);
+        for action in [accesskit::Action::SetValue, accesskit::Action::Increment, accesskit::Action::Decrement] {
+            assert!(n.supports_action(action), "{name}: {action:?}");
+        }
+        send(&mut h, accesskit::Action::Increment, None);
+        assert!((f64::from(value(&h)) - set - step).abs() < 1e-5);
+        send(&mut h, accesskit::Action::Decrement, None);
+        assert!((f64::from(value(&h)) - set).abs() < 1e-5);
+        let params = h.app.decks.mixer_params();
+        if name == "Master volume" { assert!((params.master - set as f32).abs() < 1e-5); }
+        else { let d = usize::from(name == "Deck B trim"); assert!((params.channels[d].trim - oxidj_audio::trim_gain(set as f32)).abs() < 1e-5); }
+        let out = h.settle();
+        let b = node(&out, name).bounds().unwrap();
+        let p = egui::pos2(((b.x0 + b.x1) / 2.0) as f32, ((b.y0 + b.y1) / 2.0) as f32);
+        h.frame_with(vec![egui::Event::PointerMoved(p), egui::Event::MouseWheel { unit: egui::MouseWheelUnit::Line, delta: egui::vec2(0.0, -1.0), modifiers: Default::default() }], Default::default());
+        assert!(value(&h) < set as f32, "{name}: wheel");
+        h.time += 1.0;
+        h.click(p);
+        h.click(p);
+        assert_eq!(value(&h), if name == "Master volume" { 1.0 } else { 0.0 }, "{name}: reset");
+        let cell = match name { "Deck A trim" => h.layout().trim[0].unwrap(), "Deck B trim" => h.layout().trim[1].unwrap(), _ => h.layout().master.unwrap() };
+        let mut guard = 0;
+        h.key(egui::Key::Tab, egui::Modifiers { shift: true, ..Default::default() });
+        while !h.focused_rect().is_some_and(|r| cell.contains_rect(r.shrink(1.0))) {
+            h.key(egui::Key::Tab, Default::default());
+            guard += 1;
+            assert!(guard < 200, "{name}: keyboard focus");
+        }
+        h.key(egui::Key::ArrowLeft, Default::default());
+        assert!(value(&h) < if name == "Master volume" { 1.0 } else { 0.0 }, "{name}: keyboard");
+        rotary_drag(&mut h, name, &[-90.0, -135.0, -180.0, -225.0, -270.0, -315.0, -360.0]);
+        assert!((f64::from(value(&h)) - min).abs() < 1e-5, "{name}: pointer reaches minimum");
     }
     std::fs::remove_dir_all(root).unwrap();
 }

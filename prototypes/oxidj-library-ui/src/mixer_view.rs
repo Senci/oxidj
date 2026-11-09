@@ -192,6 +192,14 @@ pub(crate) fn mixer_knob(
 /// Compact Minimal Line rotary with per-widget persistent drag state.
 #[allow(clippy::too_many_arguments)]
 fn mixer_rotary(ui: &mut Ui, cell: Rect, label: &str, value: &mut f32, name: &str, hover: String, fill: egui::Color32, tokens: ColorTokens) -> egui::Response {
+    mixer_rotary_range(ui, cell, label, value, -1.0..=1.0, FADER_STEP, 0.0, name, hover, fill, tokens)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn mixer_rotary_range(ui: &mut Ui, cell: Rect, label: &str, value: &mut f32, range: RangeInclusive<f32>, step: f64, default: f32, name: &str, hover: String, fill: egui::Color32, tokens: ColorTokens) -> egui::Response {
+    let min = *range.start();
+    let max = *range.end();
+    let span = max - min;
     let g = ui.painter().layout_no_wrap(label.to_owned(), FontId::proportional(10.5), tokens.muted_text);
     let label_w = LABEL_W.max(g.size().x + 6.0);
     ui.painter().galley(pos2(cell.left(), cell.center().y - g.size().y / 2.0), g, tokens.muted_text);
@@ -203,18 +211,18 @@ fn mixer_rotary(ui: &mut Ui, cell: Rect, label: &str, value: &mut f32, name: &st
     let start = -std::f32::consts::FRAC_PI_2 - 3.0 * std::f32::consts::FRAC_PI_4;
     let sweep = 3.0 * std::f32::consts::FRAC_PI_2;
     let before = *value;
-    mixer_wheel(ui, &response, value, -1.0..=1.0, FADER_STEP);
+    mixer_wheel(ui, &response, value, range.clone(), step);
     if let Some(pointer) = response.interact_pointer_pos() {
         let angle = (pointer.y - center.y).atan2(pointer.x - center.x);
         if response.drag_started() || response.dragged() {
             if let Some(previous) = ui.ctx().data(|d| d.get_temp::<f32>(drag_id)) {
                 let delta = (angle - previous + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI;
-                *value = (*value + 2.0 * delta / sweep).clamp(-1.0, 1.0);
+                *value = (*value + span * delta / sweep).clamp(min, max);
             }
             ui.ctx().data_mut(|d| d.insert_temp(drag_id, angle));
         } else if response.clicked() {
             let a = (angle - start).rem_euclid(std::f32::consts::TAU);
-            *value = if a <= sweep { 2.0 * a / sweep - 1.0 } else if a - sweep <= (std::f32::consts::TAU - sweep) / 2.0 { 1.0 } else { -1.0 };
+            *value = if a <= sweep { min + span * a / sweep } else if a - sweep <= (std::f32::consts::TAU - sweep) / 2.0 { max } else { min };
         } else if response.hovered() && ui.input(|i| i.pointer.primary_down()) {
             ui.ctx().data_mut(|d| d.insert_temp(drag_id, angle));
         }
@@ -222,33 +230,34 @@ fn mixer_rotary(ui: &mut Ui, cell: Rect, label: &str, value: &mut f32, name: &st
     if response.drag_stopped() { ui.ctx().data_mut(|d| d.remove::<f32>(drag_id)); }
     if response.has_focus() {
         ui.memory_mut(|m| m.set_focus_lock_filter(id, egui::EventFilter { horizontal_arrows: true, vertical_arrows: true, ..Default::default() }));
+        let step_size = step as f32;
         let step = ui.input(|i| (i.key_pressed(egui::Key::ArrowRight) || i.key_pressed(egui::Key::ArrowUp)) as i32 - (i.key_pressed(egui::Key::ArrowLeft) || i.key_pressed(egui::Key::ArrowDown)) as i32);
-        if step != 0 { *value = (((*value / FADER_STEP as f32).round() + step as f32) * FADER_STEP as f32).clamp(-1.0, 1.0); }
+        if step != 0 { *value = (((*value / step_size).round() + step as f32) * step_size).clamp(min, max); }
     }
     ui.input(|input| {
         use egui::accesskit::{Action, ActionData};
         let delta = input.num_accesskit_action_requests(id, Action::Increment) as i32
             - input.num_accesskit_action_requests(id, Action::Decrement) as i32;
         if delta != 0 {
-            *value = (*value + delta as f32 * FADER_STEP as f32).clamp(-1.0, 1.0);
+            *value = (*value + delta as f32 * step as f32).clamp(min, max);
         }
         for request in input.accesskit_action_requests(id, Action::SetValue) {
             if let Some(ActionData::NumericValue(v)) = request.data {
-                if v.is_finite() { *value = v.clamp(-1.0, 1.0) as f32; }
+                if v.is_finite() { *value = v.clamp(f64::from(min), f64::from(max)) as f32; }
             }
         }
     });
-    if reset_clicked(&response) { *value = 0.0; }
+    if reset_clicked(&response) { *value = default; }
     if *value != before { response.mark_changed(); }
     response.widget_info(|| egui::WidgetInfo::slider(true, f64::from(*value), name));
     ui.ctx().accesskit_node_builder(id, |node| {
         use egui::accesskit::Action;
-        node.set_min_numeric_value(-1.0);
-        node.set_max_numeric_value(1.0);
-        node.set_numeric_value_step(FADER_STEP);
+        node.set_min_numeric_value(f64::from(min));
+        node.set_max_numeric_value(f64::from(max));
+        node.set_numeric_value_step(step);
         node.add_action(Action::SetValue);
-        if *value < 1.0 { node.add_action(Action::Increment); }
-        if *value > -1.0 { node.add_action(Action::Decrement); }
+        if *value < max { node.add_action(Action::Increment); }
+        if *value > min { node.add_action(Action::Decrement); }
     });
     let painter = ui.painter_at(rect);
     let radius = (rect.width().min(rect.height()) * 0.5 - 3.0).max(0.0);
@@ -259,7 +268,7 @@ fn mixer_rotary(ui: &mut Ui, cell: Rect, label: &str, value: &mut f32, name: &st
         let dir = vec2(angle.cos(), angle.sin());
         painter.line_segment([center + dir * (radius + 1.0), center + dir * (radius + 2.0)], Stroke::new(1.0_f32, tokens.muted_text));
     }
-    let angle = start + ((*value + 1.0) * 0.5).clamp(0.0, 1.0) * sweep;
+    let angle = start + ((*value - min) / span).clamp(0.0, 1.0) * sweep;
     painter.line_segment([center, center + vec2(angle.cos(), angle.sin()) * (radius * 0.7)], Stroke::new(2.0_f32, fill));
     response.on_hover_text(hover)
 }
@@ -430,7 +439,7 @@ impl LibraryApp {
         let ch = &mut deck.channel;
         let trim_r = cell(0, top);
         let hover = format!("Deck {letter} trim {:+.1} dB (±{TRIM_DB:.0} dB); double-click resets", ch.trim_db);
-        mixer_knob(ui, trim_r, "TRIM", &mut ch.trim_db, -TRIM_DB..=TRIM_DB, KNOB_DB_STEP, 0.0, &format!("Deck {letter} trim"), hover, c.outer, tokens);
+        mixer_rotary_range(ui, trim_r, "TRIM", &mut ch.trim_db, -TRIM_DB..=TRIM_DB, KNOB_DB_STEP, 0.0, &format!("Deck {letter} trim"), hover, tokens.primary, tokens);
         layout.trim[d] = Some(trim_r);
         // HI, MID, LOW left to right, like a channel strip read top down.
         let mut eq = [Rect::NOTHING; 3];
@@ -489,7 +498,7 @@ impl LibraryApp {
         let meter_r = Rect::from_min_size(pos2(top.right() - METER_W, top.top()), vec2(METER_W, ROW));
         let master_r = Rect::from_min_max(top.min, pos2(meter_r.left() - CELL_GAP, top.bottom()));
         let hover = format!("Master volume {:.0} % (double-click resets)", self.decks.master * 100.0);
-        mixer_knob(ui, master_r, "MASTER", &mut self.decks.master, 0.0..=1.0, FADER_STEP, 1.0, "Master volume", hover, tokens.primary, tokens);
+        mixer_rotary_range(ui, master_r, "MASTER", &mut self.decks.master, 0.0..=1.0, FADER_STEP, 1.0, "Master volume", hover, tokens.primary, tokens);
         layout.master = Some(master_r);
         level_meter(ui, meter_r, self.decks.meters[2], "Master level", tokens);
         layout.meters[2] = Some(meter_r);
