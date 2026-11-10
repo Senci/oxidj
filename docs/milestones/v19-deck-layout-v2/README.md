@@ -1,6 +1,6 @@
 # v19 — Deck and mixer layout v2 (owner-approved direction)
 
-Status: **design direction approved by the owner (2026-11-10); deck panel v2, mixer v2 and Layout B (default) implemented; arrangements A, C, D still queued.**
+Status: **design direction approved by the owner (2026-11-10); deck panel v2, mixer v2 and Layout B (default) implemented; arrangements A, C, D selectable (review pending).**
 Source of truth: [`mockup.html`](mockup.html) (static, synthetic placeholder
 content, open it in a browser) and the four renders next to it. This is a
 layout study, not the application: nothing here is shipped, and no vendor,
@@ -62,7 +62,6 @@ search, settings and panel buttons. No emoji in the interface.
 
 ## Not decided / deferred
 
-- Alternative arrangements A, C and D as selectable layouts.
 - Native display, accessibility and performance qualification (NOT DEMONSTRATED).
 
 ## Implemented
@@ -70,3 +69,5 @@ search, settings and panel buttons. No emoji in the interface.
 - Mixer v2: [`app-mixer-v2.png`](app-mixer-v2.png) is a real Bot Screen capture of the application (synthetic scratch catalog, decks empty, detail waveform hidden to show the mixer; compact density at 1440 px wide). Input selectors are a painted placeholder; the master/cue controls sit in a column beside the mixer block.
 - Layout B (default arrangement): [`app-layout-b.png`](app-layout-b.png) is a real Bot Screen capture (synthetic scratch catalog, both decks loaded, 1440x791 window, OxiDJ deck theme, mirrored deck B, A/B labels and input selectors on, mixer shown). Detail waveform and the two overviews sit on top (one static needle x across both overviews); deck A, mixer and deck B share one row below. New Settings (Deck view tab, all persisted): deck theme (Club standard / OxiDJ: panel corner radius), track metadata, crossfader, mirror deck B, alongside mixer density, A/B labels, input selectors and knobs outside. The deck area scrolls so the library table keeps at least 120 px. Arrangements A, C, D remain deferred; native display and accessibility qualification NOT DEMONSTRATED.
 - Shared playback-time overviews: [`app-overviews-shared-scale.png`](app-overviews-shared-scale.png) is a real Bot Screen capture (synthetic scratch catalog: a 64 s track on deck A at +0 %, a 100 s track on deck B parked at 0:40 and pitched -10 %, full-screen composite). Both overviews use one pixels-per-playback-second scale (track seconds / live rate) and one needle x; deck A ends earlier, deck B (remaining 60 s / 0.9 = 66.7 playback s) fills the strip, and a rate change re-stretches that deck at once. Seek inverts the mapping and freezes it at the press so a drag does not chase the moving needle. Pure mapping in `overview_scale.rs`; independent-oracle egui tests in `deck_tests.rs`. Native display and accessibility qualification NOT DEMONSTRATED.
+
+- Arrangements A, C, D: selectable in Settings → Deck view → Deck arrangement (persisted, B default). Real Bot Screen captures (synthetic scratch catalog, both decks loaded, 1440x791 window, OxiDJ deck theme, mirrored deck B): [`app-layout-a.png`](app-layout-a.png) (decks + centre mixer on top, waves below), [`app-layout-c.png`](app-layout-c.png) (waves on top, decks with the mixer docked right), [`app-layout-d.png`](app-layout-d.png) (mixer beside the waves on the right as in `layout-d.png`, decks in a row below). One deck panel / mixer / waveform implementation is reused; the deck area scrolls so the library keeps 120 px. Native display and accessibility qualification NOT DEMONSTRATED.
