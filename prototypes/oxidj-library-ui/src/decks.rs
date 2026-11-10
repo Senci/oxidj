@@ -729,6 +729,8 @@ pub(crate) struct DeckLayout {
     pub(crate) cue_volume: Option<Rect>,
     /// Deck A overview first, deck B second.
     pub(crate) overviews: Option<[Rect; 2]>,
+    /// Layout B: the x position of the needle shared by both overviews.
+    pub(crate) overview_needle: Option<f32>,
     /// Centered artwork/placeholder rect of each deck half.
     pub(crate) artwork: [Option<Rect>; 2],
 }
@@ -1817,11 +1819,6 @@ pub(crate) fn detail_height(screen_h: f32) -> f32 {
 /// column share its top and bottom edges).
 pub(crate) const BAND_H: f32 = 104.0;
 
-/// Control-strip height: the band.
-fn strip_height(_width: f32) -> f32 {
-    BAND_H
-}
-
 const BTN_GAP: f32 = 2.0;
 const LOOP_W: f32 = 20.0;
 const LOOP_H: f32 = 20.0;
@@ -1841,27 +1838,30 @@ const COVER_MIN_COLUMN: f32 =
 
 /// Total deck-area height for `sections` at window `screen` size, for a
 /// deck area `width` wide.
-pub(crate) fn area_height(
-    sections: DeckSections,
-    mixer_h: f32,
-    screen: Rect,
-    _width: f32,
-) -> f32 {
-    let column = (screen.width() - 16.0 - 12.0) / 2.0;
+pub(crate) fn area_height(sections: DeckSections, mixer_h: f32, screen: Rect, _width: f32) -> f32 {
     let mut h = SECTION_BAR_HEIGHT;
     if sections.detail {
         h += GAP + detail_height(screen.height());
     }
-    if sections.strip {
-        h += GAP + strip_height(column);
-    }
-    if sections.mixer {
-        h += GAP + mixer_h;
-    }
     if sections.overviews {
         h += GAP + 2.0 * OVERVIEW_HEIGHT + 2.0;
     }
+    let row = bottom_row_height(sections, mixer_h);
+    if row > 0.0 {
+        h += GAP + row;
+    }
     h
+}
+
+/// Height the library table keeps below the deck area (the deck area
+/// scrolls instead of squeezing the library under this).
+pub(crate) const LIBRARY_MIN_H: f32 = 120.0;
+
+/// Layout B bottom row (deck A, mixer, deck B): as tall as its tallest part.
+pub(crate) fn bottom_row_height(sections: DeckSections, mixer_h: f32) -> f32 {
+    let strip = if sections.strip { BAND_H } else { 0.0 };
+    let mixer = if sections.mixer { mixer_h } else { 0.0 };
+    strip.max(mixer)
 }
 
 impl LibraryApp {
@@ -1888,15 +1888,6 @@ impl LibraryApp {
             let r = take(detail_height(screen.height()), &mut y);
             self.detail_view(ui, r, tokens, colours, &mut layout);
         }
-        if sections.strip {
-            let column = (width - 12.0) / 2.0;
-            let r = take(strip_height(column), &mut y);
-            self.control_strip(ui, r, tokens, colours, &mut layout);
-        }
-        if sections.mixer {
-            let r = take(mixer_h, &mut y);
-            self.mixer(ui, r, tokens, colours, &mut layout);
-        }
         if sections.overviews {
             let r = take(2.0 * OVERVIEW_HEIGHT + 2.0, &mut y);
             let a = Rect::from_min_size(r.min, vec2(width, OVERVIEW_HEIGHT));
@@ -1908,6 +1899,29 @@ impl LibraryApp {
                 self.overview(ui, d, rect, tokens, colours[d], &layout);
             }
             layout.overviews = Some([a, b]);
+            // Static layout: both overviews share one needle x position.
+            let inner_left = a.left() + OVERVIEW_INSET;
+            let nx = (inner_left + a.right()) / 2.0;
+            ui.painter()
+                .vline(nx, a.top()..=b.bottom(), Stroke::new(1.0_f32, tokens.focus));
+            layout.overview_needle = Some(nx);
+        }
+        let row_h = bottom_row_height(sections, mixer_h);
+        if row_h > 0.0 {
+            // Layout B: deck A | mixer | deck B in one row.
+            let row = take(row_h, &mut y);
+            let centre_w = if sections.mixer {
+                crate::mixer_view::mixer_total_width(self.settings.mixer, screen.width()).min(width)
+            } else {
+                0.0
+            };
+            if sections.strip {
+                self.control_strip(ui, row, centre_w, tokens, colours, &mut layout);
+            }
+            if sections.mixer {
+                let r = Rect::from_center_size(row.center(), vec2(centre_w, row_h));
+                self.mixer(ui, r, tokens, colours, &mut layout);
+            }
         }
         if self.decks.any_playing() || (sections.mixer && self.decks.meters_active()) {
             ui.ctx().request_repaint();
@@ -2263,18 +2277,22 @@ impl LibraryApp {
         &mut self,
         ui: &mut Ui,
         rect: Rect,
+        centre_w: f32,
         tokens: ColorTokens,
         colours: [DeckColours; 2],
         layout: &mut DeckLayout,
     ) {
         layout.strip = Some(rect);
-        let column = (rect.width() - 12.0) / 2.0;
+        let gap = if centre_w > 0.0 {
+            12.0 + centre_w
+        } else {
+            12.0
+        };
+        let column = (rect.width() - gap) / 2.0;
+        let top = rect.top() + ((rect.height() - BAND_H) / 2.0).max(0.0);
         let cols = [
-            Rect::from_min_size(rect.min, vec2(column, BAND_H)),
-            Rect::from_min_size(
-                pos2(rect.right() - column, rect.top()),
-                vec2(column, BAND_H),
-            ),
+            Rect::from_min_size(pos2(rect.left(), top), vec2(column, BAND_H)),
+            Rect::from_min_size(pos2(rect.right() - column, top), vec2(column, BAND_H)),
         ];
         let range = tempo_range(self.settings.tempo_range);
         self.decks.range = range;
@@ -2286,28 +2304,54 @@ impl LibraryApp {
             let letter = DECKS[d];
             let top = col.top();
             let bottom = col.top() + BAND_H;
+            let mirror = d == 1 && self.settings.mirror_b;
             let painter = ui.painter_at(col);
-            painter.rect_filled(col, 3.0, c.wash);
+            painter.rect_filled(col, self.settings.deck_theme.radius(), c.wash);
+            let rail_x = if mirror {
+                col.right() - RAIL
+            } else {
+                col.left()
+            };
             painter.rect_filled(
-                Rect::from_min_size(col.min, vec2(RAIL, BAND_H)),
+                Rect::from_min_size(pos2(rail_x, col.top()), vec2(RAIL, BAND_H)),
                 0.0,
                 c.outer,
             );
             let deck = &mut self.decks.decks[d];
             let loaded = deck.ready();
             let mut x = col.left() + RAIL + 4.0;
-            // Pitch column geometry (right edge).
-            let fader_r =
-                Rect::from_min_max(pos2(col.right() - FADER_W, top), pos2(col.right(), bottom));
-            let pitch_right = fader_r.left() - 6.0;
-            let pitch_left = pitch_right - PITCH_W;
-            // Cover: square, left, full band height; dropped when too narrow.
+            // Pitch column geometry: right edge, or (mirrored deck B) the
+            // left edge, nearest the mixer.
+            let fader_r = if mirror {
+                Rect::from_min_max(
+                    pos2(col.left() + 4.0, top),
+                    pos2(col.left() + 4.0 + FADER_W, bottom),
+                )
+            } else {
+                Rect::from_min_max(pos2(col.right() - FADER_W, top), pos2(col.right(), bottom))
+            };
+            let (pitch_left, pitch_right, body_right) = if mirror {
+                let l = fader_r.right() + 6.0;
+                x = l + PITCH_W + 8.0;
+                (l, l + PITCH_W, col.right() - RAIL - 4.0)
+            } else {
+                let r = fader_r.left() - 6.0;
+                (r - PITCH_W, r, r - PITCH_W - 6.0)
+            };
+            // Cover: square, full band height; dropped when too narrow.
             let cover_fits = column >= COVER_MIN_COLUMN;
-            if self.settings.show_artwork && deck.track.is_some() && cover_fits {
-                let slot = Rect::from_min_size(pos2(x, top), vec2(BAND_H, BAND_H));
+            let show_cover = self.settings.show_artwork && deck.track.is_some() && cover_fits;
+            let mut body_right = body_right;
+            if show_cover {
+                let cx = if mirror { body_right - BAND_H } else { x };
+                let slot = Rect::from_min_size(pos2(cx, top), vec2(BAND_H, BAND_H));
                 crate::artwork::paint_cover(&painter, slot, &deck.art, c, &tokens);
                 layout.artwork[d] = Some(slot);
-                x += BAND_H + 8.0;
+                if mirror {
+                    body_right = cx - 8.0;
+                } else {
+                    x += BAND_H + 8.0;
+                }
             }
             // Controls column: loop row, CUE, PLAY, bottom aligned.
             let play_r = Rect::from_min_size(
@@ -2455,8 +2499,7 @@ impl LibraryApp {
             }
             layout.pads[d] = Some(pad_rects);
             // Metadata block (top of the band), Load at its right end.
-            let load_r =
-                Rect::from_min_size(pos2(pitch_left - 6.0 - 40.0, top), vec2(40.0, LOOP_H));
+            let load_r = Rect::from_min_size(pos2(body_right - 40.0, top), vec2(40.0, LOOP_H));
             let r = deck_button(
                 ui,
                 load_r,
@@ -2477,7 +2520,7 @@ impl LibraryApp {
             layout.load[d] = Some(load_r);
             let meta = Rect::from_min_max(pos2(x, top), pos2(load_r.left() - 4.0, top + META_H));
             layout.metadata[d] = Some(meta);
-            if meta.width() > 20.0 {
+            if self.settings.show_meta && meta.width() > 20.0 {
                 let (title, line2, ink2) = match (&deck.track, &deck.audio) {
                     (Some(t), DeckAudio::Failed(reason)) => (
                         t.name.clone(),
@@ -2538,7 +2581,12 @@ impl LibraryApp {
             // Pitch column: BPM, SYNC + key lock, KEY, remaining, range.
             let right_aligned = |ui: &Ui, text: String, font: FontId, ink: Color32, y: f32| {
                 let g = ui.painter().layout_no_wrap(text, font, ink);
-                let r = Rect::from_min_size(pos2(pitch_right - g.size().x, y), g.size());
+                let px = if mirror {
+                    pitch_left
+                } else {
+                    pitch_right - g.size().x
+                };
+                let r = Rect::from_min_size(pos2(px, y), g.size());
                 ui.painter().galley(r.min, g, ink);
                 r
             };
@@ -2552,11 +2600,16 @@ impl LibraryApp {
             let bpm_r = right_aligned(ui, bpm_text, FontId::proportional(24.0), tokens.text, top);
             layout.bpm[d] = Some(bpm_r);
             let row_y = top + 30.0;
-            let lock_r = Rect::from_min_size(pos2(pitch_right - 22.0, row_y), vec2(22.0, LOOP_H));
-            let sync_r = Rect::from_min_size(
-                pos2(lock_r.left() - BTN_GAP - 40.0, row_y),
-                vec2(40.0, LOOP_H),
-            );
+            let (sync_r, lock_r) = if mirror {
+                let s = Rect::from_min_size(pos2(pitch_left, row_y), vec2(40.0, LOOP_H));
+                let l = Rect::from_min_size(pos2(s.right() + BTN_GAP, row_y), vec2(22.0, LOOP_H));
+                (s, l)
+            } else {
+                let l = Rect::from_min_size(pos2(pitch_right - 22.0, row_y), vec2(22.0, LOOP_H));
+                let s =
+                    Rect::from_min_size(pos2(l.left() - BTN_GAP - 40.0, row_y), vec2(40.0, LOOP_H));
+                (s, l)
+            };
             let sync_hover = match &deck.sync_note {
                 Some(note) => note.clone(),
                 None if deck.sync => format!(
@@ -2638,17 +2691,31 @@ impl LibraryApp {
                 ui.painter(),
                 Icon::Timer,
                 Rect::from_center_size(
-                    pos2(time_r.left() - 9.0, time_r.center().y),
+                    pos2(
+                        if mirror {
+                            time_r.right() + 9.0
+                        } else {
+                            time_r.left() - 9.0
+                        },
+                        time_r.center().y,
+                    ),
                     vec2(12.0, 12.0),
                 ),
                 tokens.muted_text,
             );
             layout.time[d] = Some(time_r);
             // Range button and the live tempo value on the bottom row.
-            let range_r = Rect::from_min_max(
-                pos2(pitch_right - 38.0, bottom - 18.0),
-                pos2(pitch_right, bottom),
-            );
+            let range_r = if mirror {
+                Rect::from_min_max(
+                    pos2(pitch_left, bottom - 18.0),
+                    pos2(pitch_left + 38.0, bottom),
+                )
+            } else {
+                Rect::from_min_max(
+                    pos2(pitch_right - 38.0, bottom - 18.0),
+                    pos2(pitch_right, bottom),
+                )
+            };
             if deck_button(
                 ui,
                 range_r,
@@ -2736,7 +2803,11 @@ impl LibraryApp {
             );
             ui.painter().galley(
                 pos2(
-                    range_r.left() - 4.0 - value.size().x,
+                    if mirror {
+                        range_r.right() + 4.0
+                    } else {
+                        range_r.left() - 4.0 - value.size().x
+                    },
                     range_r.center().y - value.size().y / 2.0,
                 ),
                 value,

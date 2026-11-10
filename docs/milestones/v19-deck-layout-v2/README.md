@@ -1,6 +1,6 @@
 # v19 — Deck and mixer layout v2 (owner-approved direction)
 
-Status: **design direction approved by the owner (2026-11-10); deck panel v2 and mixer v2 implemented; arrangement options still queued.**
+Status: **design direction approved by the owner (2026-11-10); deck panel v2, mixer v2 and Layout B (default) implemented; arrangements A, C, D still queued.**
 Source of truth: [`mockup.html`](mockup.html) (static, synthetic placeholder
 content, open it in a browser) and the four renders next to it. This is a
 layout study, not the application: nothing here is shipped, and no vendor,
@@ -70,3 +70,4 @@ search, settings and panel buttons. No emoji in the interface.
 ## Implemented
 
 - Mixer v2: [`app-mixer-v2.png`](app-mixer-v2.png) is a real Bot Screen capture of the application (synthetic scratch catalog, decks empty, detail waveform hidden to show the mixer; compact density at 1440 px wide). Input selectors are a painted placeholder; the master/cue controls sit in a column beside the mixer block.
+- Layout B (default arrangement): [`app-layout-b.png`](app-layout-b.png) is a real Bot Screen capture (synthetic scratch catalog, both decks loaded, 1440x791 window, OxiDJ deck theme, mirrored deck B, A/B labels and input selectors on, mixer shown). Detail waveform and the two overviews sit on top (one static needle x across both overviews); deck A, mixer and deck B share one row below. New Settings (Deck view tab, all persisted): deck theme (Club standard / OxiDJ: panel corner radius), track metadata, crossfader, mirror deck B, alongside mixer density, A/B labels, input selectors and knobs outside. The deck area scrolls so the library table keeps at least 120 px. Live playback-driven overview fitting and arrangements A, C, D remain deferred; native display and accessibility qualification NOT DEMONSTRATED.

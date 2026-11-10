@@ -2,14 +2,15 @@
 
 Condensed 2026-11-02. Full prior text (per-increment evidence, M0-09 verification, decisions, risks, F-09 oracle notes): [docs/history/status-2026-11-02.md](../docs/history/status-2026-11-02.md). Milestone contract: [plan/MVP.md](MVP.md). Live work: Kanban; this file records stages and gates only.
 
-## M8 deck and mixer layout v2 — design approved, implementation queued (2026-11-10)
+## M8 deck and mixer layout v2 — deck panel, mixer and Layout B implemented, review pending (2026-11-10)
 
 The owner approved the direction in a static web mockup
 ([v19 spec](../docs/milestones/v19-deck-layout-v2/README.md)): Layout B default,
 aligned deck content band with enlarged cover, Lucide icons, outside-knob mixer
 with full-height faders and meters, crossfader under a separator line, compact
-mixer, Settings preferences. Implementation is staged as three chained cards
-(deck panel, mixer, Layout B arrangement plus preferences). Layouts A, C, D and
+mixer, Settings preferences. Implementation was staged as three chained cards; deck panel and mixer are
+reviewed, Layout B (detail + overviews on top, deck A | mixer | deck B below,
+new Deck view preferences, library keeps 120 px) awaits review. Layouts A, C, D and
 playback-driven overview fitting are deferred. The mockup is synthetic and not
 evidence of anything shipped; native display, accessibility and performance
 qualification stay NOT DEMONSTRATED.

@@ -76,7 +76,10 @@ impl LibraryApp {
                 .resizable(false)
                 .show(ctx, |ui| {
                     // Tall mixer faders must remain reachable on short displays.
-                    let max_height = (ctx.screen_rect().height() - 100.0).max(100.0);
+                    // The library table keeps `LIBRARY_MIN_H` below the decks.
+                    let chrome = self.shell.toolbar.map_or(40.0, |t| t.height()) + 30.0 + 16.0;
+                    let max_height =
+                        (ctx.screen_rect().height() - chrome - decks::LIBRARY_MIN_H).max(100.0);
                     if decks::area_height(
                         self.settings.sections,
                         crate::mixer_view::mixer_height(self.settings.mixer),
@@ -90,6 +93,11 @@ impl LibraryApp {
                                 drag: false,
                                 ..Default::default()
                             })
+                            // Content is taller than `max_height` here, so take
+                            // exactly that height from the first frame (an
+                            // auto-shrunk panel can stay stuck small).
+                            .auto_shrink([false, false])
+                            .min_scrolled_height(max_height)
                             .max_height(max_height)
                             .show(ui, |ui| self.deck_area(ui, tokens));
                     } else {

@@ -56,6 +56,24 @@ pub enum DeckPalette {
     Classic,
 }
 
+/// Deck panel look: Club standard (tight corners) or OxiDJ (rounded).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum DeckTheme {
+    #[default]
+    Club,
+    OxiDj,
+}
+
+impl DeckTheme {
+    /// Corner radius of the deck panels and the mixer outline.
+    pub fn radius(self) -> f32 {
+        match self {
+            Self::Club => 3.0,
+            Self::OxiDj => 8.0,
+        }
+    }
+}
+
 /// Where the playhead sits in the deck waveform (D1 reads it).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Playhead {
@@ -105,6 +123,12 @@ pub struct Settings {
     pub simple_dj_keys: bool,
     /// Mixer v2 layout preferences.
     pub mixer: MixerPrefs,
+    /// Layout B: deck panel look.
+    pub deck_theme: DeckTheme,
+    /// Layout B: the track title / time lines in each deck panel.
+    pub show_meta: bool,
+    /// Layout B: deck B puts its pitch fader nearest the mixer.
+    pub mirror_b: bool,
 }
 
 /// Mixer width as a share of the screen width.
@@ -222,6 +246,9 @@ impl Default for Settings {
             artwork_cache_mib: 100,
             simple_dj_keys: false,
             mixer: MixerPrefs::default(),
+            deck_theme: DeckTheme::Club,
+            show_meta: true,
+            mirror_b: false,
         }
     }
 }
@@ -244,6 +271,8 @@ const TEMPOS: [(TempoRange, &str); 3] = [
     (TempoRange::Ten, "10"),
     (TempoRange::Sixteen, "16"),
 ];
+const DECK_THEMES: [(DeckTheme, &str); 2] =
+    [(DeckTheme::Club, "club"), (DeckTheme::OxiDj, "oxidj")];
 const DENSITIES: [(MixerDensity, &str); 3] = [
     (MixerDensity::Ultra, "ultra"),
     (MixerDensity::Compact, "compact"),
@@ -282,7 +311,7 @@ impl Settings {
             .map(|i| format!(";{}={}", DeckSections::KEYS[i], b(self.sections.get(i))))
             .collect();
         format!(
-            "style={};smooth={};auto_gain={};beat_lines={};zoom={};deck_palette={};playhead={};phase={};tempo={};sec_xfader={};xf_curve={};artwork={};artwork_mib={};simple_keys={};mixer_density={};mixer_ab={};mixer_input={};mixer_outer={}",
+            "style={};smooth={};auto_gain={};beat_lines={};zoom={};deck_palette={};playhead={};phase={};tempo={};sec_xfader={};xf_curve={};artwork={};artwork_mib={};simple_keys={};mixer_density={};mixer_ab={};mixer_input={};mixer_outer={};deck_theme={};deck_meta={};mirror_b={}",
             name_of(&STYLES, self.waveform_style),
             b(self.smooth),
             b(self.auto_gain),
@@ -301,6 +330,9 @@ impl Settings {
             b(self.mixer.ab_labels),
             b(self.mixer.inputs),
             b(self.mixer.knobs_outside),
+            name_of(&DECK_THEMES, self.deck_theme),
+            b(self.show_meta),
+            b(self.mirror_b),
         ) + &sections
     }
 
@@ -314,6 +346,11 @@ impl Settings {
                 "mixer_density" => {
                     s.mixer.density = parse_in(&DENSITIES, value).unwrap_or(s.mixer.density)
                 }
+                "deck_theme" => {
+                    s.deck_theme = parse_in(&DECK_THEMES, value).unwrap_or(s.deck_theme)
+                }
+                "deck_meta" => s.show_meta = parse_bool(value).unwrap_or(s.show_meta),
+                "mirror_b" => s.mirror_b = parse_bool(value).unwrap_or(s.mirror_b),
                 "mixer_ab" => s.mixer.ab_labels = parse_bool(value).unwrap_or(s.mixer.ab_labels),
                 "mixer_input" => s.mixer.inputs = parse_bool(value).unwrap_or(s.mixer.inputs),
                 "mixer_outer" => {
@@ -588,24 +625,32 @@ impl LibraryApp {
         if self.settings_ui.tab == 2 {
             SectionHeading { title: "Deck view" }.show(ui, tokens);
             let s = &mut self.settings;
-            let mut pick = |label: &str, cells: &[&str], index: &mut usize| {
-                segmented_row(ui, tokens, label, cells, index);
-            };
+            macro_rules! pick {
+                ($label:expr, $cells:expr, $index:expr $(,)?) => {
+                    segmented_row(ui, tokens, $label, $cells, $index)
+                };
+            }
             let mut i = usize::from(s.deck_palette == DeckPalette::Classic);
-            pick(
+            pick!(
                 "Deck colours",
                 &["Warm / Cool", "Classic cyan / purple"],
                 &mut i,
             );
             s.deck_palette = PALETTES[i].0;
+            let mut i = usize::from(s.deck_theme == DeckTheme::OxiDj);
+            pick!("Deck theme", &["Club standard", "OxiDJ"], &mut i);
+            s.deck_theme = DECK_THEMES[i].0;
+            toggle_row(ui, tokens, "Track metadata", &mut s.show_meta);
+            toggle_row(ui, tokens, "Crossfader", &mut s.crossfader);
+            toggle_row(ui, tokens, "Mirror deck B", &mut s.mirror_b);
             let mut i = usize::from(s.playhead == Playhead::LeftThird);
-            pick("Playhead", &["Centre", "Left third"], &mut i);
+            pick!("Playhead", &["Centre", "Left third"], &mut i);
             s.playhead = PLAYHEADS[i].0;
             let mut i = TEMPOS
                 .iter()
                 .position(|(t, _)| *t == s.tempo_range)
                 .unwrap_or(1);
-            pick("Tempo range", &["±6 %", "±10 %", "±16 %"], &mut i);
+            pick!("Tempo range", &["±6 %", "±10 %", "±16 %"], &mut i);
             s.tempo_range = TEMPOS[i].0;
             toggle_row(ui, tokens, "Phase readout", &mut s.show_phase);
             let mut sections = [egui::Rect::NOTHING; 4];
@@ -748,6 +793,9 @@ mod tests {
                 inputs: true,
                 knobs_outside: false,
             },
+            deck_theme: DeckTheme::OxiDj,
+            show_meta: false,
+            mirror_b: true,
         };
         let mut storage = MemoryStorage::default();
         edited.save(&mut storage);

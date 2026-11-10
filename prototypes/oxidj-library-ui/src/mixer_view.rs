@@ -1109,6 +1109,12 @@ pub(crate) fn mixer_width(prefs: MixerPrefs, screen_w: f32, avail: f32) -> f32 {
         .min(avail.max(MIN_MIXER_W))
 }
 
+/// Width of the whole mixer section (block, monitor column, insets) in the
+/// Layout B bottom row.
+pub(crate) fn mixer_total_width(prefs: MixerPrefs, screen_w: f32) -> f32 {
+    mixer_width(prefs, screen_w, f32::MAX / 4.0) + 2.0 * INSET + SPLIT + MON_W
+}
+
 /// Where one channel's parts sit.
 struct StripGeo {
     knobs: Rect,
@@ -1131,7 +1137,7 @@ impl LibraryApp {
         // Outline only: a surface fill would hide the slider rails.
         ui.painter().rect_stroke(
             r,
-            3.0,
+            self.settings.deck_theme.radius(),
             Stroke::new(1.0_f32, tokens.border),
             egui::StrokeKind::Inside,
         );

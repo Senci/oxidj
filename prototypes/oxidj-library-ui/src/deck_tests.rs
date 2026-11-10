@@ -665,11 +665,15 @@ fn overviews_are_two_separate_strips_at_the_bottom_and_seek_their_own_deck() {
     let area = l.area.unwrap();
     let [oa, ob] = l.overviews.expect("two overview strips");
     assert!(oa.bottom() < ob.top(), "A first, B second, not merged");
+    // Layout B: overviews sit under the detail waveform, above the deck row.
+    assert!(oa.top() > l.detail.unwrap().bottom());
+    assert!(ob.bottom() <= l.strip.unwrap().top() + 0.01);
+    assert!(l.strip.unwrap().bottom() <= area.bottom() + 0.5);
+    let needle = l.overview_needle.expect("shared needle x");
     assert!(
-        (ob.bottom() - area.bottom()).abs() < 1.0,
-        "overviews at the bottom of the deck area"
+        needle > oa.left() && needle < oa.right(),
+        "one needle x in both overviews"
     );
-    assert!(oa.top() > l.strip.unwrap().bottom() && oa.top() > l.detail.unwrap().bottom());
     assert!(
         (oa.width() - area.width()).abs() < 1.0 && (ob.width() - area.width()).abs() < 1.0,
         "full width"
@@ -1300,6 +1304,8 @@ fn tempo_wheel_ignores_outside_input_and_consumes_parent_scroll() {
     );
     // A short window puts the deck area in its scroll area.
     h.app.settings.sections.mixer = true;
+    // Detail off keeps the deck row inside the visible part of the scroll area.
+    h.app.settings.sections.detail = false;
     h.viewport = egui::vec2(640.0, 480.0);
     h.settle();
     let area = h.layout().area.unwrap();
@@ -1741,13 +1747,16 @@ fn every_section_combination_collapses_cleanly_toggles_and_persists() {
         assert_eq!(l.overviews.is_some(), sections.overviews, "{bits:04b}");
         assert_eq!(l.strip.is_some(), sections.strip, "{bits:04b}");
         assert_eq!(l.mixer.is_some(), sections.mixer, "{bits:04b}");
-        // Stacking order: toggles, detail, strip, mixer, overviews; no overlap.
+        // Layout B stacking: toggles, detail, overviews, then the deck row
+        // (deck A | mixer | deck B share it); no overlap.
         let order: Vec<Rect> = [
             l.toggles.map(|t| t[0]),
             l.detail,
-            l.strip,
-            l.mixer,
             l.overviews.map(|o| o[0].union(o[1])),
+            match (l.strip, l.mixer) {
+                (Some(a), Some(b)) => Some(a.union(b)),
+                (a, b) => a.or(b),
+            },
         ]
         .into_iter()
         .flatten()
@@ -1774,8 +1783,12 @@ fn every_section_combination_collapses_cleanly_toggles_and_persists() {
     for bits in 0..16u8 {
         for i in 0..4 {
             if bits & (1 << i) != 0 {
+                // The strip shares its row with the mixer: removing it alone
+                // frees nothing while the taller mixer stays.
+                let shared = i == 2 && bits & 8 != 0;
+                let freed = heights[&(bits & !(1 << i))] - heights[&bits];
                 assert!(
-                    heights[&(bits & !(1 << i))] > heights[&bits] + 10.0,
+                    if shared { freed >= -0.01 } else { freed > 10.0 },
                     "{bits:04b} minus section {i}"
                 );
             }
@@ -4652,5 +4665,127 @@ fn mixer_v2_width_is_a_share_of_the_screen() {
         MixerPrefs::default().knobs_outside,
         "outside knobs by default"
     );
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+/// Layout B (v19): detail + overviews on top, deck A | mixer | deck B in one
+/// row below, one shared overview needle, mirrored deck B, and no overflow
+/// with every preference on at two window sizes; the library keeps its
+/// minimum height.
+#[test]
+fn layout_b_row_mirror_needle_and_no_overflow_with_every_preference_on() {
+    use crate::settings::{DeckTheme, MixerDensity, MixerPrefs};
+    let (root, mut h) = fresh("layoutb", 5.0);
+    h.select_and_load("a-120.wav", egui::Key::A);
+    h.select_and_load("b-124.wav", egui::Key::B);
+    h.app.settings.sections = DeckSections::from_bits(0b1111);
+    h.app.settings.crossfader = true;
+    h.app.settings.show_meta = true;
+    h.app.settings.deck_theme = DeckTheme::OxiDj;
+    h.app.settings.mixer = MixerPrefs {
+        density: MixerDensity::Roomy,
+        ab_labels: true,
+        inputs: true,
+        knobs_outside: true,
+    };
+    for mirror in [false, true] {
+        h.app.settings.mirror_b = mirror;
+        for size in [(1280.0, 720.0), (1600.0, 900.0)] {
+            h.viewport = egui::vec2(size.0, size.1);
+            h.settle();
+            let l = h.layout();
+            let tag = format!("{size:?} mirror={mirror}");
+            let area = l.area.unwrap();
+            let (detail, row, mixer) = (l.detail.unwrap(), l.strip.unwrap(), l.mixer.unwrap());
+            let [oa, ob] = l.overviews.unwrap();
+            // Top block above the row; row holds deck A | mixer | deck B.
+            assert!(
+                detail.bottom() <= oa.top() && ob.bottom() <= row.top() + 0.01,
+                "{tag}"
+            );
+            assert!(mixer.top() >= row.top() - 0.01 && mixer.bottom() <= row.bottom() + 0.01);
+            assert!(
+                area.expand(0.5).contains_rect(row.union(oa).union(ob)),
+                "{tag}"
+            );
+            // One needle x across both overviews.
+            let nx = l.overview_needle.unwrap();
+            assert!(nx > oa.left() && nx < oa.right(), "{tag}");
+            let deck_items = |d: usize| -> Vec<Rect> {
+                let mut v = vec![
+                    l.load[d].unwrap(),
+                    l.sync[d].unwrap(),
+                    l.key_lock[d].unwrap(),
+                    l.range[d].unwrap(),
+                    l.tempo[d].unwrap(),
+                    l.bpm[d].unwrap(),
+                    l.time[d].unwrap(),
+                    l.cue[d].unwrap(),
+                    l.play[d].unwrap(),
+                ];
+                v.extend(l.pads[d].unwrap());
+                v.extend(l.loops[d].unwrap());
+                v
+            };
+            for r in deck_items(0) {
+                assert!(
+                    r.left() >= area.left() - 0.5 && r.right() <= mixer.left() + 0.5,
+                    "{tag} A {r:?}"
+                );
+            }
+            for r in deck_items(1) {
+                assert!(
+                    r.left() >= mixer.right() - 0.5 && r.right() <= area.right() + 0.5,
+                    "{tag} B {r:?}"
+                );
+            }
+            // Pad order stays 1..8 left to right on both decks.
+            for d in 0..2 {
+                let p = l.pads[d].unwrap();
+                assert!(
+                    p[0].left() < p[1].left()
+                        && p[0].top() == p[1].top()
+                        && p[4].top() > p[0].top()
+                );
+            }
+            let (t, bpm, time, sync) = (
+                l.tempo[1].unwrap(),
+                l.bpm[1].unwrap(),
+                l.time[1].unwrap(),
+                l.sync[1].unwrap(),
+            );
+            if mirror {
+                // Pitch fader nearest the mixer; BPM / SYNC / time left-aligned to its right.
+                assert!(
+                    t.left() >= mixer.right() && t.right() <= bpm.left(),
+                    "{tag}"
+                );
+                for r in deck_items(1) {
+                    if r != t {
+                        assert!(
+                            r.left() >= t.right() - 0.5,
+                            "{tag} fader nearest mixer {r:?}"
+                        );
+                    }
+                }
+                assert!(
+                    (bpm.left() - time.left()).abs() < 0.5
+                        && (bpm.left() - sync.left()).abs() < 0.5,
+                    "{tag}"
+                );
+            } else {
+                assert!(
+                    t.left() > bpm.right() - 0.5,
+                    "{tag} default pitch fader at the outer edge"
+                );
+            }
+            let tb = h.app.shell.table.unwrap();
+            assert!(
+                tb.height() >= decks::LIBRARY_MIN_H - 1.0,
+                "{tag}: table {}",
+                tb.height()
+            );
+        }
+    }
     std::fs::remove_dir_all(root).unwrap();
 }
