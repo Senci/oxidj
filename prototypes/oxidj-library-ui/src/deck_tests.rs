@@ -3993,7 +3993,7 @@ fn deck_artwork_loads_async_and_swaps_the_placeholder() {
     assert!(!rect.intersects(half), "artwork obscures the waveform");
     assert!(strip.contains_rect(rect), "artwork stays in deck controls");
     assert!((rect.width() - rect.height()).abs() < 0.01, "square cover");
-    assert_eq!(rect.height(), crate::decks::BAND_H, "cover spans the band");
+    assert_eq!(rect.height(), h.app.decks.band_h, "cover spans the band");
     std::fs::remove_dir_all(root).unwrap();
 }
 
@@ -4186,8 +4186,8 @@ fn deck_panel_v2_content_band_edges_align_for_both_decks() {
             let fader = l.tempo[d].unwrap();
             let play = l.play[d].unwrap();
             let pads = l.pads[d].unwrap();
-            let top = strip.top();
-            let bottom = strip.top() + decks::BAND_H;
+            let top = strip.top() + (strip.height() - h.app.decks.band_h) / 2.0;
+            let bottom = top + h.app.decks.band_h;
             assert!(near(meta.top(), top), "{case} deck {d}: metadata top");
             assert!(near(bpm.top(), top), "{case} deck {d}: BPM top");
             assert!(near(fader.top(), top), "{case} deck {d}: fader top");
@@ -4224,7 +4224,7 @@ fn deck_panel_v2_content_band_edges_align_for_both_decks() {
         assert!(near(l.bpm[d].unwrap().top(), strip.top()), "empty BPM");
         assert!(near(
             l.tempo[d].unwrap().bottom(),
-            strip.top() + decks::BAND_H
+            strip.top() + (strip.height() - h.app.decks.band_h) / 2.0 + h.app.decks.band_h
         ));
     }
     std::fs::remove_dir_all(root).unwrap();
@@ -5111,5 +5111,60 @@ fn arrangements_a_c_d_relations_no_overflow_and_runtime_switch() {
         crate::settings::Settings::decode("style=smooth").arrangement,
         Arr::B
     );
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+/// The deck panel's content band takes the row height when the deck column
+/// can carry it: square cover, aligned edges, scaled pads, nothing clipped,
+/// at three window sizes with deck B mirrored and not.
+#[test]
+fn deck_band_fills_the_row_with_square_cover_at_three_sizes() {
+    use crate::settings::DeckArrangement as Arr;
+    let (root, mut h) = fresh("band-fill", 5.0);
+    h.select_and_load("a-120.wav", egui::Key::A);
+    h.select_and_load("b-124.wav", egui::Key::B);
+    h.app.settings.sections = DeckSections::from_bits(0b1111);
+    h.app.settings.show_artwork = true;
+    for arr in [Arr::A, Arr::B, Arr::C, Arr::D] {
+        h.app.settings.arrangement = arr;
+        for mirror in [false, true] {
+            h.app.settings.mirror_b = mirror;
+            for size in [(1280.0, 720.0), (1440.0, 900.0), (1600.0, 900.0)] {
+                h.viewport = egui::vec2(size.0, size.1);
+                h.settle();
+                let l = h.layout();
+                let tag = format!("{arr:?} {size:?} mirror={mirror}");
+                let strip = l.strip.unwrap();
+                let band = h.app.decks.band_h;
+                eprintln!("{tag}: row {} band {band}", strip.height());
+                assert!(band >= decks::BAND_H, "{tag}");
+                assert!(band <= strip.height().max(decks::BAND_H) + 0.01, "{tag}");
+                // The tint fills the row; the band's padding stays modest.
+                assert!(
+                    size.0 < 1440.0 || strip.height() - band < 90.0,
+                    "{tag}: padding {}",
+                    strip.height() - band
+                );
+                let top = strip.top() + (strip.height() - band) / 2.0;
+                for d in 0..2 {
+                    let cover = l.artwork[d].unwrap_or_else(|| panic!("{tag}: cover {d}"));
+                    assert!(near(cover.width(), cover.height()), "{tag}: square");
+                    assert!(near(cover.top(), top) && near(cover.bottom(), top + band));
+                    assert!(near(l.play[d].unwrap().bottom(), top + band), "{tag}");
+                    assert!(near(l.tempo[d].unwrap().bottom(), top + band), "{tag}");
+                    assert!(near(l.pads[d].unwrap()[7].bottom(), top + band), "{tag}");
+                    for r in [l.load[d].unwrap(), l.play[d].unwrap(), l.tempo[d].unwrap()]
+                        .into_iter()
+                        .chain(l.pads[d].unwrap())
+                    {
+                        assert!(strip.expand(0.5).contains_rect(r), "{tag}: clipped {r:?}");
+                    }
+                    assert!(!cover.intersects(l.pads[d].unwrap()[0]), "{tag}");
+                }
+                let tb = h.app.shell.table.unwrap();
+                assert!(tb.height() >= decks::LIBRARY_MIN_H - 1.0, "{tag}: table");
+            }
+        }
+    }
     std::fs::remove_dir_all(root).unwrap();
 }

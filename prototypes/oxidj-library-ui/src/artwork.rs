@@ -251,27 +251,28 @@ pub(crate) fn paint_cover(
     );
 }
 
-/// A vinyl disc in the deck's accent colour: outer disc, grooves, label, hole.
+/// Placeholder cover: a rounded square in the deck's accent colour with a
+/// small record glyph, the same size as a real cover.
 fn paint_vinyl(painter: &egui::Painter, rect: Rect, colours: DeckColours, tokens: &ColorTokens) {
-    let centre = rect.center();
-    let radius = rect.height().min(rect.width()) / 2.0;
-    if radius <= 1.0 {
+    let side = rect.height().min(rect.width());
+    if side <= 2.0 {
         return;
     }
-    painter.circle_filled(centre, radius, colours.outer);
-    for groove in [0.82, 0.64, 0.46] {
-        painter.circle_stroke(
-            centre,
-            radius * groove,
-            egui::Stroke::new(1.0_f32, alpha(colours.outer, 130)),
-        );
-    }
-    painter.circle_filled(centre, radius * 0.3, colours.wash);
+    let rect = Rect::from_min_size(rect.min, egui::vec2(side, side));
+    painter.rect_filled(rect, 4.0, alpha(colours.outer, 70));
+    painter.rect_stroke(
+        rect,
+        4.0,
+        egui::Stroke::new(1.0_f32, colours.outer),
+        egui::StrokeKind::Inside,
+    );
+    let (centre, radius) = (rect.center(), side * 0.28);
     painter.circle_stroke(
         centre,
-        radius * 0.3,
-        egui::Stroke::new(1.0_f32, alpha(colours.outer, 170)),
+        radius,
+        egui::Stroke::new(1.5_f32, alpha(colours.outer, 200)),
     );
+    painter.circle_filled(centre, radius * 0.35, colours.outer);
     painter.circle_filled(centre, (radius * 0.08).max(1.5), tokens.background);
 }
 

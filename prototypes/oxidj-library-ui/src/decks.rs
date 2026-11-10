@@ -752,6 +752,8 @@ pub(crate) struct DeckArea {
     /// A Tab press taken by [`LibraryApp::deck_input_hook`].
     pending_tab: bool,
     pub(crate) layout: DeckLayout,
+    /// Height of the deck panel's content band in the last frame.
+    pub(crate) band_h: f32,
     pub(crate) engine: Engine,
     /// The fake sink: blocks rendered by hand (tests); `None` once a real
     /// output is attached.
@@ -789,6 +791,7 @@ impl Default for DeckArea {
             active: 0,
             pending_tab: false,
             layout: DeckLayout::default(),
+            band_h: BAND_H,
             engine,
             manual: Some(renderer),
             range: tempo_range(TempoRange::default()),
@@ -1845,6 +1848,33 @@ const META_H: f32 = 30.0;
 const COVER_MIN_COLUMN: f32 =
     RAIL + 4.0 + BAND_H + 8.0 + LEFT_W + 8.0 + PADS_W + 8.0 + PITCH_W + 6.0 + FADER_W;
 
+/// Largest growth of pads and CUE/PLAY relative to the minimum band.
+const MAX_SCALE: f32 = 1.3;
+
+/// Width the deck column needs for a band of height `h`.
+fn column_need(h: f32, cover: bool) -> f32 {
+    let scale = (h / BAND_H).clamp(1.0, MAX_SCALE);
+    RAIL + 4.0
+        + if cover { h + 8.0 } else { 0.0 }
+        + LEFT_W
+        + 8.0
+        + PADS_W * scale
+        + 8.0
+        + PITCH_W
+        + 6.0
+        + FADER_W
+}
+
+/// Content-band height: fills the row (`avail`) as far as the deck column
+/// `column` can carry the (square) cover and the scaled controls.
+pub(crate) fn band_height(avail: f32, column: f32, cover: bool) -> f32 {
+    let mut h = avail.max(BAND_H).min(BAND_H * 3.0);
+    while h > BAND_H && column_need(h, cover) > column {
+        h -= 1.0;
+    }
+    h.max(BAND_H)
+}
+
 /// Height of the detail + overview stack (0 when both are hidden).
 pub(crate) fn wave_height(sections: DeckSections, screen: Rect) -> f32 {
     let detail = if sections.detail {
@@ -2399,10 +2429,28 @@ impl LibraryApp {
             12.0
         };
         let column = (rect.width() - gap) / 2.0;
-        let top = rect.top() + ((rect.height() - BAND_H) / 2.0).max(0.0);
+        let cover_wanted = self.settings.show_artwork
+            && self.decks.decks.iter().any(|d| d.track.is_some())
+            && column >= COVER_MIN_COLUMN;
+        let band = band_height(rect.height(), column, cover_wanted);
+        self.decks.band_h = band;
+        let top = rect.top() + ((rect.height() - band) / 2.0).max(0.0);
+        // Pads and CUE/PLAY grow with the band, up to a sensible maximum.
+        let scale = (band / BAND_H).clamp(1.0, MAX_SCALE);
+        let pad_size = (PAD_SIZE * scale).round();
+        let cp_w = (CP_W * scale).round();
+        let cp_h = (CP_H * scale).round();
         let cols = [
-            Rect::from_min_size(pos2(rect.left(), top), vec2(column, BAND_H)),
-            Rect::from_min_size(pos2(rect.right() - column, top), vec2(column, BAND_H)),
+            Rect::from_min_size(pos2(rect.left(), top), vec2(column, band)),
+            Rect::from_min_size(pos2(rect.right() - column, top), vec2(column, band)),
+        ];
+        // The tint and rail fill the whole row; the band sits centred in it.
+        let panels = [
+            Rect::from_min_size(rect.min, vec2(column, rect.height())),
+            Rect::from_min_size(
+                pos2(rect.right() - column, rect.top()),
+                vec2(column, rect.height()),
+            ),
         ];
         let range = tempo_range(self.settings.tempo_range);
         self.decks.range = range;
@@ -2413,17 +2461,18 @@ impl LibraryApp {
             let c = colours[d];
             let letter = DECKS[d];
             let top = col.top();
-            let bottom = col.top() + BAND_H;
+            let bottom = col.top() + band;
             let mirror = d == 1 && self.settings.mirror_b;
-            let painter = ui.painter_at(col);
-            painter.rect_filled(col, self.settings.deck_theme.radius(), c.wash);
+            let panel = panels[d];
+            let painter = ui.painter_at(panel);
+            painter.rect_filled(panel, self.settings.deck_theme.radius(), c.wash);
             let rail_x = if mirror {
                 col.right() - RAIL
             } else {
                 col.left()
             };
             painter.rect_filled(
-                Rect::from_min_size(pos2(rail_x, col.top()), vec2(RAIL, BAND_H)),
+                Rect::from_min_size(pos2(rail_x, panel.top()), vec2(RAIL, panel.height())),
                 0.0,
                 c.outer,
             );
@@ -2453,22 +2502,22 @@ impl LibraryApp {
             let show_cover = self.settings.show_artwork && deck.track.is_some() && cover_fits;
             let mut body_right = body_right;
             if show_cover {
-                let cx = if mirror { body_right - BAND_H } else { x };
-                let slot = Rect::from_min_size(pos2(cx, top), vec2(BAND_H, BAND_H));
+                let cx = if mirror { body_right - band } else { x };
+                let slot = Rect::from_min_size(pos2(cx, top), vec2(band, band));
                 crate::artwork::paint_cover(&painter, slot, &deck.art, c, &tokens);
                 layout.artwork[d] = Some(slot);
                 if mirror {
                     body_right = cx - 8.0;
                 } else {
-                    x += BAND_H + 8.0;
+                    x += band + 8.0;
                 }
             }
             // Controls column: loop row, CUE, PLAY, bottom aligned.
             let play_r = Rect::from_min_size(
-                pos2(x + (LEFT_W - CP_W) / 2.0, bottom - CP_H),
-                vec2(CP_W, CP_H),
+                pos2(x + (LEFT_W - cp_w) / 2.0, bottom - cp_h),
+                vec2(cp_w, cp_h),
             );
-            let cue_r = play_r.translate(vec2(0.0, -(CP_H + 3.0)));
+            let cue_r = play_r.translate(vec2(0.0, -(cp_h + 3.0)));
             let loops_y = cue_r.top() - 3.0 - LOOP_H;
             let at_cue = loaded
                 && (deck.previewing
@@ -2584,16 +2633,16 @@ impl LibraryApp {
             // Hot-cue pads 4 x 2, bottom aligned with PLAY; always 1..8
             // left to right, also on deck B.
             let pads_x = x + LEFT_W + 8.0;
-            let pads_top = bottom - (2.0 * PAD_SIZE + PAD_GAP);
+            let pads_top = bottom - (2.0 * pad_size + PAD_GAP);
             let mut pad_rects = [Rect::NOTHING; PADS];
             for (p, pad_rect) in pad_rects.iter_mut().enumerate() {
                 let (col_i, row_i) = ((p % 4) as f32, (p / 4) as f32);
                 let r = Rect::from_min_size(
                     pos2(
-                        pads_x + col_i * (PAD_SIZE + PAD_GAP),
-                        pads_top + row_i * (PAD_SIZE + PAD_GAP),
+                        pads_x + col_i * (pad_size + PAD_GAP),
+                        pads_top + row_i * (pad_size + PAD_GAP),
                     ),
-                    vec2(PAD_SIZE, PAD_SIZE),
+                    vec2(pad_size, pad_size),
                 );
                 *pad_rect = r;
                 let n = p + 1;
@@ -2854,7 +2903,7 @@ impl LibraryApp {
                     widgets.inactive.bg_fill = tokens.border;
                     widgets.hovered.bg_fill = tokens.border;
                     widgets.active.bg_fill = tokens.border;
-                    ui.spacing_mut().slider_width = BAND_H;
+                    ui.spacing_mut().slider_width = band;
                     ui.spacing_mut().interact_size.y = FADER_W;
                     ui.put(
                         fader_r,
