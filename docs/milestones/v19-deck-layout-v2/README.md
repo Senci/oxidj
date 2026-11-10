@@ -1,6 +1,6 @@
 # v19 — Deck and mixer layout v2 (owner-approved direction)
 
-Status: **design direction approved by the owner (2026-11-10); implementation queued.**
+Status: **design direction approved by the owner (2026-11-10); deck panel v2 and mixer v2 implemented; arrangement options still queued.**
 Source of truth: [`mockup.html`](mockup.html) (static, synthetic placeholder
 content, open it in a browser) and the four renders next to it. This is a
 layout study, not the application: nothing here is shipped, and no vendor,
@@ -66,3 +66,7 @@ search, settings and panel buttons. No emoji in the interface.
 - Real playback-driven overview fitting (shared playback-time scale); the
   mockup's overview alignment is a static illustration.
 - Native display, accessibility and performance qualification (NOT DEMONSTRATED).
+
+## Implemented
+
+- Mixer v2: [`app-mixer-v2.png`](app-mixer-v2.png) is a real Bot Screen capture of the application (synthetic scratch catalog, decks empty, detail waveform hidden to show the mixer; compact density at 1440 px wide). Input selectors are a painted placeholder; the master/cue controls sit in a column beside the mixer block.

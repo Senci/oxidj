@@ -642,7 +642,7 @@ impl LibraryApp {
             toggle_row(
                 ui,
                 tokens,
-                "Mixer knobs outside the faders",
+                "Knobs outside faders",
                 &mut s.mixer.knobs_outside,
             );
             toggle_row(ui, tokens, "Mixer A / B labels", &mut s.mixer.ab_labels);
