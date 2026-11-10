@@ -79,6 +79,7 @@ impl LibraryApp {
                     let max_height = (ctx.screen_rect().height() - 100.0).max(100.0);
                     if decks::area_height(
                         self.settings.sections,
+                        crate::mixer_view::mixer_height(self.settings.mixer),
                         ctx.screen_rect(),
                         ui.available_width(),
                     ) > max_height

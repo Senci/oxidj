@@ -103,6 +103,50 @@ pub struct Settings {
     pub artwork_cache_mib: u32,
     /// Opt-in compact Rekordbox-inspired transport pairs.
     pub simple_dj_keys: bool,
+    /// Mixer v2 layout preferences.
+    pub mixer: MixerPrefs,
+}
+
+/// Mixer width as a share of the screen width.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MixerDensity {
+    Ultra,
+    Compact,
+    Roomy,
+}
+
+impl MixerDensity {
+    /// Share of the screen width the mixer block takes (about 9.5 / 11 / 14 %).
+    pub fn share(self) -> f32 {
+        match self {
+            Self::Ultra => 0.095,
+            Self::Compact => 0.11,
+            Self::Roomy => 0.14,
+        }
+    }
+}
+
+/// Mixer v2 preferences (persisted; all in Settings, Deck view tab).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct MixerPrefs {
+    pub density: MixerDensity,
+    /// Show the A / B channel labels.
+    pub ab_labels: bool,
+    /// Show the input selectors.
+    pub inputs: bool,
+    /// Knobs in an outer column beside the faders (default) instead of above.
+    pub knobs_outside: bool,
+}
+
+impl Default for MixerPrefs {
+    fn default() -> Self {
+        Self {
+            density: MixerDensity::Compact,
+            ab_labels: false,
+            inputs: false,
+            knobs_outside: true,
+        }
+    }
 }
 
 /// Which optional deck-area sections are expanded (D1).
@@ -177,6 +221,7 @@ impl Default for Settings {
             show_artwork: true,
             artwork_cache_mib: 100,
             simple_dj_keys: false,
+            mixer: MixerPrefs::default(),
         }
     }
 }
@@ -198,6 +243,11 @@ const TEMPOS: [(TempoRange, &str); 3] = [
     (TempoRange::Six, "6"),
     (TempoRange::Ten, "10"),
     (TempoRange::Sixteen, "16"),
+];
+const DENSITIES: [(MixerDensity, &str); 3] = [
+    (MixerDensity::Ultra, "ultra"),
+    (MixerDensity::Compact, "compact"),
+    (MixerDensity::Roomy, "roomy"),
 ];
 const CURVES: [(Curve, &str); 3] = [
     (Curve::Smooth, "smooth"),
@@ -232,7 +282,7 @@ impl Settings {
             .map(|i| format!(";{}={}", DeckSections::KEYS[i], b(self.sections.get(i))))
             .collect();
         format!(
-            "style={};smooth={};auto_gain={};beat_lines={};zoom={};deck_palette={};playhead={};phase={};tempo={};sec_xfader={};xf_curve={};artwork={};artwork_mib={};simple_keys={}",
+            "style={};smooth={};auto_gain={};beat_lines={};zoom={};deck_palette={};playhead={};phase={};tempo={};sec_xfader={};xf_curve={};artwork={};artwork_mib={};simple_keys={};mixer_density={};mixer_ab={};mixer_input={};mixer_outer={}",
             name_of(&STYLES, self.waveform_style),
             b(self.smooth),
             b(self.auto_gain),
@@ -247,6 +297,10 @@ impl Settings {
             b(self.show_artwork),
             self.artwork_cache_mib,
             b(self.simple_dj_keys),
+            name_of(&DENSITIES, self.mixer.density),
+            b(self.mixer.ab_labels),
+            b(self.mixer.inputs),
+            b(self.mixer.knobs_outside),
         ) + &sections
     }
 
@@ -257,6 +311,14 @@ impl Settings {
         for (key, value) in raw.split(';').filter_map(|pair| pair.split_once('=')) {
             let value = value.trim();
             match key.trim() {
+                "mixer_density" => {
+                    s.mixer.density = parse_in(&DENSITIES, value).unwrap_or(s.mixer.density)
+                }
+                "mixer_ab" => s.mixer.ab_labels = parse_bool(value).unwrap_or(s.mixer.ab_labels),
+                "mixer_input" => s.mixer.inputs = parse_bool(value).unwrap_or(s.mixer.inputs),
+                "mixer_outer" => {
+                    s.mixer.knobs_outside = parse_bool(value).unwrap_or(s.mixer.knobs_outside)
+                }
                 "simple_keys" => s.simple_dj_keys = parse_bool(value).unwrap_or(s.simple_dj_keys),
                 "style" => s.waveform_style = parse_in(&STYLES, value).unwrap_or(s.waveform_style),
                 "smooth" => s.smooth = parse_bool(value).unwrap_or(s.smooth),
@@ -565,6 +627,26 @@ impl LibraryApp {
             );
             s.xfader_curve = CURVES[i].0;
             layout.curve = Some(rects(&responses));
+            let mut i = DENSITIES
+                .iter()
+                .position(|(d, _)| *d == s.mixer.density)
+                .unwrap_or(1);
+            segmented_row(
+                ui,
+                tokens,
+                "Mixer width",
+                &["Ultra compact", "Compact", "Roomy"],
+                &mut i,
+            );
+            s.mixer.density = DENSITIES[i].0;
+            toggle_row(
+                ui,
+                tokens,
+                "Mixer knobs outside the faders",
+                &mut s.mixer.knobs_outside,
+            );
+            toggle_row(ui, tokens, "Mixer A / B labels", &mut s.mixer.ab_labels);
+            toggle_row(ui, tokens, "Mixer input selectors", &mut s.mixer.inputs);
             layout.artwork =
                 Some(toggle_row(ui, tokens, "Deck album artwork", &mut s.show_artwork).rect);
             ui.horizontal(|ui| {
@@ -660,6 +742,12 @@ mod tests {
             show_artwork: false,
             artwork_cache_mib: 42,
             simple_dj_keys: true,
+            mixer: MixerPrefs {
+                density: MixerDensity::Roomy,
+                ab_labels: true,
+                inputs: true,
+                knobs_outside: false,
+            },
         };
         let mut storage = MemoryStorage::default();
         edited.save(&mut storage);

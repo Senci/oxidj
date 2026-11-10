@@ -16,6 +16,7 @@ pub(crate) enum Icon {
     Repeat,
     Lock,
     Timer,
+    Headphones,
 }
 
 /// One drawable path on the 24 x 24 grid.
@@ -133,6 +134,27 @@ impl Icon {
                         closed: false,
                     },
                 ]
+            }
+            Icon::Headphones => {
+                let mut p = vec![pos2(3.0, 14.0), pos2(6.0, 14.0)];
+                arc(&mut p, 6.0, 16.0, 2.0, -90.0, 0.0);
+                p.push(pos2(8.0, 19.0));
+                arc(&mut p, 6.0, 19.0, 2.0, 0.0, 90.0);
+                p.push(pos2(5.0, 21.0));
+                arc(&mut p, 5.0, 19.0, 2.0, 90.0, 180.0);
+                p.push(pos2(3.0, 12.0));
+                arc(&mut p, 12.0, 12.0, 9.0, 180.0, 360.0);
+                p.push(pos2(21.0, 19.0));
+                arc(&mut p, 19.0, 19.0, 2.0, 0.0, 90.0);
+                p.push(pos2(18.0, 21.0));
+                arc(&mut p, 18.0, 19.0, 2.0, 90.0, 180.0);
+                p.push(pos2(16.0, 16.0));
+                arc(&mut p, 18.0, 16.0, 2.0, 180.0, 270.0);
+                p.push(pos2(21.0, 14.0));
+                vec![Path {
+                    points: p,
+                    closed: false,
+                }]
             }
             Icon::Timer => vec![
                 line(&[(10.0, 2.0), (14.0, 2.0)]),

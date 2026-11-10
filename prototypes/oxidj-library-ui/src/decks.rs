@@ -46,8 +46,6 @@ pub const SECTION_BAR_HEIGHT: f32 = 24.0;
 pub const OVERVIEW_HEIGHT: f32 = 34.0;
 /// Gap between stacked deck-area sections.
 pub const GAP: f32 = 4.0;
-/// One control-strip row (WCAG 24 px targets).
-pub const ROW: f32 = 24.0;
 /// Hot-cue pads per deck.
 pub const PADS: usize = 8;
 /// Detail window per "bar" when a deck has no beat grid (2/4/8/16 s).
@@ -1843,7 +1841,12 @@ const COVER_MIN_COLUMN: f32 =
 
 /// Total deck-area height for `sections` at window `screen` size, for a
 /// deck area `width` wide.
-pub(crate) fn area_height(sections: DeckSections, screen: Rect, width: f32) -> f32 {
+pub(crate) fn area_height(
+    sections: DeckSections,
+    mixer_h: f32,
+    screen: Rect,
+    _width: f32,
+) -> f32 {
     let column = (screen.width() - 16.0 - 12.0) / 2.0;
     let mut h = SECTION_BAR_HEIGHT;
     if sections.detail {
@@ -1853,7 +1856,7 @@ pub(crate) fn area_height(sections: DeckSections, screen: Rect, width: f32) -> f
         h += GAP + strip_height(column);
     }
     if sections.mixer {
-        h += GAP + crate::mixer_view::mixer_height(width);
+        h += GAP + mixer_h;
     }
     if sections.overviews {
         h += GAP + 2.0 * OVERVIEW_HEIGHT + 2.0;
@@ -1868,7 +1871,8 @@ impl LibraryApp {
         let width = ui.available_width();
         let screen = ui.ctx().screen_rect();
         let sections = self.settings.sections;
-        let height = area_height(sections, screen, width);
+        let mixer_h = crate::mixer_view::mixer_height(self.settings.mixer);
+        let height = area_height(sections, mixer_h, screen, width);
         let (area, _) = ui.allocate_exact_size(vec2(width, height), Sense::hover());
         layout.area = Some(area);
         let colours = [0, 1].map(|d| deck_colours(self.settings.deck_palette, d, tokens));
@@ -1890,7 +1894,7 @@ impl LibraryApp {
             self.control_strip(ui, r, tokens, colours, &mut layout);
         }
         if sections.mixer {
-            let r = take(crate::mixer_view::mixer_height(width), &mut y);
+            let r = take(mixer_h, &mut y);
             self.mixer(ui, r, tokens, colours, &mut layout);
         }
         if sections.overviews {

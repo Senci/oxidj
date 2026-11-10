@@ -2283,8 +2283,24 @@ fn mixer_trim_indicator_distinct_from_filter_across_presets() {
                     })
                     .expect("production rotary indicator")
             };
+            // Mixer v2: TRIM is a small filled square in its ink.
+            let square_ink = |cell: Rect| {
+                out.shapes
+                    .iter()
+                    .find_map(|s| match &s.shape {
+                        Shape::Rect(r)
+                            if cell.contains_rect(s.clip_rect)
+                                && r.fill != egui::Color32::TRANSPARENT
+                                && r.fill != theme.tokens().background =>
+                        {
+                            Some(r.fill)
+                        }
+                        _ => None,
+                    })
+                    .expect("production trim square")
+            };
             for d in 0..2 {
-                let trim = indicator(layout.trim[d].unwrap());
+                let trim = square_ink(layout.trim[d].unwrap());
                 let filter = indicator(layout.filter[d].unwrap());
                 assert_ne!(trim, filter, "{theme:?} {palette:?} deck {d}");
                 let tokens = theme.tokens();
@@ -2811,9 +2827,12 @@ fn mixer_controls_drive_the_engine_and_meters_through_the_ui() {
             );
         }
     }
-    // Deck A left of the centre, deck B right of it.
-    assert!(l.volume[0].unwrap().right() < l.master.unwrap().left());
-    assert!(l.volume[1].unwrap().left() > l.master.unwrap().right());
+    // Mixer v2: deck A's fader left of the meters, deck B's right of them;
+    // the master column sits beside the mixer block.
+    let m = l.meters;
+    assert!(l.volume[0].unwrap().right() <= m[0].unwrap().left());
+    assert!(l.volume[1].unwrap().left() >= m[1].unwrap().right());
+    assert!(l.volume[1].unwrap().right() < l.master.unwrap().left());
     for letter in ["A", "B"] {
         for name in ["trim", "EQ high", "EQ mid", "EQ low", "filter", "volume"] {
             assert_eq!(
@@ -3008,7 +3027,7 @@ impl eframe::Storage for MemStore {
 /// the right sign, and the arrow keys reach the filter's stops.
 #[test]
 fn mixer_keeps_usable_non_overlapping_controls_at_narrow_windows() {
-    use crate::mixer_view::{MixerFit, SLIDER_MIN_W};
+    use crate::mixer_view::SLIDER_MIN_W;
     let (root, mut h) = fresh("mixnarrow", 10.0);
     h.select_and_load("a-120.wav", egui::Key::A);
     h.app.settings.sections.mixer = true;
@@ -3016,7 +3035,6 @@ fn mixer_keeps_usable_non_overlapping_controls_at_narrow_windows() {
         ["trim", "EQ high", "EQ mid", "EQ low", "filter", "volume"]
             .map(|n| format!("Deck {letter} {n}"))
     };
-    let mut fits = Vec::new();
     for (w, ht) in [
         (1440.0, 900.0),
         (1024.0, 768.0),
@@ -3024,15 +3042,14 @@ fn mixer_keeps_usable_non_overlapping_controls_at_narrow_windows() {
         (640.0, 480.0),
     ] {
         h.viewport = egui::vec2(w, ht);
-        // At 480 px, exercise the optional mixer alone; the complete deck
+        // Below 800 px, exercise the optional mixer alone; the complete deck
         // area scrolls rather than compressing fader travel below 40 px.
-        h.app.settings.sections.detail = ht > 480.0;
-        h.app.settings.sections.strip = ht > 480.0;
-        h.app.settings.sections.overviews = ht > 480.0;
+        h.app.settings.sections.detail = ht > 800.0;
+        h.app.settings.sections.strip = ht > 800.0;
+        h.app.settings.sections.overviews = ht > 800.0;
         let out = h.settle();
         let l = h.layout();
         let mixer = l.mixer.expect("mixer shown");
-        fits.push(MixerFit::of(mixer.width()));
         assert!(
             mixer.bottom() <= ht && mixer.right() <= w,
             "{w}x{ht}: mixer {mixer:?} inside the window"
@@ -3058,8 +3075,15 @@ fn mixer_keeps_usable_non_overlapping_controls_at_narrow_windows() {
         for (n, r) in &rects {
             // Vertical faders (volume, master) have travel in height; horizontal (crossfader) in width.
             let is_vertical = n.contains("volume") || n == "Master volume";
-            let travel = if is_vertical { r.height() } else { r.width() };
-            assert!(travel >= SLIDER_MIN_W, "{w}x{ht}: {n} travel {travel} px");
+            let is_knob = n.contains("trim") || n.contains("EQ") || n.contains("filter");
+            if is_knob {
+                // Mixer v2 knobs are small by design (TRIM is a small square).
+                let side = r.width().min(r.height());
+                assert!(side >= 12.0, "{w}x{ht}: {n} knob side {side} px");
+            } else {
+                let travel = if is_vertical { r.height() } else { r.width() };
+                assert!(travel >= SLIDER_MIN_W, "{w}x{ht}: {n} travel {travel} px");
+            }
             assert!(
                 mixer.contains_rect(*r),
                 "{w}x{ht}: {n} {r:?} inside the mixer {mixer:?}"
@@ -3202,16 +3226,6 @@ fn mixer_keeps_usable_non_overlapping_controls_at_narrow_windows() {
         );
         h.app.decks.decks[0].volume.0 = 0.5;
     }
-    assert_eq!(
-        fits,
-        [
-            MixerFit::Wide,
-            MixerFit::CentreBelow,
-            MixerFit::CentreBelow,
-            MixerFit::Stacked
-        ],
-        "every arrangement exercised"
-    );
     std::fs::remove_dir_all(root).unwrap();
 }
 
@@ -4359,5 +4373,284 @@ fn deck_panel_v2_icons_use_the_button_colour_and_no_emoji() {
             "emoji in {s:?}"
         );
     }
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+/// Mixer v2 (v19): everything in one pass over the mixer's real layout.
+fn mixer_v2_frame(h: &mut Harness, size: (f32, f32), prefs: crate::settings::MixerPrefs) -> Frame {
+    h.viewport = egui::vec2(size.0, size.1);
+    h.app.settings.sections.mixer = true;
+    h.app.settings.sections.detail = false;
+    h.app.settings.sections.strip = false;
+    h.app.settings.sections.overviews = false;
+    h.app.settings.mixer = prefs;
+    h.settle()
+}
+
+/// Labels sit in the strip of the cell reserved for them (`above`: top).
+fn assert_label(out: &Frame, text: &str, cell: Rect, above: bool) {
+    let found = texts(out)
+        .into_iter()
+        .filter(|(t, r)| t == text && cell.expand(0.5).contains_rect(*r))
+        .collect::<Vec<_>>();
+    assert_eq!(found.len(), 1, "label {text:?} inside {cell:?}");
+    let r = found[0].1;
+    let strip = crate::mixer_view::KNOB_LABEL_H;
+    if above {
+        assert!(
+            r.bottom() <= cell.top() + strip + 0.5,
+            "{text} above its knob"
+        );
+    } else {
+        assert!(
+            r.top() >= cell.bottom() - strip - 0.5,
+            "{text} beneath its knob"
+        );
+    }
+}
+
+/// Acceptance 1-2 and 3 of mixer v2 at two window sizes: knobs outside the
+/// faders, labels above, small gaps around the EQ group, full-height faders
+/// and meters sharing edges with the meters between the faders, crossfader
+/// below a separator line with its label and A / B ends.
+#[test]
+fn mixer_v2_default_outside_knobs_full_height_faders_and_crossfader_line() {
+    let (root, mut h) = fresh("mixv2", 5.0);
+    let tokens = ThemeMode::TokyoNight.tokens();
+    for size in [(1440.0, 900.0), (1920.0, 1080.0)] {
+        let out = mixer_v2_frame(&mut h, size, Default::default());
+        let l = h.layout();
+        let mixer = l.mixer.unwrap();
+        let [m0, m1] = [l.meters[0].unwrap(), l.meters[1].unwrap()];
+        let vol = [l.volume[0].unwrap(), l.volume[1].unwrap()];
+        // Faders and meters: one shared top and bottom edge, at full height.
+        for r in [vol[1], m0, m1] {
+            assert_eq!(r.top(), vol[0].top(), "{size:?} shared top");
+            assert_eq!(r.bottom(), vol[0].bottom(), "{size:?} shared bottom");
+        }
+        assert!(
+            vol[0].height() > 150.0,
+            "{size:?}: fader height {}",
+            vol[0].height()
+        );
+        // Meters sit between the faders.
+        assert!(vol[0].right() <= m0.left() && m0.right() <= m1.left());
+        assert!(m1.right() <= vol[1].left());
+        for d in 0..2 {
+            let (trim, eq, filter, cue) = (
+                l.trim[d].unwrap(),
+                l.eq[d].unwrap(),
+                l.filter[d].unwrap(),
+                l.mixer_cue[d].unwrap(),
+            );
+            // Outer column: A left of its fader, B right of its fader.
+            for r in [trim, eq[0], eq[1], eq[2], filter, cue] {
+                if d == 0 {
+                    assert!(r.right() <= vol[0].left(), "A knobs outside");
+                } else {
+                    assert!(r.left() >= vol[1].right(), "B knobs outside");
+                }
+            }
+            // The column spans the fader's full height: trim at its top,
+            // headphone cue at its bottom.
+            assert_eq!(trim.top(), vol[d].top());
+            assert!((cue.bottom() - vol[d].bottom()).abs() < 0.5);
+            // Order top down: TRIM, HIGH, MID, LOW, FILTER, cue.
+            let order = [trim, eq[2], eq[1], eq[0], filter, cue];
+            for w in order.windows(2) {
+                assert!(w[0].bottom() <= w[1].top(), "{d}: column order");
+            }
+            // Small gaps above and below the EQ group, tighter inside it.
+            let (before, inside, after) = (
+                eq[2].top() - trim.bottom(),
+                eq[1].top() - eq[2].bottom(),
+                filter.top() - eq[0].bottom(),
+            );
+            assert!(
+                before >= 4.0 && after >= 4.0,
+                "EQ group gaps {before} {after}"
+            );
+            assert!(inside < before && inside < after, "tight inside the group");
+            // TRIM is the smallest knob, FILTER the largest.
+            assert!(trim.height() < eq[0].height() && eq[0].height() < filter.height());
+            // Labels above their knobs.
+            for (text, cell) in [
+                ("TRIM", trim),
+                ("HIGH", eq[2]),
+                ("MID", eq[1]),
+                ("LOW", eq[0]),
+                ("FILTER", filter),
+            ] {
+                let found = texts(&out)
+                    .into_iter()
+                    .filter(|(t, r)| t == text && cell.expand(0.5).contains_rect(*r))
+                    .count();
+                assert!(found >= 1, "{text} inside its cell at {size:?}");
+            }
+            assert_label(&out, "TRIM", trim, true);
+            // TRIM is a small purple (primary) square.
+            let purple = out.shapes.iter().any(|s| {
+                matches!(&s.shape, Shape::Rect(r) if r.fill == tokens.primary
+                    && trim.contains_rect(s.clip_rect)
+                    && (r.rect.width() - r.rect.height()).abs() < 0.5)
+            });
+            assert!(purple, "TRIM square in the primary ink");
+        }
+        // Optional selectors and A / B labels are absent by default.
+        assert!(texts(&out).iter().all(|(t, _)| t != "LINE ▾"));
+        // Headphone icon button, not a text button.
+        for d in 0..2 {
+            let cue = l.mixer_cue[d].unwrap();
+            assert!(texts(&out).iter().all(|(_, r)| !cue.intersects(*r)));
+        }
+        // Crossfader: separator line, label, A / B ends, all below the faders.
+        let xf = l.crossfader.unwrap();
+        assert!(xf.top() > vol[0].bottom());
+        let line = out.shapes.iter().find_map(|s| match &s.shape {
+            Shape::LineSegment { points, .. }
+                if points[0].y == points[1].y
+                    && points[0].y > vol[0].bottom()
+                    && points[0].y < xf.top()
+                    && (points[1].x - points[0].x) > 100.0 =>
+            {
+                Some(points[0].y)
+            }
+            _ => None,
+        });
+        assert!(
+            line.is_some(),
+            "{size:?}: separator line above the crossfader"
+        );
+        let t = texts(&out);
+        let label = t.iter().find(|(s, _)| s == "CROSSFADER").expect("label").1;
+        assert!(label.top() > line.unwrap() && label.bottom() < xf.top());
+        let end = |s: &str| {
+            t.iter()
+                .find(|(x, r)| x == s && r.center().y > xf.top() && r.center().y < xf.bottom())
+                .unwrap_or_else(|| panic!("crossfader end {s}"))
+                .1
+        };
+        assert!(end("A").right() <= xf.left() && end("B").left() >= xf.right());
+        assert!(mixer.contains_rect(xf));
+    }
+    // Optional: hidden crossfader drops the rail, keeps the toggle.
+    h.app.settings.crossfader = false;
+    h.settle();
+    assert!(h.layout().crossfader.is_none() && h.layout().crossfader_toggle.is_some());
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+/// Acceptance 4: knobs-above configuration with A / B labels and input
+/// selectors on: one vertical axis per channel, label beneath each knob,
+/// small gaps around the EQ group, nothing overflowing or overlapping.
+#[test]
+fn mixer_v2_knobs_above_share_one_axis_and_do_not_overflow() {
+    use crate::settings::{MixerDensity, MixerPrefs};
+    let (root, mut h) = fresh("mixv2std", 5.0);
+    for density in [
+        MixerDensity::Ultra,
+        MixerDensity::Compact,
+        MixerDensity::Roomy,
+    ] {
+        let prefs = MixerPrefs {
+            density,
+            ab_labels: true,
+            inputs: true,
+            knobs_outside: false,
+        };
+        let size = (1440.0, 900.0);
+        let out = mixer_v2_frame(&mut h, size, prefs);
+        let l = h.layout();
+        let mixer = l.mixer.unwrap();
+        let mut all: Vec<(String, Rect)> = Vec::new();
+        for d in 0..2 {
+            let (trim, eq, filter) = (l.trim[d].unwrap(), l.eq[d].unwrap(), l.filter[d].unwrap());
+            let axis = trim.center().x;
+            for r in [eq[0], eq[1], eq[2], filter] {
+                assert!((r.center().x - axis).abs() < 0.5, "{density:?}: one axis");
+            }
+            assert!((l.volume[d].unwrap().center().x - axis).abs() < 0.5);
+            for (text, cell) in [
+                ("TRIM", trim),
+                ("HIGH", eq[2]),
+                ("MID", eq[1]),
+                ("LOW", eq[0]),
+                ("FILTER", filter),
+            ] {
+                assert_label(&out, text, cell, false);
+            }
+            let (before, inside, after) = (
+                eq[2].top() - trim.bottom(),
+                eq[1].top() - eq[2].bottom(),
+                filter.top() - eq[0].bottom(),
+            );
+            assert!(before >= 4.0 && after >= 4.0 && inside < before.min(after));
+            // Knobs above the fader, selector and A / B label above the knobs.
+            assert!(filter.bottom() <= l.volume[d].unwrap().top());
+            all.extend([
+                ("trim".into(), trim),
+                ("filter".into(), filter),
+                ("vol".into(), l.volume[d].unwrap()),
+                ("meter".into(), l.meters[d].unwrap()),
+                ("cue".into(), l.mixer_cue[d].unwrap()),
+            ]);
+            all.extend(eq.map(|r| ("eq".into(), r)));
+        }
+        assert_eq!(texts(&out).iter().filter(|(t, _)| t == "LINE ▾").count(), 2);
+        let tops: Vec<f32> = texts(&out)
+            .iter()
+            .filter(|(t, _)| t == "LINE ▾")
+            .map(|(_, r)| r.bottom())
+            .collect();
+        assert!(tops.iter().all(|y| *y <= l.trim[0].unwrap().top()));
+        for (i, (na, a)) in all.iter().enumerate() {
+            assert!(
+                mixer.contains_rect(*a),
+                "{density:?}: {na} {a:?} inside the mixer"
+            );
+            assert!(a.right() <= size.0 && a.bottom() <= size.1);
+            for (nb, b) in &all[i + 1..] {
+                assert!(
+                    !a.shrink(0.5).intersects(b.shrink(0.5)),
+                    "{density:?}: {na} {a:?} overlaps {nb} {b:?}"
+                );
+            }
+        }
+    }
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+/// Acceptance 5: the mixer block takes about 11 % of the screen width by
+/// default, 9.5 % ultra compact, 14 % roomy, at several window widths.
+#[test]
+fn mixer_v2_width_is_a_share_of_the_screen() {
+    use crate::settings::{MixerDensity, MixerPrefs};
+    let (root, mut h) = fresh("mixv2w", 5.0);
+    for (density, share) in [
+        (MixerDensity::Ultra, 0.095),
+        (MixerDensity::Compact, 0.11),
+        (MixerDensity::Roomy, 0.14),
+    ] {
+        for width in [1440.0_f32, 1920.0] {
+            let prefs = MixerPrefs {
+                density,
+                ..Default::default()
+            };
+            mixer_v2_frame(&mut h, (width, 1000.0), prefs);
+            let l = h.layout();
+            let block = l.trim[1].unwrap().right() - l.trim[0].unwrap().left()
+                + 2.0 * crate::mixer_view::INSET;
+            let got = block / width;
+            assert!(
+                (got - share).abs() < 0.003,
+                "{density:?} at {width}: {got:.4} vs {share}"
+            );
+        }
+    }
+    assert_eq!(MixerPrefs::default().density, MixerDensity::Compact);
+    assert!(
+        MixerPrefs::default().knobs_outside,
+        "outside knobs by default"
+    );
     std::fs::remove_dir_all(root).unwrap();
 }
