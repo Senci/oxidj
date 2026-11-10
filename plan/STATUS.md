@@ -11,8 +11,8 @@ with full-height faders and meters, crossfader under a separator line, compact
 mixer, Settings preferences. Implementation was staged as three chained cards; deck panel (ec026cc), mixer (e99daa1, 6bd5f67) and
 Layout B (e073714: detail + overviews on top, deck A | mixer | deck B below,
 Deck view preferences, library keeps 120 px) each passed independent review with ci-full exit 0
-and are installed. Playback-driven overview fitting is reviewed and approved (install pending). Layouts A, C and D are
-selectable (Settings → Deck view → Deck arrangement, B default; commit e8fc45b, review and install pending; captures `app-layout-{a,c,d}.png`). The mockup is synthetic and not
+and are installed. Shared playback-time overview scale with aligned needles (c3ad7fb, ea2ec4a) is reviewed and installed. Layouts A, C and D are
+selectable (Settings → Deck view → Deck arrangement, B default; commits e8fc45b, 300c3af, reviewed with ci-full exit 0 and installed; captures `app-layout-{a,c,d}.png`). The mockup is synthetic and not
 evidence of anything shipped; native display, accessibility and performance
 qualification stay NOT DEMONSTRATED.
 
