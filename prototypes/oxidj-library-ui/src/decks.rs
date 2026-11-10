@@ -25,7 +25,7 @@ use crate::LibraryApp;
 use crate::beat_grid::{self, BeatGrid, GridColours};
 use crate::deck_audio::Loading;
 use crate::icons::Icon;
-use crate::settings::{DeckPalette, DeckSections, Playhead, TempoRange};
+use crate::settings::{DeckArrangement, DeckPalette, DeckSections, Playhead, TempoRange};
 use crate::theme::ColorTokens;
 use crate::track_waveform::{GridSource, Loaded};
 use crate::waveform_view::pick_level;
@@ -1845,19 +1845,61 @@ const META_H: f32 = 30.0;
 const COVER_MIN_COLUMN: f32 =
     RAIL + 4.0 + BAND_H + 8.0 + LEFT_W + 8.0 + PADS_W + 8.0 + PITCH_W + 6.0 + FADER_W;
 
+/// Height of the detail + overview stack (0 when both are hidden).
+pub(crate) fn wave_height(sections: DeckSections, screen: Rect) -> f32 {
+    let detail = if sections.detail {
+        detail_height(screen.height())
+    } else {
+        0.0
+    };
+    let overviews = if sections.overviews {
+        2.0 * OVERVIEW_HEIGHT + 2.0
+    } else {
+        0.0
+    };
+    if sections.detail && sections.overviews {
+        detail + GAP + overviews
+    } else {
+        detail + overviews
+    }
+}
+
+/// Heights of the two blocks below the section bar, in drawing order:
+/// B waves, row; A row, waves; C waves, row (mixer docked right); D
+/// waves beside the mixer, deck row.
+pub(crate) fn block_heights(
+    arrangement: DeckArrangement,
+    sections: DeckSections,
+    mixer_h: f32,
+    screen: Rect,
+) -> [f32; 2] {
+    let wave = wave_height(sections, screen);
+    let row = bottom_row_height(sections, mixer_h);
+    match arrangement {
+        DeckArrangement::B | DeckArrangement::C => [wave, row],
+        DeckArrangement::A => [row, wave],
+        DeckArrangement::D => {
+            let mixer = if sections.mixer { mixer_h } else { 0.0 };
+            let strip = if sections.strip { BAND_H } else { 0.0 };
+            [wave.max(mixer), strip]
+        }
+    }
+}
+
 /// Total deck-area height for `sections` at window `screen` size, for a
 /// deck area `width` wide.
-pub(crate) fn area_height(sections: DeckSections, mixer_h: f32, screen: Rect, _width: f32) -> f32 {
+pub(crate) fn area_height(
+    arrangement: DeckArrangement,
+    sections: DeckSections,
+    mixer_h: f32,
+    screen: Rect,
+    _width: f32,
+) -> f32 {
     let mut h = SECTION_BAR_HEIGHT;
-    if sections.detail {
-        h += GAP + detail_height(screen.height());
-    }
-    if sections.overviews {
-        h += GAP + 2.0 * OVERVIEW_HEIGHT + 2.0;
-    }
-    let row = bottom_row_height(sections, mixer_h);
-    if row > 0.0 {
-        h += GAP + row;
+    for block in block_heights(arrangement, sections, mixer_h, screen) {
+        if block > 0.0 {
+            h += GAP + block;
+        }
     }
     h
 }
@@ -1881,7 +1923,8 @@ impl LibraryApp {
         let screen = ui.ctx().screen_rect();
         let sections = self.settings.sections;
         let mixer_h = crate::mixer_view::mixer_height(self.settings.mixer);
-        let height = area_height(sections, mixer_h, screen, width);
+        let arrangement = self.settings.arrangement;
+        let height = area_height(arrangement, sections, mixer_h, screen, width);
         let (area, _) = ui.allocate_exact_size(vec2(width, height), Sense::hover());
         layout.area = Some(area);
         let colours = [0, 1].map(|d| deck_colours(self.settings.deck_palette, d, tokens));
@@ -1893,46 +1936,60 @@ impl LibraryApp {
         };
         let bar = take(SECTION_BAR_HEIGHT, &mut y);
         self.section_bar(ui, bar, tokens, colours, &mut layout);
-        if sections.detail {
-            let r = take(detail_height(screen.height()), &mut y);
-            self.detail_view(ui, r, tokens, colours, &mut layout);
-        }
-        if sections.overviews {
-            let r = take(2.0 * OVERVIEW_HEIGHT + 2.0, &mut y);
-            let a = Rect::from_min_size(r.min, vec2(width, OVERVIEW_HEIGHT));
-            let b = Rect::from_min_size(
-                pos2(r.left(), a.bottom() + 2.0),
-                vec2(width, OVERVIEW_HEIGHT),
-            );
-            // One playback-time scale and one needle x for both strips,
-            // recomputed from the live position and rate every frame.
-            let inner_left = a.left() + OVERVIEW_INSET;
-            let spans = [0, 1].map(|d| self.decks.decks[d].overview_span());
-            let scale = crate::overview_scale::SharedScale::new(&spans, inner_left, a.right());
-            for (d, rect) in [a, b].into_iter().enumerate() {
-                self.overview(ui, d, rect, tokens, colours[d], &layout, scale);
-            }
-            layout.overviews = Some([a, b]);
-            let nx = scale.map_or((inner_left + a.right()) / 2.0, |s| s.needle_x);
-            ui.painter()
-                .vline(nx, a.top()..=b.bottom(), Stroke::new(1.0_f32, tokens.focus));
-            layout.overview_needle = Some(nx);
-        }
-        let row_h = bottom_row_height(sections, mixer_h);
-        if row_h > 0.0 {
-            // Layout B: deck A | mixer | deck B in one row.
-            let row = take(row_h, &mut y);
-            let centre_w = if sections.mixer {
-                crate::mixer_view::mixer_total_width(self.settings.mixer, screen.width()).min(width)
-            } else {
-                0.0
-            };
-            if sections.strip {
-                self.control_strip(ui, row, centre_w, tokens, colours, &mut layout);
-            }
-            if sections.mixer {
-                let r = Rect::from_center_size(row.center(), vec2(centre_w, row_h));
+        let mixer_w = if sections.mixer {
+            crate::mixer_view::mixer_total_width(self.settings.mixer, screen.width()).min(width)
+        } else {
+            0.0
+        };
+        let heights = block_heights(arrangement, sections, mixer_h, screen);
+        let blocks = [0, 1].map(|i| (heights[i] > 0.0).then(|| take(heights[i], &mut y)));
+        // Which block holds the waves and which the deck row.
+        let (wave_block, row_block) = match arrangement {
+            DeckArrangement::A => (blocks[1], blocks[0]),
+            _ => (blocks[0], blocks[1]),
+        };
+        if let Some(block) = wave_block {
+            let mut waves = block;
+            if arrangement == DeckArrangement::D && mixer_w > 0.0 {
+                waves.set_right(block.right() - mixer_w - 12.0);
+                let r = Rect::from_center_size(
+                    pos2(block.right() - mixer_w / 2.0, block.center().y),
+                    vec2(mixer_w, mixer_h),
+                );
                 self.mixer(ui, r, tokens, colours, &mut layout);
+            }
+            self.waveforms(ui, waves, screen, tokens, colours, &mut layout);
+        }
+        if let Some(row) = row_block {
+            match arrangement {
+                DeckArrangement::B | DeckArrangement::A => {
+                    if sections.strip {
+                        self.control_strip(ui, row, mixer_w, tokens, colours, &mut layout);
+                    }
+                    if sections.mixer {
+                        let r = Rect::from_center_size(row.center(), vec2(mixer_w, row.height()));
+                        self.mixer(ui, r, tokens, colours, &mut layout);
+                    }
+                }
+                DeckArrangement::C => {
+                    let mut decks = row;
+                    if mixer_w > 0.0 {
+                        decks.set_right(row.right() - mixer_w - 12.0);
+                        let r = Rect::from_center_size(
+                            pos2(row.right() - mixer_w / 2.0, row.center().y),
+                            vec2(mixer_w, row.height()),
+                        );
+                        self.mixer(ui, r, tokens, colours, &mut layout);
+                    }
+                    if sections.strip {
+                        self.control_strip(ui, decks, 0.0, tokens, colours, &mut layout);
+                    }
+                }
+                DeckArrangement::D => {
+                    if sections.strip {
+                        self.control_strip(ui, row, 0.0, tokens, colours, &mut layout);
+                    }
+                }
             }
         }
         if self.decks.any_playing() || (sections.mixer && self.decks.meters_active()) {
@@ -1942,6 +1999,47 @@ impl LibraryApp {
                 .request_repaint_after(std::time::Duration::from_millis(100));
         }
         self.decks.layout = layout;
+    }
+
+    /// Detail waveform above the two overviews inside `rect`.
+    fn waveforms(
+        &mut self,
+        ui: &mut Ui,
+        rect: Rect,
+        screen: Rect,
+        tokens: ColorTokens,
+        colours: [DeckColours; 2],
+        layout: &mut DeckLayout,
+    ) {
+        let sections = self.settings.sections;
+        let width = rect.width();
+        let mut y = rect.top();
+        if sections.detail {
+            let h = detail_height(screen.height());
+            let r = Rect::from_min_size(pos2(rect.left(), y), vec2(width, h));
+            y += h + GAP;
+            self.detail_view(ui, r, tokens, colours, layout);
+        }
+        if sections.overviews {
+            let a = Rect::from_min_size(pos2(rect.left(), y), vec2(width, OVERVIEW_HEIGHT));
+            let b = Rect::from_min_size(
+                pos2(rect.left(), a.bottom() + 2.0),
+                vec2(width, OVERVIEW_HEIGHT),
+            );
+            // One playback-time scale and one needle x for both strips,
+            // recomputed from the live position and rate every frame.
+            let inner_left = a.left() + OVERVIEW_INSET;
+            let spans = [0, 1].map(|d| self.decks.decks[d].overview_span());
+            let scale = crate::overview_scale::SharedScale::new(&spans, inner_left, a.right());
+            for (d, rect) in [a, b].into_iter().enumerate() {
+                self.overview(ui, d, rect, tokens, colours[d], layout, scale);
+            }
+            layout.overviews = Some([a, b]);
+            let nx = scale.map_or((inner_left + a.right()) / 2.0, |s| s.needle_x);
+            ui.painter()
+                .vline(nx, a.top()..=b.bottom(), Stroke::new(1.0_f32, tokens.focus));
+            layout.overview_needle = Some(nx);
+        }
     }
 
     /// Section bar: deck chips with the active deck marked, then the four

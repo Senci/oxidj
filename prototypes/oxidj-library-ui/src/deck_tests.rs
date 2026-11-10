@@ -5010,3 +5010,106 @@ fn overview_one_deck_uses_the_same_rule_and_no_deck_keeps_the_empty_state() {
     assert!(texts(&out).iter().any(|(t, _)| t == "Deck B · empty"));
     std::fs::remove_dir_all(root).unwrap();
 }
+
+/// Arrangements A, C and D (v19): the key relations between decks, mixer and
+/// waveforms, no overflow with every preference on at two window sizes, the
+/// library keeps its minimum height, section toggles still work, and a runtime
+/// switch keeps the loaded tracks and playback state.
+#[test]
+fn arrangements_a_c_d_relations_no_overflow_and_runtime_switch() {
+    use crate::settings::{DeckArrangement as Arr, DeckTheme, MixerDensity, MixerPrefs};
+    let (root, mut h) = fresh("arrangements", 5.0);
+    h.select_and_load("a-120.wav", egui::Key::A);
+    h.select_and_load("b-124.wav", egui::Key::B);
+    h.app.settings.sections = DeckSections::from_bits(0b1111);
+    h.app.settings.crossfader = true;
+    h.app.settings.show_meta = true;
+    h.app.settings.deck_theme = DeckTheme::OxiDj;
+    h.app.settings.mixer = MixerPrefs {
+        density: MixerDensity::Roomy,
+        ab_labels: true,
+        inputs: true,
+        knobs_outside: true,
+    };
+    h.app.settings.mirror_b = true;
+    h.app.decks.decks[0].playing = true;
+    h.tap(egui::Key::Space);
+    let loaded = h.app.decks.loaded();
+    for arr in [Arr::A, Arr::C, Arr::D, Arr::B] {
+        h.app.settings.arrangement = arr;
+        for size in [(1280.0, 720.0), (1600.0, 900.0)] {
+            h.viewport = egui::vec2(size.0, size.1);
+            h.settle();
+            let l = h.layout();
+            let tag = format!("{arr:?} {size:?}");
+            let (area, detail, strip, mixer) = (
+                l.area.unwrap(),
+                l.detail.unwrap(),
+                l.strip.unwrap(),
+                l.mixer.unwrap(),
+            );
+            let [oa, ob] = l.overviews.unwrap();
+            let waves = detail.union(oa).union(ob);
+            assert_eq!(h.app.decks.loaded(), loaded, "{tag}: tracks kept");
+            assert!(
+                area.expand(0.5)
+                    .contains_rect(waves.union(strip).union(mixer)),
+                "{tag}: no overflow"
+            );
+            match arr {
+                Arr::A => {
+                    assert!(strip.bottom() <= waves.top() + 0.5, "{tag}: decks above");
+                    assert!(mixer.left() >= strip.left() && mixer.right() <= strip.right());
+                }
+                Arr::C => {
+                    assert!(waves.bottom() <= strip.top() + 0.5, "{tag}");
+                    assert!(strip.right() <= mixer.left() + 0.5, "{tag}: mixer right");
+                    assert!(mixer.top() >= strip.top() - 0.5);
+                }
+                Arr::D => {
+                    assert!(waves.right() <= mixer.left() + 0.5, "{tag}: mixer beside");
+                    assert!(
+                        mixer.bottom() <= strip.top() + 0.5 && waves.bottom() <= strip.top() + 0.5,
+                        "{tag}: decks below"
+                    );
+                    assert!((strip.width() - area.width()).abs() < 0.5);
+                }
+                Arr::B => {
+                    assert!(waves.bottom() <= strip.top() + 0.5, "{tag}");
+                }
+            }
+            // Decks never overlap the mixer.
+            for d in 0..2 {
+                for r in [l.load[d].unwrap(), l.play[d].unwrap(), l.tempo[d].unwrap()] {
+                    assert!(!r.intersects(mixer), "{tag} deck {d} {r:?}");
+                    assert!(strip.expand(0.5).contains_rect(r), "{tag}");
+                }
+            }
+            let tb = h.app.shell.table.unwrap();
+            assert!(tb.height() >= decks::LIBRARY_MIN_H - 1.0, "{tag}: table");
+            // One needle x across both overviews.
+            let nx = l.overview_needle.unwrap();
+            assert!(nx > oa.left() && nx < oa.right(), "{tag}");
+        }
+        // A section toggle still collapses its section in this arrangement.
+        let toggles = h.layout().toggles.unwrap();
+        h.click(toggles[3].center());
+        assert!(h.layout().mixer.is_none(), "{arr:?}: mixer hidden");
+        h.click(h.layout().toggles.unwrap()[3].center());
+        assert!(h.layout().mixer.is_some(), "{arr:?}: mixer shown");
+    }
+    assert!(h.deck(0).playing, "playback state kept across switches");
+    // Persisted and defaulting to B.
+    let mut s = crate::settings::Settings::default();
+    assert_eq!(s.arrangement, Arr::B);
+    s.arrangement = Arr::D;
+    assert_eq!(
+        crate::settings::Settings::decode(&s.encode()).arrangement,
+        Arr::D
+    );
+    assert_eq!(
+        crate::settings::Settings::decode("style=smooth").arrangement,
+        Arr::B
+    );
+    std::fs::remove_dir_all(root).unwrap();
+}

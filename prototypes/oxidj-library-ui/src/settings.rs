@@ -74,6 +74,19 @@ impl DeckTheme {
     }
 }
 
+/// How the deck area is arranged (v19): B waveforms on top, decks with the
+/// mixer between them below (default); A the same rows swapped; C waveforms
+/// on top, decks with the mixer docked right; D mixer beside the waveforms,
+/// both decks in a row below.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum DeckArrangement {
+    #[default]
+    B,
+    A,
+    C,
+    D,
+}
+
 /// Where the playhead sits in the deck waveform (D1 reads it).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Playhead {
@@ -129,6 +142,8 @@ pub struct Settings {
     pub show_meta: bool,
     /// Layout B: deck B puts its pitch fader nearest the mixer.
     pub mirror_b: bool,
+    /// Deck area arrangement (B default).
+    pub arrangement: DeckArrangement,
 }
 
 /// Mixer width as a share of the screen width.
@@ -249,6 +264,7 @@ impl Default for Settings {
             deck_theme: DeckTheme::Club,
             show_meta: true,
             mirror_b: false,
+            arrangement: DeckArrangement::B,
         }
     }
 }
@@ -273,6 +289,12 @@ const TEMPOS: [(TempoRange, &str); 3] = [
 ];
 const DECK_THEMES: [(DeckTheme, &str); 2] =
     [(DeckTheme::Club, "club"), (DeckTheme::OxiDj, "oxidj")];
+const ARRANGEMENTS: [(DeckArrangement, &str); 4] = [
+    (DeckArrangement::B, "b"),
+    (DeckArrangement::A, "a"),
+    (DeckArrangement::C, "c"),
+    (DeckArrangement::D, "d"),
+];
 const DENSITIES: [(MixerDensity, &str); 3] = [
     (MixerDensity::Ultra, "ultra"),
     (MixerDensity::Compact, "compact"),
@@ -311,7 +333,7 @@ impl Settings {
             .map(|i| format!(";{}={}", DeckSections::KEYS[i], b(self.sections.get(i))))
             .collect();
         format!(
-            "style={};smooth={};auto_gain={};beat_lines={};zoom={};deck_palette={};playhead={};phase={};tempo={};sec_xfader={};xf_curve={};artwork={};artwork_mib={};simple_keys={};mixer_density={};mixer_ab={};mixer_input={};mixer_outer={};deck_theme={};deck_meta={};mirror_b={}",
+            "style={};smooth={};auto_gain={};beat_lines={};zoom={};deck_palette={};playhead={};phase={};tempo={};sec_xfader={};xf_curve={};artwork={};artwork_mib={};simple_keys={};mixer_density={};mixer_ab={};mixer_input={};mixer_outer={};deck_theme={};deck_meta={};mirror_b={};arrangement={}",
             name_of(&STYLES, self.waveform_style),
             b(self.smooth),
             b(self.auto_gain),
@@ -333,6 +355,7 @@ impl Settings {
             name_of(&DECK_THEMES, self.deck_theme),
             b(self.show_meta),
             b(self.mirror_b),
+            name_of(&ARRANGEMENTS, self.arrangement),
         ) + &sections
     }
 
@@ -350,6 +373,9 @@ impl Settings {
                     s.deck_theme = parse_in(&DECK_THEMES, value).unwrap_or(s.deck_theme)
                 }
                 "deck_meta" => s.show_meta = parse_bool(value).unwrap_or(s.show_meta),
+                "arrangement" => {
+                    s.arrangement = parse_in(&ARRANGEMENTS, value).unwrap_or(s.arrangement)
+                }
                 "mirror_b" => s.mirror_b = parse_bool(value).unwrap_or(s.mirror_b),
                 "mixer_ab" => s.mixer.ab_labels = parse_bool(value).unwrap_or(s.mixer.ab_labels),
                 "mixer_input" => s.mixer.inputs = parse_bool(value).unwrap_or(s.mixer.inputs),
@@ -643,6 +669,12 @@ impl LibraryApp {
             toggle_row(ui, tokens, "Track metadata", &mut s.show_meta);
             toggle_row(ui, tokens, "Crossfader", &mut s.crossfader);
             toggle_row(ui, tokens, "Mirror deck B", &mut s.mirror_b);
+            let mut i = ARRANGEMENTS
+                .iter()
+                .position(|(a, _)| *a == s.arrangement)
+                .unwrap_or(0);
+            pick!("Deck arrangement", &["B (default)", "A", "C", "D"], &mut i,);
+            s.arrangement = ARRANGEMENTS[i].0;
             let mut i = usize::from(s.playhead == Playhead::LeftThird);
             pick!("Playhead", &["Centre", "Left third"], &mut i);
             s.playhead = PLAYHEADS[i].0;
@@ -796,6 +828,7 @@ mod tests {
             deck_theme: DeckTheme::OxiDj,
             show_meta: false,
             mirror_b: true,
+            arrangement: DeckArrangement::C,
         };
         let mut storage = MemoryStorage::default();
         edited.save(&mut storage);
