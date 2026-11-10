@@ -82,7 +82,7 @@ impl Shell {
         let mut shell = Self {
             ctx,
             app,
-            screen: Rect::from_min_size(Pos2::ZERO, egui::vec2(width, 900.0)),
+            screen: Rect::from_min_size(Pos2::ZERO, egui::vec2(width, 960.0)),
         };
         shell.settle();
         shell
@@ -225,7 +225,7 @@ fn defaults_one_row_toolbar_status_bar_and_full_width_table() {
         );
         let status = layout.status.unwrap();
         assert!(
-            status.height() <= 33.0 && close(status.bottom(), 900.0),
+            status.height() <= 33.0 && close(status.bottom(), 960.0),
             "{width}: status bar {status:?}"
         );
         let table = shell.table();
@@ -664,10 +664,12 @@ fn decks_bar_truncates_long_names_and_keeps_play_cue_reachable() {
             assert!(decks.contains_rect(n.2), "{width}: {label} {:?} outside {decks:?}", n.2);
             assert!(n.2.height() >= 24.0, "{width}: {label} target {:?}", n.2);
         }
-        // Club layout: CUE outermost, then PLAY; A left, B right.
+        // Deck panel v2: CUE above PLAY in one column; A left, B right, same arrangement.
         let x = |l: &str| find(&tree, l).2.center().x;
-        assert!(x("Deck A cue") < x("Deck A play/pause") && x("Deck A play/pause") < x("Deck B play/pause"));
-        assert!(x("Deck B play/pause") < x("Deck B cue"), "{width}: deck B mirrored");
+        let y = |l: &str| find(&tree, l).2.center().y;
+        assert!(y("Deck A cue") < y("Deck A play/pause") && y("Deck B cue") < y("Deck B play/pause"));
+        assert!(x("Deck A play/pause") < x("Deck B play/pause"), "{width}: A left of B");
+        assert!((x("Deck B cue") - x("Deck B play/pause")).abs() < 1.0, "{width}: one column");
         // The name is painted elided inside its deck column, never past it.
         let strip = shell.app.decks.layout.strip.expect("strip");
         let names: Vec<Rect> = out

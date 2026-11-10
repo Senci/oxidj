@@ -10,6 +10,7 @@ mod deck_audio;
 mod deck_tests;
 mod decks;
 mod folder_ops;
+mod icons;
 #[cfg(test)]
 mod keyboard_tests;
 mod mixer_view;

@@ -9,7 +9,7 @@
 
 use crate::decks::DeckColours;
 use crate::theme::ColorTokens;
-use eframe::egui::{self, Color32, Pos2, Rect, TextureHandle, pos2};
+use eframe::egui::{self, Color32, Rect, TextureHandle, pos2};
 use oxidj_library::{Artwork, Catalog, TrackId};
 use oxidj_library::{ArtworkMemoryCache, DEFAULT_ARTWORK_CACHE_BYTES};
 use std::path::PathBuf;
@@ -220,41 +220,35 @@ impl DeckArt {
     }
 }
 
-/// The centered, aspect-preserving rect for a deck half: at most the half's
-/// height and width, so the artwork never grows past the detail view.
-pub(crate) fn artwork_rect(half: Rect, size: [u32; 2]) -> Rect {
-    let max_w = half.width();
-    let max_h = half.height();
-    let (w, h) = if size[0] == 0 || size[1] == 0 {
-        (max_h.min(max_w), max_h.min(max_w))
-    } else {
-        let scale = (max_h / size[1] as f32).min(max_w / size[0] as f32);
-        (size[0] as f32 * scale, size[1] as f32 * scale)
-    };
-    Rect::from_center_size(half.center(), egui::vec2(w, h))
-}
-
-/// Paint the artwork, or the deck-colour vinyl-disc placeholder when none is
-/// loaded (including while the async job is still running).
-pub(crate) fn paint(
+/// Paint the artwork as a square cover filling `rect` (centre-cropped, never
+/// stretched), or the vinyl placeholder.
+pub(crate) fn paint_cover(
     painter: &egui::Painter,
     rect: Rect,
     art: &DeckArt,
     colours: DeckColours,
     tokens: &ColorTokens,
 ) {
-    if let Some(texture) = art.texture() {
-        let uv = Rect::from_min_max(Pos2::ZERO, pos2(1.0, 1.0));
-        painter.image(texture.id(), rect, uv, Color32::WHITE);
-        painter.rect_stroke(
-            rect,
-            4.0,
-            egui::Stroke::new(1.0_f32, colours.outer),
-            egui::StrokeKind::Inside,
-        );
+    let Some(texture) = art.texture() else {
+        paint_vinyl(painter, rect, colours, tokens);
         return;
-    }
-    paint_vinyl(painter, rect, colours, tokens);
+    };
+    let [w, h] = art.size();
+    let (u, v) = if w == 0 || h == 0 || w == h {
+        (0.0, 0.0)
+    } else if w > h {
+        ((1.0 - h as f32 / w as f32) / 2.0, 0.0)
+    } else {
+        (0.0, (1.0 - w as f32 / h as f32) / 2.0)
+    };
+    let uv = Rect::from_min_max(pos2(u, v), pos2(1.0 - u, 1.0 - v));
+    painter.image(texture.id(), rect, uv, Color32::WHITE);
+    painter.rect_stroke(
+        rect,
+        4.0,
+        egui::Stroke::new(1.0_f32, colours.outer),
+        egui::StrokeKind::Inside,
+    );
 }
 
 /// A vinyl disc in the deck's accent colour: outer disc, grooves, label, hole.

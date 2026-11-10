@@ -24,6 +24,7 @@
 use crate::LibraryApp;
 use crate::beat_grid::{self, BeatGrid, GridColours};
 use crate::deck_audio::Loading;
+use crate::icons::Icon;
 use crate::settings::{DeckPalette, DeckSections, Playhead, TempoRange};
 use crate::theme::ColorTokens;
 use crate::track_waveform::{GridSource, Loaded};
@@ -699,6 +700,11 @@ pub(crate) struct DeckLayout {
     pub(crate) key_lock: [Option<Rect>; 2],
     pub(crate) load: [Option<Rect>; 2],
     pub(crate) tempo: [Option<Rect>; 2],
+    /// Track metadata block, large BPM number, time remaining, range button.
+    pub(crate) metadata: [Option<Rect>; 2],
+    pub(crate) bpm: [Option<Rect>; 2],
+    pub(crate) time: [Option<Rect>; 2],
+    pub(crate) range: [Option<Rect>; 2],
     pub(crate) pads: [Option<[Rect; PADS]>; 2],
     /// IN, OUT, ½, ×2.
     pub(crate) loops: [Option<[Rect; 4]>; 2],
@@ -1809,26 +1815,31 @@ pub(crate) fn detail_height(screen_h: f32) -> f32 {
     (screen_h * 0.28).clamp(120.0, 260.0)
 }
 
-/// Control-strip height for one deck column `width` (loops wrap to a third
-/// row when the second row does not fit).
-fn strip_height(width: f32) -> f32 {
-    if width >= ROW2_WIDTH {
-        2.0 * ROW + GAP
-    } else {
-        3.0 * ROW + 2.0 * GAP
-    }
+/// Height of the deck panel's single content band (cover, controls, pitch
+/// column share its top and bottom edges).
+pub(crate) const BAND_H: f32 = 104.0;
+
+/// Control-strip height: the band.
+fn strip_height(_width: f32) -> f32 {
+    BAND_H
 }
 
-const CUE_W: f32 = 40.0;
-const PLAY_W: f32 = 54.0;
-const PAD_W: f32 = 24.0;
-const PAD_GAP: f32 = 1.0;
-const LOOP_W: f32 = 26.0;
 const BTN_GAP: f32 = 2.0;
-const GROUP_GAP: f32 = 6.0;
-const PADS_W: f32 = PADS as f32 * PAD_W + (PADS as f32 - 1.0) * PAD_GAP;
-const LOOPS_W: f32 = 4.0 * LOOP_W + 3.0 * BTN_GAP;
-const ROW2_WIDTH: f32 = CUE_W + BTN_GAP + PLAY_W + GROUP_GAP + PADS_W + GROUP_GAP + LOOPS_W;
+const LOOP_W: f32 = 20.0;
+const LOOP_H: f32 = 20.0;
+const REPEAT_W: f32 = 14.0;
+const LEFT_W: f32 = 4.0 * LOOP_W + REPEAT_W + 4.0 * BTN_GAP;
+const CP_W: f32 = 44.0;
+const CP_H: f32 = 24.0;
+const PAD_SIZE: f32 = 24.0;
+const PAD_GAP: f32 = 2.0;
+const PADS_W: f32 = 4.0 * PAD_SIZE + 3.0 * PAD_GAP;
+const PITCH_W: f32 = 70.0;
+const FADER_W: f32 = 16.0;
+const META_H: f32 = 30.0;
+/// Narrowest deck column that still fits the cover beside the controls.
+const COVER_MIN_COLUMN: f32 =
+    RAIL + 4.0 + BAND_H + 8.0 + LEFT_W + 8.0 + PADS_W + 8.0 + PITCH_W + 6.0 + FADER_W;
 
 /// Total deck-area height for `sections` at window `screen` size, for a
 /// deck area `width` wide.
@@ -2242,8 +2253,8 @@ impl LibraryApp {
         layout.playhead_x = Some(ph);
     }
 
-    /// Club-standard strip: deck A in the left column, deck B mirrored in
-    /// the right column; CUE and PLAY sit at the outer edges.
+    /// Deck panel: deck A in the left column, deck B in the right one, each
+    /// one aligned content band (cover, metadata + controls, pitch column).
     fn control_strip(
         &mut self,
         ui: &mut Ui,
@@ -2255,42 +2266,193 @@ impl LibraryApp {
         layout.strip = Some(rect);
         let column = (rect.width() - 12.0) / 2.0;
         let cols = [
-            Rect::from_min_size(rect.min, vec2(column, rect.height())),
+            Rect::from_min_size(rect.min, vec2(column, BAND_H)),
             Rect::from_min_size(
                 pos2(rect.right() - column, rect.top()),
-                vec2(column, rect.height()),
+                vec2(column, BAND_H),
             ),
         ];
         let range = tempo_range(self.settings.tempo_range);
         self.decks.range = range;
         let mut load = None;
         let mut sync_press = None;
+        let mut range_press = false;
         for (d, col) in cols.into_iter().enumerate() {
             let c = colours[d];
             let letter = DECKS[d];
-            // Mirror x for deck B so its CUE/PLAY end up at the right edge.
-            let place = |x: f32, row: usize, w: f32| {
-                let y = col.top() + row as f32 * (ROW + GAP);
-                let left = if d == 0 {
-                    col.left() + x
-                } else {
-                    col.right() - x - w
-                };
-                Rect::from_min_size(pos2(left, y), vec2(w, ROW))
-            };
-            ui.painter().rect_filled(
-                Rect::from_min_size(col.min, vec2(RAIL, col.height()))
-                    .translate(vec2(if d == 0 { 0.0 } else { col.width() - RAIL }, 0.0)),
+            let top = col.top();
+            let bottom = col.top() + BAND_H;
+            let painter = ui.painter_at(col);
+            painter.rect_filled(col, 3.0, c.wash);
+            painter.rect_filled(
+                Rect::from_min_size(col.min, vec2(RAIL, BAND_H)),
                 0.0,
                 c.outer,
             );
-            let inset = RAIL + 4.0;
             let deck = &mut self.decks.decks[d];
             let loaded = deck.ready();
-            // Row 1: chip, Load, title + clock + BPM, tempo, SYNC, KEY.
-            let chip_r = place(inset, 0, 22.0);
-            chip(ui.painter(), chip_r.shrink2(vec2(0.0, 2.0)), letter, c);
-            let load_r = place(inset + 26.0, 0, 44.0);
+            let mut x = col.left() + RAIL + 4.0;
+            // Pitch column geometry (right edge).
+            let fader_r =
+                Rect::from_min_max(pos2(col.right() - FADER_W, top), pos2(col.right(), bottom));
+            let pitch_right = fader_r.left() - 6.0;
+            let pitch_left = pitch_right - PITCH_W;
+            // Cover: square, left, full band height; dropped when too narrow.
+            let cover_fits = column >= COVER_MIN_COLUMN;
+            if self.settings.show_artwork && deck.track.is_some() && cover_fits {
+                let slot = Rect::from_min_size(pos2(x, top), vec2(BAND_H, BAND_H));
+                crate::artwork::paint_cover(&painter, slot, &deck.art, c, &tokens);
+                layout.artwork[d] = Some(slot);
+                x += BAND_H + 8.0;
+            }
+            // Controls column: loop row, CUE, PLAY, bottom aligned.
+            let play_r = Rect::from_min_size(
+                pos2(x + (LEFT_W - CP_W) / 2.0, bottom - CP_H),
+                vec2(CP_W, CP_H),
+            );
+            let cue_r = play_r.translate(vec2(0.0, -(CP_H + 3.0)));
+            let loops_y = cue_r.top() - 3.0 - LOOP_H;
+            let at_cue = loaded
+                && (deck.previewing
+                    || (!deck.playing && (deck.position_ms - deck.cue_ms).abs() < 1.0));
+            let cue = icon_button(
+                ui,
+                cue_r,
+                Icon::CircleDot,
+                &format!("Deck {letter} cue"),
+                at_cue,
+                loaded,
+                tokens.warning,
+                tokens.warning,
+                tokens,
+            )
+            .on_hover_text(format!("Deck {letter} CUE ({}): stopped, sets the cue point; on it, hold to preview; playing, returns to it", ["Q", "P"][d]));
+            // Pointer: press = CUE down, release = CUE up; keyboard
+            // activation of the focused button is a press + release.
+            let held = cue.is_pointer_button_down_on();
+            if held && !deck.cue_pointer {
+                deck.cue_pointer = true;
+                deck.cue_down();
+            } else if !held && deck.cue_pointer {
+                deck.cue_pointer = false;
+                deck.cue_up();
+            } else if cue.clicked() {
+                deck.cue_down();
+                deck.cue_up();
+            }
+            let (play_icon, play_name) = if deck.playing {
+                (Icon::Pause, "pause")
+            } else {
+                (Icon::Play, "play")
+            };
+            if icon_button(
+                ui,
+                play_r,
+                play_icon,
+                &format!("Deck {letter} play/pause"),
+                deck.playing,
+                loaded,
+                tokens.success,
+                tokens.success,
+                tokens,
+            )
+            .on_hover_text(format!("Deck {letter} {play_name}"))
+            .clicked()
+            {
+                deck.toggle_play();
+            }
+            layout.cue[d] = Some(cue_r);
+            layout.play[d] = Some(play_r);
+            // Loop row: IN, OUT, repeat glyph, then halve / double.
+            let mut loop_rects = [Rect::NOTHING; 4];
+            let has_loop = deck.loop_range.is_some();
+            let mut lx = x;
+            for k in 0..4 {
+                if k == 2 {
+                    let glyph = Rect::from_min_size(pos2(lx, loops_y), vec2(REPEAT_W, LOOP_H));
+                    let ink = if has_loop { c.outer } else { tokens.muted_text };
+                    crate::icons::paint(
+                        &ui.painter_at(glyph),
+                        Icon::Repeat,
+                        glyph.shrink(1.0),
+                        ink,
+                    );
+                    lx += REPEAT_W + BTN_GAP;
+                }
+                let r = Rect::from_min_size(pos2(lx, loops_y), vec2(LOOP_W, LOOP_H));
+                lx += LOOP_W + BTN_GAP;
+                loop_rects[k] = r;
+                let enabled = loaded && (k < 2 || has_loop);
+                let active = (k == 0 && deck.loop_in.is_some()) || (k == 1 && has_loop);
+                let name = ["loop in", "loop out / exit", "halve loop", "double loop"][k];
+                let name = format!("Deck {letter} {name}");
+                let clicked = match k {
+                    0 | 1 => icon_button(
+                        ui,
+                        r,
+                        [Icon::LogIn, Icon::LogOut][k],
+                        &name,
+                        active,
+                        enabled,
+                        c.outer,
+                        tokens.text,
+                        tokens,
+                    )
+                    .on_hover_text(name.clone())
+                    .clicked(),
+                    _ => deck_button(
+                        ui,
+                        r,
+                        ["½", "×2"][k - 2],
+                        &name,
+                        false,
+                        enabled,
+                        c.outer,
+                        tokens,
+                    )
+                    .on_hover_text(name.clone())
+                    .clicked(),
+                };
+                if clicked {
+                    match k {
+                        0 => deck.loop_in(),
+                        1 => deck.loop_out(),
+                        2 => deck.loop_scale(0.5),
+                        _ => deck.loop_scale(2.0),
+                    }
+                }
+            }
+            layout.loops[d] = Some(loop_rects);
+            // Hot-cue pads 4 x 2, bottom aligned with PLAY; always 1..8
+            // left to right, also on deck B.
+            let pads_x = x + LEFT_W + 8.0;
+            let pads_top = bottom - (2.0 * PAD_SIZE + PAD_GAP);
+            let mut pad_rects = [Rect::NOTHING; PADS];
+            for (p, pad_rect) in pad_rects.iter_mut().enumerate() {
+                let (col_i, row_i) = ((p % 4) as f32, (p / 4) as f32);
+                let r = Rect::from_min_size(
+                    pos2(
+                        pads_x + col_i * (PAD_SIZE + PAD_GAP),
+                        pads_top + row_i * (PAD_SIZE + PAD_GAP),
+                    ),
+                    vec2(PAD_SIZE, PAD_SIZE),
+                );
+                *pad_rect = r;
+                let n = p + 1;
+                let set = deck.pads[p].is_some();
+                let colour = pad_colour(n, deck.track.as_ref().and_then(|t| t.hot_cue(n)));
+                let name = format!(
+                    "Deck {letter} hot cue {n} ({})",
+                    if set { "set" } else { "empty" }
+                );
+                if pad_button(ui, r, n, set, colour, loaded, &name, tokens).clicked() {
+                    deck.pad(p);
+                }
+            }
+            layout.pads[d] = Some(pad_rects);
+            // Metadata block (top of the band), Load at its right end.
+            let load_r =
+                Rect::from_min_size(pos2(pitch_left - 6.0 - 40.0, top), vec2(40.0, LOOP_H));
             let r = deck_button(
                 ui,
                 load_r,
@@ -2309,13 +2471,87 @@ impl LibraryApp {
                 load = Some(d);
             }
             layout.load[d] = Some(load_r);
-            let key_r = place(column - 36.0, 0, 36.0);
-            let sync_r = place(column - 36.0 - BTN_GAP - 44.0, 0, 44.0);
-            let tempo_w = 120.0;
-            let tempo_r = place(
-                column - 36.0 - 44.0 - 2.0 * BTN_GAP - GROUP_GAP - tempo_w,
-                0,
-                tempo_w,
+            let meta = Rect::from_min_max(pos2(x, top), pos2(load_r.left() - 4.0, top + META_H));
+            layout.metadata[d] = Some(meta);
+            if meta.width() > 20.0 {
+                let (title, line2, ink2) = match (&deck.track, &deck.audio) {
+                    (Some(t), DeckAudio::Failed(reason)) => (
+                        t.name.clone(),
+                        format!("cannot play: {reason}"),
+                        tokens.error,
+                    ),
+                    (Some(t), DeckAudio::Loading(l)) => {
+                        let pct = l
+                            .fraction()
+                            .map(|f| format!(" {:.0} %", f * 100.0))
+                            .unwrap_or_default();
+                        (t.name.clone(), format!("decoding{pct}…"), tokens.muted_text)
+                    }
+                    (Some(t), _) if deck.sync_note.is_some() => (
+                        t.name.clone(),
+                        deck.sync_note.clone().unwrap_or_default(),
+                        tokens.error,
+                    ),
+                    (Some(t), _) => (
+                        t.name.clone(),
+                        format!(
+                            "DECK {letter} · {} / {}",
+                            format_clock(deck.position_ms),
+                            format_clock(t.duration_ms)
+                        ),
+                        tokens.muted_text,
+                    ),
+                    (None, _) => (
+                        format!("Deck {letter} · empty"),
+                        String::new(),
+                        tokens.muted_text,
+                    ),
+                };
+                let ink1 = if title.starts_with("Deck ") && deck.track.is_none() {
+                    tokens.muted_text
+                } else {
+                    tokens.text
+                };
+                let mp = ui.painter_at(meta);
+                for (k, (text, ink, size)) in [(title, ink1, 13.0_f32), (line2, ink2, 10.5)]
+                    .into_iter()
+                    .enumerate()
+                {
+                    if text.is_empty() {
+                        continue;
+                    }
+                    let g = egui::WidgetText::from(egui::RichText::new(text).size(size).color(ink))
+                        .into_galley(
+                            ui,
+                            Some(egui::TextWrapMode::Truncate),
+                            meta.width(),
+                            egui::TextStyle::Small,
+                        );
+                    let y = meta.top() + if k == 0 { 0.0 } else { 15.5 };
+                    mp.galley(pos2(meta.left(), y), g, ink);
+                }
+            }
+            // Pitch column: BPM, SYNC + key lock, KEY, remaining, range.
+            let right_aligned = |ui: &Ui, text: String, font: FontId, ink: Color32, y: f32| {
+                let g = ui.painter().layout_no_wrap(text, font, ink);
+                let r = Rect::from_min_size(pos2(pitch_right - g.size().x, y), g.size());
+                ui.painter().galley(r.min, g, ink);
+                r
+            };
+            let bpm_text = match &deck.track {
+                Some(t) => t
+                    .bpm_at(deck.position_ms)
+                    .map(|b| format!("{:.1}", b * deck.speed()))
+                    .unwrap_or_else(|| "—".into()),
+                None => "—".into(),
+            };
+            let bpm_r = right_aligned(ui, bpm_text, FontId::proportional(24.0), tokens.text, top);
+            layout.bpm[d] = Some(bpm_r);
+            let row_y = top + 30.0;
+            let lock_r = Rect::from_min_size(pos2(pitch_right - 22.0, row_y), vec2(22.0, LOOP_H));
+            let sync_r = Rect::from_min_size(
+                pos2(lock_r.left() - BTN_GAP - 40.0, row_y),
+                vec2(40.0, LOOP_H),
             );
             let sync_hover = match &deck.sync_note {
                 Some(note) => note.clone(),
@@ -2351,14 +2587,15 @@ impl LibraryApp {
                     "off, pitch follows tempo"
                 }
             );
-            if deck_button(
+            if icon_button(
                 ui,
-                key_r,
-                "KEY",
+                lock_r,
+                Icon::Lock,
                 &format!("Deck {letter} key lock"),
                 deck.keylock,
                 loaded,
                 c.outer,
+                tokens.text,
                 tokens,
             )
             .on_hover_text(key_hover)
@@ -2367,21 +2604,82 @@ impl LibraryApp {
                 deck.toggle_keylock();
             }
             layout.sync[d] = Some(sync_r);
-            layout.key_lock[d] = Some(key_r);
-            let slider_r = Rect::from_min_size(tempo_r.min, vec2(tempo_w - 46.0, ROW));
-            let value_r =
-                Rect::from_min_max(pos2(slider_r.right() + 2.0, tempo_r.top()), tempo_r.max);
-            let shown = ((deck.speed() - 1.0) * 100.0) as f32;
-            // On the slider's 0.1 % step, so only real input reports a change.
-            let mut tempo = ((shown * 10.0).round() / 10.0).clamp(-range, range);
+            layout.key_lock[d] = Some(lock_r);
+            // The library does not yet carry a musical key for loaded decks.
+            right_aligned(
+                ui,
+                "KEY —".into(),
+                FontId::monospace(11.0),
+                tokens.muted_text,
+                top + 54.0,
+            );
+            let remaining = deck
+                .track
+                .as_ref()
+                .map(|t| {
+                    format!(
+                        "−{}",
+                        format_clock((t.duration_ms - deck.position_ms).max(0.0))
+                    )
+                })
+                .unwrap_or_else(|| "−–:––".into());
+            let time_r = right_aligned(
+                ui,
+                remaining,
+                FontId::monospace(11.0),
+                tokens.text,
+                top + 69.0,
+            );
+            crate::icons::paint(
+                ui.painter(),
+                Icon::Timer,
+                Rect::from_center_size(
+                    pos2(time_r.left() - 9.0, time_r.center().y),
+                    vec2(12.0, 12.0),
+                ),
+                tokens.muted_text,
+            );
+            layout.time[d] = Some(time_r);
+            // Range button and the live tempo value on the bottom row.
+            let range_r = Rect::from_min_max(
+                pos2(pitch_right - 38.0, bottom - 18.0),
+                pos2(pitch_right, bottom),
+            );
+            if deck_button(
+                ui,
+                range_r,
+                &format!("±{range:.0}%"),
+                &format!("Deck {letter} tempo range"),
+                false,
+                true,
+                c.outer,
+                tokens,
+            )
+            .on_hover_text("Tempo range of both faders; click to cycle ±6 / ±10 / ±16 %")
+            .clicked()
+            {
+                range_press = true;
+            }
+            layout.range[d] = Some(range_r);
+            let mut tempo = (((deck.speed() - 1.0) * 100.0) as f32 * 10.0).round() / 10.0;
+            tempo = tempo.clamp(-range, range);
+            // Vertical pitch fader across the full band.
             let mut slider = ui
                 .scope(|ui| {
                     crate::track_waveform::slider_look(ui, tokens);
                     ui.visuals_mut().selection.bg_fill = c.outer;
-                    ui.spacing_mut().slider_width = slider_r.width();
+                    // A visible rail: the default rail fill vanishes on the deck tint.
+                    let widgets = &mut ui.visuals_mut().widgets;
+                    widgets.inactive.bg_fill = tokens.border;
+                    widgets.hovered.bg_fill = tokens.border;
+                    widgets.active.bg_fill = tokens.border;
+                    ui.spacing_mut().slider_width = BAND_H;
+                    ui.spacing_mut().interact_size.y = FADER_W;
                     ui.put(
-                        slider_r,
+                        fader_r,
                         egui::Slider::new(&mut tempo, -range..=range)
+                            .vertical()
+                            .handle_shape(egui::style::HandleShape::Rect { aspect_ratio: 0.5 })
                             .show_value(false)
                             .step_by(0.1),
                     )
@@ -2434,205 +2732,20 @@ impl LibraryApp {
             );
             ui.painter().galley(
                 pos2(
-                    value_r.right() - value.size().x,
-                    value_r.center().y - value.size().y / 2.0,
+                    range_r.left() - 4.0 - value.size().x,
+                    range_r.center().y - value.size().y / 2.0,
                 ),
                 value,
                 tokens.text,
             );
-            layout.tempo[d] = Some(slider_r);
-            // Title / clock / BPM between Load and the tempo group.
-            let (a, b) = if d == 0 {
-                (load_r.right() + 6.0, tempo_r.left() - 6.0)
-            } else {
-                (tempo_r.right() + 6.0, load_r.left() - 6.0)
+            layout.tempo[d] = Some(fader_r);
+        }
+        if range_press {
+            self.settings.tempo_range = match self.settings.tempo_range {
+                TempoRange::Six => TempoRange::Ten,
+                TempoRange::Ten => TempoRange::Sixteen,
+                TempoRange::Sixteen => TempoRange::Six,
             };
-            if b > a + 20.0 {
-                let mut info = Rect::from_min_max(pos2(a, load_r.top()), pos2(b, load_r.bottom()));
-                if self.settings.show_artwork && deck.track.is_some() && info.width() >= 50.0 {
-                    let width = info.height().min(24.0);
-                    let slot = if d == 0 {
-                        Rect::from_min_size(info.min, vec2(width, info.height()))
-                    } else {
-                        Rect::from_min_size(
-                            pos2(info.right() - width, info.top()),
-                            vec2(width, info.height()),
-                        )
-                    };
-                    let rect = crate::artwork::artwork_rect(slot, deck.art.size());
-                    crate::artwork::paint(&ui.painter_at(slot), rect, &deck.art, c, &tokens);
-                    layout.artwork[d] = Some(rect);
-                    if d == 0 {
-                        info.min.x = slot.right() + 4.0;
-                    } else {
-                        info.max.x = slot.left() - 4.0;
-                    }
-                }
-                let (text, ink) = match (&deck.track, &deck.audio) {
-                    (Some(t), DeckAudio::Failed(reason)) => {
-                        (format!("{} · cannot play: {reason}", t.name), tokens.error)
-                    }
-                    (Some(t), DeckAudio::Loading(l)) => {
-                        let pct = l
-                            .fraction()
-                            .map(|f| format!(" {:.0} %", f * 100.0))
-                            .unwrap_or_default();
-                        (format!("{} · decoding{pct}…", t.name), tokens.muted_text)
-                    }
-                    (Some(t), _) if deck.sync_note.is_some() => (
-                        format!(
-                            "{} · {}",
-                            t.name,
-                            deck.sync_note.as_deref().unwrap_or_default()
-                        ),
-                        tokens.error,
-                    ),
-                    (Some(t), _) => {
-                        let bpm = t
-                            .bpm_at(deck.position_ms)
-                            .map(|b| format!(" · {:.2} BPM", b * deck.speed()))
-                            .unwrap_or_default();
-                        (
-                            format!(
-                                "{} · {} / {}{bpm}",
-                                t.name,
-                                format_clock(deck.position_ms),
-                                format_clock(t.duration_ms)
-                            ),
-                            tokens.text,
-                        )
-                    }
-                    (None, _) => (format!("Deck {letter} · empty"), tokens.muted_text),
-                };
-                let g = egui::WidgetText::from(egui::RichText::new(text).small().color(ink))
-                    .into_galley(
-                        ui,
-                        Some(egui::TextWrapMode::Truncate),
-                        info.width(),
-                        egui::TextStyle::Small,
-                    );
-                let x = if d == 0 {
-                    info.left()
-                } else {
-                    info.right() - g.size().x
-                };
-                ui.painter_at(info).galley(
-                    pos2(x, info.center().y - g.size().y / 2.0),
-                    g,
-                    tokens.text,
-                );
-            }
-            // Row 2: CUE, PLAY (outermost), pads 1–8, loops.
-            let cue_r = place(inset, 1, CUE_W);
-            let play_r = place(inset + CUE_W + BTN_GAP, 1, PLAY_W);
-            let at_cue = loaded
-                && (deck.previewing
-                    || (!deck.playing && (deck.position_ms - deck.cue_ms).abs() < 1.0));
-            let cue = deck_button(ui, cue_r, "CUE", &format!("Deck {letter} cue"), at_cue, loaded, tokens.warning, tokens)
-                .on_hover_text(format!("Deck {letter} CUE ({}): stopped, sets the cue point; on it, hold to preview; playing, returns to it", ["Q", "P"][d]));
-            // Pointer: press = CUE down, release = CUE up; keyboard
-            // activation of the focused button is a press + release.
-            let held = cue.is_pointer_button_down_on();
-            if held && !deck.cue_pointer {
-                deck.cue_pointer = true;
-                deck.cue_down();
-            } else if !held && deck.cue_pointer {
-                deck.cue_pointer = false;
-                deck.cue_up();
-            } else if cue.clicked() {
-                deck.cue_down();
-                deck.cue_up();
-            }
-            let play_label = if deck.playing { "PAUSE" } else { "PLAY" };
-            if deck_button(
-                ui,
-                play_r,
-                play_label,
-                &format!("Deck {letter} play/pause"),
-                deck.playing,
-                loaded,
-                tokens.success,
-                tokens,
-            )
-            .clicked()
-            {
-                deck.toggle_play();
-            }
-            layout.cue[d] = Some(cue_r);
-            layout.play[d] = Some(play_r);
-            let pads_x = inset + CUE_W + BTN_GAP + PLAY_W + GROUP_GAP;
-            // Pads always read 1..8 left to right, also on deck B.
-            let pads_block = place(pads_x, 1, PADS_W);
-            let mut pad_rects = [Rect::NOTHING; PADS];
-            for (p, pad_rect) in pad_rects.iter_mut().enumerate() {
-                let r = Rect::from_min_size(
-                    pos2(
-                        pads_block.left() + p as f32 * (PAD_W + PAD_GAP),
-                        pads_block.top(),
-                    ),
-                    vec2(PAD_W, ROW),
-                );
-                *pad_rect = r;
-                let n = p + 1;
-                let set = deck.pads[p].is_some();
-                let colour = pad_colour(n, deck.track.as_ref().and_then(|t| t.hot_cue(n)));
-                let name = format!(
-                    "Deck {letter} hot cue {n} ({})",
-                    if set { "set" } else { "empty" }
-                );
-                if pad_button(ui, r, n, set, colour, loaded, &name, tokens).clicked() {
-                    deck.pad(p);
-                }
-            }
-            layout.pads[d] = Some(pad_rects);
-            let (loop_row, loop_x) = if column >= ROW2_WIDTH {
-                (1, pads_x + PADS_W + GROUP_GAP)
-            } else {
-                (2, inset + CUE_W + BTN_GAP + PLAY_W + GROUP_GAP)
-            };
-            let loops_block = place(loop_x, loop_row, LOOPS_W);
-            let mut loop_rects = [Rect::NOTHING; 4];
-            let has_loop = deck.loop_range.is_some();
-            for (k, (text, name)) in [
-                ("IN", "loop in"),
-                ("OUT", "loop out / exit"),
-                ("½", "halve loop"),
-                ("×2", "double loop"),
-            ]
-            .into_iter()
-            .enumerate()
-            {
-                let r = Rect::from_min_size(
-                    pos2(
-                        loops_block.left() + k as f32 * (LOOP_W + BTN_GAP),
-                        loops_block.top(),
-                    ),
-                    vec2(LOOP_W, ROW),
-                );
-                loop_rects[k] = r;
-                let enabled = loaded && (k < 2 || has_loop);
-                let active = (k == 0 && deck.loop_in.is_some()) || (k == 1 && has_loop);
-                if deck_button(
-                    ui,
-                    r,
-                    text,
-                    &format!("Deck {letter} {name}"),
-                    active,
-                    enabled,
-                    c.outer,
-                    tokens,
-                )
-                .clicked()
-                {
-                    match k {
-                        0 => deck.loop_in(),
-                        1 => deck.loop_out(),
-                        2 => deck.loop_scale(0.5),
-                        _ => deck.loop_scale(2.0),
-                    }
-                }
-            }
-            layout.loops[d] = Some(loop_rects);
         }
         if let Some(d) = sync_press {
             self.decks.press_sync(d);
@@ -2898,6 +3011,44 @@ pub(crate) fn deck_button(
     }
     let g = painter.layout_no_wrap(text.to_owned(), FontId::proportional(11.0), ink);
     painter.galley(rect.center() - g.size() / 2.0, g, ink);
+    response
+}
+
+/// A strip button with a Lucide `icon` instead of a label. The icon is drawn
+/// in `idle_ink` when idle and enabled, muted when disabled and in the
+/// contrasting ink when `active` fills the button with `accent`.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn icon_button(
+    ui: &mut Ui,
+    rect: Rect,
+    icon: Icon,
+    name: &str,
+    active: bool,
+    enabled: bool,
+    accent: Color32,
+    idle_ink: Color32,
+    tokens: ColorTokens,
+) -> egui::Response {
+    let response = deck_button(ui, rect, "", name, active, enabled, accent, tokens);
+    let dark = rgb(0x10, 0x10, 0x18);
+    let ink = if active {
+        if contrast(accent, dark) >= contrast(accent, Color32::WHITE) {
+            dark
+        } else {
+            Color32::WHITE
+        }
+    } else if enabled {
+        idle_ink
+    } else {
+        tokens.muted_text
+    };
+    let side = rect.width().min(rect.height()) - 8.0;
+    crate::icons::paint(
+        &ui.painter_at(rect),
+        icon,
+        Rect::from_center_size(rect.center(), vec2(side, side)),
+        ink,
+    );
     response
 }
 

@@ -1415,16 +1415,17 @@ fn tempo_wheel_preserves_accessibility_and_keyboard() {
         h.key(egui::Key::Tab, shift);
         guard += 1;
     }
-    h.tap(egui::Key::ArrowRight);
+    // Vertical fader, CDJ-style: Down raises the tempo, Up lowers it.
+    h.tap(egui::Key::ArrowDown);
     assert!(
         (h.deck(0).tempo_pct - 0.1).abs() < 1e-5,
-        "ArrowRight: {}",
+        "ArrowDown: {}",
         h.deck(0).tempo_pct
     );
-    h.tap(egui::Key::ArrowLeft);
+    h.tap(egui::Key::ArrowUp);
     assert!(
         h.deck(0).tempo_pct.abs() < 1e-5,
-        "ArrowLeft: {}",
+        "ArrowUp: {}",
         h.deck(0).tempo_pct
     );
     std::fs::remove_dir_all(root).unwrap();
@@ -1979,7 +1980,7 @@ fn key_lock_and_sync_buttons_match_tempo_and_phase() {
     }
     let t = texts(&out);
     assert_eq!(
-        t.iter().filter(|(s, _)| s.contains("122.40 BPM")).count(),
+        t.iter().filter(|(s, _)| s == "122.4").count(),
         2,
         "both decks read 120 × 1.02"
     );
@@ -3934,16 +3935,15 @@ fn deck_artwork_loads_async_and_swaps_the_placeholder() {
     gate.wait();
     wait_artwork(&mut h, 0);
     assert_eq!(h.deck(0).art.size(), [4, 2], "decoded dimensions");
-    // Artwork belongs in the controls strip, never over the waveform.
+    // The cover is the band's square at the left of the deck panel, never
+    // over the waveform.
     let half = h.app.decks.layout.halves.unwrap()[0];
     let rect = h.app.decks.layout.artwork[0].unwrap();
     let strip = h.app.decks.layout.strip.unwrap();
     assert!(!rect.intersects(half), "artwork obscures the waveform");
     assert!(strip.contains_rect(rect), "artwork stays in deck controls");
-    let art = 4.0 / 2.0;
-    let drawn = rect.width() / rect.height();
-    assert!((art - drawn).abs() < 0.02, "aspect {art} vs {drawn}");
-    assert!(rect.height() <= 24.0, "artwork is compact");
+    assert!((rect.width() - rect.height()).abs() < 0.01, "square cover");
+    assert_eq!(rect.height(), crate::decks::BAND_H, "cover spans the band");
     std::fs::remove_dir_all(root).unwrap();
 }
 
@@ -4093,5 +4093,271 @@ fn deck_artwork_toggle_in_settings_hides_and_shows_the_artwork() {
         h.app.decks.layout.artwork[0].is_some(),
         "artwork shown again"
     );
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+// ---------------------------------------------------------- deck panel v2
+
+fn near(a: f32, b: f32) -> bool {
+    (a - b).abs() < 0.01
+}
+
+/// Icon strokes (Lucide paths) painted inside `rect`, as their colours.
+fn stroke_colours_in(out: &Frame, rect: Rect) -> Vec<egui::Color32> {
+    out.shapes
+        .iter()
+        .filter_map(|c| match &c.shape {
+            Shape::Path(p) if rect.contains_rect(p.visual_bounding_rect()) => {
+                match p.stroke.color {
+                    egui::epaint::ColorMode::Solid(colour) => Some(colour),
+                    _ => None,
+                }
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+/// One content band per deck: cover top = metadata top = BPM top = pitch
+/// fader top; cover bottom = hot-cue pads bottom = PLAY bottom = fader bottom.
+#[test]
+fn deck_panel_v2_content_band_edges_align_for_both_decks() {
+    let (root, mut h) = fresh("band-align", 20.0);
+    h.select_and_load("a-120.wav", egui::Key::A);
+    h.select_and_load("b-124.wav", egui::Key::B);
+    for (case, artwork) in [("metadata + cover shown", true), ("cover hidden", false)] {
+        h.app.settings.show_artwork = artwork;
+        h.settle();
+        let l = h.layout();
+        let strip = l.strip.unwrap();
+        for d in 0..2 {
+            let meta = l.metadata[d].unwrap();
+            let bpm = l.bpm[d].unwrap();
+            let fader = l.tempo[d].unwrap();
+            let play = l.play[d].unwrap();
+            let pads = l.pads[d].unwrap();
+            let top = strip.top();
+            let bottom = strip.top() + decks::BAND_H;
+            assert!(near(meta.top(), top), "{case} deck {d}: metadata top");
+            assert!(near(bpm.top(), top), "{case} deck {d}: BPM top");
+            assert!(near(fader.top(), top), "{case} deck {d}: fader top");
+            assert!(
+                near(fader.bottom(), bottom),
+                "{case} deck {d}: fader bottom"
+            );
+            assert!(near(play.bottom(), bottom), "{case} deck {d}: PLAY bottom");
+            for pad in &pads[4..] {
+                assert!(near(pad.bottom(), bottom), "{case} deck {d}: pad bottom");
+            }
+            match l.artwork[d] {
+                Some(cover) => {
+                    assert!(artwork, "{case}");
+                    assert!(near(cover.top(), top) && near(cover.bottom(), bottom));
+                    assert!(near(cover.width(), cover.height()), "square cover");
+                    assert!(cover.right() <= meta.left() && cover.right() <= play.left());
+                }
+                None => assert!(!artwork, "{case} deck {d}: cover missing"),
+            }
+        }
+    }
+    // Empty decks keep the same band.
+    std::fs::remove_dir_all(root).unwrap();
+    let (root, mut h) = fresh("band-align-empty", 20.0);
+    h.settle();
+    let l = h.layout();
+    let strip = l.strip.unwrap();
+    for d in 0..2 {
+        assert!(
+            near(l.metadata[d].unwrap().top(), strip.top()),
+            "empty metadata"
+        );
+        assert!(near(l.bpm[d].unwrap().top(), strip.top()), "empty BPM");
+        assert!(near(
+            l.tempo[d].unwrap().bottom(),
+            strip.top() + decks::BAND_H
+        ));
+    }
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+/// Loop row above CUE above PLAY; eight square labelled pads in 4 x 2.
+#[test]
+fn deck_panel_v2_transport_stack_and_square_hot_cue_pads() {
+    let (root, mut h) = fresh("transport-stack", 20.0);
+    h.select_and_load("a-120.wav", egui::Key::A);
+    h.select_and_load("b-124.wav", egui::Key::B);
+    let out = h.settle();
+    let l = h.layout();
+    for d in 0..2 {
+        let loops = l.loops[d].unwrap();
+        let (cue, play) = (l.cue[d].unwrap(), l.play[d].unwrap());
+        for r in loops {
+            assert!(r.bottom() <= cue.top(), "deck {d}: loop row above CUE");
+        }
+        assert!(cue.bottom() <= play.top(), "deck {d}: CUE above PLAY");
+        assert!(near(cue.left(), play.left()), "deck {d}: one column");
+        let pads = l.pads[d].unwrap();
+        for (p, r) in pads.iter().enumerate() {
+            assert!(near(r.width(), r.height()), "deck {d} pad {p} is square");
+            assert!(near(r.width(), pads[0].width()));
+            let (col, row) = (p % 4, p / 4);
+            assert!(near(
+                r.left(),
+                pads[0].left() + col as f32 * (r.width() + 2.0)
+            ));
+            assert!(near(
+                r.top(),
+                pads[0].top() + row as f32 * (r.height() + 2.0)
+            ));
+            let letter = ["A", "B"][d];
+            let n = p + 1;
+            assert!(
+                accesskit_nodes(&out).iter().any(|node| node
+                    .label()
+                    .is_some_and(|l| l.starts_with(&format!("Deck {letter} hot cue {n} ")))),
+                "pad {n} named"
+            );
+            assert!(
+                texts(&out)
+                    .iter()
+                    .any(|(s, rect)| *s == n.to_string() && r.contains_rect(*rect)),
+                "pad {n} labelled with its number"
+            );
+        }
+        assert!(pads[0].right() < cue.left() + 400.0 && pads[3].bottom() < pads[4].top());
+    }
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+/// Pitch column: BPM number without a label, SYNC beside key lock, KEY,
+/// remaining time, range button and a vertical fader over the full band.
+#[test]
+fn deck_panel_v2_pitch_column_contents_and_vertical_fader() {
+    let (root, mut h) = fresh("pitch-column", 20.0);
+    h.select_and_load("a-120.wav", egui::Key::A);
+    h.select_and_load("b-124.wav", egui::Key::B);
+    h.seek(0, 5_000.0);
+    let out = h.settle();
+    let l = h.layout();
+    let t = texts(&out);
+    for d in 0..2 {
+        let bpm = l.bpm[d].unwrap();
+        let (sync, lock) = (l.sync[d].unwrap(), l.key_lock[d].unwrap());
+        let time = l.time[d].unwrap();
+        let range = l.range[d].unwrap();
+        let fader = l.tempo[d].unwrap();
+        assert!(
+            sync.right() < lock.left() + 4.0 && near(sync.top(), lock.top()),
+            "SYNC beside lock"
+        );
+        assert!(bpm.bottom() <= sync.top(), "BPM above SYNC");
+        assert!(sync.bottom() <= time.top() && time.bottom() <= range.top());
+        assert!(
+            fader.height() >= 4.0 * fader.width(),
+            "vertical fader {fader:?}"
+        );
+        assert!(fader.left() > range.right() && fader.left() > lock.right());
+        let in_col = |s: &(String, Rect)| l.strip.unwrap().contains_rect(s.1);
+        assert!(
+            t.iter().any(|s| in_col(s)
+                && bpm.expand(1.0).contains_rect(s.1)
+                && s.0.parse::<f32>().is_ok()),
+            "BPM shows a bare number"
+        );
+        assert!(
+            t.iter()
+                .any(|s| s.0 == "KEY —" && s.1.left() > l.metadata[d].unwrap().left())
+        );
+        assert!(
+            t.iter()
+                .any(|s| s.0.starts_with('−') && time.expand(1.0).contains_rect(s.1)),
+            "time remaining"
+        );
+        assert!(t.iter().any(|s| s.0 == "±10%" && range.contains_rect(s.1)));
+    }
+    assert!(!t.iter().any(|s| s.0.trim() == "BPM"), "no BPM label");
+    // Fader drag runs the full band and changes the tempo.
+    let fader = l.tempo[0].unwrap();
+    let before = h.deck(0).tempo_pct;
+    h.drag(fader.center(), fader.center() + egui::vec2(0.0, -20.0));
+    assert!(
+        h.deck(0).tempo_pct != before,
+        "vertical drag moves the fader"
+    );
+    // Range button cycles the shared range.
+    let range = h.layout().range[1].unwrap();
+    h.click(range.center());
+    assert_eq!(
+        h.app.settings.tempo_range,
+        crate::settings::TempoRange::Sixteen
+    );
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+/// Lucide icons are drawn in the button's own colour; no emoji anywhere.
+#[test]
+fn deck_panel_v2_icons_use_the_button_colour_and_no_emoji() {
+    let (root, mut h) = fresh("icons", 20.0);
+    let tokens = ThemeMode::TokyoNight.tokens();
+    // Empty decks: controls disabled, icons muted.
+    let out = h.settle();
+    let l = h.layout();
+    let cue = l.cue[0].unwrap();
+    assert!(
+        stroke_colours_in(&out, cue)
+            .iter()
+            .all(|c| *c == tokens.muted_text),
+        "disabled cue icon is muted"
+    );
+    h.select_and_load("a-120.wav", egui::Key::A);
+    h.seek(0, 3_000.0);
+    let out = h.settle();
+    let l = h.layout();
+    let cue = stroke_colours_in(&out, l.cue[0].unwrap());
+    assert!(cue.len() >= 2, "circle-dot paints two paths");
+    assert!(
+        cue.iter().all(|c| *c == tokens.warning),
+        "cue in its colour: {cue:?}"
+    );
+    let play = stroke_colours_in(&out, l.play[0].unwrap());
+    assert!(
+        !play.is_empty() && play.iter().all(|c| *c == tokens.success),
+        "play {play:?}"
+    );
+    for (name, rect) in [
+        ("loop in", l.loops[0].unwrap()[0]),
+        ("loop out", l.loops[0].unwrap()[1]),
+        ("key lock", l.key_lock[0].unwrap()),
+    ] {
+        let colours = stroke_colours_in(&out, rect);
+        assert!(!colours.is_empty(), "{name} icon painted");
+        assert!(
+            colours.iter().all(|c| *c == tokens.text),
+            "{name}: {colours:?}"
+        );
+    }
+    // Pause icon (two bars) while playing, in the contrasting ink.
+    h.app.decks.decks[0].toggle_play();
+    let out = h.settle();
+    let play_r = h.layout().play[0].unwrap();
+    let pause = stroke_colours_in(&out, play_r);
+    assert_eq!(pause.len(), 2, "pause draws two bars");
+    assert!(pause.iter().all(|c| *c != tokens.success));
+    // Timer icon beside the remaining time.
+    let time = h.layout().time[0].unwrap();
+    let timer = stroke_colours_in(&out, time.expand2(egui::vec2(16.0, 2.0)));
+    assert!(timer.len() >= 3, "timer icon painted");
+    // No emoji or pictographs in the deck panel's painted text.
+    let strip = h.layout().strip.unwrap();
+    for (s, _) in texts(&out)
+        .into_iter()
+        .filter(|(_, r)| strip.contains_rect(*r))
+    {
+        assert!(
+            !s.chars()
+                .any(|c| matches!(c as u32, 0x2300..=0x23FF | 0x2600..=0x27BF | 0x1F000..)),
+            "emoji in {s:?}"
+        );
+    }
     std::fs::remove_dir_all(root).unwrap();
 }
