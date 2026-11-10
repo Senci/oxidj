@@ -12,7 +12,7 @@ mixer, Settings preferences. Implementation was staged as three chained cards; d
 Layout B (e073714: detail + overviews on top, deck A | mixer | deck B below,
 Deck view preferences, library keeps 120 px) each passed independent review with ci-full exit 0
 and are installed. Shared playback-time overview scale with aligned needles (c3ad7fb, ea2ec4a) is reviewed and installed. Layouts A, C and D are
-selectable (Settings → Deck view → Deck arrangement, B default; commits e8fc45b, 300c3af, reviewed with ci-full exit 0 and installed; captures `app-layout-{a,c,d}.png`). The mockup is synthetic and not
+selectable (Settings → Deck view → Deck arrangement, B default; commits e8fc45b, 300c3af, reviewed with ci-full exit 0 and installed; captures `app-layout-{a,c,d}.png`). The deck content band fills the row height with a square cover placeholder (30e2f4a, 7f2eced), reviewed and installed. The mockup is synthetic and not
 evidence of anything shipped; native display, accessibility and performance
 qualification stay NOT DEMONSTRATED.
 
