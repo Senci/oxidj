@@ -14,6 +14,7 @@ mod icons;
 #[cfg(test)]
 mod keyboard_tests;
 mod mixer_view;
+mod overview_scale;
 mod waveform_analysis;
 // Addressed by the tests as `super::f02_playlist_member_insert_oracle`.
 #[cfg(test)]

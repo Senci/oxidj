@@ -607,6 +607,15 @@ impl Deck {
         self.track.as_ref().map_or(0.0, |t| t.duration_ms)
     }
 
+    /// Position, length and live speed for the shared overview scale.
+    pub(crate) fn overview_span(&self) -> Option<crate::overview_scale::DeckSpan> {
+        (self.duration() > 0.0).then(|| crate::overview_scale::DeckSpan {
+            position_ms: self.position_ms,
+            duration_ms: self.duration(),
+            rate: self.speed(),
+        })
+    }
+
     /// Effective speed multiplier: SYNC's while it is on, else the fader's.
     pub(crate) fn speed(&self) -> f64 {
         self.sync_speed
@@ -1895,13 +1904,16 @@ impl LibraryApp {
                 pos2(r.left(), a.bottom() + 2.0),
                 vec2(width, OVERVIEW_HEIGHT),
             );
+            // One playback-time scale and one needle x for both strips,
+            // recomputed from the live position and rate every frame.
+            let inner_left = a.left() + OVERVIEW_INSET;
+            let spans = [0, 1].map(|d| self.decks.decks[d].overview_span());
+            let scale = crate::overview_scale::SharedScale::new(&spans, inner_left, a.right());
             for (d, rect) in [a, b].into_iter().enumerate() {
-                self.overview(ui, d, rect, tokens, colours[d], &layout);
+                self.overview(ui, d, rect, tokens, colours[d], &layout, scale);
             }
             layout.overviews = Some([a, b]);
-            // Static layout: both overviews share one needle x position.
-            let inner_left = a.left() + OVERVIEW_INSET;
-            let nx = (inner_left + a.right()) / 2.0;
+            let nx = scale.map_or((inner_left + a.right()) / 2.0, |s| s.needle_x);
             ui.painter()
                 .vline(nx, a.top()..=b.bottom(), Stroke::new(1.0_f32, tokens.focus));
             layout.overview_needle = Some(nx);
@@ -2836,6 +2848,7 @@ impl LibraryApp {
 
     /// Deck `d`'s full-track overview: seek by click/drag, played part
     /// dimmed, detail-window box, cues and loops.
+    #[allow(clippy::too_many_arguments)]
     fn overview(
         &mut self,
         ui: &mut Ui,
@@ -2844,6 +2857,7 @@ impl LibraryApp {
         tokens: ColorTokens,
         c: DeckColours,
         layout: &DeckLayout,
+        scale: Option<crate::overview_scale::SharedScale>,
     ) {
         let letter = DECKS[d];
         let response = ui.interact(
@@ -2861,18 +2875,38 @@ impl LibraryApp {
                 format!("Deck {letter} overview: click or drag to seek"),
             )
         });
-        if duration > 0.0
-            && (response.is_pointer_button_down_on() || response.clicked() || response.dragged())
-        {
-            if let Some(p) = response.interact_pointer_pos() {
-                let f = ((p.x - inner.left()) / inner.width()).clamp(0.0, 1.0);
-                deck.seek(f64::from(f) * duration);
+        let span = deck.overview_span();
+        // The mapping is frozen at the press: the seek itself rescales the
+        // strip, so a held pointer must keep resolving against the scale it
+        // pressed on instead of chasing the moving needle.
+        let grab_id = ui.id().with(("deck-overview-grab", d));
+        type Grab = Option<(
+            crate::overview_scale::SharedScale,
+            crate::overview_scale::DeckSpan,
+        )>;
+        let down = response.is_pointer_button_down_on() || response.dragged() || response.clicked();
+        if down {
+            if let (Some(span), Some(scale)) = (span, scale) {
+                let (scale, span) = ui
+                    .data_mut(|m| {
+                        *m.get_temp_mut_or_insert_with::<Grab>(grab_id, || Some((scale, span)))
+                    })
+                    .unwrap_or((scale, span));
+                if let Some(p) = response.interact_pointer_pos() {
+                    deck.seek(scale.ms_at(&span, p.x));
+                }
             }
+        } else {
+            ui.data_mut(|m| m.remove_temp::<Grab>(grab_id));
         }
         let painter = ui.painter_at(rect);
         painter.rect_filled(rect, 0.0, tokens.background);
         painter.rect_filled(rect, 0.0, c.wash);
-        let window = (0.0, duration.max(1.0));
+        // Track-time window this strip shows: equal x = equal playback time.
+        let window = match (span, scale) {
+            (Some(span), Some(scale)) => scale.window(&span),
+            _ => (0.0, duration.max(1.0)),
+        };
         if let Some(track) = &deck.track {
             let mid = inner.center().y.round();
             let up = Rect::from_min_max(inner.min, pos2(inner.right(), mid));
@@ -2880,7 +2914,12 @@ impl LibraryApp {
             match &track.peaks {
                 Some(peaks) => {
                     // W12: time-compressed mean envelope, per-track auto-gain.
-                    let gain = overview_gain(peaks, window, up.width(), self.settings.auto_gain);
+                    let gain = overview_gain(
+                        peaks,
+                        (0.0, duration.max(1.0)),
+                        up.width(),
+                        self.settings.auto_gain,
+                    );
                     let phrase = alpha(tokens.text, 110);
                     for (k, (half, is_up)) in [(up, true), (down, false)].into_iter().enumerate() {
                         paint_meshes(
@@ -2935,9 +2974,11 @@ impl LibraryApp {
                 }
             }
             let x = x_at(deck.position_ms, window, inner).clamp(inner.left(), inner.right());
-            // Played part dimmed.
+            // Played part dimmed (from the track start, which may lie right
+            // of the strip edge when the other deck has played longer).
+            let start_x = x_at(0.0, window, inner).clamp(inner.left(), x);
             painter.rect_filled(
-                Rect::from_min_max(inner.min, pos2(x, inner.bottom())),
+                Rect::from_min_max(pos2(start_x, inner.top()), pos2(x, inner.bottom())),
                 0.0,
                 alpha(tokens.background, 150),
             );

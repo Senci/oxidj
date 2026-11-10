@@ -318,6 +318,29 @@ impl Harness {
         &self.app.decks.decks[d]
     }
 
+    /// Independent oracle for the shared overview scale, from seconds only:
+    /// `(needle_x, px per playback second, x of track time ms on deck d)`.
+    fn overview_oracle(&self, d: usize, ms: f64) -> (f32, f64, f32) {
+        let o = self.layout().overviews.unwrap()[0];
+        let (left, width) = (
+            o.left() + decks::OVERVIEW_INSET,
+            o.right() - o.left() - decks::OVERVIEW_INSET,
+        );
+        let (mut l, mut r) = (0.0_f64, 0.0_f64);
+        for k in 0..2 {
+            let dk = self.deck(k);
+            if dk.track.is_some() {
+                let rate = dk.speed();
+                l = l.max(dk.position_ms / 1000.0 / rate);
+                r = r.max((dk.duration() - dk.position_ms) / 1000.0 / rate);
+            }
+        }
+        let pps = f64::from(width) / (l + r);
+        let dd = self.deck(d);
+        let x = f64::from(left) + (l + (ms - dd.position_ms) / 1000.0 / dd.speed()) * pps;
+        (left + (l * pps) as f32, pps, x as f32)
+    }
+
     fn focused_rect(&self) -> Option<Rect> {
         self.ctx
             .memory(|m| m.focused())
@@ -687,40 +710,45 @@ fn overviews_are_two_separate_strips_at_the_bottom_and_seek_their_own_deck() {
     // Click on A's overview seeks only deck A.
     let inner = |r: Rect| (r.left() + decks::OVERVIEW_INSET, r.right());
     let (l0, r0) = inner(oa);
+    // Both at 0 s, equal length: the strip maps 0..duration across it.
     h.click(Pos2::new(l0 + (r0 - l0) * 0.5, oa.center().y));
-    let (da, db) = (
-        h.deck(0).track.as_ref().unwrap().duration_ms,
-        h.deck(1).track.as_ref().unwrap().duration_ms,
-    );
+    let da = h.deck(0).track.as_ref().unwrap().duration_ms;
     assert!(
         (h.deck(0).position_ms - da * 0.5).abs() < da * 0.01,
         "{}",
         h.deck(0).position_ms
     );
     assert_eq!(h.deck(1).position_ms, 0.0);
-    // Drag on B's overview seeks only deck B, to where the drag ends.
+    // Drag on B's overview seeks only deck B, to where the drag ends. The
+    // mapping is the one in force at the press (the seek rescales the
+    // strip), computed here from seconds only.
+    let (needle0, pps0, _) = h.overview_oracle(1, 0.0);
     let (l1, r1) = inner(ob);
+    let drop_x = l1 + (r1 - l1) * 0.75;
+    let expect_b = f64::from(drop_x - needle0) / pps0 * h.deck(1).speed() * 1000.0;
     h.drag(
         Pos2::new(l1 + 10.0, ob.center().y),
-        Pos2::new(l1 + (r1 - l1) * 0.75, ob.center().y),
+        Pos2::new(drop_x, ob.center().y),
     );
     assert!(
-        (h.deck(1).position_ms - db * 0.75).abs() < db * 0.01,
-        "{}",
+        (h.deck(1).position_ms - expect_b).abs() < 60.0,
+        "{} vs {expect_b}",
         h.deck(1).position_ms
     );
     assert!(
         (h.deck(0).position_ms - da * 0.5).abs() < da * 0.01,
         "A unchanged"
     );
-    // Played part dimmed: one translucent rect from the content edge to the playhead.
+    // Played part dimmed: one translucent rect from the track start (or the
+    // strip edge) to the shared needle.
     let out = h.settle();
-    let x = l0 + (r0 - l0) * 0.5;
+    let (needle, _, start_a) = h.overview_oracle(0, 0.0);
+    let x = needle;
     let dims = out
         .shapes
         .iter()
         .filter(|c| c.clip_rect == oa)
-        .filter(|c| matches!(&c.shape, Shape::Rect(r) if r.fill.a() > 0 && r.fill.a() < 255 && (r.rect.left() - l0).abs() < 0.5 && (r.rect.right() - x).abs() < 1.5))
+        .filter(|c| matches!(&c.shape, Shape::Rect(r) if r.fill.a() > 0 && r.fill.a() < 255 && (r.rect.left() - start_a.max(l0)).abs() < 0.5 && (r.rect.right() - x).abs() < 1.5))
         .count();
     assert_eq!(dims, 1, "played part dimmed up to the playhead");
     // View-window box: a stroked, unfilled rect inside the strip.
@@ -3800,12 +3828,7 @@ fn production_decks_paint_three_bands_and_readable_overview_cues_with_hover_name
         "memory cues >= 6 px: {triangles:?}"
     );
     // Hover over hot cue 2 (6 s of 20 s) names it in a tooltip.
-    let inner_a = Rect::from_min_max(
-        Pos2::new(oa.left() + decks::OVERVIEW_INSET, oa.top()),
-        oa.max,
-    );
-    let duration = h.deck(0).track.as_ref().unwrap().duration_ms;
-    let x = inner_a.left() + inner_a.width() * (6_000.0 / duration) as f32;
+    let (_, _, x) = h.overview_oracle(0, 6_000.0);
     let pos = Pos2::new(x + 2.0, oa.center().y + 8.0);
     h.frame_with(vec![egui::Event::PointerMoved(pos)], Default::default());
     let mut found = false;
@@ -4787,5 +4810,203 @@ fn layout_b_row_mirror_needle_and_no_overflow_with_every_preference_on() {
             );
         }
     }
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+/// Full-height 2 px pad markers painted in overview strip `clip`: their x.
+fn overview_marker_xs(out: &Frame, clip: Rect) -> Vec<f32> {
+    out.shapes
+        .iter()
+        .filter(|c| c.clip_rect == clip)
+        .filter_map(|c| match &c.shape {
+            Shape::Rect(r)
+                if (r.rect.width() - 2.0).abs() < 0.01
+                    && (r.rect.height() - clip.height()).abs() < 0.01
+                    && r.fill.a() == 255
+                    && r.fill != egui::Color32::TRANSPARENT =>
+            {
+                Some(r.rect.left() + 1.0)
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+/// Both decks loaded, only hot cue 1 kept (at track time `cue[d]`), parked at
+/// `pos[d]` ms, with the engine's own positions.
+fn overview_setup(h: &mut Harness, pos: [f64; 2], cue: [f64; 2]) {
+    h.select_and_load("a-120.wav", egui::Key::A);
+    h.select_and_load("b-124.wav", egui::Key::B);
+    for d in 0..2 {
+        h.app.decks.decks[d].pads = [None; 8];
+        h.app.decks.decks[d].pads[0] = Some(cue[d]);
+        h.app.decks.decks[d].tempo_pct = 0.0;
+        h.seek(d, pos[d]);
+    }
+}
+
+#[test]
+fn overviews_share_one_playback_scale_and_needle_and_a_rate_change_moves_the_marker() {
+    let (root, mut h) = fresh("overview-scale", 20.0);
+    overview_setup(&mut h, [2_000.0, 6_000.0], [12_000.0, 16_000.0]);
+    let [oa, ob] = h.layout().overviews.unwrap();
+    // Cues sit 10 s of playback ahead of each needle (phrase offset 4 s in
+    // track time): the same future x on both strips, from seconds only.
+    let out = h.settle();
+    let (needle, pps, xa) = h.overview_oracle(0, 12_000.0);
+    let (_, _, xb) = h.overview_oracle(1, 16_000.0);
+    assert!(
+        (f64::from(xa - needle) - 10.0 * pps).abs() < 0.6,
+        "oracle sanity"
+    );
+    assert!((xa - xb).abs() < 0.01, "oracle: equal future x");
+    assert!((h.layout().overview_needle.unwrap() - needle).abs() < 0.6);
+    for (clip, want, name) in [(oa, xa, "A"), (ob, xb, "B")] {
+        let xs = overview_marker_xs(&out, clip);
+        assert!(
+            xs.iter().any(|x| (x - want).abs() < 1.0),
+            "deck {name} cue at {want}, painted {xs:?}"
+        );
+    }
+    // Deck B plays 8 % faster: its 10 track-s ahead are 9.26 playback-s, so
+    // its marker moves to needle + 8 s * px/s (the scale is unchanged:
+    // A's remaining time still sets it).
+    h.app.decks.decks[1].tempo_pct = 8.0;
+    h.app.decks.decks[1].pads[0] = Some(16_000.0);
+    let out = h.settle();
+    let (needle2, pps2, xb2) = h.overview_oracle(1, 16_000.0);
+    let want = f64::from(needle2) + (16_000.0 - h.deck(1).position_ms) / 1000.0 / 1.08 * pps2;
+    assert!((f64::from(xb2) - want).abs() < 0.05);
+    assert!((xb2 - xb).abs() > 1.0, "marker moved from {xb} to {xb2}");
+    let xs = overview_marker_xs(&out, ob);
+    assert!(
+        xs.iter().any(|x| (x - xb2).abs() < 1.0),
+        "painted {xs:?} want {xb2}"
+    );
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn shorter_and_pitched_deck_stays_inside_both_strips_at_min_and_max_scale() {
+    let (root, mut h) = fresh("overview-bounds", 20.0);
+    overview_setup(&mut h, [0.0, 0.0], [5_000.0, 5_000.0]);
+    h.app.decks.decks[1].track.as_mut().unwrap().duration_ms = 9_000.0;
+    let [oa, ob] = h.layout().overviews.unwrap();
+    for (pa, pb, pitch) in [
+        (0.0, 0.0, -8.0),
+        (19_900.0, 0.0, 8.0),
+        (10_000.0, 8_900.0, 8.0),
+        (0.0, 8_900.0, -8.0),
+        (19_900.0, 8_900.0, 8.0),
+    ] {
+        h.app.decks.decks[1].tempo_pct = pitch;
+        h.seek(0, pa);
+        h.seek(1, pb);
+        let out = h.settle();
+        for clip in [oa, ob] {
+            for (p, _) in meshes_in(&out, clip) {
+                assert!(clip.expand(0.01).contains(p), "{p:?} outside {clip:?}");
+            }
+            for c in out.shapes.iter().filter(|c| c.clip_rect == clip) {
+                if let Shape::Rect(r) = &c.shape {
+                    assert!(
+                        clip.expand(0.6).contains_rect(r.rect) || r.rect.width() > clip.width(),
+                        "{:?} escapes {clip:?}",
+                        r.rect
+                    );
+                }
+            }
+        }
+        // The longer-playing deck spans the whole content width; the other
+        // ends earlier but is fully visible.
+        let (needle, pps, _) = h.overview_oracle(0, 0.0);
+        let inner_left = oa.left() + decks::OVERVIEW_INSET;
+        let (_, _, end_b) = h.overview_oracle(1, 9_000.0);
+        let (_, _, start_b) = h.overview_oracle(1, 0.0);
+        assert!(
+            start_b >= inner_left - 0.6 && end_b <= oa.right() + 0.6,
+            "{start_b} {end_b}"
+        );
+        assert!(
+            needle >= inner_left && f64::from(needle) <= f64::from(oa.right()) + 0.01 && pps > 0.0
+        );
+    }
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn overview_seek_lands_on_the_track_time_under_the_click_at_a_non_unit_rate() {
+    let (root, mut h) = fresh("overview-seek-rate", 20.0);
+    overview_setup(&mut h, [4_000.0, 4_000.0], [1_000.0, 1_000.0]);
+    h.app.decks.decks[1].tempo_pct = 8.0;
+    h.settle();
+    assert!((h.deck(1).speed() - 1.08).abs() < 1e-9);
+    let [_, ob] = h.layout().overviews.unwrap();
+    // Click 6 playback-seconds right of the shared needle on deck B's strip.
+    let (needle, pps, _) = h.overview_oracle(1, 0.0);
+    let x = needle + (6.0 * pps) as f32;
+    let expect = 4_000.0 + 6.0 * 1.08 * 1000.0;
+    h.click(Pos2::new(x, ob.center().y));
+    assert!(
+        (h.deck(1).position_ms - expect).abs() < 80.0,
+        "{} vs {expect}",
+        h.deck(1).position_ms
+    );
+    // A press and release landing in one frame (a fast real click) seeks too.
+    let (needle, pps, _) = h.overview_oracle(1, 0.0);
+    let x = needle - (2.0 * pps) as f32;
+    let expect = h.deck(1).position_ms - 2.0 * 1.08 * 1000.0;
+    let ev = |pressed| egui::Event::PointerButton {
+        pos: Pos2::new(x, ob.center().y),
+        button: egui::PointerButton::Primary,
+        pressed,
+        modifiers: Default::default(),
+    };
+    h.frame_with(
+        vec![
+            egui::Event::PointerMoved(Pos2::new(x, ob.center().y)),
+            ev(true),
+            ev(false),
+        ],
+        Default::default(),
+    );
+    h.settle();
+    assert!(
+        (h.deck(1).position_ms - expect).abs() < 80.0,
+        "one-frame click: {} vs {expect}",
+        h.deck(1).position_ms
+    );
+    // Far right of a short remainder clamps to the track end.
+    h.click(Pos2::new(ob.right() - 1.0, ob.center().y));
+    assert!(h.deck(1).position_ms <= 20_000.0 + 1e-6);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn overview_one_deck_uses_the_same_rule_and_no_deck_keeps_the_empty_state() {
+    let (root, mut h) = fresh("overview-one-zero", 20.0);
+    let out = h.settle();
+    let [oa, ob] = h.layout().overviews.unwrap();
+    let inner_left = oa.left() + decks::OVERVIEW_INSET;
+    let centre = (inner_left + oa.right()) / 2.0;
+    assert!(
+        (h.layout().overview_needle.unwrap() - centre).abs() < 0.01,
+        "empty: static needle"
+    );
+    assert!(texts(&out).iter().any(|(t, _)| t == "Deck A · empty"));
+    assert!(texts(&out).iter().any(|(t, _)| t == "Deck B · empty"));
+    assert!(meshes_in(&out, oa).is_empty() && meshes_in(&out, ob).is_empty());
+    // Deck A alone at 5 s of 20 s (rate 1): needle at 25 % of the content.
+    h.select_and_load("a-120.wav", egui::Key::A);
+    h.seek(0, 5_000.0);
+    let out = h.settle();
+    let want = inner_left + (oa.right() - inner_left) * 0.25;
+    assert!(
+        (h.layout().overview_needle.unwrap() - want).abs() < 1.0,
+        "{}",
+        h.layout().overview_needle.unwrap()
+    );
+    assert!(!meshes_in(&out, oa).is_empty());
+    assert!(texts(&out).iter().any(|(t, _)| t == "Deck B · empty"));
     std::fs::remove_dir_all(root).unwrap();
 }

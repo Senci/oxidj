@@ -14,7 +14,7 @@
 //! its preserved panel presentation.
 
 use crate::LibraryApp;
-use crate::components::{text_field, SectionHeading};
+use crate::components::{SectionHeading, text_field};
 use crate::theme;
 use eframe::egui;
 use oxidj_application::{PreparedTrackEditExport, RekordboxError, Track, TrackAttribute};
