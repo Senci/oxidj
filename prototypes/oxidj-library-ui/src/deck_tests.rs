@@ -1135,6 +1135,128 @@ fn tempo_wheel_adjusts_both_decks_in_both_directions() {
     std::fs::remove_dir_all(root).unwrap();
 }
 
+#[test]
+fn tempo_wheel_accumulates_fractional_point_events() {
+    let (root, mut h) = fresh("tempo-wheel-fractional", 20.0);
+    h.select_and_load("a-120.wav", egui::Key::A);
+    h.settle();
+    let p = h.layout().tempo[0].unwrap().center();
+    h.frame_with(vec![egui::Event::PointerMoved(p)], Default::default());
+    for _ in 0..10 {
+        h.frame_with(
+            vec![egui::Event::MouseWheel {
+                unit: egui::MouseWheelUnit::Point,
+                delta: egui::vec2(0.0, 4.0),
+                modifiers: Default::default(),
+            }],
+            Default::default(),
+        );
+    }
+    assert!(
+        (h.deck(0).tempo_pct - 0.1).abs() < 1e-4,
+        "fractional events must accumulate: {}",
+        h.deck(0).tempo_pct
+    );
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn tempo_wheel_reverses_immediately_at_both_limits() {
+    let (root, mut h) = fresh("tempo-wheel-reversal", 20.0);
+    h.select_and_load("a-120.wav", egui::Key::A);
+    h.settle();
+    let range = crate::decks::tempo_range(h.app.settings.tempo_range);
+    let p = h.layout().tempo[0].unwrap().center();
+    for sign in [1.0, -1.0] {
+        h.app.decks.decks[0].tempo_pct = sign * range;
+        h.settle();
+        h.frame_with(vec![egui::Event::PointerMoved(p)], Default::default());
+        for delta in [sign * 36.0, -sign * 40.0] {
+            h.frame_with(
+                vec![egui::Event::MouseWheel {
+                    unit: egui::MouseWheelUnit::Point,
+                    delta: egui::vec2(0.0, delta),
+                    modifiers: Default::default(),
+                }],
+                Default::default(),
+            );
+        }
+        assert!(
+            (h.deck(0).tempo_pct - sign * (range - 0.1)).abs() < 1e-4,
+            "outward remainder delayed reversal: {}",
+            h.deck(0).tempo_pct
+        );
+    }
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn tempo_wheel_fractional_state_is_scoped_and_sync_waits_for_step() {
+    let (root, mut h) = fresh("tempo-wheel-fractional-scope", 20.0);
+    h.select_and_load("a-120.wav", egui::Key::A);
+    h.select_and_load("b-124.wav", egui::Key::B);
+    h.settle();
+    h.click(h.layout().sync[1].unwrap().center());
+    assert!(h.deck(1).sync);
+    let a = h.layout().tempo[0].unwrap().center();
+    let b = h.layout().tempo[1].unwrap().center();
+    let wheel = |h: &mut Harness, delta| {
+        h.frame_with(
+            vec![egui::Event::MouseWheel {
+                unit: egui::MouseWheelUnit::Point,
+                delta: egui::vec2(0.0, delta),
+                modifiers: Default::default(),
+            }],
+            Default::default(),
+        );
+    };
+    h.frame_with(vec![egui::Event::PointerMoved(a)], Default::default());
+    wheel(&mut h, -20.0);
+    assert_eq!(h.deck(0).tempo_pct, 0.0);
+    h.frame_with(vec![egui::Event::PointerMoved(b)], Default::default());
+    wheel(&mut h, -20.0);
+    assert!(h.deck(1).sync, "a half-step must not release sync");
+    wheel(&mut h, -20.0);
+    assert!(!h.deck(1).sync, "a full step releases sync");
+    h.frame_with(vec![egui::Event::PointerMoved(a)], Default::default());
+    wheel(&mut h, -20.0);
+    assert_eq!(h.deck(0).tempo_pct, 0.0, "leaving clears deck A remainder");
+    wheel(&mut h, -20.0);
+    assert!((h.deck(0).tempo_pct + 0.1).abs() < 1e-4);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn tempo_wheel_discards_pending_input_when_controls_are_hidden() {
+    let (root, mut h) = fresh("tempo-wheel-hidden", 20.0);
+    h.select_and_load("a-120.wav", egui::Key::A);
+    h.settle();
+    let p = h.layout().tempo[0].unwrap().center();
+    let half = || egui::Event::MouseWheel {
+        unit: egui::MouseWheelUnit::Point,
+        delta: egui::vec2(0.0, 20.0),
+        modifiers: Default::default(),
+    };
+    h.frame_with(vec![egui::Event::PointerMoved(p)], Default::default());
+    h.frame_with(vec![half()], Default::default());
+    h.app.settings.sections.strip = false;
+    h.settle();
+    h.frame_with(
+        vec![egui::Event::PointerMoved(egui::pos2(1.0, 1.0))],
+        Default::default(),
+    );
+    h.frame_with(vec![egui::Event::PointerMoved(p)], Default::default());
+    h.app.settings.sections.strip = true;
+    h.settle();
+    h.frame_with(vec![half()], Default::default());
+    assert_eq!(
+        h.deck(0).tempo_pct,
+        0.0,
+        "hidden controls must clear old wheel input"
+    );
+    std::fs::remove_dir_all(root).unwrap();
+}
+
 /// Wheel past either end of the Settings tempo range clamps instead of
 /// running off it, in both directions.
 #[test]
@@ -1172,7 +1294,8 @@ fn tempo_wheel_ignores_outside_input_and_consumes_parent_scroll() {
     wheel_at(&mut h, egui::pos2(10.0, 10.0), 1.0);
     h.settle();
     assert_eq!(
-        h.deck(0).tempo_pct, before,
+        h.deck(0).tempo_pct,
+        before,
         "wheel away from the fader changes nothing"
     );
     // A short window puts the deck area in its scroll area.
@@ -1222,10 +1345,7 @@ fn tempo_wheel_disengages_sync() {
     let p = h.layout().tempo[1].unwrap().center();
     wheel_at(&mut h, p, 1.0);
     h.settle();
-    assert!(
-        !h.deck(1).sync,
-        "manual tempo adjustment disengages sync"
-    );
+    assert!(!h.deck(1).sync, "manual tempo adjustment disengages sync");
     assert!(
         (h.deck(1).tempo_pct - (fader_while_synced as f32 + 0.1)).abs() < 1e-4,
         "the fader keeps the synced tempo plus one wheel step: {} vs {}",
@@ -1260,11 +1380,13 @@ fn tempo_wheel_preserves_accessibility_and_keyboard() {
     assert_eq!(n.numeric_value_step(), Some(0.1));
     let send = |h: &mut Harness, action, data| {
         h.frame_with(
-            vec![egui::Event::AccessKitActionRequest(accesskit::ActionRequest {
-                action,
-                target: id,
-                data,
-            })],
+            vec![egui::Event::AccessKitActionRequest(
+                accesskit::ActionRequest {
+                    action,
+                    target: id,
+                    data,
+                },
+            )],
             Default::default(),
         );
     };
@@ -3812,17 +3934,16 @@ fn deck_artwork_loads_async_and_swaps_the_placeholder() {
     gate.wait();
     wait_artwork(&mut h, 0);
     assert_eq!(h.deck(0).art.size(), [4, 2], "decoded dimensions");
-    // The rect is centered in the half and preserves the 2:1 aspect ratio.
+    // Artwork belongs in the controls strip, never over the waveform.
     let half = h.app.decks.layout.halves.unwrap()[0];
     let rect = h.app.decks.layout.artwork[0].unwrap();
-    assert!((rect.center() - half.center()).length() < 0.5, "centered");
+    let strip = h.app.decks.layout.strip.unwrap();
+    assert!(!rect.intersects(half), "artwork obscures the waveform");
+    assert!(strip.contains_rect(rect), "artwork stays in deck controls");
     let art = 4.0 / 2.0;
     let drawn = rect.width() / rect.height();
     assert!((art - drawn).abs() < 0.02, "aspect {art} vs {drawn}");
-    assert!(
-        rect.height() <= half.height() + 0.5,
-        "max height matches the detail half"
-    );
+    assert!(rect.height() <= 24.0, "artwork is compact");
     std::fs::remove_dir_all(root).unwrap();
 }
 

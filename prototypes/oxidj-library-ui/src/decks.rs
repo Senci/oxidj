@@ -2145,11 +2145,6 @@ impl LibraryApp {
                     tokens.error,
                     tokens.text,
                 );
-                if self.settings.show_artwork {
-                    let rect = crate::artwork::artwork_rect(half, deck.art.size());
-                    crate::artwork::paint(&painter, rect, &deck.art, c, &tokens);
-                    layout.artwork[d] = Some(rect);
-                }
                 if track.peaks.is_none() {
                     let g = painter.layout_no_wrap(
                         NOT_READY.into(),
@@ -2395,7 +2390,23 @@ impl LibraryApp {
             // Hover-wheel takes the fader's 0.1 % step, in both directions,
             // clamped to the Settings range. The response must be marked
             // changed so the fader's normal SYNC release runs.
-            if crate::mixer_view::mixer_wheel(ui, &slider, &mut tempo, -range..=range, 0.1) {
+            let wheel_id = slider.id.with("tempo-wheel-remainder");
+            let mut wheel = ui
+                .ctx()
+                .data(|data| data.get_temp::<f32>(wheel_id).unwrap_or(0.0));
+            if !slider.enabled() || !slider.hovered() {
+                wheel = 0.0;
+            }
+            crate::mixer_view::mixer_wheel(ui, &slider, &mut wheel, -1000.0..=1000.0, 0.1);
+            let steps = (wheel * 10.0 + wheel.signum() * 0.00001).trunc();
+            wheel -= steps * 0.1;
+            let adjusted = (tempo + steps * 0.1).clamp(-range, range);
+            if (adjusted >= range && wheel > 0.0) || (adjusted <= -range && wheel < 0.0) {
+                wheel = 0.0;
+            }
+            ui.ctx().data_mut(|data| data.insert_temp(wheel_id, wheel));
+            if adjusted != tempo {
+                tempo = adjusted;
                 slider.mark_changed();
             }
             slider.widget_info(|| {
@@ -2437,7 +2448,26 @@ impl LibraryApp {
                 (tempo_r.right() + 6.0, load_r.left() - 6.0)
             };
             if b > a + 20.0 {
-                let info = Rect::from_min_max(pos2(a, load_r.top()), pos2(b, load_r.bottom()));
+                let mut info = Rect::from_min_max(pos2(a, load_r.top()), pos2(b, load_r.bottom()));
+                if self.settings.show_artwork && deck.track.is_some() && info.width() >= 50.0 {
+                    let width = info.height().min(24.0);
+                    let slot = if d == 0 {
+                        Rect::from_min_size(info.min, vec2(width, info.height()))
+                    } else {
+                        Rect::from_min_size(
+                            pos2(info.right() - width, info.top()),
+                            vec2(width, info.height()),
+                        )
+                    };
+                    let rect = crate::artwork::artwork_rect(slot, deck.art.size());
+                    crate::artwork::paint(&ui.painter_at(slot), rect, &deck.art, c, &tokens);
+                    layout.artwork[d] = Some(rect);
+                    if d == 0 {
+                        info.min.x = slot.right() + 4.0;
+                    } else {
+                        info.max.x = slot.left() - 4.0;
+                    }
+                }
                 let (text, ink) = match (&deck.track, &deck.audio) {
                     (Some(t), DeckAudio::Failed(reason)) => {
                         (format!("{} · cannot play: {reason}", t.name), tokens.error)
