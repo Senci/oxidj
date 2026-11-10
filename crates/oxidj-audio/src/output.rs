@@ -304,8 +304,12 @@ impl Device {
                 // f32 first: no conversion in the callback.
                 .min_by_key(|c| c.sample_format() != cpal::SampleFormat::F32)
                 .ok_or_else(|| match channels {
-                    Some(n) => format!("audio output does not offer {n} channels at {rate} Hz"),
-                    None => format!("audio output does not offer {rate} Hz"),
+                    Some(n) => format!(
+                        "audio output does not offer {n} channels at {rate} Hz in a supported sample format"
+                    ),
+                    None => format!(
+                        "audio output does not offer {rate} Hz in a supported sample format"
+                    ),
                 })?
                 .with_sample_rate(rate)
         };

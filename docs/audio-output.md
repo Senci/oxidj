@@ -31,7 +31,7 @@ List devices, ids, channel counts and buffer ranges:
 | Buffer (48 kHz) | Block time | Use |
 |---|---|---|
 | 512 | 10.7 ms | safe on any machine |
-| 256 | 5.3 ms | recommended default for playing live |
+| 256 | 5.3 ms | recommended for playing live (set it; the engine does not pick it by itself) |
 | 128 | 2.7 ms | fine without key lock; with key lock on both decks the worst block uses about 45 % of its time |
 | 64 | 1.3 ms | varispeed only |
 
@@ -48,7 +48,8 @@ every 30 ms; everything else in the engine costs under 1 % of a block.
   realtime thread. The buffer is PipeWire's quantum, set it with
   `PIPEWIRE_QUANTUM=256/48000` (measured: 8.0 ms latency, 0 xruns, worst load
   21 % with two key-locked decks; 4.0 ms at `128/48000`).
-- A raw `hw:` device also works (`OXIDJ_AUDIO_DEVICE=hw:CARD=...`), and with
+- A raw `hw:` device also works (`OXIDJ_AUDIO_DEVICE=hw:CARD=... OXIDJ_AUDIO_CHANNELS=2` for a
+  stereo card; a named device alone asks for 4 channels), and with
   `--features realtime-dbus` cpal asks RealtimeKit for a realtime thread. cpal
   only does this for hardware devices, not for the PipeWire bridge.
 

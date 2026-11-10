@@ -21,7 +21,7 @@ const PHASES: usize = 128;
 /// Taps before the frame at `floor(pos)`.
 const BEFORE: usize = TAPS / 2 - 1;
 /// Cutoffs as a share of the source band, widest first.
-const SCALES: [f64; 6] = [1.0, 0.85, 0.7, 0.5, 0.35, 0.25];
+const SCALES: [f64; 8] = [1.0, 0.95, 0.9, 0.85, 0.7, 0.5, 0.35, 0.25];
 /// −6 dB point at full bandwidth, in cycles per source frame (20.7 kHz at
 /// 44.1 kHz): flat to about 18 kHz, stop band from about 23 kHz.
 const CUTOFF: f64 = 0.47;
@@ -250,6 +250,17 @@ mod tests {
         assert!(Resampler::table(48_000.0 / 44_100.0) > 0);
         assert_eq!(Resampler::table(100.0), SCALES.len() - 1);
         assert_eq!(Resampler::table(f64::NAN), 0);
+        // A few percent of tempo costs a few percent of bandwidth, no more.
+        assert_eq!(SCALES[Resampler::table(1.03)], 0.95);
+        assert_eq!(SCALES[Resampler::table(1.08)], 0.9);
+        assert_eq!(SCALES[Resampler::table(1.16)], 0.85);
+        let samples = sine(12_000.0, 44_100.0, 16_000);
+        let (rms, error) = read(&rs, &samples, 1.08, 12_000.0, 44_100.0);
+        assert!(
+            (rms / std::f64::consts::FRAC_1_SQRT_2 - 1.0).abs() < 0.01,
+            "{rms}"
+        );
+        assert!(error < 0.01, "{error}");
     }
 
     #[test]

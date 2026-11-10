@@ -30,12 +30,12 @@ This file is the handoff: read it first, then `git log master..audio-engine`.
 
 | Target | Value | How it is measured |
 |---|---|---|
-| Requested buffer | 256 frames default; 64 to 2048 selectable | `OutputConfig::buffer_frames`, actual size in `StatsSnapshot` |
+| Requested buffer | 256 frames recommended (host default unless set); 64 to 2048 selectable | `OutputConfig::buffer_frames`, actual size in `StatsSnapshot` |
 | Output latency | 10 ms or less on ASIO/JACK at 256 frames/48 kHz; 20 ms or less on shared-mode hosts | `StatsSnapshot::latency_ns` (device timestamp) |
 | Dropouts | 0 xruns in 10 min, two decks, key lock + mixer, idle machine | `examples/qualify` |
 | DSP load | Worst render time 30 % or less of the block period at 128 frames/48 kHz | `StatsSnapshot::max_render_ns` |
 | Control delay | A command is applied in the next callback | by design (command ring drained per callback) |
-| Device loss | Decks keep running; the device is retried every second and taken back | `Engine::poll` |
+| Device loss | Decks keep running; the device is retried every 2 seconds and taken back | `Engine::poll` |
 | Sample rates | 44.1, 48, 88.2, 96 kHz device rates | `OutputConfig::sample_rate` |
 | Clicks | No full-scale step on play, pause, seek, cue or loop wrap | declick tests |
 
@@ -74,7 +74,7 @@ Status: `todo`, `doing`, `done <sha>`, `parked`.
 | A5 | Master limiter replacing the bare clamp (clamp stays as last safety) | done (third commit) |
 | A6 | Cargo features `asio`, `jack`, `realtime`, `realtime-dbus` forwarding to cpal; host selection by name; build notes in `docs/audio-output.md` | done (third commit) |
 | A7 | ADR-008 addendum with decisions and measurements; this file updated | done (third commit) |
-| A8 | Independent review of the branch (Anthropic model, Kanban card) | todo |
+| A8 | Independent review of the branch (Anthropic model, Kanban card `t_7bcd47dd`) | done: CHANGES REQUESTED, 0 blockers; findings handled in the fifth commit (see progress log) |
 | A9 | WASAPI exclusive mode: needs cpal support or a patch; decide later | parked |
 | A10 | Streaming or i16 track storage to cut RAM | parked |
 | A11 | UI wiring: Settings for output device, buffer, limiter; status line with latency and load | parked (UI session) |
@@ -82,6 +82,7 @@ Status: `todo`, `doing`, `done <sha>`, `parked`.
 | A13 | Build the installed app with `jack` (Linux) and prefer the JACK host when present; needs a change in the UI crate's Cargo features and `scripts/install-local.sh` | parked (UI session) |
 | A14 | Limiter look-ahead (about 1 ms) so the first over of a burst is anticipated | parked, only if listening shows a need |
 | A15 | Real-hardware qualification: USB card unplug and replug, 4-channel cue through `OutputConfig`, 10-minute `qualify` on JACK, Windows ASIO build and run | needs owner hardware |
+| A17 | Key-lock fade-out: keep feeding the stretch engine for the declick frames on pause or jump and fade its output (today a key-locked deck's old signal stops on one sample) | parked: needs the position model to ignore those frames |
 | A16 | Split cue for 2-channel cards (master left, cue right) and free channel-pair routing | parked, YAGNI until asked |
 
 ## Decisions log
@@ -136,6 +137,25 @@ Status: `todo`, `doing`, `done <sha>`, `parked`.
 - D7 Limiter has a switch (`Command::Limiter`) and is on by default.
 - D8 `.github/workflows/ci.yml` installs `libjack-jackd2-dev` and `libdbus-1-dev`
   because the gate builds with `--all-features`.
+
+- A8 review (read-only, model `claude-fable-5-2`, 323 s): RT safety, limiter,
+  sinc index maths, rebuild/poll and device selection found sound. Handled:
+  1. Key-lock tail was a plain read laid over the stretch output (mismatch, a
+     worse step than none). Now a key-locked deck gets no tail; limit written
+     into the ADR; proper fix parked as A17.
+  2. A second jump during a fade restarted the tail at full gain. Now one tail,
+     the louder signal wins; tests on a staircase track.
+  3. Doc claims corrected: 256 is recommended, not the default; retry is 2 s;
+     the shared-host latency target is missed on the PipeWire ALSA bridge; the
+     reconnect branch is untested.
+  4. Resampler cutoffs 0.95 and 0.9 added (a few percent of tempo no longer
+     drops to 0.85 of the band).
+  5. A Load still in the ring survives `reopen` and device loss.
+  6. Commands for unknown decks are refused in `Engine::send`.
+  7. Only valid gain and speed values are remembered for a rebuild.
+  8. A deck carried to a new output resumes with a fade.
+  9, 10. Doc example and error text corrected.
+  The fixes were not re-reviewed (owner asked for one review).
 
 ## How to continue (next session)
 

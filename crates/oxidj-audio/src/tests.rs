@@ -764,3 +764,165 @@ fn declick_covers_a_key_lock_switch_at_the_same_position() {
     assert!(worst < 0.05, "largest step {worst}");
     assert!(e.deck(0).keylock);
 }
+
+/// Largest jump between consecutive left samples of `out`, starting from
+/// `last` (the sample rendered just before it).
+fn worst_step(last: f32, out: &[f32]) -> f32 {
+    let mut last = last;
+    let mut worst = 0.0_f32;
+    for f in out.as_chunks::<2>().0 {
+        worst = worst.max((f[0] - last).abs());
+        last = f[0];
+    }
+    worst
+}
+
+/// Deck 0 playing a staircase track (left = 0.1 per 100,000 frames), so a
+/// seek between stairs is a visible step unless it is faded.
+fn stairs_setup() -> (Engine, Renderer) {
+    let (mut e, mut r) = Engine::manual(RATE);
+    r.set_declick_ms(DECLICK_MS);
+    let samples = (0..900_000)
+        .flat_map(|i| {
+            let v = (i / 100_000) as f32 * 0.1;
+            [v, v]
+        })
+        .collect();
+    e.send(Command::Load {
+        deck: 0,
+        id: 1,
+        track: Arc::new(TrackPcm::new(RATE, samples).unwrap()),
+    });
+    e.send(Command::Seek {
+        deck: 0,
+        frame: 850_000.0,
+    });
+    e.send(Command::TogglePlay { deck: 0 });
+    render(&mut r, 1_000);
+    (e, r)
+}
+
+#[test]
+fn declick_two_jumps_in_one_callback_fade_from_what_was_heard() {
+    let (mut e, mut r) = stairs_setup(); // sounding at level 0.8
+    // Scrub: two seeks land in the same drain. Level 0.1 was never heard.
+    e.send(Command::Seek {
+        deck: 0,
+        frame: 150_000.0,
+    });
+    e.send(Command::Seek {
+        deck: 0,
+        frame: 450_000.0,
+    });
+    let out = render(&mut r, 400);
+    // One smooth crossfade 0.8 -> 0.4: no step beyond a ramp increment.
+    assert!(
+        worst_step(0.8, &out) < 0.8 / 140.0,
+        "{}",
+        worst_step(0.8, &out)
+    );
+    assert!((out[2 * 399] - 0.4).abs() < 1e-6);
+}
+
+#[test]
+fn declick_a_jump_in_the_middle_of_a_fade_never_steps_by_more_than_half() {
+    for into_fade in [10, 40, 72, 100, 130] {
+        let (mut e, mut r) = stairs_setup(); // 0.8
+        e.send(Command::Seek {
+            deck: 0,
+            frame: 50_000.0, // level 0.0: the fade goes 0.8 -> 0.0
+        });
+        let first = render(&mut r, into_fade);
+        let last = first[2 * (into_fade - 1)];
+        e.send(Command::Seek {
+            deck: 0,
+            frame: 450_000.0, // 0.4
+        });
+        let out = render(&mut r, 400);
+        let step = worst_step(last, &out);
+        // Without the rule the splice is the full 0.8 (old tail cut and a
+        // new one started at full gain); now at most half of it.
+        assert!(step <= 0.4 + 0.01, "{into_fade} frames in: step {step}");
+        assert!((out[2 * 399] - 0.4).abs() < 1e-6);
+    }
+}
+
+#[test]
+fn declick_gives_a_key_locked_deck_no_mismatched_tail() {
+    let (mut e, mut r) = declick_setup();
+    e.send(Command::KeyLock { deck: 0, on: true });
+    e.send(Command::Speed {
+        deck: 0,
+        speed: 1.08,
+    });
+    e.send(Command::TogglePlay { deck: 0 });
+    render(&mut r, 20_000);
+    e.send(Command::TogglePlay { deck: 0 });
+    // The stretch output stops; no plain-read tail is laid over it.
+    assert!(render(&mut r, 300).iter().all(|v| *v == 0.0));
+}
+
+#[test]
+fn reopen_keeps_a_load_the_callback_had_not_applied_yet() {
+    let mut e = Engine::silent("no audio in tests");
+    e.send(Command::Load {
+        deck: 0,
+        id: 1,
+        track: ramp(480_000, RATE),
+    });
+    e.send(Command::TogglePlay { deck: 0 });
+    std::thread::sleep(std::time::Duration::from_millis(60));
+    assert_eq!(e.deck(0).id, Some(1));
+    // A new track goes into the ring and the output is replaced at once.
+    e.send(Command::Load {
+        deck: 0,
+        id: 2,
+        track: ramp(480_000, RATE),
+    });
+    e.reopen(OutputConfig {
+        host: Some("no-such-host".into()),
+        ..OutputConfig::default()
+    });
+    std::thread::sleep(std::time::Duration::from_millis(60));
+    let s = e.deck(0);
+    assert!(s.id == Some(2) && !s.playing && s.frame == 0.0, "{s:?}");
+    assert!(!e.pending(0));
+}
+
+#[test]
+fn send_refuses_unknown_decks_and_remembers_only_valid_settings() {
+    let (mut e, mut r) = setup(1_000);
+    let stray = ramp(100, RATE);
+    assert!(!e.send(Command::Load {
+        deck: DECKS,
+        id: 3,
+        track: stray.clone(),
+    }));
+    render(&mut r, 16);
+    assert_eq!(Arc::strong_count(&stray), 1, "never entered the ring");
+    assert!(e.send(Command::Mixer(None)) && e.send(Command::Limiter(true)));
+    e.send(Command::Gain { deck: 0, gain: 0.5 });
+    e.send(Command::Gain {
+        deck: 0,
+        gain: f32::NAN,
+    });
+    e.send(Command::Speed {
+        deck: 0,
+        speed: 1.04,
+    });
+    e.send(Command::Speed {
+        deck: 0,
+        speed: -1.0,
+    });
+    e.send(Command::Sync {
+        deck: 0,
+        master: 1,
+        speed: f64::NAN,
+        beat: 1.0,
+        anchor: 0.0,
+        master_beat: 1.0,
+        master_anchor: 0.0,
+    });
+    assert_eq!(e.memory.gains[0], Some(0.5));
+    assert_eq!(e.memory.speeds[0], Some(1.04));
+}

@@ -318,9 +318,19 @@ impl DeckState {
     /// the command replaced it); when the deck now sounds from a new place,
     /// fade it in. Clones and drops of `Arc<TrackPcm>` here are counter
     /// updates only: the UI holds every track until the callback lets go.
-    /// `switched`: the signal path changed at the same position (key lock
-    /// toggled), which is a jump for the ear.
-    fn declick_after(&mut self, before: Option<f64>, old: Option<Arc<TrackPcm>>, switched: bool) {
+    ///
+    /// `raw`: what sounded before was the plain track read. A key-locked
+    /// deck sounded through the stretch engine, which a plain read does not
+    /// match sample for sample, so it gets no tail (its old signal stops;
+    /// only the new one fades in). `switched`: the signal path changed at
+    /// the same position (key lock toggled), which is a jump for the ear.
+    fn declick_after(
+        &mut self,
+        before: Option<f64>,
+        old: Option<Arc<TrackPcm>>,
+        raw: bool,
+        switched: bool,
+    ) {
         if self.declick == 0 {
             return;
         }
@@ -328,17 +338,26 @@ impl DeckState {
         if now == before && old.is_none() && !switched {
             return;
         }
-        if let Some(pos) = before {
+        // A jump while the previous fade is still running: one tail only,
+        // so keep whichever signal is louder right now. Early in the fade
+        // that is the running tail (the new signal has barely started and
+        // is dropped: two jumps in one callback splice nothing); later it
+        // is the faded-in signal, which becomes the tail at its own gain.
+        let early = self.tail.is_some() && self.fade_in > self.declick / 2;
+        if let Some(pos) = before.filter(|_| raw && !early) {
+            let left = (self.declick + 1)
+                .saturating_sub(self.fade_in)
+                .min(self.declick);
             self.tail = old.or_else(|| self.track.clone()).map(|track| Tail {
                 track,
                 pos,
                 speed: self.speed,
-                left: self.declick,
+                left: left.max(1),
             });
+        } else if !early {
+            self.tail = None;
         }
-        if now.is_some() {
-            self.fade_in = self.declick;
-        }
+        self.fade_in = if now.is_some() { self.declick } else { 0 };
     }
 
     /// Gain of the next fade-in frame (1.0 when no fade is running).
@@ -385,9 +404,10 @@ impl DeckState {
             _ => None,
         };
         let switched = matches!(command, Command::KeyLock { on, .. } if on != self.keylock);
+        let raw = !self.keylock;
         self.apply_command(command);
         self.declick = declick;
-        self.declick_after(before, old, switched);
+        self.declick_after(before, old, raw, switched);
     }
 
     fn apply_command(&mut self, command: Command) {
@@ -677,7 +697,7 @@ impl DeckState {
         if wrapped && self.declick > 0 {
             // Crossfade the loop seam: what followed the loop end fades out
             // under the loop start fading in.
-            self.declick_after(Some(before + step), None, false);
+            self.declick_after(Some(before + step), None, true, false);
         }
         (l * g + tl, r * g + tr)
     }
@@ -960,9 +980,9 @@ impl Renderer {
                     .map(|m| ((m.pos - master_anchor) / master_beat).rem_euclid(1.0));
                 if let Some(phase) = phase {
                     let state = &mut self.decks[deck];
-                    let before = state.sounding();
+                    let (before, raw) = (state.sounding(), !state.keylock);
                     state.sync(speed, beat, anchor, phase);
-                    state.declick_after(before, None, false);
+                    state.declick_after(before, None, raw, false);
                 }
             }
             let state = &mut self.decks[deck];
@@ -1093,6 +1113,8 @@ fn channel(
     let declick = (f64::from(device_rate) * declick_ms / 1000.0) as u32;
     for deck in &mut decks {
         deck.declick = declick;
+        // A deck carried over from another output resumes with a fade.
+        deck.fade_in = if deck.playing { declick } else { 0 };
     }
     let (tx, rx) = rtrb::RingBuffer::new(COMMAND_CAPACITY);
     let shared = Arc::new(Shared {
@@ -1294,22 +1316,32 @@ impl Engine {
         let memory = self.memory.clone();
         let decks: [DeckState; DECKS] = std::array::from_fn(|d| {
             let snap = self.deck(d);
-            let track = memory.current[d]
-                .as_ref()
-                .filter(|(id, _)| Some(*id) == snap.id)
-                .map(|(_, t)| t.clone());
-            DeckState {
-                id: snap.id.filter(|_| track.is_some()).unwrap_or(NO_TRACK),
-                playing: snap.playing && !snap.previewing && track.is_some(),
-                track,
-                pos: snap.frame,
-                cue: snap.cue,
-                loop_in: snap.loop_in,
-                loop_range: snap.loop_range,
+            let settings = DeckState {
                 gain: memory.gains[d].unwrap_or(1.0),
                 speed: memory.speeds[d].unwrap_or(1.0),
                 keylock: memory.keylocks[d],
                 ..DeckState::default()
+            };
+            match &memory.current[d] {
+                // The callback was playing the track the UI last sent.
+                Some((id, track)) if Some(*id) == snap.id => DeckState {
+                    id: *id,
+                    track: Some(track.clone()),
+                    playing: snap.playing && !snap.previewing,
+                    pos: snap.frame,
+                    cue: snap.cue,
+                    loop_in: snap.loop_in,
+                    loop_range: snap.loop_range,
+                    ..settings
+                },
+                // A Load still in the ring when the output went away: the
+                // deck comes back with that track, at its start.
+                Some((id, track)) => DeckState {
+                    id: *id,
+                    track: Some(track.clone()),
+                    ..settings
+                },
+                None => settings,
             }
         });
         // Stops the stream or thread; its renderer's tracks are still held
@@ -1328,6 +1360,11 @@ impl Engine {
             _ => {}
         }
         let deck = command.deck();
+        if deck >= DECKS && !matches!(command, Command::Mixer(_) | Command::Limiter(_)) {
+            // Never reaches the callback: a track for a deck that does not
+            // exist would otherwise be freed there.
+            return false;
+        }
         if deck < DECKS {
             match &command {
                 Command::Load { id, track, .. } => {
@@ -1341,9 +1378,15 @@ impl Engine {
                         self.retired.push(old);
                     }
                 }
-                Command::Gain { gain, .. } => self.memory.gains[deck] = Some(*gain),
-                Command::Speed { speed, .. } => self.memory.speeds[deck] = Some(*speed),
-                Command::Sync { speed, .. } => self.memory.speeds[deck] = Some(*speed),
+                // Remember only what the callback accepts (same rules).
+                Command::Gain { gain, .. } if gain.is_finite() => {
+                    self.memory.gains[deck] = Some(gain.max(0.0));
+                }
+                Command::Speed { speed, .. } | Command::Sync { speed, .. }
+                    if speed.is_finite() && *speed > 0.0 =>
+                {
+                    self.memory.speeds[deck] = Some(*speed);
+                }
                 Command::KeyLock { on, .. } => self.memory.keylocks[deck] = *on,
                 _ => {}
             }
