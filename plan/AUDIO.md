@@ -157,6 +157,12 @@ Status: `todo`, `doing`, `done <sha>`, `parked`.
   9, 10. Doc example and error text corrected.
   The fixes were not re-reviewed (owner asked for one review).
 
+- 10-minute soak on the JACK host at 256 frames (binary 4978c95, machine busy
+  with tests and the gate): 0 xruns, 0 errors, latency 8.00 ms, mean load 3.7 %,
+  worst render 2.28 ms = 42.6 % (target 30 %; bench says 22 % on a quiet core).
+  Dropout target met, worst-load target not shown on a loaded machine.
+- Open rows are also cards on board `oxidj-audio` (A9 to A17, unassigned).
+
 ## How to continue (next session)
 
 1. `cd /home/senci/dev/oxidj/.worktrees/audio-engine && git status && git log --oneline master..`
