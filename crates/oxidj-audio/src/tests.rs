@@ -744,3 +744,23 @@ fn limiter_leaves_a_mix_below_full_scale_bit_identical() {
     render(&mut r_on, 16);
     assert!(!on.pending(0) && !on.pending(1));
 }
+
+#[test]
+fn declick_covers_a_key_lock_switch_at_the_same_position() {
+    let (mut e, mut r) = declick_setup();
+    e.send(Command::TogglePlay { deck: 0 });
+    render(&mut r, 1_000);
+    e.send(Command::KeyLock { deck: 0, on: true });
+    let out = render(&mut r, 400);
+    // The plain signal fades out from full level instead of stopping dead
+    // while the stretch engine starts underneath it.
+    assert!((out[0] - 0.5).abs() < 0.05, "{}", out[0]);
+    let worst = out[..2 * 100]
+        .as_chunks::<2>()
+        .0
+        .windows(2)
+        .map(|w| (w[1][0] - w[0][0]).abs())
+        .fold(0.0, f32::max);
+    assert!(worst < 0.05, "largest step {worst}");
+    assert!(e.deck(0).keylock);
+}

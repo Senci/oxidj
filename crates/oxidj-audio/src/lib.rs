@@ -318,12 +318,14 @@ impl DeckState {
     /// the command replaced it); when the deck now sounds from a new place,
     /// fade it in. Clones and drops of `Arc<TrackPcm>` here are counter
     /// updates only: the UI holds every track until the callback lets go.
-    fn declick_after(&mut self, before: Option<f64>, old: Option<Arc<TrackPcm>>) {
+    /// `switched`: the signal path changed at the same position (key lock
+    /// toggled), which is a jump for the ear.
+    fn declick_after(&mut self, before: Option<f64>, old: Option<Arc<TrackPcm>>, switched: bool) {
         if self.declick == 0 {
             return;
         }
         let now = self.sounding();
-        if now == before && old.is_none() {
+        if now == before && old.is_none() && !switched {
             return;
         }
         if let Some(pos) = before {
@@ -382,9 +384,10 @@ impl DeckState {
             Command::Load { .. } | Command::Unload { .. } if before.is_some() => self.track.clone(),
             _ => None,
         };
+        let switched = matches!(command, Command::KeyLock { on, .. } if on != self.keylock);
         self.apply_command(command);
         self.declick = declick;
-        self.declick_after(before, old);
+        self.declick_after(before, old, switched);
     }
 
     fn apply_command(&mut self, command: Command) {
@@ -674,7 +677,7 @@ impl DeckState {
         if wrapped && self.declick > 0 {
             // Crossfade the loop seam: what followed the loop end fades out
             // under the loop start fading in.
-            self.declick_after(Some(before + step), None);
+            self.declick_after(Some(before + step), None, false);
         }
         (l * g + tl, r * g + tr)
     }
@@ -959,7 +962,7 @@ impl Renderer {
                     let state = &mut self.decks[deck];
                     let before = state.sounding();
                     state.sync(speed, beat, anchor, phase);
-                    state.declick_after(before, None);
+                    state.declick_after(before, None, false);
                 }
             }
             let state = &mut self.decks[deck];

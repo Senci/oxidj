@@ -82,6 +82,7 @@ Status: `todo`, `doing`, `done <sha>`, `parked`.
 | A13 | Build the installed app with `jack` (Linux) and prefer the JACK host when present; needs a change in the UI crate's Cargo features and `scripts/install-local.sh` | parked (UI session) |
 | A14 | Limiter look-ahead (about 1 ms) so the first over of a burst is anticipated | parked, only if listening shows a need |
 | A15 | Real-hardware qualification: USB card unplug and replug, 4-channel cue through `OutputConfig`, 10-minute `qualify` on JACK, Windows ASIO build and run | needs owner hardware |
+| A16 | Split cue for 2-channel cards (master left, cue right) and free channel-pair routing | parked, YAGNI until asked |
 
 ## Decisions log
 
@@ -131,6 +132,7 @@ Status: `todo`, `doing`, `done <sha>`, `parked`.
   worst load 21 %, 0 xruns. cpal's `realtime` promotion applies to ALSA
   hardware devices only, not to the PipeWire bridge (checked with `ps -L`:
   `cpal_alsa_out` stayed `TS`), so on PipeWire the JACK host is the realtime path.
+- A key-lock toggle on a playing deck is declicked too (same position, different signal path).
 - D7 Limiter has a switch (`Command::Limiter`) and is on by default.
 - D8 `.github/workflows/ci.yml` installs `libjack-jackd2-dev` and `libdbus-1-dev`
   because the gate builds with `--all-features`.
