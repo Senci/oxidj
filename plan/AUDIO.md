@@ -67,18 +67,21 @@ Status: `todo`, `doing`, `done <sha>`, `parked`.
 
 | Id | Row | Status |
 |---|---|---|
-| A1 | Output selection: `OutputConfig` (host, device, rate, buffer, channels), `list_outputs()`, `Engine::start_with`, `Engine::reopen` with deck state carried, automatic reconnect after device loss | done (first commit on branch) |
-| A2 | Stats: render time, DSP load, output latency, actual buffer; `examples/qualify` takes the config and prints them | done (first commit on branch) |
-| A3 | Declick: short fades on play, pause, seek, cue jump, loop wrap | todo |
-| A4 | Windowed-sinc resampler in-crate replacing linear interpolation (exact copy kept at ratio 1) | todo |
-| A5 | Master limiter replacing the bare clamp (clamp stays as last safety) | todo |
-| A6 | Cargo features `asio`, `jack`, `realtime` forwarding to cpal; host selection by name; build notes | todo |
-| A7 | ADR-008 addendum with decisions and measurements; this file updated | todo |
+| A1 | Output selection: `OutputConfig` (host, device, rate, buffer, channels), `list_outputs()`, `Engine::start_with`, `Engine::reopen` with deck state carried, automatic reconnect after device loss | done c879e38 |
+| A2 | Stats: render time, DSP load, output latency, actual buffer; `examples/qualify` takes the config and prints them | done c879e38 |
+| A3 | Declick: short fades on play, pause, seek, cue jump, loop wrap | done d569041 |
+| A4 | Windowed-sinc resampler in-crate replacing linear interpolation (exact copy kept at ratio 1) | done d569041 |
+| A5 | Master limiter replacing the bare clamp (clamp stays as last safety) | done (third commit) |
+| A6 | Cargo features `asio`, `jack`, `realtime`, `realtime-dbus` forwarding to cpal; host selection by name; build notes in `docs/audio-output.md` | done (third commit) |
+| A7 | ADR-008 addendum with decisions and measurements; this file updated | done (third commit) |
 | A8 | Independent review of the branch (Anthropic model, Kanban card) | todo |
 | A9 | WASAPI exclusive mode: needs cpal support or a patch; decide later | parked |
 | A10 | Streaming or i16 track storage to cut RAM | parked |
 | A11 | UI wiring: Settings for output device, buffer, limiter; status line with latency and load | parked (UI session) |
-| A12 | Spread key-lock FFT work across callbacks (needs `splitComputation` exposed by the wrapper, or the cheaper preset after a listening test) | parked |
+| A12 | Spread key-lock FFT work across callbacks. Measured: cheaper preset cuts the worst block from 1.2 ms to 0.5 ms, but `key_lock_tempo_change_just_before_a_beat_stays_on_the_click` fails (6.0 ms against a 5 ms bound). Needs either `splitComputation` for the default preset (wrapper 0.1.3 does not expose it) or a re-derived position model plus a listening test | parked |
+| A13 | Build the installed app with `jack` (Linux) and prefer the JACK host when present; needs a change in the UI crate's Cargo features and `scripts/install-local.sh` | parked (UI session) |
+| A14 | Limiter look-ahead (about 1 ms) so the first over of a burst is anticipated | parked, only if listening shows a need |
+| A15 | Real-hardware qualification: USB card unplug and replug, 4-channel cue through `OutputConfig`, 10-minute `qualify` on JACK, Windows ASIO build and run | needs owner hardware |
 
 ## Decisions log
 
@@ -120,3 +123,25 @@ Status: `todo`, `doing`, `done <sha>`, `parked`.
   callback (both decks' FFT hops coinciding), so 128 frames is marginal with
   key lock and 256 is the safe default. 0 xruns in all runs.
 - F11 (new finding): key-lock render time is bursty; see D6. Card A12 parked.
+- A3 + A4 done (d569041). Declick is on for real outputs only; `Engine::manual`
+  stays sample-exact so the existing 45 tests did not change.
+- A5 + A6 + A7 done. New measurements (`examples/bench`, JACK host) are in the
+  ADR-008 addendum table. Key results: engine without key lock costs 0.6 % of a
+  block; key lock bursts 1.2 ms; JACK host at 256 frames gives 8.0 ms latency,
+  worst load 21 %, 0 xruns. cpal's `realtime` promotion applies to ALSA
+  hardware devices only, not to the PipeWire bridge (checked with `ps -L`:
+  `cpal_alsa_out` stayed `TS`), so on PipeWire the JACK host is the realtime path.
+- D7 Limiter has a switch (`Command::Limiter`) and is on by default.
+- D8 `.github/workflows/ci.yml` installs `libjack-jackd2-dev` and `libdbus-1-dev`
+  because the gate builds with `--all-features`.
+
+## How to continue (next session)
+
+1. `cd /home/senci/dev/oxidj/.worktrees/audio-engine && git status && git log --oneline master..`
+2. Read the work rows above. Everything not `done` is `parked` with its reason.
+3. If the review card (A8) returned findings, fix them on this branch, one
+   commit per finding, gate each.
+4. Merge is the owner's call: `git merge audio-engine` on `master` when the UI
+   session's checkout is clean. Expected conflicts: none in the UI crate (not
+   touched); `Cargo.lock` may need `cargo update -w` or a re-resolve.
+

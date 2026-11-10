@@ -167,3 +167,40 @@ Signalsmith is cleaner (3–28 dB less spurious energy on a tone), keeps transie
 **Bypass.** `Command::Mixer(None)` (the UI sends it whenever the mixer section is hidden, which is the default) takes the mixer out of the path entirely: the decks sum exactly as in D2/D3, tested bit-identical against an engine that never had a mixer, including after heavy mixer settings and at odd block sizes (`mixer_tests::hidden_mixer_is_bit_identical_to_no_mixer`, UI `deck_tests::hidden_mixer_is_bit_identical_whatever_the_knobs_say`). The crossfader has its own toggle; hidden, it is out of the path (both channels at unity regardless of assign).
 
 **Still NOT DEMONSTRATED.** Listening on real material (owner's check), worst-case callback cost under an RT thread, headphone cue / PFL (out of scope), FX, MIDI controllers.
+
+## Live-readiness addendum (2026-11-10, branch `audio-engine`)
+
+Workstream record: `plan/AUDIO.md`. User guide: `docs/audio-output.md`. No new dependency; cpal's optional hosts are reached through cargo features of `oxidj-audio` only.
+
+**Targets (first numeric ones for this ADR).** Default buffer 256 frames at 48 kHz; output latency 10 ms or less on a realtime host (JACK, ASIO) and 20 ms or less on shared hosts; 0 xruns in 10 minutes with two key-locked decks and the mixer; worst render time 30 % or less of the block; lost device retried and taken back without a restart.
+
+**Decisions.**
+
+1. *Output selection* (`OutputConfig`, `list_outputs`, `Engine::start_with`, `Engine::reopen`): host, device (stable cpal id or name), sample rate, buffer frames and channel count, from a settings screen or from `OXIDJ_AUDIO_*` environment keys. A rate or channel count the device lacks is an error, never a silent downgrade, so a missing cue pair is visible.
+2. *Device loss*: the silent fallback stays, and `Engine::poll` now retries the wanted device every 2 s and moves the decks back onto it. Engines that never had a device do not retry.
+3. *Resampling*: linear interpolation is replaced by an in-crate 32-tap Kaiser-windowed sinc (128 phases, six cutoffs chosen by read speed so faster reads do not alias). Zero phase, so positions keep their meaning; integer positions at full bandwidth still return the stored frame bit for bit.
+4. *Declick*: real outputs fade 3 ms on play, pause, cue, seek, sync, load and at loop seams (the old signal continues as a fading tail under the new one fading in; the two gains sum to 1). The hand-driven test renderer stays sample-exact unless a test asks for the fade. Key-locked loop seams are not crossfaded (the seam is inside the stretch input).
+5. *Master limiter* (`Command::Limiter`, on by default): instant attack, 150 ms release, both channels by one gain; exactly 1.0 below full scale, so quiet mixes stay bit-identical and the hidden-mixer bypass contract holds. The clamp remains as the last safety. No look-ahead: the first over of a burst is scaled, not anticipated.
+6. *Backends*: features `asio`, `jack`, `realtime`, `realtime-dbus` forward to cpal. WASAPI exclusive mode is not available in cpal 0.18.2 and is parked.
+7. *Key lock stays on the Signalsmith default preset.* The cheaper preset splits the transform across callbacks (worst block 0.5 ms instead of 1.2 ms) but changes block and interval, and `key_lock_tempo_change_just_before_a_beat_stays_on_the_click` then fails its 5 ms bound (6.0 ms measured). Parked until the wrapper exposes split computation for the default preset or the position model is re-derived and listened to.
+
+**Measured on this machine** (Linux 7.2.15, PipeWire, 48 kHz, release build, two decks of 44.1 kHz material at +8 % and -4 %, mixer on, master at 0).
+
+| Path | Buffer | Reported latency | Worst render | Worst load | Mean load | xruns |
+|---|---|---|---|---|---|---|
+| `bench` (no device), varispeed | 128 | n/a | 0.04 ms | 1.4 % | 0.6 % | n/a |
+| `bench` (no device), key lock | 128 | n/a | 1.18 ms | 44 % | 2.9 % | n/a |
+| `bench` (no device), key lock | 256 | n/a | 1.16 ms | 22 % | 2.9 % | n/a |
+| ALSA through PipeWire (thread not realtime), key lock | 512 (default) | 37.3 ms | 1.3 ms | 12 % | | 0 in 15 s |
+| same | 256 | 21.3 ms | up to 8 ms (scheduling) | over 100 % | 4 to 6 % | 0 to 1 in 12 s |
+| same | 128 | 13.3 ms | up to 3.7 ms (scheduling) | over 100 % | 4 to 6 % | 0 to 1 in 12 s |
+| JACK host (PipeWire JACK, realtime thread), key lock | 256 | 8.0 ms | 1.13 ms | 21 % | 3.5 % | 0 in 15 s |
+| same | 128 | 4.0 ms | 1.18 ms | 44 % | 3.5 % | 0 in 15 s |
+| JACK host, varispeed | 128 | 4.0 ms | 0.04 ms | 1.5 % | 0.8 % | 0 in 15 s |
+
+Reading: the engine itself is cheap; the only burst is the key-lock transform (about 0.6 ms per deck every 30 ms). On a realtime thread the callback numbers equal the offline bench, so the latency and load targets are met at 256 frames through JACK. Through the PipeWire ALSA bridge the thread is not realtime (cpal promotes hardware devices only) and the spikes are scheduling, on a desktop that was also compiling. Runs were 12 to 15 s; the 10-minute run was not repeated for this addendum.
+
+**Evidence (tests, synthetic only).** `resample.rs` tests: stored frame returned at integer positions; level within 1 % and error under 2 % to 16 kHz at 44.1 to 48 kHz where linear interpolation is off by more than 20 %; a 20 kHz tone read at double speed is removed (under 0.3 %) while 5 kHz passes; edges and extreme positions never read outside. `tests.rs`: declick ramps for play and pause, constant level across seeks and loop seams, old track faded out on reload and released afterwards, bounded step on a 0.5 jump; limiter keeps the wave shape at +4 dB over, clips when off, recovers, and is bit-identical below full scale; environment keys; failed host falls back and keeps the decks; engines without a device never retry. `tests/rt_alloc.rs` runs with declick on: 0 allocations.
+
+**Still NOT DEMONSTRATED.** ASIO, WASAPI, CoreAudio and any Windows or macOS build; a real USB sound card and a real unplug and replug (retry tested with an unknown host only); a 4-channel device through the new selection path (the cue bus itself is tested on the fake sink); listening tests of the resampler, declick time and limiter on real material; a 10-minute run on the JACK path.
+

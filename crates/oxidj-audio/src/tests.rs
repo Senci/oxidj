@@ -675,3 +675,72 @@ fn declick_on_a_ramp_bounds_the_step_at_a_jump() {
     assert!(steps < 0.5 / 140.0, "largest step {steps}");
     assert!((frame_of(out[2 * 399]) - 600_399.0).abs() < 1.0);
 }
+
+/// Both decks playing a 1 kHz sine of peak `amp` in phase (sum = 2 × amp).
+fn hot_mix(amp: f32) -> (Engine, Renderer) {
+    let (mut e, r) = Engine::manual(RATE);
+    for deck in 0..2 {
+        let samples = (0..RATE as usize * 2)
+            .flat_map(|i| {
+                let v = (i as f32 * 1_000.0 * std::f32::consts::TAU / RATE as f32).sin() * amp;
+                [v, v]
+            })
+            .collect();
+        e.send(Command::Load {
+            deck,
+            id: deck as u64,
+            track: Arc::new(TrackPcm::new(RATE, samples).unwrap()),
+        });
+        e.send(Command::TogglePlay { deck });
+    }
+    (e, r)
+}
+
+/// Samples whose magnitude sits on the clamp (a flat-topped wave).
+fn flat_tops(out: &[f32]) -> usize {
+    out.iter().filter(|v| v.abs() >= 0.9999).count()
+}
+
+#[test]
+fn limiter_turns_overs_down_instead_of_clipping_them() {
+    // 2 × 0.8 = 1.6 peak: +4 dB over full scale.
+    let (mut e, mut r) = hot_mix(0.8);
+    let out = render(&mut r, 9_600);
+    assert!(out.iter().all(|v| v.abs() <= 1.0));
+    // After the first peak the wave keeps its shape: per 48-frame cycle at
+    // most the two crests touch full scale (clipping flattens about 40 %).
+    let settled = &out[2 * 4_800..];
+    assert!(flat_tops(settled) <= 4 * 100 + 8, "{}", flat_tops(settled));
+    let rms =
+        (settled.iter().map(|v| f64::from(*v).powi(2)).sum::<f64>() / settled.len() as f64).sqrt();
+    // A sine at full scale has RMS 0.707; a clipped 1.6 sine is far above.
+    assert!((0.66..0.72).contains(&rms), "rms {rms}");
+
+    // Limiter off: the same mix is clipped flat.
+    e.send(Command::Limiter(false));
+    let clipped = render(&mut r, 9_600);
+    assert!(flat_tops(&clipped[2 * 4_800..]) > 4_800 * 2 / 3);
+    // On again, it recovers within the release time once the mix is quiet.
+    e.send(Command::Limiter(true));
+    render(&mut r, 4_800);
+    for deck in 0..2 {
+        e.send(Command::Gain { deck, gain: 0.25 });
+    }
+    render(&mut r, 48_000);
+    let quiet = render(&mut r, 480);
+    let peak = quiet.iter().fold(0.0_f32, |m, v| m.max(v.abs()));
+    assert!((peak - 0.4).abs() < 0.001, "full gain is back: {peak}");
+}
+
+#[test]
+fn limiter_leaves_a_mix_below_full_scale_bit_identical() {
+    let (mut on, mut r_on) = hot_mix(0.45);
+    let (mut off, mut r_off) = hot_mix(0.45);
+    off.send(Command::Limiter(false));
+    assert_eq!(render(&mut r_on, 4_800), render(&mut r_off, 4_800));
+    // Not a deck command: nothing is left pending.
+    assert!(!on.pending(0) || on.deck(0).applied > 0);
+    on.send(Command::Limiter(true));
+    render(&mut r_on, 16);
+    assert!(!on.pending(0) && !on.pending(1));
+}

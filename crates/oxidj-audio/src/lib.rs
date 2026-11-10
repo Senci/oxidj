@@ -193,6 +193,10 @@ pub enum Command {
     /// decks sum at unity with no EQ, filter or crossfader in the path
     /// (bit-identical to the engine without a mixer).
     Mixer(Option<MixerParams>),
+    /// Master peak limiter on the main output (on by default): overs are
+    /// turned down smoothly instead of being clipped. Off = the bare clamp
+    /// at full scale.
+    Limiter(bool),
 }
 
 impl Command {
@@ -212,7 +216,7 @@ impl Command {
             | Self::KeyLock { deck, .. }
             | Self::Sync { deck, .. } => *deck,
             // Not a deck command (never counted per deck).
-            Self::Mixer(_) => DECKS,
+            Self::Mixer(_) | Self::Limiter(_) => DECKS,
         }
     }
 }
@@ -430,7 +434,7 @@ impl DeckState {
                 }
             }
             // Applied by the renderer (it needs the master deck / owns the mixer).
-            Command::Sync { .. } | Command::Mixer(_) => {}
+            Command::Sync { .. } | Command::Mixer(_) | Command::Limiter(_) => {}
             Command::Gain { gain, .. } => {
                 if gain.is_finite() {
                     self.gain = gain.max(0.0);
@@ -861,6 +865,55 @@ pub struct Renderer {
     cue_buf: Vec<f32>,
     /// D4 mixer (bypassed while its params are `None`).
     mixer: mixer::Mixer,
+    /// Master peak limiter on the main output.
+    limiter: Limiter,
+}
+
+/// Seconds for the limiter to recover about two thirds of its reduction.
+const LIMITER_RELEASE_S: f64 = 0.15;
+
+/// Main-output peak limiter: the gain drops at once to keep a peak at full
+/// scale and recovers slowly, so sustained overs (two hot tracks summed)
+/// are turned down instead of being clipped on every wave. Below full
+/// scale the gain is exactly 1.0 and the signal passes bit for bit.
+#[derive(Clone, Copy, Debug)]
+struct Limiter {
+    on: bool,
+    gain: f32,
+    release: f32,
+}
+
+impl Limiter {
+    fn new(rate: f64, on: bool) -> Self {
+        Self {
+            on,
+            gain: 1.0,
+            release: (1.0 - (-1.0 / (LIMITER_RELEASE_S * rate.max(1.0))).exp()) as f32,
+        }
+    }
+
+    /// Limit `mix` (interleaved stereo, both channels by the same gain).
+    fn process(&mut self, mix: &mut [f32]) {
+        if !self.on {
+            self.gain = 1.0;
+            return;
+        }
+        for f in mix.as_chunks_mut::<2>().0 {
+            let peak = f[0].abs().max(f[1].abs());
+            let need = if peak > 1.0 { 1.0 / peak } else { 1.0 };
+            if self.gain < 1.0 {
+                self.gain += (1.0 - self.gain) * self.release;
+                if self.gain > 0.9999 {
+                    self.gain = 1.0;
+                }
+            }
+            self.gain = self.gain.min(need);
+            if self.gain < 1.0 {
+                f[0] *= self.gain;
+                f[1] *= self.gain;
+            }
+        }
+    }
 }
 
 impl Renderer {
@@ -872,9 +925,16 @@ impl Renderer {
     /// RT-safe: see the crate docs.
     pub fn render(&mut self, out: &mut [f32], channels: usize) {
         while let Ok(command) = self.rx.pop() {
-            if let Command::Mixer(params) = command {
-                self.mixer.set(params);
-                continue;
+            match command {
+                Command::Mixer(params) => {
+                    self.mixer.set(params);
+                    continue;
+                }
+                Command::Limiter(on) => {
+                    self.limiter.on = on;
+                    continue;
+                }
+                _ => {}
             }
             let deck = command.deck();
             if deck >= DECKS {
@@ -918,6 +978,7 @@ impl Renderer {
             mix,
             cue_buf,
             mixer,
+            limiter,
             shared,
             ..
         } = self;
@@ -963,6 +1024,7 @@ impl Renderer {
                 let cue_peak = mixer.process_cue(cue_buf);
                 meter(shared, CUE_METER, cue_peak);
             }
+            limiter.process(mix);
             for ((frame, [l, r]), [cue_l, cue_r]) in block
                 .chunks_mut(channels)
                 .zip(mix.as_chunks::<2>().0)
@@ -1023,6 +1085,7 @@ fn channel(
     device_rate: u32,
     mixer: Option<MixerParams>,
     declick_ms: f64,
+    limiter: bool,
 ) -> (Renderer, rtrb::Producer<Command>, Arc<Shared>) {
     let declick = (f64::from(device_rate) * declick_ms / 1000.0) as u32;
     for deck in &mut decks {
@@ -1062,6 +1125,7 @@ fn channel(
         mix: vec![0.0; CHUNK * 2],
         cue_buf: vec![0.0; CHUNK * 2],
         mixer: mixer::Mixer::new(device_rate, mixer),
+        limiter: Limiter::new(f64::from(device_rate), limiter),
     };
     (renderer, tx, shared)
 }
@@ -1075,6 +1139,8 @@ struct Memory {
     speeds: [Option<f64>; DECKS],
     keylocks: [bool; DECKS],
     mixer: Option<MixerParams>,
+    /// The limiter was switched off (it is on by default).
+    limiter_off: bool,
 }
 
 /// The UI side of the engine.
@@ -1125,7 +1191,7 @@ impl Engine {
 
     /// Fake sink for tests: the caller renders blocks by hand.
     pub fn manual(device_rate: u32) -> (Self, Renderer) {
-        let (renderer, tx, shared) = channel(Default::default(), device_rate, None, 0.0);
+        let (renderer, tx, shared) = channel(Default::default(), device_rate, None, 0.0, true);
         let engine = Self {
             tx,
             shared,
@@ -1159,7 +1225,13 @@ impl Engine {
         // and a fallback renderer continues from the same deck state.
         let attempt = opened.and_then(|device| {
             let rate = device.rate;
-            let (renderer, tx, shared) = channel(decks.clone(), rate, memory.mixer, DECLICK_MS);
+            let (renderer, tx, shared) = channel(
+                decks.clone(),
+                rate,
+                memory.mixer,
+                DECLICK_MS,
+                !memory.limiter_off,
+            );
             device
                 .play(renderer, shared.clone())
                 .map(|output| (output, tx, shared, rate))
@@ -1167,8 +1239,13 @@ impl Engine {
         let (output, tx, shared, device_rate, error) = match attempt {
             Ok((output, tx, shared, rate)) => (output, tx, shared, rate, None),
             Err(reason) => {
-                let (renderer, tx, shared) =
-                    channel(decks, output::SILENT_RATE, memory.mixer, DECLICK_MS);
+                let (renderer, tx, shared) = channel(
+                    decks,
+                    output::SILENT_RATE,
+                    memory.mixer,
+                    DECLICK_MS,
+                    !memory.limiter_off,
+                );
                 (
                     output::Output::silent(renderer),
                     tx,
@@ -1242,8 +1319,10 @@ impl Engine {
 
     /// Queue `command`; `false` when the ring is full (command dropped).
     pub fn send(&mut self, command: Command) -> bool {
-        if let Command::Mixer(params) = &command {
-            self.memory.mixer = *params;
+        match &command {
+            Command::Mixer(params) => self.memory.mixer = *params,
+            Command::Limiter(on) => self.memory.limiter_off = !on,
+            _ => {}
         }
         let deck = command.deck();
         if deck < DECKS {
