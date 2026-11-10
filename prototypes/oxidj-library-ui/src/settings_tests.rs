@@ -19,10 +19,7 @@ fn settings_tabs_show_only_the_selected_group() {
     let out = h.ctrl_comma();
     let labels: Vec<_> = texts(&out).into_iter().map(|(text, _)| text).collect();
     assert!(labels.iter().any(|s| s == "Theme"));
-    assert!(
-        !labels.iter().any(|s| s == "Smooth edges"),
-        "waveform controls belong on their own tab"
-    );
+    assert!(!labels.iter().any(|s| s == "Smooth edges"), "waveform controls belong on their own tab");
     let out = h.click(h.layout().tabs.unwrap()[2].center());
     assert!(texts(&out).iter().any(|(s, _)| s == "Crossfader curve"));
     assert!(h.layout().theme.is_none());
@@ -112,10 +109,7 @@ fn custom_palette_editor_is_available_from_appearance() {
     let root = temp_root("edit-palette");
     let mut h = Harness::new(root.join("catalog.sqlite"));
     let toolbar = h.settle();
-    assert!(
-        !texts(&toolbar).iter().any(|(s, _)| s == "Theme"),
-        "toolbar has no theme picker"
-    );
+    assert!(!texts(&toolbar).iter().any(|(s, _)| s == "Theme"), "toolbar has no theme picker");
     let out = h.ctrl_comma();
     h.click(text_rect(&out, "Edit custom palette…").center());
     assert_eq!(h.app.theme, ThemeMode::Custom);
@@ -127,12 +121,7 @@ fn write_click_wav(path: &Path, seconds: f32) {
     let rate = 44_100u32;
     let n = (rate as f32 * seconds) as u32;
     let mut bytes = Vec::new();
-    for chunk in [
-        &b"RIFF"[..],
-        &(36 + n * 2).to_le_bytes(),
-        b"WAVEfmt ",
-        &16u32.to_le_bytes(),
-    ] {
+    for chunk in [&b"RIFF"[..], &(36 + n * 2).to_le_bytes(), b"WAVEfmt ", &16u32.to_le_bytes()] {
         bytes.extend_from_slice(chunk);
     }
     for v in [1u16, 1] {
@@ -147,11 +136,7 @@ fn write_click_wav(path: &Path, seconds: f32) {
     for i in 0..n {
         let t = i as f32 / rate as f32;
         let phase = (t * 2.0).fract();
-        let v = if phase < 0.02 {
-            (t * 3_000.0 * std::f32::consts::TAU).sin() * 0.9
-        } else {
-            0.05 * (t * 200.0 * std::f32::consts::TAU).sin()
-        };
+        let v = if phase < 0.02 { (t * 3_000.0 * std::f32::consts::TAU).sin() * 0.9 } else { 0.05 * (t * 200.0 * std::f32::consts::TAU).sin() };
         bytes.extend_from_slice(&((v * 32_000.0) as i16).to_le_bytes());
     }
     std::fs::write(path, bytes).unwrap();
@@ -161,10 +146,7 @@ fn temp_root(tag: &str) -> PathBuf {
     let root = std::env::temp_dir().join(format!(
         "oxidj-ui-d0-{tag}-{}-{}",
         std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos()
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
     ));
     std::fs::create_dir_all(root.join("audio")).unwrap();
     root
@@ -177,9 +159,7 @@ fn grid_catalog() -> PathBuf {
     write_click_wav(&audio.join("d0-grid.wav"), 20.0);
     let db = root.join("catalog.sqlite");
     let mut catalog = Catalog::open(&db).unwrap();
-    catalog
-        .import_audio_directory(audio.to_str().unwrap())
-        .unwrap();
+    catalog.import_audio_directory(audio.to_str().unwrap()).unwrap();
     let track = catalog.list_track_details().unwrap().remove(0).track;
     oxidj_application::analyze_track_waveform(&mut catalog, track.id, false).unwrap();
     let (location, _) = oxidj_application::location_uri(&track.path);
@@ -189,11 +169,7 @@ fn grid_catalog() -> PathBuf {
                 title: "synthetic grid".into(),
                 location,
                 beat_grid: (0..40u32)
-                    .map(|i| LibraryBeat {
-                        time_ms: 500 * i,
-                        tempo_hundredths_bpm: 12_000,
-                        beat_in_bar: (i % 4 + 1) as u8,
-                    })
+                    .map(|i| LibraryBeat { time_ms: 500 * i, tempo_hundredths_bpm: 12_000, beat_in_bar: (i % 4 + 1) as u8 })
                     .collect(),
                 ..LibraryTrack::default()
             }],
@@ -214,11 +190,7 @@ impl Harness {
         let ctx = egui::Context::default();
         ctx.enable_accesskit();
         let app = LibraryApp::new(db, ThemeMode::TokyoNight, ThemeMode::TokyoNight.tokens());
-        let mut h = Self {
-            ctx,
-            app,
-            viewport: egui::vec2(1440.0, 900.0),
-        };
+        let mut h = Self { ctx, app, viewport: egui::vec2(1440.0, 900.0) };
         h.settle();
         h
     }
@@ -246,22 +218,13 @@ impl Harness {
             pressed,
             modifiers: Default::default(),
         };
-        self.frame_with(
-            vec![egui::Event::PointerMoved(pos), button(true)],
-            Default::default(),
-        );
+        self.frame_with(vec![egui::Event::PointerMoved(pos), button(true)], Default::default());
         self.frame_with(vec![button(false)], Default::default());
         self.settle()
     }
 
     fn key(&mut self, key: egui::Key, modifiers: egui::Modifiers) -> Frame {
-        let event = |pressed| egui::Event::Key {
-            key,
-            physical_key: None,
-            pressed,
-            repeat: false,
-            modifiers,
-        };
+        let event = |pressed| egui::Event::Key { key, physical_key: None, pressed, repeat: false, modifiers };
         self.frame_with(vec![event(true)], modifiers);
         self.frame_with(vec![event(false)], Default::default());
         self.settle()
@@ -269,14 +232,7 @@ impl Harness {
 
     /// Ctrl+, as winit reports it on Linux (ctrl and command both set).
     fn ctrl_comma(&mut self) -> Frame {
-        self.key(
-            egui::Key::Comma,
-            egui::Modifiers {
-                ctrl: true,
-                command: true,
-                ..Default::default()
-            },
-        )
+        self.key(egui::Key::Comma, egui::Modifiers { ctrl: true, command: true, ..Default::default() })
     }
 
     fn focused(&self) -> Option<egui::Id> {
@@ -317,21 +273,11 @@ fn waveform_vertices(out: &Frame, view: Rect) -> Vec<(Pos2, egui::Color32)> {
 }
 
 fn bar_labels_in(out: &Frame, view: Rect) -> usize {
-    texts(out)
-        .iter()
-        .filter(|(t, r)| t.starts_with("Bar ") && view.contains_rect(*r))
-        .count()
+    texts(out).iter().filter(|(t, r)| t.starts_with("Bar ") && view.contains_rect(*r)).count()
 }
 
 fn accesskit_nodes(out: &Frame) -> Vec<accesskit::Node> {
-    out.platform_output
-        .accesskit_update
-        .as_ref()
-        .expect("accesskit enabled")
-        .nodes
-        .iter()
-        .map(|(_, n)| n.clone())
-        .collect()
+    out.platform_output.accesskit_update.as_ref().expect("accesskit enabled").nodes.iter().map(|(_, n)| n.clone()).collect()
 }
 
 #[test]
@@ -352,29 +298,15 @@ fn ctrl_comma_and_gear_toggle_settings_esc_closes_and_focus_returns() {
     let window = h.layout().window.expect("settings window painted");
     let first = h.layout().first_control.expect("first control");
     assert_eq!(h.focused(), Some(first), "focus moves into the window");
-    assert!(
-        h.layout()
-            .tabs
-            .unwrap()
-            .iter()
-            .all(|r| window.contains_rect(*r))
-    );
+    assert!(h.layout().tabs.unwrap().iter().all(|r| window.contains_rect(*r)));
 
     // AccessKit: titled window, labelled switches with their checked state.
     let nodes = accesskit_nodes(&out);
-    let named = |name: &str| {
-        nodes
-            .iter()
-            .find(|n| n.label().as_deref() == Some(name))
-            .cloned()
-    };
+    let named = |name: &str| nodes.iter().find(|n| n.label().as_deref() == Some(name)).cloned();
     assert!(named(WINDOW_TITLE).is_some(), "window title exposed");
 
     assert!(
-        nodes
-            .iter()
-            .any(|n| n.label().as_deref() == Some("Tokyo Night")
-                && n.toggled() == Some(accesskit::Toggled::True)),
+        nodes.iter().any(|n| n.label().as_deref() == Some("Tokyo Night") && n.toggled() == Some(accesskit::Toggled::True)),
         "selected theme cell exposed"
     );
 
@@ -384,17 +316,10 @@ fn ctrl_comma_and_gear_toggle_settings_esc_closes_and_focus_returns() {
     let next = h.focused().expect("tab focus");
     assert_ne!(next, first);
     h.key(egui::Key::Space, Default::default());
-    assert!(
-        h.layout().smooth.is_some(),
-        "keyboard activates Waveform tab"
-    );
+    assert!(h.layout().smooth.is_some(), "keyboard activates Waveform tab");
     let mut guard = 0;
     while h.layout().smooth.is_some_and(|r| {
-        h.ctx
-            .memory(|m| m.focused())
-            .and_then(|id| h.ctx.read_response(id))
-            .map(|r| r.rect)
-            != Some(r)
+        h.ctx.memory(|m| m.focused()).and_then(|id| h.ctx.read_response(id)).map(|r| r.rect) != Some(r)
     }) {
         h.key(egui::Key::Tab, Default::default());
         guard += 1;
@@ -420,9 +345,7 @@ fn ctrl_comma_and_gear_toggle_settings_esc_closes_and_focus_returns() {
     let out = h.click(gear.center());
     assert!(h.app.settings_ui.open);
     assert!(
-        accesskit_nodes(&out).iter().any(
-            |n| n.role() == accesskit::Role::Button && n.label().as_deref() == Some("Settings")
-        ),
+        accesskit_nodes(&out).iter().any(|n| n.role() == accesskit::Role::Button && n.label().as_deref() == Some("Settings")),
         "gear named for AccessKit"
     );
     // Esc does nothing to the app when Settings is already closed.
@@ -442,12 +365,7 @@ fn each_wired_option_changes_the_next_rendered_frame_and_persists() {
     let base = waveform_vertices(&out, view);
     assert!(!base.is_empty());
     assert!(bar_labels_in(&out, view) > 0, "bar lines on by default");
-    let (window, _) = h
-        .app
-        .track_waveform
-        .layout
-        .grid_window
-        .expect("imported grid");
+    let (window, _) = h.app.track_waveform.layout.grid_window.expect("imported grid");
     assert_eq!(window.1 - window.0, 8_000.0, "default 4 bars at 120 BPM");
 
     h.ctrl_comma();
@@ -478,16 +396,13 @@ fn each_wired_option_changes_the_next_rendered_frame_and_persists() {
         assert_eq!(quad[3].0, quad[2].0, "bottom fringe on the body edge");
     }
 
+
     // Default zoom 8 bars: the detail window spans 8 bars (16 s).
     let out = h.click(h.layout().zoom.unwrap()[3].center());
     assert_eq!(h.app.settings.zoom_bars, 8);
     let (window, bar) = h.app.track_waveform.layout.grid_window.unwrap();
     assert_eq!(window.1 - window.0, 16_000.0);
-    assert!(
-        texts(&out)
-            .iter()
-            .any(|(t, _)| t.starts_with(&format!("Detail 8 bars from Bar {}", bar + 1)))
-    );
+    assert!(texts(&out).iter().any(|(t, _)| t.starts_with(&format!("Detail 8 bars from Bar {}", bar + 1))));
 
     // Theme: Tokyo Day repaints the waveform plate in Day background.
     let day = ThemeMode::TokyoDay.tokens();
@@ -495,9 +410,7 @@ fn each_wired_option_changes_the_next_rendered_frame_and_persists() {
     let out = h.click(h.layout().theme.unwrap()[1].center());
     assert_eq!(h.app.theme, ThemeMode::TokyoDay);
     assert!(
-        out.shapes.iter().any(
-            |c| matches!(&c.shape, Shape::Rect(r) if r.fill == day.background && r.rect == view)
-        ),
+        out.shapes.iter().any(|c| matches!(&c.shape, Shape::Rect(r) if r.fill == day.background && r.rect == view)),
         "plate painted in the new theme"
     );
 
@@ -506,33 +419,18 @@ fn each_wired_option_changes_the_next_rendered_frame_and_persists() {
     eframe::App::save(&mut h.app, &mut storage);
     let saved = Settings::load(Some(&storage));
     assert_eq!(saved, h.app.settings);
-    assert_eq!(
-        (
-            saved.waveform_style,
-            saved.smooth,
-            saved.beat_lines,
-            saved.zoom_bars
-        ),
-        (Style::Rgb, false, false, 8)
-    );
+    assert_eq!((saved.waveform_style, saved.smooth, saved.beat_lines, saved.zoom_bars), (Style::Rgb, false, false, 8));
     assert_eq!(ThemeMode::load(Some(&storage)).0, ThemeMode::TokyoDay);
 
     // Reset to defaults restores everything, live.
     let reset = h.layout().reset.expect("reset button");
-    assert!(
-        h.layout().window.unwrap().contains_rect(reset),
-        "Reset visible in the window"
-    );
+    assert!(h.layout().window.unwrap().contains_rect(reset), "Reset visible in the window");
     h.click(reset.center());
     assert_eq!(h.app.settings, Settings::default());
     assert_eq!(h.app.theme, ThemeMode::TokyoNight);
     let out = h.settle();
     assert!(bar_labels_in(&out, view) > 0, "lines back");
-    assert_eq!(
-        waveform_vertices(&out, view),
-        base,
-        "default rendering restored"
-    );
+    assert_eq!(waveform_vertices(&out, view), base, "default rendering restored");
 }
 
 #[test]
@@ -544,11 +442,7 @@ fn small_viewport_settings_controls_are_reachable_by_keyboard_and_pointer() {
         h.settle();
         h.ctrl_comma();
         let screen = Rect::from_min_size(Pos2::ZERO, viewport);
-        assert!(
-            screen.contains_rect(h.layout().window.unwrap()),
-            "window bounded at {viewport:?}: {:?}",
-            h.layout().window
-        );
+        assert!(screen.contains_rect(h.layout().window.unwrap()), "window bounded at {viewport:?}: {:?}", h.layout().window);
         let day = h.layout().theme.unwrap()[1];
         assert!(screen.contains_rect(day), "first row visible");
         h.click(day.center());
@@ -557,8 +451,7 @@ fn small_viewport_settings_controls_are_reachable_by_keyboard_and_pointer() {
         // Start at the first control and traverse actual focus order, not a
         // direct focus request to Reset. Every focused control must scroll
         // into view, including the last button below the shortcut list.
-        h.ctx
-            .memory_mut(|m| m.request_focus(h.layout().first_control.unwrap()));
+        h.ctx.memory_mut(|m| m.request_focus(h.layout().first_control.unwrap()));
         h.settle();
         let mut reached_reset = false;
         for _ in 0..40 {
@@ -567,20 +460,10 @@ fn small_viewport_settings_controls_are_reachable_by_keyboard_and_pointer() {
             for _ in 0..30 {
                 h.settle();
             }
-            let focused = h
-                .focused()
-                .and_then(|id| h.ctx.read_response(id))
-                .expect("focused control");
+            let focused = h.focused().and_then(|id| h.ctx.read_response(id)).expect("focused control");
             let visible = focused.rect.intersect(focused.interact_rect);
-            assert!(
-                screen.contains_rect(focused.rect),
-                "focused control on screen: {:?}",
-                focused.rect
-            );
-            assert!(
-                visible.contains_rect(focused.rect),
-                "focused control not clipped"
-            );
+            assert!(screen.contains_rect(focused.rect), "focused control on screen: {:?}", focused.rect);
+            assert!(visible.contains_rect(focused.rect), "focused control not clipped");
             if focused.rect == h.layout().reset.unwrap() {
                 reached_reset = true;
                 h.key(egui::Key::Space, Default::default());
@@ -588,11 +471,7 @@ fn small_viewport_settings_controls_are_reachable_by_keyboard_and_pointer() {
             }
         }
         assert!(reached_reset, "Reset reachable by Tab at {viewport:?}");
-        assert_eq!(
-            h.app.theme,
-            ThemeMode::TokyoNight,
-            "keyboard Reset activates"
-        );
+        assert_eq!(h.app.theme, ThemeMode::TokyoNight, "keyboard Reset activates");
         // Reset is also pointer-operable after scrolling into view.
         h.app.settings.smooth = false;
         h.click(h.layout().reset.unwrap().center());

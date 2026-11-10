@@ -439,8 +439,7 @@ fn folder_subtree_move_ui_rejects_stale_typed_child_order_and_preserves_aliases(
     app.prepare_xml_folder_move(index);
     let original = std::fs::read_to_string(&source).unwrap();
     let left = "<NODE Type=\"0\" Name=\"ToMove\" Count=\"1\"><NODE Type=\"0\" Name=\"Nested\" Count=\"1\"><NODE Type=\"1\" Name=\"Inside\" Entries=\"2\" KeyType=\"0\"><TRACK Key=\"1\"/><TRACK Key=\"3\"/></NODE></NODE></NODE>";
-    let right =
-        "<NODE Type=\"1\" Name=\"Remain\" Entries=\"1\" KeyType=\"0\"><TRACK Key=\"2\"/></NODE>";
+    let right = "<NODE Type=\"1\" Name=\"Remain\" Entries=\"1\" KeyType=\"0\"><TRACK Key=\"2\"/></NODE>";
     assert!(original.contains(&format!("{left}{right}")));
     std::fs::write(
         &source,
@@ -1054,8 +1053,7 @@ fn playlist_move_ui_refuses_invalid_destinations_without_mutation() {
 
     let duplicate = root.join("duplicate.xml");
     let mut bytes = original.clone();
-    let marker =
-        b"<NODE Type=\"1\" Name=\"Other\" Entries=\"1\" KeyType=\"0\"><TRACK Key=\"400\"/></NODE>";
+    let marker = b"<NODE Type=\"1\" Name=\"Other\" Entries=\"1\" KeyType=\"0\"><TRACK Key=\"400\"/></NODE>";
     let marker_at = bytes
         .windows(marker.len())
         .position(|w| w == marker)
@@ -1106,10 +1104,8 @@ fn playlist_move_ui_refuses_source_and_destination_order_changes() {
     .unwrap();
     let house = "<NODE Type=\"1\" Name=\"House\" Entries=\"3\" KeyType=\"0\"><TRACK Key=\"100\"/><TRACK Key=\"200\"/><TRACK Key=\"300\"/></NODE>";
     let techno = "<NODE Type=\"1\" Name=\"Techno\" Entries=\"2\" KeyType=\"0\"><TRACK Key=\"200\"/><TRACK Key=\"400\"/></NODE>";
-    let other =
-        "<NODE Type=\"1\" Name=\"Other\" Entries=\"1\" KeyType=\"0\"><TRACK Key=\"400\"/></NODE>";
-    let extra =
-        "<NODE Type=\"1\" Name=\"Extra\" Entries=\"1\" KeyType=\"0\"><TRACK Key=\"300\"/></NODE>";
+    let other = "<NODE Type=\"1\" Name=\"Other\" Entries=\"1\" KeyType=\"0\"><TRACK Key=\"400\"/></NODE>";
+    let extra = "<NODE Type=\"1\" Name=\"Extra\" Entries=\"1\" KeyType=\"0\"><TRACK Key=\"300\"/></NODE>";
     for (label, initial, before, after) in [
         (
             "source",
@@ -1892,8 +1888,11 @@ fn whole_playlist_delete_preview_cancel_export_and_oracle_are_source_bound() {
     let existing = root.join("existing.xml");
     std::fs::write(&existing, b"keep").unwrap();
     assert!(
-        oxidj_application::export_prepared_rekordbox_playlist_delete(&prepared_export, &existing)
-            .is_err()
+        oxidj_application::export_prepared_rekordbox_playlist_delete(
+            &prepared_export,
+            &existing
+        )
+        .is_err()
     );
     assert_eq!(std::fs::read(&existing).unwrap(), b"keep");
     std::fs::remove_dir_all(root).unwrap();
@@ -2366,7 +2365,8 @@ fn playlist_member_append_preview_cancel_and_export_are_source_bound() {
 }
 
 #[test]
-fn playlist_member_append_refuses_stale_source_membership_duplicate_unknown_and_existing_output() {
+fn playlist_member_append_refuses_stale_source_membership_duplicate_unknown_and_existing_output()
+ {
     use std::time::{SystemTime, UNIX_EPOCH};
     let root = std::env::temp_dir().join(format!(
         "oxidj-ui-member-append-guards-{}-{}",
@@ -2486,8 +2486,9 @@ fn playlist_member_reorder_preview_exports_exact_prepared_bytes_and_reopens_orde
     app.export_xml_member_reorder();
     assert_eq!(std::fs::read(&intermediate).unwrap(), first_bytes);
     app.xml_document_source = Some(intermediate.clone());
-    app.xml_preview =
-        Some(oxidj_application::preview_rekordbox_xml(&intermediate).map_err(|e| e.to_string()));
+    app.xml_preview = Some(
+        oxidj_application::preview_rekordbox_xml(&intermediate).map_err(|e| e.to_string()),
+    );
     app.xml_selected_playlist = Some(0);
     app.xml_selected_member = Some(1);
     app.prepare_xml_member_reorder(0, 1, -1);
@@ -2682,13 +2683,7 @@ fn track_artist_edit_ui_exports_prepared_bytes_and_checks_independent_oracle() {
         1,
     );
     assert_ne!(mutated.as_bytes(), bytes.as_slice());
-    assert!(
-        f02_track_attribute_edit_oracle::check(
-            &f02_track_attribute_edit_oracle::ARTIST,
-            mutated.as_bytes()
-        )
-        .is_err()
-    );
+    assert!(f02_track_attribute_edit_oracle::check(&f02_track_attribute_edit_oracle::ARTIST, mutated.as_bytes()).is_err());
     assert_eq!(std::fs::read(&source).unwrap(), original);
     assert_eq!(std::fs::read(&catalog).unwrap(), catalog_before);
     let reopened = app.xml_preview.as_ref().unwrap().as_ref().unwrap();
@@ -2775,12 +2770,8 @@ fn track_artist_ui_escapes_xml_and_refuses_changed_proposals_and_absent_values()
     let bytes = std::fs::read(&output).unwrap();
     let text = String::from_utf8(bytes.clone()).unwrap();
     assert!(text.contains("New &lt; Artist &amp; &quot;guest&quot;"));
-    f02_track_attribute_edit_oracle::check_with(
-        &f02_track_attribute_edit_oracle::ARTIST,
-        &bytes,
-        "New < Artist & \"guest\"",
-    )
-    .expect("independent whole-tree oracle accepts escaped UI output");
+    f02_track_attribute_edit_oracle::check_with(&f02_track_attribute_edit_oracle::ARTIST, &bytes, "New < Artist & \"guest\"")
+        .expect("independent whole-tree oracle accepts escaped UI output");
     assert_eq!(std::fs::read(&source).unwrap(), original);
     std::fs::remove_dir_all(root).unwrap();
 }
@@ -2890,13 +2881,7 @@ fn track_comments_edit_ui_exports_previewed_bytes_through_independent_oracle() {
         1,
     );
     assert_ne!(mutated.as_bytes(), bytes.as_slice());
-    assert!(
-        f02_track_attribute_edit_oracle::check(
-            &f02_track_attribute_edit_oracle::COMMENTS,
-            mutated.as_bytes()
-        )
-        .is_err()
-    );
+    assert!(f02_track_attribute_edit_oracle::check(&f02_track_attribute_edit_oracle::COMMENTS, mutated.as_bytes()).is_err());
     assert_eq!(std::fs::read(&source).unwrap(), original);
     assert_eq!(std::fs::read(&catalog).unwrap(), catalog_before);
     let reopened = app.xml_preview.as_ref().unwrap().as_ref().unwrap();
@@ -3166,13 +3151,7 @@ fn track_genre_edit_ui_exports_previewed_bytes_and_reopens_output() {
         "Genre=\"altered\"",
         1,
     );
-    assert!(
-        f02_track_attribute_edit_oracle::check(
-            &f02_track_attribute_edit_oracle::GENRE,
-            mutated.as_bytes()
-        )
-        .is_err()
-    );
+    assert!(f02_track_attribute_edit_oracle::check(&f02_track_attribute_edit_oracle::GENRE, mutated.as_bytes()).is_err());
     assert_eq!(std::fs::read(&source).unwrap(), original);
     assert_eq!(std::fs::read(&catalog).unwrap(), catalog_before);
     assert_eq!(
@@ -3340,13 +3319,7 @@ fn track_label_edit_ui_exports_previewed_bytes_and_reopens_output() {
         "Label=\"altered\"",
         1,
     );
-    assert!(
-        f02_track_attribute_edit_oracle::check(
-            &f02_track_attribute_edit_oracle::LABEL,
-            mutated.as_bytes()
-        )
-        .is_err()
-    );
+    assert!(f02_track_attribute_edit_oracle::check(&f02_track_attribute_edit_oracle::LABEL, mutated.as_bytes()).is_err());
     assert_eq!(std::fs::read(&source).unwrap(), original);
     assert_eq!(std::fs::read(&catalog).unwrap(), catalog_before);
     assert_eq!(
@@ -3585,13 +3558,7 @@ fn track_composer_edit_ui_exports_previewed_bytes_and_reopens_output() {
         "Composer=\"altered\"",
         1,
     );
-    assert!(
-        f02_track_attribute_edit_oracle::check(
-            &f02_track_attribute_edit_oracle::COMPOSER,
-            mutated.as_bytes()
-        )
-        .is_err()
-    );
+    assert!(f02_track_attribute_edit_oracle::check(&f02_track_attribute_edit_oracle::COMPOSER, mutated.as_bytes()).is_err());
     assert_eq!(std::fs::read(&source).unwrap(), original);
     assert_eq!(std::fs::read(&catalog).unwrap(), catalog_before);
     assert_eq!(
@@ -3830,13 +3797,7 @@ fn track_grouping_edit_ui_exports_previewed_bytes_and_reopens_output() {
         "Grouping=\"altered\"",
         1,
     );
-    assert!(
-        f02_track_attribute_edit_oracle::check(
-            &f02_track_attribute_edit_oracle::GROUPING,
-            mutated.as_bytes()
-        )
-        .is_err()
-    );
+    assert!(f02_track_attribute_edit_oracle::check(&f02_track_attribute_edit_oracle::GROUPING, mutated.as_bytes()).is_err());
     assert_eq!(std::fs::read(&source).unwrap(), original);
     assert_eq!(std::fs::read(&catalog).unwrap(), catalog_before);
     assert_eq!(
@@ -4076,13 +4037,7 @@ fn track_remixer_edit_ui_exports_previewed_bytes_and_reopens_output() {
         "Remixer=\"altered\"",
         1,
     );
-    assert!(
-        f02_track_attribute_edit_oracle::check(
-            &f02_track_attribute_edit_oracle::REMIXER,
-            mutated.as_bytes()
-        )
-        .is_err()
-    );
+    assert!(f02_track_attribute_edit_oracle::check(&f02_track_attribute_edit_oracle::REMIXER, mutated.as_bytes()).is_err());
     assert_eq!(std::fs::read(&source).unwrap(), original);
     assert_eq!(std::fs::read(&catalog).unwrap(), catalog_before);
     assert_eq!(
@@ -4347,11 +4302,7 @@ fn track_mix_edit_ui_refuses_unknown_invalid_stale_and_absent_values() {
 #[test]
 fn track_tonality_edit_ui_exports_actual_bytes_through_independent_oracle() {
     let (root, source) = temporary_xml();
-    std::fs::write(
-        &source,
-        include_bytes!("../../../xtask/tests/fixtures/f02-track-tonality-edit/source.xml"),
-    )
-    .unwrap();
+    std::fs::write(&source, include_bytes!("../../../xtask/tests/fixtures/f02-track-tonality-edit/source.xml")).unwrap();
     let mut app = app();
     app.xml_path = source.display().to_string();
     app.preview_xml();
@@ -4368,33 +4319,18 @@ fn track_tonality_edit_ui_exports_actual_bytes_through_independent_oracle() {
     app.prepare_xml_tonality_edit("100", Some("old & key"));
     app.export_xml_tonality_edit();
     assert_eq!(app.xml_edit_tonality, "new < key");
-    assert!(
-        f02_track_attribute_edit_oracle::check(
-            &f02_track_attribute_edit_oracle::TONALITY,
-            &std::fs::read(&output).unwrap()
-        )
-        .is_ok()
-    );
+    assert!(f02_track_attribute_edit_oracle::check(&f02_track_attribute_edit_oracle::TONALITY, &std::fs::read(&output).unwrap()).is_ok());
     app.select_xml_track("200", "B");
     app.prepare_xml_tonality_edit("200", None);
-    assert!(
-        app.xml_pending_tonality_edit.is_none(),
-        "absent Tonality insertion must refuse"
-    );
-    assert!(
-        app.xml_edit_error
-            .as_deref()
-            .unwrap()
-            .contains("no Tonality attribute")
-    );
+    assert!(app.xml_pending_tonality_edit.is_none(), "absent Tonality insertion must refuse");
+    assert!(app.xml_edit_error.as_deref().unwrap().contains("no Tonality attribute"));
     std::fs::remove_dir_all(root).unwrap();
 }
 
 #[test]
 fn track_tonality_ui_refuses_invalid_unknown_stale_duplicate_and_invalidates_pending() {
     let (root, source) = temporary_xml();
-    let fixture =
-        include_bytes!("../../../xtask/tests/fixtures/f02-track-tonality-edit/source.xml");
+    let fixture = include_bytes!("../../../xtask/tests/fixtures/f02-track-tonality-edit/source.xml");
     std::fs::write(&source, fixture).unwrap();
     let mut app = app();
     app.xml_path = source.display().to_string();
@@ -4420,10 +4356,7 @@ fn track_tonality_ui_refuses_invalid_unknown_stale_duplicate_and_invalidates_pen
     app.select_xml_track("100", "A");
     app.xml_edit_tonality = "Changed".into();
     app.prepare_xml_tonality_edit("100", Some("old & key"));
-    assert!(
-        app.xml_pending_tonality_edit.is_none(),
-        "duplicate target must refuse"
-    );
+    assert!(app.xml_pending_tonality_edit.is_none(), "duplicate target must refuse");
 
     std::fs::write(&source, fixture).unwrap();
     app.xml_path = source.display().to_string();
@@ -4433,10 +4366,7 @@ fn track_tonality_ui_refuses_invalid_unknown_stale_duplicate_and_invalidates_pen
     app.prepare_xml_tonality_edit("100", Some("old & key"));
     assert!(app.xml_pending_tonality_edit.is_some());
     app.preview_xml();
-    assert!(
-        app.xml_pending_tonality_edit.is_none(),
-        "reload must invalidate pending edit"
-    );
+    assert!(app.xml_pending_tonality_edit.is_none(), "reload must invalidate pending edit");
 
     let empty = String::from_utf8(fixture.to_vec())
         .unwrap()
@@ -4444,16 +4374,10 @@ fn track_tonality_ui_refuses_invalid_unknown_stale_duplicate_and_invalidates_pen
     std::fs::write(&source, empty).unwrap();
     app.preview_xml();
     app.select_xml_track("100", "A");
-    assert_eq!(
-        app.xml_edit_tonality, "",
-        "present-empty Tonality must stay distinct from absent"
-    );
+    assert_eq!(app.xml_edit_tonality, "", "present-empty Tonality must stay distinct from absent");
     app.xml_edit_tonality = "new raw value".into();
     app.prepare_xml_tonality_edit("100", Some(""));
-    assert!(
-        app.xml_pending_tonality_edit.is_some(),
-        "present-empty Tonality is editable"
-    );
+    assert!(app.xml_pending_tonality_edit.is_some(), "present-empty Tonality is editable");
     app.cancel_xml_tonality_edit();
     assert!(app.xml_pending_tonality_edit.is_none());
 
@@ -4466,11 +4390,7 @@ fn track_tonality_ui_refuses_invalid_unknown_stale_duplicate_and_invalidates_pen
 #[test]
 fn track_kind_edit_ui_exports_actual_bytes_through_independent_oracle() {
     let (root, source) = temporary_xml();
-    std::fs::write(
-        &source,
-        include_bytes!("../../../xtask/tests/fixtures/f02-track-kind-edit/source.xml"),
-    )
-    .unwrap();
+    std::fs::write(&source, include_bytes!("../../../xtask/tests/fixtures/f02-track-kind-edit/source.xml")).unwrap();
     let mut app = app();
     app.xml_path = source.display().to_string();
     app.preview_xml();
@@ -4487,13 +4407,7 @@ fn track_kind_edit_ui_exports_actual_bytes_through_independent_oracle() {
     app.prepare_xml_kind_edit("100", Some("old & kind"));
     app.export_xml_kind_edit();
     assert_eq!(app.xml_edit_kind, "new < kind");
-    assert!(
-        f02_track_attribute_edit_oracle::check(
-            &f02_track_attribute_edit_oracle::KIND,
-            &std::fs::read(&output).unwrap()
-        )
-        .is_ok()
-    );
+    assert!(f02_track_attribute_edit_oracle::check(&f02_track_attribute_edit_oracle::KIND, &std::fs::read(&output).unwrap()).is_ok());
     std::fs::remove_dir_all(root).unwrap();
 }
 
@@ -4526,10 +4440,7 @@ fn track_kind_edit_ui_refuses_invalid_unknown_stale_duplicate_and_invalidates_pe
     app.select_xml_track("100", "A");
     app.xml_edit_kind = "Changed".into();
     app.prepare_xml_kind_edit("100", Some("old & kind"));
-    assert!(
-        app.xml_pending_kind_edit.is_none(),
-        "duplicate target must refuse"
-    );
+    assert!(app.xml_pending_kind_edit.is_none(), "duplicate target must refuse");
 
     std::fs::write(&source, fixture).unwrap();
     app.xml_path = source.display().to_string();
@@ -4539,10 +4450,7 @@ fn track_kind_edit_ui_refuses_invalid_unknown_stale_duplicate_and_invalidates_pe
     app.prepare_xml_kind_edit("100", Some("old & kind"));
     assert!(app.xml_pending_kind_edit.is_some());
     app.preview_xml();
-    assert!(
-        app.xml_pending_kind_edit.is_none(),
-        "reload must invalidate pending edit"
-    );
+    assert!(app.xml_pending_kind_edit.is_none(), "reload must invalidate pending edit");
 
     let empty = String::from_utf8(fixture.to_vec())
         .unwrap()
@@ -4550,16 +4458,10 @@ fn track_kind_edit_ui_refuses_invalid_unknown_stale_duplicate_and_invalidates_pe
     std::fs::write(&source, empty).unwrap();
     app.preview_xml();
     app.select_xml_track("100", "A");
-    assert_eq!(
-        app.xml_edit_kind, "",
-        "present-empty Kind must stay distinct from absent"
-    );
+    assert_eq!(app.xml_edit_kind, "", "present-empty Kind must stay distinct from absent");
     app.xml_edit_kind = "new raw value".into();
     app.prepare_xml_kind_edit("100", Some(""));
-    assert!(
-        app.xml_pending_kind_edit.is_some(),
-        "present-empty Kind is editable"
-    );
+    assert!(app.xml_pending_kind_edit.is_some(), "present-empty Kind is editable");
     app.cancel_xml_kind_edit();
     assert!(app.xml_pending_kind_edit.is_none());
 
@@ -4582,16 +4484,10 @@ fn track_kind_edit_ui_exports_and_reopens_present_empty_value() {
     app.xml_path = source.display().to_string();
     app.preview_xml();
     app.select_xml_track("100", "A");
-    assert_eq!(
-        app.xml_edit_kind, "",
-        "present-empty Kind must stay distinct from absent"
-    );
+    assert_eq!(app.xml_edit_kind, "", "present-empty Kind must stay distinct from absent");
     app.xml_edit_kind = "new < kind".into();
     app.prepare_xml_kind_edit("100", Some(""));
-    assert!(
-        app.xml_pending_kind_edit.is_some(),
-        "present-empty Kind is editable"
-    );
+    assert!(app.xml_pending_kind_edit.is_some(), "present-empty Kind is editable");
     let output = root.join("edited.xml");
     app.xml_kind_export_path = output.display().to_string();
     app.export_xml_kind_edit();
@@ -4603,11 +4499,7 @@ fn track_kind_edit_ui_exports_and_reopens_present_empty_value() {
 #[test]
 fn track_kind_edit_ui_refuses_changed_path_selection_and_proposal() {
     let (root, source) = temporary_xml();
-    std::fs::write(
-        &source,
-        include_bytes!("../../../xtask/tests/fixtures/f02-track-kind-edit/source.xml"),
-    )
-    .unwrap();
+    std::fs::write(&source, include_bytes!("../../../xtask/tests/fixtures/f02-track-kind-edit/source.xml")).unwrap();
     let mut app = app();
     app.xml_path = source.display().to_string();
     app.preview_xml();
@@ -4657,22 +4549,10 @@ fn track_kind_edit_ui_refuses_changed_path_selection_and_proposal() {
 fn source_path_change_discards_pending_kind_grouping_label_and_name_edits() {
     let (root, source) = temporary_xml();
     let fixtures: [(&[u8], &str); 4] = [
-        (
-            include_bytes!("../../../xtask/tests/fixtures/f02-track-kind-edit/source.xml"),
-            "kind",
-        ),
-        (
-            include_bytes!("../../../xtask/tests/fixtures/f02-track-grouping-edit/source.xml"),
-            "grouping",
-        ),
-        (
-            include_bytes!("../../../xtask/tests/fixtures/f02-track-label-edit/source.xml"),
-            "label",
-        ),
-        (
-            include_bytes!("../../../xtask/tests/fixtures/f02-track-kind-edit/source.xml"),
-            "name",
-        ),
+        (include_bytes!("../../../xtask/tests/fixtures/f02-track-kind-edit/source.xml"), "kind"),
+        (include_bytes!("../../../xtask/tests/fixtures/f02-track-grouping-edit/source.xml"), "grouping"),
+        (include_bytes!("../../../xtask/tests/fixtures/f02-track-label-edit/source.xml"), "label"),
+        (include_bytes!("../../../xtask/tests/fixtures/f02-track-kind-edit/source.xml"), "name"),
     ];
     for (fixture, field) in fixtures {
         std::fs::write(&source, fixture).unwrap();
@@ -4719,18 +4599,9 @@ fn source_path_change_discards_pending_kind_grouping_label_and_name_edits() {
 fn reload_and_source_change_discard_composer_grouping_label_and_playlist_move() {
     let (root, source) = temporary_xml();
     let fixtures: [(&[u8], &str); 3] = [
-        (
-            include_bytes!("../../../xtask/tests/fixtures/f02-track-composer-edit/source.xml"),
-            "composer",
-        ),
-        (
-            include_bytes!("../../../xtask/tests/fixtures/f02-track-grouping-edit/source.xml"),
-            "grouping",
-        ),
-        (
-            include_bytes!("../../../xtask/tests/fixtures/f02-track-label-edit/source.xml"),
-            "label",
-        ),
+        (include_bytes!("../../../xtask/tests/fixtures/f02-track-composer-edit/source.xml"), "composer"),
+        (include_bytes!("../../../xtask/tests/fixtures/f02-track-grouping-edit/source.xml"), "grouping"),
+        (include_bytes!("../../../xtask/tests/fixtures/f02-track-label-edit/source.xml"), "label"),
     ];
     for (fixture, field) in fixtures {
         std::fs::write(&source, fixture).unwrap();
@@ -4772,17 +4643,8 @@ fn reload_and_source_change_discard_composer_grouping_label_and_playlist_move() 
     let mut app = app();
     app.xml_path = source.display().to_string();
     app.preview_xml();
-    let target = app
-        .xml_preview
-        .as_ref()
-        .unwrap()
-        .as_ref()
-        .unwrap()
-        .folders
-        .iter()
-        .find(|f| f.name == "Target")
-        .unwrap()
-        .ordinal;
+    let target = app.xml_preview.as_ref().unwrap().as_ref().unwrap().folders.iter()
+        .find(|f| f.name == "Target").unwrap().ordinal;
     let prepare = |app: &mut LibraryApp| {
         app.xml_selected_playlist = Some(0);
         app.xml_move_destination = Some(target);
@@ -4791,17 +4653,11 @@ fn reload_and_source_change_discard_composer_grouping_label_and_playlist_move() 
     };
     prepare(&mut app);
     app.preview_xml();
-    assert!(
-        app.xml_pending_move.is_none(),
-        "reload must discard pending playlist move"
-    );
+    assert!(app.xml_pending_move.is_none(), "reload must discard pending playlist move");
     prepare(&mut app);
     app.xml_path = root.join("other.xml").display().to_string();
     app.on_xml_source_changed();
-    assert!(
-        app.xml_pending_move.is_none(),
-        "source change must discard pending playlist move"
-    );
+    assert!(app.xml_pending_move.is_none(), "source change must discard pending playlist move");
     std::fs::remove_dir_all(root).unwrap();
 }
 
@@ -4826,10 +4682,7 @@ fn track_tonality_ui_refuses_changed_path_selection_proposal_stale_source_and_ov
     app.xml_tonality_export_path = path_output.display().to_string();
     app.xml_path = root.join("other.xml").display().to_string();
     app.export_xml_tonality_edit();
-    assert!(
-        !path_output.exists(),
-        "changed editable path must refuse export"
-    );
+    assert!(!path_output.exists(), "changed editable path must refuse export");
     assert!(app.xml_pending_tonality_edit.is_none());
 
     prepare(&mut app);
@@ -4837,20 +4690,14 @@ fn track_tonality_ui_refuses_changed_path_selection_proposal_stale_source_and_ov
     app.xml_tonality_export_path = selection_output.display().to_string();
     app.select_xml_track("200", "B");
     app.export_xml_tonality_edit();
-    assert!(
-        !selection_output.exists(),
-        "changed selection must refuse export"
-    );
+    assert!(!selection_output.exists(), "changed selection must refuse export");
 
     prepare(&mut app);
     let proposal_output = root.join("changed-proposal.xml");
     app.xml_tonality_export_path = proposal_output.display().to_string();
     app.xml_edit_tonality = "changed after preview".into();
     app.export_xml_tonality_edit();
-    assert!(
-        !proposal_output.exists(),
-        "changed proposal must refuse export"
-    );
+    assert!(!proposal_output.exists(), "changed proposal must refuse export");
     assert!(app.xml_pending_tonality_edit.is_none());
 
     prepare(&mut app);
@@ -4860,16 +4707,8 @@ fn track_tonality_ui_refuses_changed_path_selection_proposal_stale_source_and_ov
     changed.extend_from_slice(b"\n<!-- changed after preparation -->\n");
     std::fs::write(&source, &changed).unwrap();
     app.export_xml_tonality_edit();
-    assert!(
-        !stale_output.exists(),
-        "changed source bytes must refuse export"
-    );
-    assert!(
-        app.xml_edit_error
-            .as_deref()
-            .unwrap()
-            .contains("source changed")
-    );
+    assert!(!stale_output.exists(), "changed source bytes must refuse export");
+    assert!(app.xml_edit_error.as_deref().unwrap().contains("source changed"));
     assert_eq!(std::fs::read(&source).unwrap(), changed);
     std::fs::write(&source, fixture).unwrap();
 
@@ -4878,33 +4717,19 @@ fn track_tonality_ui_refuses_changed_path_selection_proposal_stale_source_and_ov
     std::fs::write(&existing, b"keep").unwrap();
     app.xml_tonality_export_path = existing.display().to_string();
     app.export_xml_tonality_edit();
-    assert_eq!(
-        std::fs::read(&existing).unwrap(),
-        b"keep",
-        "export must not overwrite"
-    );
+    assert_eq!(std::fs::read(&existing).unwrap(), b"keep", "export must not overwrite");
     assert_eq!(std::fs::read(&source).unwrap(), fixture);
 
     let output = root.join("edited.xml");
     app.xml_tonality_export_path = output.display().to_string();
     app.export_xml_tonality_edit();
     let bytes = std::fs::read(&output).unwrap();
-    assert!(
-        f02_track_attribute_edit_oracle::check(&f02_track_attribute_edit_oracle::TONALITY, &bytes)
-            .is_ok()
-    );
-    let mutated =
-        String::from_utf8(bytes.clone())
-            .unwrap()
-            .replacen("new &lt; key", "new &lt; KEY", 1);
+    assert!(f02_track_attribute_edit_oracle::check(&f02_track_attribute_edit_oracle::TONALITY, &bytes).is_ok());
+    let mutated = String::from_utf8(bytes.clone())
+        .unwrap()
+        .replacen("new &lt; key", "new &lt; KEY", 1);
     assert_ne!(mutated.as_bytes(), bytes.as_slice());
-    assert!(
-        f02_track_attribute_edit_oracle::check(
-            &f02_track_attribute_edit_oracle::TONALITY,
-            mutated.as_bytes()
-        )
-        .is_err()
-    );
+    assert!(f02_track_attribute_edit_oracle::check(&f02_track_attribute_edit_oracle::TONALITY, mutated.as_bytes()).is_err());
     std::fs::remove_dir_all(root).unwrap();
 }
 
@@ -4919,16 +4744,8 @@ fn track_kind_ui_refuses_absent_insertion_stale_source_and_overwrite_with_oracle
     app.select_xml_track("200", "B");
     app.xml_edit_kind = "inserted".into();
     app.prepare_xml_kind_edit("200", None);
-    assert!(
-        app.xml_pending_kind_edit.is_none(),
-        "absent Kind insertion must refuse"
-    );
-    assert!(
-        app.xml_edit_error
-            .as_deref()
-            .unwrap()
-            .contains("no Kind attribute")
-    );
+    assert!(app.xml_pending_kind_edit.is_none(), "absent Kind insertion must refuse");
+    assert!(app.xml_edit_error.as_deref().unwrap().contains("no Kind attribute"));
 
     let prepare = |app: &mut LibraryApp| {
         app.xml_path = source.display().to_string();
@@ -4945,16 +4762,8 @@ fn track_kind_ui_refuses_absent_insertion_stale_source_and_overwrite_with_oracle
     changed.extend_from_slice(b"\n<!-- changed after preparation -->\n");
     std::fs::write(&source, &changed).unwrap();
     app.export_xml_kind_edit();
-    assert!(
-        !stale_output.exists(),
-        "changed source bytes must refuse export"
-    );
-    assert!(
-        app.xml_edit_error
-            .as_deref()
-            .unwrap()
-            .contains("source changed")
-    );
+    assert!(!stale_output.exists(), "changed source bytes must refuse export");
+    assert!(app.xml_edit_error.as_deref().unwrap().contains("source changed"));
     std::fs::write(&source, fixture).unwrap();
 
     prepare(&mut app);
@@ -4962,33 +4771,19 @@ fn track_kind_ui_refuses_absent_insertion_stale_source_and_overwrite_with_oracle
     std::fs::write(&existing, b"keep").unwrap();
     app.xml_kind_export_path = existing.display().to_string();
     app.export_xml_kind_edit();
-    assert_eq!(
-        std::fs::read(&existing).unwrap(),
-        b"keep",
-        "export must not overwrite"
-    );
+    assert_eq!(std::fs::read(&existing).unwrap(), b"keep", "export must not overwrite");
     assert_eq!(std::fs::read(&source).unwrap(), fixture);
 
     let output = root.join("edited.xml");
     app.xml_kind_export_path = output.display().to_string();
     app.export_xml_kind_edit();
     let bytes = std::fs::read(&output).unwrap();
-    assert!(
-        f02_track_attribute_edit_oracle::check(&f02_track_attribute_edit_oracle::KIND, &bytes)
-            .is_ok()
-    );
-    let mutated =
-        String::from_utf8(bytes.clone())
-            .unwrap()
-            .replacen("new &lt; kind", "new &lt; KIND", 1);
+    assert!(f02_track_attribute_edit_oracle::check(&f02_track_attribute_edit_oracle::KIND, &bytes).is_ok());
+    let mutated = String::from_utf8(bytes.clone())
+        .unwrap()
+        .replacen("new &lt; kind", "new &lt; KIND", 1);
     assert_ne!(mutated.as_bytes(), bytes.as_slice());
-    assert!(
-        f02_track_attribute_edit_oracle::check(
-            &f02_track_attribute_edit_oracle::KIND,
-            mutated.as_bytes()
-        )
-        .is_err()
-    );
+    assert!(f02_track_attribute_edit_oracle::check(&f02_track_attribute_edit_oracle::KIND, mutated.as_bytes()).is_err());
     std::fs::remove_dir_all(root).unwrap();
 }
 
@@ -5072,17 +4867,12 @@ fn track_mix_edit_ui_exports_previewed_bytes_through_independent_oracle() {
     assert_eq!(bytes, prepared);
     f02_track_attribute_edit_oracle::check(&f02_track_attribute_edit_oracle::MIX, &bytes)
         .expect("independent F-02 Mix oracle accepts UI bytes");
-    let mutated =
-        String::from_utf8(bytes)
-            .unwrap()
-            .replacen("Mix=\"new &lt; set\"", "Mix=\"altered\"", 1);
-    assert!(
-        f02_track_attribute_edit_oracle::check(
-            &f02_track_attribute_edit_oracle::MIX,
-            mutated.as_bytes()
-        )
-        .is_err()
+    let mutated = String::from_utf8(bytes).unwrap().replacen(
+        "Mix=\"new &lt; set\"",
+        "Mix=\"altered\"",
+        1,
     );
+    assert!(f02_track_attribute_edit_oracle::check(&f02_track_attribute_edit_oracle::MIX, mutated.as_bytes()).is_err());
     assert_eq!(std::fs::read(&source).unwrap(), original);
     assert_eq!(std::fs::read(&catalog).unwrap(), catalog_before);
     assert_eq!(
@@ -5549,13 +5339,7 @@ fn track_album_edit_ui_exports_previewed_bytes_through_independent_oracle() {
         1,
     );
     assert_ne!(mutated.as_bytes(), bytes.as_slice());
-    assert!(
-        f02_track_attribute_edit_oracle::check(
-            &f02_track_attribute_edit_oracle::ALBUM,
-            mutated.as_bytes()
-        )
-        .is_err()
-    );
+    assert!(f02_track_attribute_edit_oracle::check(&f02_track_attribute_edit_oracle::ALBUM, mutated.as_bytes()).is_err());
     assert_eq!(std::fs::read(&source).unwrap(), original);
     assert_eq!(std::fs::read(&catalog).unwrap(), catalog_before);
     let reopened = app.xml_preview.as_ref().unwrap().as_ref().unwrap();
@@ -5958,12 +5742,8 @@ fn track_album_edit_ui_round_trips_xml_entities_and_whitespace() {
     let bytes = std::fs::read(&output).unwrap();
     let text = String::from_utf8(bytes.clone()).unwrap();
     assert!(text.contains("Album=\"new &lt; record &amp; mix&#9;first&#10;second&#13;\""));
-    f02_track_attribute_edit_oracle::check_with(
-        &f02_track_attribute_edit_oracle::ALBUM,
-        &bytes,
-        album,
-    )
-    .expect("independent F-02 oracle preserves escaped Album text");
+    f02_track_attribute_edit_oracle::check_with(&f02_track_attribute_edit_oracle::ALBUM, &bytes, album)
+        .expect("independent F-02 oracle preserves escaped Album text");
     assert_eq!(
         app.xml_preview
             .as_ref()
@@ -6056,23 +5836,16 @@ fn toolbar_controls_fit_narrow_and_wide_viewports() {
             "/a/very/long/catalog/path/that/must/not/push/actions/offscreen/catalog.sqlite",
         );
         let input = || egui::RawInput {
-            screen_rect: Some(egui::Rect::from_min_size(
-                egui::Pos2::ZERO,
-                egui::vec2(width, 600.0),
-            )),
+            screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(width, 600.0))),
             ..Default::default()
         };
         let mut rects = Vec::new();
         for _ in 0..2 {
             let output = ctx.run(input(), |ctx| {
                 let tokens = app.active_tokens();
-                egui::TopBottomPanel::top("test-toolbar")
-                    .show(ctx, |ui| app.toolbar(ui, ctx, tokens));
+                egui::TopBottomPanel::top("test-toolbar").show(ctx, |ui| app.toolbar(ui, ctx, tokens));
             });
-            let update = output
-                .platform_output
-                .accesskit_update
-                .expect("AccessKit update");
+            let update = output.platform_output.accesskit_update.expect("AccessKit update");
             rects = update
                 .nodes
                 .iter()
@@ -6085,35 +5858,21 @@ fn toolbar_controls_fit_narrow_and_wide_viewports() {
                     )
                 })
                 .filter_map(|(_, node)| node.bounds())
-                .map(|r| {
-                    egui::Rect::from_min_max(
-                        egui::pos2(r.x0 as f32, r.y0 as f32),
-                        egui::pos2(r.x1 as f32, r.y1 as f32),
-                    )
-                })
+                .map(|r| egui::Rect::from_min_max(egui::pos2(r.x0 as f32, r.y0 as f32), egui::pos2(r.x1 as f32, r.y1 as f32)))
                 .collect::<Vec<_>>();
         }
         // W8: one row of search, three panel toggles, theme and "…"; the
         // catalog/import/XML grid moved into the "…" menu (shell_tests.rs).
-        assert!(
-            rects.len() >= 6,
-            "expected the production toolbar controls at {width}px: {rects:?}"
-        );
+        assert!(rects.len() >= 6, "expected the production toolbar controls at {width}px: {rects:?}");
         let row = rects.iter().fold(rects[0], |a, b| a.union(*b));
-        assert!(
-            row.height() <= 32.0,
-            "toolbar controls share one row at {width}px: {rects:?}"
-        );
+        assert!(row.height() <= 32.0, "toolbar controls share one row at {width}px: {rects:?}");
         let content = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(width, 600.0));
         assert!(
             rects.iter().all(|rect| content.contains_rect(*rect)),
             "toolbar control clipped at {width}px: {rects:?}"
         );
         assert!(
-            rects
-                .iter()
-                .enumerate()
-                .all(|(i, a)| rects[i + 1..].iter().all(|b| !a.intersects(*b))),
+            rects.iter().enumerate().all(|(i, a)| rects[i + 1..].iter().all(|b| !a.intersects(*b))),
             "toolbar controls overlap at {width}px: {rects:?}"
         );
     }
@@ -6959,33 +6718,21 @@ fn xml_window_fits_scrolls_and_reports_disabled_reorder_at_narrow_width() {
     let window = ctx
         .memory(|m| m.area_rect(egui::Id::new("Rekordbox XML preview · guarded edits")))
         .expect("XML window shown");
-    assert!(
-        screen.contains_rect(window),
-        "XML window clipped: {window:?}"
-    );
+    assert!(screen.contains_rect(window), "XML window clipped: {window:?}");
     let up = find(&before, "Move up");
     let down = find(&before, "Move down");
     assert!(up.2, "first member's Move up must be disabled");
     assert!(!down.2, "Move down must be enabled");
     assert!(up.3.width() >= 24.0 && up.3.height() >= 18.0, "{:?}", up.3);
-    assert!(
-        up.3.bottom() > window.bottom(),
-        "content taller than the window: {:?} vs {window:?}",
-        up.3
-    );
+    assert!(up.3.bottom() > window.bottom(), "content taller than the window: {:?} vs {window:?}", up.3);
     // Window-only actions (the panels behind the window have none of these).
     let window_action = |label: &Option<String>| {
         label.as_deref().is_some_and(|l| {
-            l.starts_with("Prepare")
-                || l.starts_with("Export")
-                || ["Move up", "Move down", "Select"].contains(&l)
+            l.starts_with("Prepare") || l.starts_with("Export") || ["Move up", "Move down", "Select"].contains(&l)
         })
     };
     let actions = before.iter().filter(|n| window_action(&n.1)).count();
-    assert!(
-        actions >= 5,
-        "expected the XML window actions in the tree: {actions}"
-    );
+    assert!(actions >= 5, "expected the XML window actions in the tree: {actions}");
     for (role, label, _, rect) in &before {
         if matches!(role, egui::accesskit::Role::Button) && window_action(label) {
             assert!(
@@ -6996,21 +6743,10 @@ fn xml_window_fits_scrolls_and_reports_disabled_reorder_at_narrow_width() {
     }
 
     // Every text field (toolbar and XML window) meets the 24 px target.
-    let fields: Vec<_> = before
-        .iter()
-        .filter(|n| n.0 == egui::accesskit::Role::TextInput)
-        .collect();
-    assert!(
-        fields.len() >= 5,
-        "toolbar + XML window text fields: {}",
-        fields.len()
-    );
+    let fields: Vec<_> = before.iter().filter(|n| n.0 == egui::accesskit::Role::TextInput).collect();
+    assert!(fields.len() >= 5, "toolbar + XML window text fields: {}", fields.len());
     for field in &fields {
-        assert!(
-            field.3.height() >= 24.0,
-            "text field below 24 px: {:?}",
-            field.3
-        );
+        assert!(field.3.height() >= 24.0, "text field below 24 px: {:?}", field.3);
     }
 
     // Wheel near the window bottom, below the inner (bounded) track list.
@@ -7018,24 +6754,17 @@ fn xml_window_fits_scrolls_and_reports_disabled_reorder_at_narrow_width() {
     frame(&mut app, vec![egui::Event::PointerMoved(pointer)]);
     frame(
         &mut app,
-        vec![
-            egui::Event::PointerMoved(pointer),
-            egui::Event::MouseWheel {
-                unit: egui::MouseWheelUnit::Point,
-                delta: egui::vec2(0.0, -2000.0),
-                modifiers: egui::Modifiers::default(),
-            },
-        ],
+        vec![egui::Event::PointerMoved(pointer), egui::Event::MouseWheel {
+            unit: egui::MouseWheelUnit::Point,
+            delta: egui::vec2(0.0, -2000.0),
+            modifiers: egui::Modifiers::default(),
+        }],
     );
     for _ in 0..30 {
         frame(&mut app, vec![]);
     }
     let after = nodes(frame(&mut app, vec![]));
     let scrolled = find(&after, "Move up").3;
-    assert!(
-        scrolled.top() < up.3.top() - 50.0,
-        "window content scrolled: {:?} -> {scrolled:?}",
-        up.3
-    );
+    assert!(scrolled.top() < up.3.top() - 50.0, "window content scrolled: {:?} -> {scrolled:?}", up.3);
     std::fs::remove_dir_all(root).unwrap();
 }

@@ -387,8 +387,7 @@ pub fn publish_smooth(ctx: &egui::Context, smooth: bool) {
 
 /// The published "Smooth" setting; on (anti-aliased) when never published.
 pub fn smooth(ctx: &egui::Context) -> bool {
-    ctx.data(|d| d.get_temp(egui::Id::NULL.with(SMOOTH_ID)))
-        .unwrap_or(true)
+    ctx.data(|d| d.get_temp(egui::Id::NULL.with(SMOOTH_ID))).unwrap_or(true)
 }
 
 /// Reused layer buffers, keyed by the widget id in egui temp memory.
@@ -434,9 +433,7 @@ pub fn waveform_view_sized(
         .each_mut()
         .map(|slot| Arc::get_mut(slot).map(std::mem::take).unwrap_or_default());
     let fringe = if smooth(ui.ctx()) { FRINGE } else { 0.0 };
-    build_layers_with_fringe(
-        peaks, style, viewport, eq, rect, palette, fringe, &mut owned,
-    );
+    build_layers_with_fringe(peaks, style, viewport, eq, rect, palette, fringe, &mut owned);
     for (slot, mesh) in slots.iter_mut().zip(owned) {
         match Arc::get_mut(slot) {
             Some(dst) => *dst = mesh,

@@ -147,17 +147,16 @@ impl Loaded {
     pub(crate) fn read(catalog: Option<&Catalog>, item: &TrackDetails) -> Self {
         let id = item.track.id.as_u64();
         let unavailable = || "catalog unavailable".to_string();
-        let computed =
-            catalog
-                .ok_or_else(unavailable)
-                .and_then(|db| match db.read_waveform(item.track.id) {
-                    Ok(Some(stored)) if stored.source_sha256 == item.track.sha256 => {
-                        Ok(Some(stored.peaks))
-                    }
-                    Ok(Some(_)) => Err("stored waveform is out of date (source changed)".into()),
-                    Ok(None) => Ok(None),
-                    Err(e) => Err(e.to_string()),
-                });
+        let computed = catalog.ok_or_else(unavailable).and_then(|db| {
+            match db.read_waveform(item.track.id) {
+                Ok(Some(stored)) if stored.source_sha256 == item.track.sha256 => {
+                    Ok(Some(stored.peaks))
+                }
+                Ok(Some(_)) => Err("stored waveform is out of date (source changed)".into()),
+                Ok(None) => Ok(None),
+                Err(e) => Err(e.to_string()),
+            }
+        });
         let (uri, _) = oxidj_application::location_uri(&item.track.path);
         let vendor = catalog.ok_or_else(unavailable).and_then(|db| {
             db.vendor_waveforms_for_locations(&[&item.track.path, &uri])
@@ -323,11 +322,7 @@ impl TrackWaveformPanel {
                         let default = (max as f32 * DEFAULT_POSITION).round() as usize;
                         let mut b = bar.unwrap_or(default).min(max);
                         layout.position = Some(position_row(ui, rail, tokens, |ui| {
-                            ui.add(
-                                egui::Slider::new(&mut b, 0..=max)
-                                    .trailing_fill(true)
-                                    .show_value(false),
-                            )
+                            ui.add(egui::Slider::new(&mut b, 0..=max).trailing_fill(true).show_value(false))
                         }));
                         *bar = Some(b);
                         let ms = grid.window_ms_for(b, prefs.zoom_bars);
@@ -337,16 +332,11 @@ impl TrackWaveformPanel {
                         (s, e.saturating_sub(s).max(1))
                     }
                     None => {
-                        let window =
-                            ((rate * prefs.detail_seconds()) as u64).clamp(1, total.max(1));
+                        let window = ((rate * prefs.detail_seconds()) as u64).clamp(1, total.max(1));
                         let slack = total.saturating_sub(window);
                         let mut pos = position.unwrap_or(DEFAULT_POSITION).clamp(0.0, 1.0);
                         layout.position = Some(position_row(ui, rail, tokens, |ui| {
-                            ui.add(
-                                egui::Slider::new(&mut pos, 0.0..=1.0)
-                                    .trailing_fill(true)
-                                    .show_value(false),
-                            )
+                            ui.add(egui::Slider::new(&mut pos, 0.0..=1.0).trailing_fill(true).show_value(false))
                         }));
                         *position = Some(pos);
                         ((slack as f64 * f64::from(pos)) as u64, window)
@@ -365,16 +355,10 @@ impl TrackWaveformPanel {
                     Some((_, GridSource::Computed)) => 2,
                     None => 0,
                 };
-                let below = below_detail_height(
-                    ui,
-                    loaded.vendor.as_ref().is_ok_and(|v| !v.is_empty()),
-                    grid_lines,
-                );
+                let below = below_detail_height(ui, loaded.vendor.as_ref().is_ok_and(|v| !v.is_empty()), grid_lines);
                 let height = detail_height(ui, below);
                 let view = waveform_view_sized(ui, Some(peaks), *style, detail, *eq, height);
-                if let (true, Some(grid), Some((ms, _))) =
-                    (prefs.beat_lines, grid, layout.grid_window)
-                {
+                if let (true, Some(grid), Some((ms, _))) = (prefs.beat_lines, grid, layout.grid_window) {
                     beat_grid::paint(ui, view.id.with("beat-grid"), view.rect, grid, ms, tokens);
                 }
                 layout.view = Some(view.rect);
@@ -398,12 +382,7 @@ impl TrackWaveformPanel {
                 // focus-colour outline (the 16 % tint alone was faint).
                 let painter = ui.painter_at(r);
                 painter.rect_filled(marker, 2.0, tokens.text.gamma_multiply(0.12));
-                painter.rect_stroke(
-                    marker,
-                    2.0,
-                    egui::Stroke::new(1.0_f32, tokens.focus),
-                    egui::StrokeKind::Inside,
-                );
+                painter.rect_stroke(marker, 2.0, egui::Stroke::new(1.0_f32, tokens.focus), egui::StrokeKind::Inside);
                 layout.overview = Some(r);
                 let track_s = total as f64 / rate;
                 // W9: short lines that wrap inside the panel (never clip).
@@ -476,10 +455,7 @@ impl TrackWaveformPanel {
                     // never widens the details panel past its minimum.
                     caption(
                         ui,
-                        &format!(
-                            "Not computed by OxiDJ · source: {} · shown as stored",
-                            waveform.kind()
-                        ),
+                        &format!("Not computed by OxiDJ · source: {} · shown as stored", waveform.kind()),
                         tokens,
                     );
                     layout.vendor = Some(vendor_strip(ui, waveform, tokens));
@@ -531,12 +507,7 @@ pub(crate) fn slider_look(ui: &mut Ui, tokens: ColorTokens) {
 
 /// The Position row: same label column, rail width and look as the gains
 /// (W11: it was drawn without the fill, so its rail looked nearly invisible).
-fn position_row(
-    ui: &mut Ui,
-    rail: f32,
-    tokens: ColorTokens,
-    add: impl FnOnce(&mut Ui) -> egui::Response,
-) -> Rect {
+fn position_row(ui: &mut Ui, rail: f32, tokens: ColorTokens, add: impl FnOnce(&mut Ui) -> egui::Response) -> Rect {
     ui.scope(|ui| {
         slider_look(ui, tokens);
         ui.spacing_mut().slider_width = rail;
@@ -547,10 +518,7 @@ fn position_row(
 
 /// "beat grid: computed (taktus 0.1.0), 128.00 BPM".
 pub(crate) fn computed_grid_label(tempo: &ComputedTempo) -> String {
-    format!(
-        "beat grid: computed ({}), {:.2} BPM",
-        tempo.algorithm, tempo.bpm
-    )
+    format!("beat grid: computed ({}), {:.2} BPM", tempo.algorithm, tempo.bpm)
 }
 
 /// One small muted caption line, wrapped to the panel width.
@@ -821,12 +789,7 @@ mod tests {
         // W11: the overview sits 4 px under the detail strip with the same
         // left/right inset, and the Position rail carries the same primary
         // trailing fill as the gain rails (it was drawn without one).
-        let overview = h
-            .app
-            .track_waveform
-            .layout
-            .overview
-            .expect("overview drawn");
+        let overview = h.app.track_waveform.layout.overview.expect("overview drawn");
         assert!(
             (overview.top() - view.bottom() - 4.0).abs() < 0.5,
             "4 px gap: {view:?} {overview:?}"
@@ -839,16 +802,8 @@ mod tests {
                     if r.fill == primary && rect.contains_rect(r.rect) && r.rect.width() > 1.0)
             })
         };
-        let position = h
-            .app
-            .track_waveform
-            .layout
-            .position
-            .expect("position slider");
-        assert!(
-            filled(h.app.track_waveform.layout.eq.unwrap()[0]),
-            "gain rail filled"
-        );
+        let position = h.app.track_waveform.layout.position.expect("position slider");
+        assert!(filled(h.app.track_waveform.layout.eq.unwrap()[0]), "gain rail filled");
         assert!(filled(position), "position rail filled like the gains");
         assert!(has_text(&out, "Waveform · computed by OxiDJ"));
         // Vendor strip: own labelled rect, never overlapping computed peaks.
@@ -873,8 +828,7 @@ mod tests {
         assert_eq!(
             h.app.track_waveform.layout.view,
             Some(view),
-            "view rect stable {:?}",
-            h.app.track_waveform.layout.view
+            "view rect stable {:?}", h.app.track_waveform.layout.view
         );
         let a_rgb = waveform_vertices(&out, view);
         assert!(!a_rgb.is_empty());
@@ -1205,9 +1159,7 @@ mod tests {
             .shapes
             .iter()
             .find_map(|c| match &c.shape {
-                Shape::Text(t) if t.galley.job.text == label && panel.contains(t.pos) => {
-                    Some(t.pos.y)
-                }
+                Shape::Text(t) if t.galley.job.text == label && panel.contains(t.pos) => Some(t.pos.y),
                 _ => None,
             })
             .unwrap_or_else(|| panic!("{label:?} not painted in {panel:?}"))
@@ -1264,12 +1216,7 @@ mod tests {
             .expect("click track has a computed grid")
             .grid;
         assert!((stored.bpm() - 120.0).abs() < 1.0, "{}", stored.bpm());
-        assert!(
-            catalog
-                .computed_beat_grid(id_of("v-both.wav").id)
-                .unwrap()
-                .is_some()
-        );
+        assert!(catalog.computed_beat_grid(id_of("v-both.wav").id).unwrap().is_some());
         // v-both also has an imported grid (deliberately offset from the
         // computed beats so the two are distinguishable).
         let (location, _) = oxidj_application::location_uri(&id_of("v-both.wav").path);
@@ -1294,11 +1241,7 @@ mod tests {
 
         let mut h = Harness {
             ctx: egui::Context::default(),
-            app: LibraryApp::new(
-                db.clone(),
-                ThemeMode::TokyoNight,
-                ThemeMode::TokyoNight.tokens(),
-            ),
+            app: LibraryApp::new(db.clone(), ThemeMode::TokyoNight, ThemeMode::TokyoNight.tokens()),
         };
         h.app.show_details = true;
         h.app.show_decks = false;
@@ -1308,51 +1251,24 @@ mod tests {
         let out = h.click(unique_text(&first, "c-computed.wav").center());
         let panel = h.app.shell.details.expect("details panel");
         let view = h.app.track_waveform.layout.view.expect("detail view");
-        let beats: Vec<f64> = stored
-            .beats_ms()
-            .iter()
-            .map(|&b| f64::from(b))
-            .filter(|&b| b < 20_000.0)
-            .collect();
+        let beats: Vec<f64> = stored.beats_ms().iter().map(|&b| f64::from(b)).filter(|&b| b < 20_000.0).collect();
         let bars = beats.len().div_ceil(4);
         let default = ((bars - super::beat_grid::BARS) as f32 * 0.25).round() as usize;
-        let (window, bar) = h
-            .app
-            .track_waveform
-            .layout
-            .grid_window
-            .expect("computed grid used");
+        let (window, bar) = h.app.track_waveform.layout.grid_window.expect("computed grid used");
         assert_eq!(bar, default);
-        assert_eq!(
-            window,
-            (beats[4 * bar], beats[4 * (bar + 4)]),
-            "four bars from a counted bar line"
-        );
-        let caption = format!(
-            "beat grid: computed (taktus 0.1.0), {:.2} BPM",
-            stored.bpm()
-        );
+        assert_eq!(window, (beats[4 * bar], beats[4 * (bar + 4)]), "four bars from a counted bar line");
+        let caption = format!("beat grid: computed (taktus 0.1.0), {:.2} BPM", stored.bpm());
         for label in [caption.as_str(), super::COMPUTED_GRID_NOTE] {
             let rect = unique_text(&out, label);
             assert!(panel.contains_rect(rect), "{label:?} inside the panel");
         }
-        assert!(
-            !has_text(&out, super::GRID_SOURCE_LABEL),
-            "never labelled as an import"
-        );
-        assert!(has_text(
-            &out,
-            &format!("Detail 4 bars from Bar {} of {bars}", bar + 1)
-        ));
+        assert!(!has_text(&out, super::GRID_SOURCE_LABEL), "never labelled as an import");
+        assert!(has_text(&out, &format!("Detail 4 bars from Bar {} of {bars}", bar + 1)));
         assert!(!has_text(&out, "Detail 8 s window"));
         // Lines at the stored beat times; every 4th beat from the first is a bar line.
         let lines = grid_lines(&out, view);
         let first_beat = beats.partition_point(|&b| b < window.0);
-        let expected: Vec<_> = beats
-            .iter()
-            .enumerate()
-            .filter(|(_, b)| (window.0..window.1).contains(*b))
-            .collect();
+        let expected: Vec<_> = beats.iter().enumerate().filter(|(_, b)| (window.0..window.1).contains(*b)).collect();
         assert_eq!(lines.len(), expected.len(), "{lines:?}");
         assert_eq!(expected.len(), 16);
         for (&(x, is_bar), &(i, &t)) in lines.iter().zip(&expected) {
@@ -1362,10 +1278,7 @@ mod tests {
         }
         assert_eq!(first_beat, 4 * bar);
         for n in bar + 1..=bar + 4 {
-            assert!(
-                view.contains_rect(unique_text(&out, &format!("Bar {n}"))),
-                "Bar {n}"
-            );
+            assert!(view.contains_rect(unique_text(&out, &format!("Bar {n}"))), "Bar {n}");
         }
         // Facts row: value with two decimals, in the facts rhythm, no badge
         // while confident, and a muted "low" badge below the threshold.
@@ -1373,68 +1286,31 @@ mod tests {
         let key = unique_text(&out, crate::view::COMPUTED_BPM_LABEL);
         let value_rect = unique_text(&out, &value);
         assert!(panel.contains_rect(key) && panel.contains_rect(value_rect));
-        assert!(
-            (key.center().y - value_rect.center().y).abs() <= 2.0,
-            "one row"
-        );
+        assert!((key.center().y - value_rect.center().y).abs() <= 2.0, "one row");
         let pitch = top_in(&out, "Size", panel) - top_in(&out, "Bit depth", panel);
         let bpm_top = top_in(&out, crate::view::COMPUTED_BPM_LABEL, panel);
-        assert!(
-            (bpm_top - top_in(&out, "Size", panel) - 2.0 * pitch).abs() <= 1.0,
-            "Size -> Imported key -> BPM rhythm"
-        );
-        assert!(
-            (top_in(&out, "Availability", panel) - bpm_top - pitch).abs() <= 1.0,
-            "BPM -> Availability rhythm"
-        );
+        assert!((bpm_top - top_in(&out, "Size", panel) - 2.0 * pitch).abs() <= 1.0, "Size -> Imported key -> BPM rhythm");
+        assert!((top_in(&out, "Availability", panel) - bpm_top - pitch).abs() <= 1.0, "BPM -> Availability rhythm");
         let confident = stored.confidence() >= super::LOW_CONFIDENCE;
         assert_eq!(texts(&out).iter().any(|(t, _)| t == "low"), !confident);
-        h.app
-            .track_waveform
-            .loaded
-            .as_mut()
-            .unwrap()
-            .tempo
-            .as_mut()
-            .unwrap()
-            .as_mut()
-            .unwrap()
-            .confidence = 0.1;
+        h.app.track_waveform.loaded.as_mut().unwrap().tempo.as_mut().unwrap().as_mut().unwrap().confidence = 0.1;
         let out = h.frame(vec![]);
         let low = unique_text(&out, "low");
-        assert!(
-            panel.contains_rect(low) && low.left() > value_rect.right(),
-            "badge after the value {low:?}"
-        );
+        assert!(panel.contains_rect(low) && low.left() > value_rect.right(), "badge after the value {low:?}");
         assert!((low.center().y - value_rect.center().y).abs() <= 2.0);
         let tokens = ThemeMode::TokyoNight.tokens();
         let badge = out.shapes.iter().find_map(|c| match &c.shape {
-            Shape::Rect(r) if r.rect.contains_rect(low) && r.stroke.color == tokens.muted_text => {
-                Some(r.rect)
-            }
+            Shape::Rect(r) if r.rect.contains_rect(low) && r.stroke.color == tokens.muted_text => Some(r.rect),
             _ => None,
         });
         assert!(badge.is_some(), "muted-token badge outline around \"low\"");
-        h.app
-            .track_waveform
-            .loaded
-            .as_mut()
-            .unwrap()
-            .tempo
-            .as_mut()
-            .unwrap()
-            .as_mut()
-            .unwrap()
-            .confidence = 0.9;
+        h.app.track_waveform.loaded.as_mut().unwrap().tempo.as_mut().unwrap().as_mut().unwrap().confidence = 0.9;
         assert!(!texts(&h.frame(vec![])).iter().any(|(t, _)| t == "low"));
 
         // 2. Imported and computed grids: the import wins (W6 window).
         let out = h.click(unique_text(&out, "v-both.wav").center());
         assert_eq!(h.app.selected, Some(id_of("v-both.wav").id.as_u64()));
-        assert_eq!(
-            h.app.track_waveform.layout.grid_window,
-            Some(((5_250.0, 13_250.0), 2))
-        );
+        assert_eq!(h.app.track_waveform.layout.grid_window, Some(((5_250.0, 13_250.0), 2)));
         assert!(has_text(&out, super::GRID_SOURCE_LABEL));
         assert!(!has_text(&out, "beat grid: computed"));
         assert!(!has_text(&out, super::COMPUTED_GRID_NOTE));
@@ -1443,10 +1319,7 @@ mod tests {
         assert_eq!(lines.len(), 16);
         for (k, &(x, is_bar)) in lines.iter().enumerate() {
             let want = view.left() + (500.0 * k as f32) / 8_000.0 * view.width();
-            assert!(
-                (x - want).abs() <= 1.01 && is_bar == (k % 4 == 0),
-                "imported beat {k}"
-            );
+            assert!((x - want).abs() <= 1.01 && is_bar == (k % 4 == 0), "imported beat {k}");
         }
         // Its computed BPM is still a fact of the file.
         assert!(has_text(&out, crate::view::COMPUTED_BPM_LABEL));
@@ -1532,33 +1405,20 @@ mod tests {
             let position = layout.position.expect("position slider");
             let eq = layout.eq.expect("gain sliders");
             for rect in styles.iter().chain(eq.iter()).chain([&position, &view]) {
-                assert!(
-                    screen.contains_rect(*rect),
-                    "{style:?}: {rect:?} clipped at 900 px"
-                );
+                assert!(screen.contains_rect(*rect), "{style:?}: {rect:?} clipped at 900 px");
             }
             for rail in eq.iter().chain([&position]) {
-                assert!(
-                    rail.width() >= 120.0 && rail.height() >= 18.0,
-                    "{style:?}: slider too small {rail:?}"
-                );
+                assert!(rail.width() >= 120.0 && rail.height() >= 18.0, "{style:?}: slider too small {rail:?}");
             }
             // The details panel leaves the track table >= 60% of the window.
-            assert!(
-                view.left() >= 900.0 * 0.6 - 24.0,
-                "{style:?}: details panel too wide {view:?}"
-            );
+            assert!(view.left() >= 900.0 * 0.6 - 24.0, "{style:?}: details panel too wide {view:?}");
         }
 
         // A real click near the left end of the Low rail lowers the gain.
         let low = app.track_waveform.layout.eq.unwrap()[0];
         assert_eq!(app.track_waveform.eq.low, 1.0);
         click(&mut app, Pos2::new(low.left() + 4.0, low.center().y));
-        assert!(
-            app.track_waveform.eq.low < 0.2,
-            "Low rail reachable: {}",
-            app.track_waveform.eq.low
-        );
+        assert!(app.track_waveform.eq.low < 0.2, "Low rail reachable: {}", app.track_waveform.eq.low);
         std::fs::remove_dir_all(root).unwrap();
     }
 
@@ -1591,34 +1451,14 @@ mod tests {
             .import_audio_directory(audio.to_str().unwrap())
             .unwrap();
         let details = catalog.list_track_details().unwrap();
-        let by_name = |name: &str| {
-            details
-                .iter()
-                .find(|t| t.track.path.ends_with(name))
-                .unwrap()
-                .track
-                .clone()
-        };
+        let by_name = |name: &str| details.iter().find(|t| t.track.path.ends_with(name)).unwrap().track.clone();
         let track = by_name("w9-grid-vendor.wav");
         let computed = by_name("w9-computed.wav");
         oxidj_application::analyze_track_waveform(&mut catalog, track.id, false).unwrap();
         oxidj_application::analyze_track_waveform(&mut catalog, computed.id, false).unwrap();
-        oxidj_application::analyze_track_tempo(
-            &mut catalog,
-            computed.id,
-            oxidj_application::DEFAULT_TEMPO_RANGE,
-        )
-        .unwrap();
-        let tempo = catalog
-            .computed_beat_grid(computed.id)
-            .unwrap()
-            .expect("computed grid")
-            .grid;
-        let computed_label = format!(
-            "beat grid: computed ({}), {:.2} BPM",
-            tempo.algorithm(),
-            tempo.bpm()
-        );
+        oxidj_application::analyze_track_tempo(&mut catalog, computed.id, oxidj_application::DEFAULT_TEMPO_RANGE).unwrap();
+        let tempo = catalog.computed_beat_grid(computed.id).unwrap().expect("computed grid").grid;
+        let computed_label = format!("beat grid: computed ({}), {:.2} BPM", tempo.algorithm(), tempo.bpm());
         let (location, _) = oxidj_application::location_uri(&track.path);
         catalog
             .import_library(&LibrarySnapshot {
@@ -1650,170 +1490,126 @@ mod tests {
             modifiers: egui::Modifiers::default(),
         };
         for (name, vendor) in [("w9-grid-vendor.wav", true), ("w9-computed.wav", false)] {
-            for mode in [ThemeMode::TokyoNight, ThemeMode::TokyoDay] {
-                for (w, h) in [(750.0, 900.0), (1440.0, 900.0), (1440.0, 600.0)] {
-                    let screen = Rect::from_min_size(Pos2::ZERO, egui::vec2(w, h));
-                    let ctx = egui::Context::default();
-                    let mut app = LibraryApp::new(db.clone(), mode, mode.tokens());
-                    app.show_details = true;
-                    app.show_decks = false;
-                    let frame = |app: &mut LibraryApp, events: Vec<egui::Event>| {
-                        let input = egui::RawInput {
-                            screen_rect: Some(screen),
-                            events,
-                            ..Default::default()
-                        };
-                        ctx.run(input, |ctx| app.ui(ctx))
+        for mode in [ThemeMode::TokyoNight, ThemeMode::TokyoDay] {
+            for (w, h) in [(750.0, 900.0), (1440.0, 900.0), (1440.0, 600.0)] {
+                let screen = Rect::from_min_size(Pos2::ZERO, egui::vec2(w, h));
+                let ctx = egui::Context::default();
+                let mut app = LibraryApp::new(db.clone(), mode, mode.tokens());
+                app.show_details = true;
+                app.show_decks = false;
+                let frame = |app: &mut LibraryApp, events: Vec<egui::Event>| {
+                    let input = egui::RawInput {
+                        screen_rect: Some(screen),
+                        events,
+                        ..Default::default()
                     };
-                    let click = |app: &mut LibraryApp, pos: Pos2| {
-                        frame(app, vec![egui::Event::PointerMoved(pos), button(pos, true)]);
-                        frame(app, vec![button(pos, false)]);
-                        frame(app, vec![]);
-                        frame(app, vec![])
-                    };
-                    let first = frame(&mut app, vec![]);
-                    let out = click(&mut app, unique_text(&first, name).center());
-                    let tag = format!("{name} {mode:?} {w}x{h}");
-                    let panel = app.shell.details.expect("details panel");
-                    if w == 750.0 {
-                        assert_eq!(
-                            panel.width(),
-                            crate::view::DETAILS_MIN_WIDTH,
-                            "{tag}: at the details minimum width"
-                        );
-                    }
-                    let layout = app.track_waveform.layout;
-
-                    // 1. Captions: every caption glyph inside the panel and its clip
-                    // (at 600 px they sit below the scroll viewport and are culled).
-                    let detail_line = if vendor {
-                        "Detail 4 bars from Bar 3 of 10 · track 20.0 s · 44100 Hz".to_owned()
-                    } else {
-                        texts(&out)
-                            .into_iter()
-                            .map(|(t, _)| t)
-                            .find(|t| t.starts_with("Detail 4 bars from Bar "))
-                            // Culled below the viewport at 600 px (no captions checked there).
-                            .unwrap_or_default()
-                    };
-                    let captions: Vec<&str> = match (h == 600.0, vendor) {
-                        (true, _) => vec![],
-                        (false, true) => {
-                            vec![&detail_line, super::GRID_SOURCE_LABEL, super::GAIN_NOTE]
-                        }
-                        (false, false) => {
-                            vec![
-                                &detail_line,
-                                &computed_label,
-                                super::COMPUTED_GRID_NOTE,
-                                super::GAIN_NOTE,
-                            ]
-                        }
-                    };
-                    for &label in &captions {
-                        let hits: Vec<_> = out
-                            .shapes
-                            .iter()
-                            .filter_map(|c| match &c.shape {
-                                Shape::Text(t) if t.galley.job.text == label => {
-                                    Some((t.visual_bounding_rect(), c.clip_rect))
-                                }
-                                _ => None,
-                            })
-                            .collect();
-                        assert_eq!(hits.len(), 1, "{tag}: {label:?}");
-                        let (rect, clip) = hits[0];
-                        assert!(
-                            panel.contains_rect(rect) && clip.contains_rect(rect),
-                            "{tag}: {label:?} clipped: {rect:?} panel {panel:?} clip {clip:?}"
-                        );
-                    }
-
-                    // 2. Slider rows: label column, then rail, then value.
-                    let eq = layout.eq.expect("gain sliders");
-                    let position = layout.position.expect("position slider");
-                    let labels = ["Low", "Mid", "High", "Position"].map(|l| unique_text(&out, l));
-                    let rows = [eq[0], eq[1], eq[2], position];
-                    for (label, row) in labels.iter().zip(rows) {
-                        // Glyph bounds: allow ~1 px side bearing between letters.
-                        assert!(
-                            (label.left() - labels[0].left()).abs() <= 1.5,
-                            "{tag}: label column {labels:?}"
-                        );
-                        assert!(
-                            label.right() < row.left(),
-                            "{tag}: label before rail {label:?} {row:?}"
-                        );
-                        assert!(
-                            row.top() <= label.center().y && label.center().y <= row.bottom(),
-                            "{tag}: one row"
-                        );
-                        assert!(
-                            (row.left() - rows[0].left()).abs() < 0.5,
-                            "{tag}: rails aligned {rows:?}"
-                        );
-                        assert!(
-                            row.height() >= 24.0 && panel.contains_rect(row),
-                            "{tag}: {row:?}"
-                        );
-                    }
-                    let values: Vec<Rect> = texts(&out)
-                        .into_iter()
-                        .filter(|(t, _)| t == "1.00")
-                        .map(|(_, r)| r)
-                        .collect();
-                    assert_eq!(values.len(), 3, "{tag}: one value per gain");
-                    for (value, row) in values.iter().zip(&eq) {
-                        let rail_end = position.right();
-                        assert!(
-                            value.left() > rail_end,
-                            "{tag}: value after the rail {value:?}"
-                        );
-                        assert!(
-                            row.contains_rect(*value) && panel.contains_rect(*value),
-                            "{tag}: {value:?}"
-                        );
-                    }
-                    for row in &eq[1..] {
-                        assert!(
-                            (row.right() - eq[0].right()).abs() < 0.5,
-                            "{tag}: values aligned"
-                        );
-                    }
-
-                    // 3. Strip height follows the details height, never overflows.
-                    let view = layout.view.expect("detail strip");
-                    // Last content: the vendor strip, else the last caption
-                    // (culled below the viewport at 600 px).
-                    assert_eq!(layout.vendor.is_some(), vendor, "{tag}");
-                    let last = match vendor {
-                        true => layout.vendor,
-                        false => texts(&out)
-                            .into_iter()
-                            .find(|(t, _)| t == super::GAIN_NOTE)
-                            .map(|t| t.1),
-                    };
-                    if h == 600.0 {
-                        assert_eq!(view.height(), super::DETAIL_MIN_HEIGHT, "{tag}");
-                    } else {
-                        assert!(
-                            view.height() > super::DETAIL_MIN_HEIGHT,
-                            "{tag}: spare height used {view:?}"
-                        );
-                        assert!(view.height() <= super::DETAIL_MAX_HEIGHT, "{tag}: {view:?}");
-                        let last = last.expect("last content painted");
-                        assert!(
-                            last.bottom() <= panel.bottom(),
-                            "{tag}: content stays inside {last:?} {panel:?}"
-                        );
-                    }
-                    // Stable on later frames (no feedback with its own height).
-                    let again = frame(&mut app, vec![]);
-                    drop(again);
-                    assert_eq!(app.track_waveform.layout.view, Some(view), "{tag}: stable");
-                    assert_eq!(app.shell.details, Some(panel), "{tag}: panel unchanged");
+                    ctx.run(input, |ctx| app.ui(ctx))
+                };
+                let click = |app: &mut LibraryApp, pos: Pos2| {
+                    frame(app, vec![egui::Event::PointerMoved(pos), button(pos, true)]);
+                    frame(app, vec![button(pos, false)]);
+                    frame(app, vec![]);
+                    frame(app, vec![])
+                };
+                let first = frame(&mut app, vec![]);
+                let out = click(&mut app, unique_text(&first, name).center());
+                let tag = format!("{name} {mode:?} {w}x{h}");
+                let panel = app.shell.details.expect("details panel");
+                if w == 750.0 {
+                    assert_eq!(panel.width(), crate::view::DETAILS_MIN_WIDTH, "{tag}: at the details minimum width");
                 }
+                let layout = app.track_waveform.layout;
+
+                // 1. Captions: every caption glyph inside the panel and its clip
+                // (at 600 px they sit below the scroll viewport and are culled).
+                let detail_line = if vendor {
+                    "Detail 4 bars from Bar 3 of 10 · track 20.0 s · 44100 Hz".to_owned()
+                } else {
+                    texts(&out)
+                        .into_iter()
+                        .map(|(t, _)| t)
+                        .find(|t| t.starts_with("Detail 4 bars from Bar "))
+                        // Culled below the viewport at 600 px (no captions checked there).
+                        .unwrap_or_default()
+                };
+                let captions: Vec<&str> = match (h == 600.0, vendor) {
+                    (true, _) => vec![],
+                    (false, true) => vec![&detail_line, super::GRID_SOURCE_LABEL, super::GAIN_NOTE],
+                    (false, false) => {
+                        vec![&detail_line, &computed_label, super::COMPUTED_GRID_NOTE, super::GAIN_NOTE]
+                    }
+                };
+                for &label in &captions {
+                    let hits: Vec<_> = out
+                        .shapes
+                        .iter()
+                        .filter_map(|c| match &c.shape {
+                            Shape::Text(t) if t.galley.job.text == label => {
+                                Some((t.visual_bounding_rect(), c.clip_rect))
+                            }
+                            _ => None,
+                        })
+                        .collect();
+                    assert_eq!(hits.len(), 1, "{tag}: {label:?}");
+                    let (rect, clip) = hits[0];
+                    assert!(
+                        panel.contains_rect(rect) && clip.contains_rect(rect),
+                        "{tag}: {label:?} clipped: {rect:?} panel {panel:?} clip {clip:?}"
+                    );
+                }
+
+                // 2. Slider rows: label column, then rail, then value.
+                let eq = layout.eq.expect("gain sliders");
+                let position = layout.position.expect("position slider");
+                let labels = ["Low", "Mid", "High", "Position"].map(|l| unique_text(&out, l));
+                let rows = [eq[0], eq[1], eq[2], position];
+                for (label, row) in labels.iter().zip(rows) {
+                    // Glyph bounds: allow ~1 px side bearing between letters.
+                    assert!((label.left() - labels[0].left()).abs() <= 1.5, "{tag}: label column {labels:?}");
+                    assert!(label.right() < row.left(), "{tag}: label before rail {label:?} {row:?}");
+                    assert!(row.top() <= label.center().y && label.center().y <= row.bottom(), "{tag}: one row");
+                    assert!((row.left() - rows[0].left()).abs() < 0.5, "{tag}: rails aligned {rows:?}");
+                    assert!(row.height() >= 24.0 && panel.contains_rect(row), "{tag}: {row:?}");
+                }
+                let values: Vec<Rect> = texts(&out)
+                    .into_iter()
+                    .filter(|(t, _)| t == "1.00")
+                    .map(|(_, r)| r)
+                    .collect();
+                assert_eq!(values.len(), 3, "{tag}: one value per gain");
+                for (value, row) in values.iter().zip(&eq) {
+                    let rail_end = position.right();
+                    assert!(value.left() > rail_end, "{tag}: value after the rail {value:?}");
+                    assert!(row.contains_rect(*value) && panel.contains_rect(*value), "{tag}: {value:?}");
+                }
+                for row in &eq[1..] {
+                    assert!((row.right() - eq[0].right()).abs() < 0.5, "{tag}: values aligned");
+                }
+
+                // 3. Strip height follows the details height, never overflows.
+                let view = layout.view.expect("detail strip");
+                // Last content: the vendor strip, else the last caption
+                // (culled below the viewport at 600 px).
+                assert_eq!(layout.vendor.is_some(), vendor, "{tag}");
+                let last = match vendor {
+                    true => layout.vendor,
+                    false => texts(&out).into_iter().find(|(t, _)| t == super::GAIN_NOTE).map(|t| t.1),
+                };
+                if h == 600.0 {
+                    assert_eq!(view.height(), super::DETAIL_MIN_HEIGHT, "{tag}");
+                } else {
+                    assert!(view.height() > super::DETAIL_MIN_HEIGHT, "{tag}: spare height used {view:?}");
+                    assert!(view.height() <= super::DETAIL_MAX_HEIGHT, "{tag}: {view:?}");
+                    let last = last.expect("last content painted");
+                    assert!(last.bottom() <= panel.bottom(), "{tag}: content stays inside {last:?} {panel:?}");
+                }
+                // Stable on later frames (no feedback with its own height).
+                let again = frame(&mut app, vec![]);
+                drop(again);
+                assert_eq!(app.track_waveform.layout.view, Some(view), "{tag}: stable");
+                assert_eq!(app.shell.details, Some(panel), "{tag}: panel unchanged");
             }
+        }
         }
         std::fs::remove_dir_all(root).unwrap();
     }
