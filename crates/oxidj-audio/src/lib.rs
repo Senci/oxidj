@@ -45,12 +45,13 @@ mod stretch;
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
+use std::time::{Duration, Instant};
 
 pub use mixer::{
     Assign, ChannelParams, Curve, EQ_KILL_DB, EQ_MAX_DB, FILTER_DEADZONE, LOW_MID_HZ, MID_HIGH_HZ,
     MixerParams, TRIM_DB, crossfader_gains, db_to_gain, eq_gain, trim_gain,
 };
-pub use output::OutputKind;
+pub use output::{OutputConfig, OutputInfo, OutputKind, list_outputs};
 pub use stretch::{Signalsmith, TimeStretch};
 
 /// Decks the engine mixes.
@@ -681,6 +682,16 @@ pub(crate) struct Stats {
     pub(crate) max_interval_ns: AtomicU64,
     pub(crate) xruns: AtomicU64,
     pub(crate) errors: AtomicU64,
+    /// Frames of the latest block.
+    pub(crate) block: AtomicU32,
+    /// Longest time one callback spent rendering.
+    pub(crate) max_render_ns: AtomicU64,
+    /// Total time spent rendering (mean load = this / audio time).
+    pub(crate) render_ns: AtomicU64,
+    /// Largest render time as a share of its block's duration (1000 = all).
+    pub(crate) max_load_permille: AtomicU32,
+    /// How far ahead of the DAC the latest block was written.
+    pub(crate) latency_ns: AtomicU64,
     /// Output died (device lost / stream invalidated); UI falls back.
     pub(crate) dead: AtomicBool,
 }
@@ -695,6 +706,19 @@ pub struct StatsSnapshot {
     pub max_interval_ns: u64,
     pub xruns: u64,
     pub errors: u64,
+    /// Frames of the latest callback block (the real buffer size).
+    pub block: u32,
+    /// Longest time one callback spent rendering.
+    pub max_render_ns: u64,
+    /// Total time spent rendering since the stream opened; divided by the
+    /// audio time (`frames` / device rate) it is the mean DSP load.
+    pub render_ns: u64,
+    /// Worst DSP load: render time per 1000 of the block's own duration.
+    /// Near 1000 means dropouts; aim below 300.
+    pub max_load_permille: u32,
+    /// Output latency the device reported for the latest block (time from
+    /// the callback to the DAC); 0 when the host does not report it.
+    pub latency_ns: u64,
 }
 
 /// Peak meters: channel A, channel B, master, cue.
@@ -945,20 +969,35 @@ pub struct Engine {
     retired: Vec<Arc<TrackPcm>>,
     /// Why no device is playing (shown to the user).
     error: Option<String>,
+    /// The output the user asked for (reopened after a device loss).
+    config: OutputConfig,
+    /// When to try the device again (`None` = not waiting for one).
+    retry_at: Option<Instant>,
 }
 
+/// Pause between attempts to take a lost device back.
+const RETRY: Duration = Duration::from_secs(2);
+
 impl Engine {
-    /// Open the default output device; fall back to the silent output (with
-    /// the reason in [`Engine::error`]) when none opens.
+    /// Open the output chosen by the environment ([`OutputConfig::from_env`];
+    /// nothing set = the default device); fall back to the silent output
+    /// (with the reason in [`Engine::error`]) when it does not open. The
+    /// device is then retried from [`Engine::poll`].
     pub fn start() -> Self {
-        Self::launch(Default::default(), Memory::default(), None)
+        Self::start_with(OutputConfig::from_env())
     }
 
-    /// Silent paced output only (no device is touched).
+    /// As [`Engine::start`] with an explicit output choice.
+    pub fn start_with(config: OutputConfig) -> Self {
+        Self::launch(Default::default(), Memory::default(), config, None)
+    }
+
+    /// Silent paced output only (no device is touched, none is retried).
     pub fn silent(reason: &str) -> Self {
         Self::launch(
             Default::default(),
             Memory::default(),
+            OutputConfig::default(),
             Some(reason.to_owned()),
         )
     }
@@ -975,14 +1014,25 @@ impl Engine {
             sent: [0; DECKS],
             retired: Vec::new(),
             error: None,
+            config: OutputConfig::default(),
+            retry_at: None,
         };
         (engine, renderer)
     }
 
-    fn launch(decks: [DeckState; DECKS], memory: Memory, silent: Option<String>) -> Self {
+    /// `silent`: `Some(reason)` renders into the void without touching a
+    /// device; `None` opens `config` and, if that fails, renders into the
+    /// void and schedules a retry.
+    fn launch(
+        decks: [DeckState; DECKS],
+        memory: Memory,
+        config: OutputConfig,
+        silent: Option<String>,
+    ) -> Self {
+        let wanted = silent.is_none();
         let opened = match silent {
             Some(reason) => Err(reason),
-            None => output::Device::open(),
+            None => output::Device::open(&config),
         };
         // Positions are source frames, so the device rate only sets the pace
         // and a fallback renderer continues from the same deck state.
@@ -1014,8 +1064,58 @@ impl Engine {
             memory,
             sent: [0; DECKS],
             retired: Vec::new(),
+            retry_at: (wanted && error.is_some()).then(|| Instant::now() + RETRY),
             error,
+            config,
         }
+    }
+
+    /// The output choice in use (what [`Engine::reopen`] last received).
+    pub fn config(&self) -> &OutputConfig {
+        &self.config
+    }
+
+    /// Switch to another output (device, rate, buffer size) without losing
+    /// the decks: tracks, positions, cues, loops, play state, gains, tempo
+    /// and the mixer carry over. Audio pauses for the time the device takes
+    /// to open. When it does not open the engine continues silently with
+    /// the reason in [`Engine::error`] and keeps retrying.
+    pub fn reopen(&mut self, config: OutputConfig) {
+        self.config = config;
+        self.rebuild(None);
+    }
+
+    /// Replace the output, carrying every deck over. The old output is
+    /// closed first: exclusive hosts (ASIO, ALSA `hw:`) refuse a second
+    /// stream on the same device.
+    fn rebuild(&mut self, silent: Option<String>) {
+        let memory = self.memory.clone();
+        let decks: [DeckState; DECKS] = std::array::from_fn(|d| {
+            let snap = self.deck(d);
+            let track = memory.current[d]
+                .as_ref()
+                .filter(|(id, _)| Some(*id) == snap.id)
+                .map(|(_, t)| t.clone());
+            DeckState {
+                id: snap.id.filter(|_| track.is_some()).unwrap_or(NO_TRACK),
+                playing: snap.playing && !snap.previewing && track.is_some(),
+                track,
+                pos: snap.frame,
+                cue: snap.cue,
+                loop_in: snap.loop_in,
+                loop_range: snap.loop_range,
+                gain: memory.gains[d].unwrap_or(1.0),
+                speed: memory.speeds[d].unwrap_or(1.0),
+                keylock: memory.keylocks[d],
+                ..DeckState::default()
+            }
+        });
+        // Stops the stream or thread; its renderer's tracks are still held
+        // by `memory`, so nothing is freed on an audio thread.
+        self.output = output::Output::Manual;
+        let retired = std::mem::take(&mut self.retired);
+        *self = Self::launch(decks, memory, self.config.clone(), silent);
+        self.retired = retired;
     }
 
     /// Queue `command`; `false` when the ring is full (command dropped).
@@ -1086,7 +1186,23 @@ impl Engine {
             max_interval_ns: s.max_interval_ns.load(Ordering::Relaxed),
             xruns: s.xruns.load(Ordering::Relaxed),
             errors: s.errors.load(Ordering::Relaxed),
+            block: s.block.load(Ordering::Relaxed),
+            max_render_ns: s.max_render_ns.load(Ordering::Relaxed),
+            render_ns: s.render_ns.load(Ordering::Relaxed),
+            max_load_permille: s.max_load_permille.load(Ordering::Relaxed),
+            latency_ns: s.latency_ns.load(Ordering::Relaxed),
         }
+    }
+
+    /// Forget the worst-case timings (gap, render time, load, block range)
+    /// so a new measurement window starts; counters keep running.
+    pub fn reset_stats(&self) {
+        let s = &self.shared.stats;
+        s.max_interval_ns.store(0, Ordering::Relaxed);
+        s.max_render_ns.store(0, Ordering::Relaxed);
+        s.max_load_permille.store(0, Ordering::Relaxed);
+        s.min_block.store(u32::MAX, Ordering::Relaxed);
+        s.max_block.store(0, Ordering::Relaxed);
     }
 
     pub fn device_rate(&self) -> u32 {
@@ -1108,52 +1224,27 @@ impl Engine {
         self.shared.stats.dead.store(true, Ordering::Release);
     }
 
-    /// Housekeeping, once per UI frame: free tracks the callback released
-    /// and, when the device died, continue silently with every deck's state
-    /// (track, position, cue, loop, play state, gain, speed) carried over.
+    /// Housekeeping, once per UI frame: free tracks the callback released;
+    /// when the device died, continue silently with every deck's state
+    /// (track, position, cue, loop, play state, gain, speed) carried over;
+    /// and while a wanted device is missing, try it again every two seconds
+    /// and move the decks back onto it when it opens.
     pub fn poll(&mut self) {
         self.retired.retain(|t| Arc::strong_count(t) > 1);
-        if !self.shared.stats.dead.load(Ordering::Acquire) {
-            return;
-        }
-        let memory = self.memory.clone();
-        let decks: [DeckState; DECKS] = std::array::from_fn(|d| {
-            let snap = self.deck(d);
-            let track = memory.current[d]
-                .as_ref()
-                .filter(|(id, _)| Some(*id) == snap.id)
-                .map(|(_, t)| t.clone());
-            DeckState {
-                id: snap.id.filter(|_| track.is_some()).unwrap_or(NO_TRACK),
-                playing: snap.playing && !snap.previewing && track.is_some(),
-                track,
-                pos: snap.frame,
-                previewing: false,
-                cue: snap.cue,
-                loop_in: snap.loop_in,
-                loop_range: snap.loop_range,
-                gain: memory.gains[d].unwrap_or(1.0),
-                speed: memory.speeds[d].unwrap_or(1.0),
-                keylock: memory.keylocks[d],
-                read: 0.0,
-                clock: 0.0,
-                path: 0.0,
-                heard: 0.0,
-                segments: [(0.0, 0.0, 0.0); SEGMENTS],
-                seg_len: 0,
-                primed: false,
-                carry: 0.0,
-                applied: 0,
+        if self.shared.stats.dead.load(Ordering::Acquire) {
+            let was_device = matches!(self.output, output::Output::Device { .. });
+            let reason = format!("audio device lost ({}); continuing silently", self.output());
+            self.rebuild(Some(reason));
+            // `rebuild(Some)` never schedules a retry; a lost real device
+            // does (an engine that never had one stays silent).
+            self.retry_at = was_device.then(|| Instant::now() + RETRY);
+        } else if self.retry_at.is_some_and(|at| Instant::now() >= at) {
+            // Probe first so a still-missing device costs no deck handover.
+            match output::Device::open(&self.config) {
+                Ok(_) => self.rebuild(None),
+                Err(_) => self.retry_at = Some(Instant::now() + RETRY),
             }
-        });
-        let reason = format!("audio device lost ({}); continuing silently", self.output());
-        let retired = std::mem::take(&mut self.retired);
-        let mut next = Self::launch(decks, memory, Some(reason));
-        next.retired = retired;
-        // The old output (stream or thread) stops when `old` drops; its
-        // renderer's tracks are still held by `next.memory`.
-        let old = std::mem::replace(self, next);
-        drop(old);
+        }
     }
 }
 

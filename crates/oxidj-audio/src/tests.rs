@@ -430,3 +430,87 @@ fn unload_stops_and_empties_one_deck_and_frees_the_track() {
         out[0]
     );
 }
+
+#[test]
+fn output_config_reads_the_environment_keys() {
+    let none = OutputConfig::from_lookup(|_| None);
+    assert_eq!(none, OutputConfig::default());
+    // Blank and unparsable values count as unset.
+    let blank = OutputConfig::from_lookup(|k| match k {
+        "OXIDJ_AUDIO_HOST" => Some("  ".into()),
+        "OXIDJ_AUDIO_BUFFER" => Some("small".into()),
+        _ => None,
+    });
+    assert_eq!(blank, OutputConfig::default());
+    let full = OutputConfig::from_lookup(|k| {
+        Some(
+            match k {
+                "OXIDJ_AUDIO_HOST" => "jack",
+                "OXIDJ_AUDIO_DEVICE" => "hw:CARD=X,DEV=0",
+                "OXIDJ_AUDIO_RATE" => "44100",
+                "OXIDJ_AUDIO_BUFFER" => " 128 ",
+                "OXIDJ_AUDIO_CHANNELS" => "2",
+                _ => return None,
+            }
+            .to_owned(),
+        )
+    });
+    assert_eq!(
+        full,
+        OutputConfig {
+            host: Some("jack".into()),
+            device: Some("hw:CARD=X,DEV=0".into()),
+            sample_rate: Some(44_100),
+            buffer_frames: Some(128),
+            channels: Some(2),
+        }
+    );
+    // A named device alone keeps the cue contract: 4 channels at 48 kHz.
+    let named = OutputConfig::from_lookup(|k| (k == "OXIDJ_AUDIO_DEVICE").then(|| "x".into()));
+    assert_eq!((named.sample_rate, named.channels), (Some(48_000), Some(4)));
+}
+
+#[test]
+fn an_engine_without_a_device_never_retries_one() {
+    let (mut e, _r) = setup(1_000);
+    assert!(e.retry_at.is_none());
+    e.simulate_device_loss();
+    e.poll();
+    assert_eq!(e.output(), OutputKind::Silent);
+    assert!(e.retry_at.is_none());
+    let s = Engine::silent("no audio in tests");
+    assert!(s.retry_at.is_none());
+    assert_eq!(s.config(), &OutputConfig::default());
+}
+
+#[test]
+fn an_unknown_host_or_device_falls_back_silently_and_keeps_retrying() {
+    let mut e = Engine::start_with(OutputConfig {
+        host: Some("no-such-host".into()),
+        ..OutputConfig::default()
+    });
+    assert_eq!(e.output(), OutputKind::Silent);
+    assert!(e.error().unwrap().contains("audio host not available"));
+    assert!(e.retry_at.is_some());
+    // The decks survive a failed switch too.
+    e.send(Command::Load {
+        deck: 0,
+        id: 9,
+        track: ramp(480_000, RATE),
+    });
+    e.send(Command::Seek {
+        deck: 0,
+        frame: 1_234.0,
+    });
+    std::thread::sleep(std::time::Duration::from_millis(60));
+    e.reopen(OutputConfig {
+        host: Some("still-no-host".into()),
+        buffer_frames: Some(128),
+        ..OutputConfig::default()
+    });
+    assert_eq!(e.config().buffer_frames, Some(128));
+    assert!(e.error().unwrap().contains("still-no-host"));
+    std::thread::sleep(std::time::Duration::from_millis(60));
+    let s = e.deck(0);
+    assert_eq!((s.id, s.frame), (Some(9), 1_234.0));
+}
