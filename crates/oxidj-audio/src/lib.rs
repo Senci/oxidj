@@ -19,8 +19,9 @@
 //! Positions are **source frames** (`f64`) of the loaded track, so seeking,
 //! cue points and loops are sample accurate in the track's own clock. When
 //! the track rate differs from the device rate (44.1 vs 48 kHz) the callback
-//! reads at a fractional step with linear interpolation (ADR-008: simple,
-//! dependency-free; at equal rates and speed 1 the step is exactly 1.0 and
+//! reads at a fractional step through a windowed-sinc interpolator
+//! (`resample.rs`: in-crate, dependency-free, band-limited so faster reads
+//! do not alias; at equal rates and speed 1 the step is exactly 1.0 and
 //! samples are copied unchanged). The same step carries the deck's tempo
 //! fader as plain varispeed (pitch follows tempo) unless key lock is on:
 //! then the deck is read at the rate-conversion step only and a
@@ -41,6 +42,7 @@
 
 mod mixer;
 mod output;
+mod resample;
 mod stretch;
 
 use std::sync::Arc;
@@ -52,12 +54,17 @@ pub use mixer::{
     MixerParams, TRIM_DB, crossfader_gains, db_to_gain, eq_gain, trim_gain,
 };
 pub use output::{OutputConfig, OutputInfo, OutputKind, list_outputs};
+use resample::Resampler;
 pub use stretch::{Signalsmith, TimeStretch};
 
 /// Decks the engine mixes.
 pub const DECKS: usize = 2;
 /// Command ring capacity (UI → callback).
 pub const COMMAND_CAPACITY: usize = 256;
+/// Fade applied by real outputs when a deck starts, stops or jumps (play,
+/// pause, cue, seek, sync, loop seam, load): long enough to remove the
+/// click, short enough to keep the attack of a cued beat.
+pub const DECLICK_MS: f64 = 3.0;
 /// Loops shorter than this many milliseconds are refused.
 pub const MIN_LOOP_MS: f64 = 10.0;
 /// No track loaded on a deck.
@@ -102,29 +109,11 @@ impl TrackPcm {
         1000.0 / f64::from(self.sample_rate)
     }
 
-    /// `(left, right)` at source frame `i`; silence outside the track.
-    fn frame(&self, i: u64) -> (f32, f32) {
-        let i = usize::try_from(i).unwrap_or(usize::MAX).saturating_mul(2);
-        match (self.samples.get(i), self.samples.get(i.saturating_add(1))) {
-            (Some(l), Some(r)) => (*l, *r),
-            _ => (0.0, 0.0),
-        }
-    }
-
-    /// Linear interpolation at fractional source frame `pos`; silence
-    /// before the start and after the end.
-    fn at(&self, pos: f64) -> (f32, f32) {
-        if pos < 0.0 {
-            return (0.0, 0.0);
-        }
-        let i = pos as u64;
-        let frac = (pos - i as f64) as f32;
-        let (l0, r0) = self.frame(i);
-        if frac == 0.0 {
-            return (l0, r0);
-        }
-        let (l1, r1) = self.frame(i.saturating_add(1));
-        (l0 + (l1 - l0) * frac, r0 + (r1 - r0) * frac)
+    /// Band-limited read at fractional source frame `pos` through kernel
+    /// set `table` ([`Resampler::table`]); silence before the start and
+    /// after the end.
+    fn at(&self, pos: f64, resampler: &Resampler, table: usize) -> (f32, f32) {
+        resampler.at(&self.samples, pos, table)
     }
 }
 
@@ -228,6 +217,17 @@ impl Command {
     }
 }
 
+/// What a deck was playing just before a stop or jump, faded out over the
+/// declick time so the old signal ends in a ramp, not a step.
+#[derive(Clone, Debug)]
+struct Tail {
+    track: Arc<TrackPcm>,
+    pos: f64,
+    speed: f64,
+    /// Output frames still to play.
+    left: u32,
+}
+
 /// Callback-side state of one deck.
 #[derive(Clone, Debug)]
 pub(crate) struct DeckState {
@@ -264,6 +264,13 @@ pub(crate) struct DeckState {
     carry: f64,
     /// Commands applied to this deck (the UI compares with what it sent).
     applied: u64,
+    /// Declick length in output frames (0 = off: starts, stops and jumps
+    /// are sample-exact steps, as the fake-sink tests expect).
+    declick: u32,
+    /// Output frames of fade-in still to go after a start or jump.
+    fade_in: u32,
+    /// The pre-jump signal fading out.
+    tail: Option<Tail>,
 }
 
 impl Default for DeckState {
@@ -289,11 +296,72 @@ impl Default for DeckState {
             primed: false,
             carry: 0.0,
             applied: 0,
+            declick: 0,
+            fade_in: 0,
+            tail: None,
         }
     }
 }
 
 impl DeckState {
+    /// Where the deck is audibly playing (`None` = silent).
+    fn sounding(&self) -> Option<f64> {
+        (self.playing && self.track.is_some()).then_some(self.pos)
+    }
+
+    /// After a command: when it stopped or moved a sounding deck, keep the
+    /// old signal as a fading tail (`old` = the track it was playing, when
+    /// the command replaced it); when the deck now sounds from a new place,
+    /// fade it in. Clones and drops of `Arc<TrackPcm>` here are counter
+    /// updates only: the UI holds every track until the callback lets go.
+    fn declick_after(&mut self, before: Option<f64>, old: Option<Arc<TrackPcm>>) {
+        if self.declick == 0 {
+            return;
+        }
+        let now = self.sounding();
+        if now == before && old.is_none() {
+            return;
+        }
+        if let Some(pos) = before {
+            self.tail = old.or_else(|| self.track.clone()).map(|track| Tail {
+                track,
+                pos,
+                speed: self.speed,
+                left: self.declick,
+            });
+        }
+        if now.is_some() {
+            self.fade_in = self.declick;
+        }
+    }
+
+    /// Gain of the next fade-in frame (1.0 when no fade is running).
+    fn fade_gain(&mut self) -> f32 {
+        if self.fade_in == 0 {
+            return 1.0;
+        }
+        let g = 1.0 - self.fade_in as f32 / (self.declick as f32 + 1.0);
+        self.fade_in -= 1;
+        g
+    }
+
+    /// Next frame of the fading tail (silence when there is none), at the
+    /// complementary gain of [`DeckState::fade_gain`].
+    fn tail_frame(&mut self, device_rate: f64, resampler: &Resampler) -> (f32, f32) {
+        let Some(tail) = self.tail.as_mut() else {
+            return (0.0, 0.0);
+        };
+        let g = tail.left as f32 / (self.declick as f32 + 1.0) * self.gain;
+        let step = f64::from(tail.track.sample_rate) / device_rate * tail.speed;
+        let (l, r) = tail.track.at(tail.pos, resampler, Resampler::table(step));
+        tail.pos += step;
+        tail.left = tail.left.saturating_sub(1);
+        if tail.left == 0 {
+            self.tail = None;
+        }
+        (l * g, r * g)
+    }
+
     fn frames(&self) -> f64 {
         self.track.as_ref().map_or(0.0, |t| t.frames() as f64)
     }
@@ -305,6 +373,17 @@ impl DeckState {
     }
 
     fn apply(&mut self, command: Command) {
+        let (declick, before) = (self.declick, self.sounding());
+        let old = match command {
+            Command::Load { .. } | Command::Unload { .. } if before.is_some() => self.track.clone(),
+            _ => None,
+        };
+        self.apply_command(command);
+        self.declick = declick;
+        self.declick_after(before, old);
+    }
+
+    fn apply_command(&mut self, command: Command) {
         // Every jump or start restarts the stretch history; tempo, gain and
         // loop edges at the current position do not.
         if !matches!(
@@ -437,15 +516,20 @@ impl DeckState {
     fn render_keylock(
         &mut self,
         stretch: &mut dyn TimeStretch,
+        resampler: &Resampler,
         input: &mut [f32],
         out: &mut [f32],
         device_rate: f64,
     ) {
-        let Some(track) = self.track.as_deref().filter(|_| self.playing) else {
-            out.fill(0.0);
+        let Some(track) = self.track.clone().filter(|_| self.playing) else {
+            for f in out.as_chunks_mut::<2>().0 {
+                let (l, r) = self.tail_frame(device_rate, resampler);
+                *f = [l, r];
+            }
             return;
         };
         let step = f64::from(track.sample_rate) / device_rate;
+        let table = Resampler::table(step);
         let speed = self.speed.min(MAX_KEYLOCK_SPEED);
         let (in_lat, out_lat) = stretch.latency();
         let lag = (in_lat as f64 + out_lat as f64 * speed) * step;
@@ -470,7 +554,7 @@ impl DeckState {
                 .iter_mut()
                 .enumerate()
             {
-                let (l, r) = track.at(wrap(start + i as f64 * step));
+                let (l, r) = track.at(wrap(start + i as f64 * step), resampler, table);
                 *f = [l, r];
             }
             stretch.preroll(&input[..pre * 2], speed);
@@ -492,15 +576,17 @@ impl DeckState {
         let n_in = (want as usize).min(capacity);
         self.carry = (want - n_in as f64).min(1.0);
         for f in input[..n_in * 2].as_chunks_mut::<2>().0 {
-            let (l, r) = track.at(self.read);
+            let (l, r) = track.at(self.read, resampler, table);
             *f = [l, r];
             self.read = wrap(self.read + step);
         }
         self.path += n_in as f64 * step;
         self.clock += out_frames;
         stretch.process(&input[..n_in * 2], out);
-        for v in out.iter_mut() {
-            *v *= self.gain;
+        for f in out.as_chunks_mut::<2>().0 {
+            let g = self.gain * self.fade_gain();
+            let (l, r) = self.tail_frame(device_rate, resampler);
+            *f = [f[0] * g + l, f[1] * g + r];
         }
         // What emerges now was synthesised one output latency ago from
         // input one input latency behind the read head of that moment, so
@@ -557,25 +643,36 @@ impl DeckState {
     }
 
     /// Next output frame at `device_rate`, advancing the position.
-    fn next(&mut self, device_rate: f64) -> (f32, f32) {
+    fn next(&mut self, device_rate: f64, resampler: &Resampler) -> (f32, f32) {
+        let (tl, tr) = self.tail_frame(device_rate, resampler);
         let Some(track) = self.track.as_deref().filter(|_| self.playing) else {
-            return (0.0, 0.0);
+            return (tl, tr);
         };
-        let (l, r) = track.at(self.pos);
-        self.pos += f64::from(track.sample_rate) / device_rate * self.speed;
+        let step = f64::from(track.sample_rate) / device_rate * self.speed;
+        let (l, r) = track.at(self.pos, resampler, Resampler::table(step));
+        let frames = track.frames() as f64;
+        let before = self.pos;
+        self.pos += step;
+        let mut wrapped = false;
         if let Some((start, end)) = self.loop_range
             && self.pos >= end
             && end > start
         {
             self.pos = start + (self.pos - end) % (end - start);
+            wrapped = true;
         }
-        let frames = track.frames() as f64;
         if self.pos >= frames {
             self.pos = frames;
             self.playing = false;
             self.previewing = false;
         }
-        (l * self.gain, r * self.gain)
+        let g = self.gain * self.fade_gain();
+        if wrapped && self.declick > 0 {
+            // Crossfade the loop seam: what followed the loop end fades out
+            // under the loop start fading in.
+            self.declick_after(Some(before + step), None);
+        }
+        (l * g + tl, r * g + tr)
     }
 }
 
@@ -751,6 +848,8 @@ pub struct Renderer {
     device_rate: f64,
     /// One stretch engine per deck (key lock), built off the callback.
     stretch: [Box<dyn TimeStretch>; DECKS],
+    /// Interpolation kernels (built off the callback).
+    resampler: Resampler,
     /// Key-lock input scratch (interleaved stereo, preallocated).
     input: Vec<f32>,
     /// One deck's chunk and the mix of all decks (interleaved stereo).
@@ -797,7 +896,10 @@ impl Renderer {
                     .filter(|m| master != deck && m.track.is_some() && master_beat > 0.0)
                     .map(|m| ((m.pos - master_anchor) / master_beat).rem_euclid(1.0));
                 if let Some(phase) = phase {
-                    self.decks[deck].sync(speed, beat, anchor, phase);
+                    let state = &mut self.decks[deck];
+                    let before = state.sounding();
+                    state.sync(speed, beat, anchor, phase);
+                    state.declick_after(before, None);
                 }
             }
             let state = &mut self.decks[deck];
@@ -809,6 +911,7 @@ impl Renderer {
         let Self {
             decks,
             stretch,
+            resampler,
             input,
             deck_buf,
             pre_fader,
@@ -828,11 +931,11 @@ impl Renderer {
             for (c, (deck, stretch)) in decks.iter_mut().zip(stretch.iter_mut()).enumerate() {
                 let buf = &mut deck_buf[..frames * 2];
                 if deck.keylock && deck.track.is_some() {
-                    deck.render_keylock(stretch.as_mut(), input, buf, rate);
+                    deck.render_keylock(stretch.as_mut(), resampler, input, buf, rate);
                 } else {
                     deck.primed = false;
                     for f in buf.as_chunks_mut::<2>().0 {
-                        let (l, r) = deck.next(rate);
+                        let (l, r) = deck.next(rate, resampler);
                         *f = [l, r];
                     }
                 }
@@ -891,6 +994,18 @@ impl Renderer {
     pub fn device_rate(&self) -> u32 {
         self.device_rate as u32
     }
+
+    /// Fade time for starts, stops and jumps (0 = sample-exact steps). Real
+    /// outputs use [`DECLICK_MS`]; a hand-driven renderer ([`Engine::manual`])
+    /// starts at 0. Call before rendering, not from another thread.
+    pub fn set_declick_ms(&mut self, ms: f64) {
+        let frames = (self.device_rate * ms.clamp(0.0, 100.0) / 1000.0) as u32;
+        for deck in &mut self.decks {
+            deck.declick = frames;
+            deck.fade_in = 0;
+            deck.tail = None;
+        }
+    }
 }
 
 /// Publish meter `m`'s chunk peak (lock-free; RT-safe).
@@ -904,10 +1019,15 @@ fn meter(shared: &Shared, m: usize, peak: f32) {
 }
 
 fn channel(
-    decks: [DeckState; DECKS],
+    mut decks: [DeckState; DECKS],
     device_rate: u32,
     mixer: Option<MixerParams>,
+    declick_ms: f64,
 ) -> (Renderer, rtrb::Producer<Command>, Arc<Shared>) {
+    let declick = (f64::from(device_rate) * declick_ms / 1000.0) as u32;
+    for deck in &mut decks {
+        deck.declick = declick;
+    }
     let (tx, rx) = rtrb::RingBuffer::new(COMMAND_CAPACITY);
     let shared = Arc::new(Shared {
         decks: Default::default(),
@@ -935,6 +1055,7 @@ fn channel(
         shared: shared.clone(),
         device_rate: f64::from(device_rate.max(1)),
         stretch,
+        resampler: Resampler::new(),
         input: vec![0.0; input_frames * 2],
         deck_buf: vec![0.0; CHUNK * 2],
         pre_fader: vec![0.0; CHUNK * 2],
@@ -1004,7 +1125,7 @@ impl Engine {
 
     /// Fake sink for tests: the caller renders blocks by hand.
     pub fn manual(device_rate: u32) -> (Self, Renderer) {
-        let (renderer, tx, shared) = channel(Default::default(), device_rate, None);
+        let (renderer, tx, shared) = channel(Default::default(), device_rate, None, 0.0);
         let engine = Self {
             tx,
             shared,
@@ -1038,7 +1159,7 @@ impl Engine {
         // and a fallback renderer continues from the same deck state.
         let attempt = opened.and_then(|device| {
             let rate = device.rate;
-            let (renderer, tx, shared) = channel(decks.clone(), rate, memory.mixer);
+            let (renderer, tx, shared) = channel(decks.clone(), rate, memory.mixer, DECLICK_MS);
             device
                 .play(renderer, shared.clone())
                 .map(|output| (output, tx, shared, rate))
@@ -1046,7 +1167,8 @@ impl Engine {
         let (output, tx, shared, device_rate, error) = match attempt {
             Ok((output, tx, shared, rate)) => (output, tx, shared, rate, None),
             Err(reason) => {
-                let (renderer, tx, shared) = channel(decks, output::SILENT_RATE, memory.mixer);
+                let (renderer, tx, shared) =
+                    channel(decks, output::SILENT_RATE, memory.mixer, DECLICK_MS);
                 (
                     output::Output::silent(renderer),
                     tx,

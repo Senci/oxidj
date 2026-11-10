@@ -514,3 +514,164 @@ fn an_unknown_host_or_device_falls_back_silently_and_keeps_retrying() {
     let s = e.deck(0);
     assert_eq!((s.id, s.frame), (Some(9), 1_234.0));
 }
+
+/// A track of `frames` frames, every sample `value`.
+fn flat(frames: usize, value: f32) -> Arc<TrackPcm> {
+    Arc::new(TrackPcm::new(RATE, vec![value; frames * 2]).unwrap())
+}
+
+/// Largest jump between consecutive left samples (from silence before).
+fn max_step(out: &[f32]) -> f32 {
+    let mut last = 0.0;
+    let mut worst = 0.0_f32;
+    for f in out.as_chunks::<2>().0 {
+        worst = worst.max((f[0] - last).abs());
+        last = f[0];
+    }
+    worst
+}
+
+/// Deck 0 with a flat 0.5 track and a 3 ms (144 frame) declick.
+fn declick_setup() -> (Engine, Renderer) {
+    let (mut e, mut r) = Engine::manual(RATE);
+    r.set_declick_ms(DECLICK_MS);
+    e.send(Command::Load {
+        deck: 0,
+        id: 1,
+        track: flat(200_000, 0.5),
+    });
+    (e, r)
+}
+
+#[test]
+fn declick_ramps_play_and_pause_instead_of_stepping() {
+    let (mut e, mut r) = declick_setup();
+    e.send(Command::TogglePlay { deck: 0 });
+    let start = render(&mut r, 400);
+    // 144 frames of ramp: no step larger than one ramp increment.
+    assert!(max_step(&start) <= 0.5 / 144.0, "{}", max_step(&start));
+    assert!(start[0] > 0.0 && start[0] < 0.01);
+    assert_eq!(start[2 * 144], 0.5);
+    assert_eq!(e.deck(0).frame, 400.0, "the fade does not delay the deck");
+    e.send(Command::TogglePlay { deck: 0 });
+    let stop = render(&mut r, 400);
+    assert_eq!(e.deck(0).frame, 400.0, "paused at once");
+    assert!(!e.deck(0).playing);
+    let mut ramp = vec![0.5, 0.5];
+    ramp.extend_from_slice(&stop);
+    assert!(
+        max_step(&ramp[2..]) <= 0.5,
+        "first sample is near full level"
+    );
+    assert!((stop[0] - 0.5).abs() < 0.01);
+    assert!(
+        stop.as_chunks::<2>()
+            .0
+            .windows(2)
+            .all(|w| w[1][0] <= w[0][0])
+    );
+    assert!(
+        stop.as_chunks::<2>()
+            .0
+            .windows(2)
+            .all(|w| w[0][0] - w[1][0] <= 0.5 / 144.0)
+    );
+    assert_eq!(stop[2 * 144], 0.0);
+    assert_eq!(stop[1], stop[0], "both channels fade alike");
+}
+
+#[test]
+fn declick_crossfades_seeks_cue_jumps_and_loop_seams_at_constant_level() {
+    let (mut e, mut r) = declick_setup();
+    e.send(Command::TogglePlay { deck: 0 });
+    render(&mut r, 1_000);
+    let level = |out: &[f32], what: &str| {
+        for (i, v) in out.iter().enumerate() {
+            assert!((v - 0.5).abs() < 1e-5, "{what}: sample {i} = {v}");
+        }
+    };
+    // Seek while playing: old and new overlap with gains summing to 1.
+    e.send(Command::Seek {
+        deck: 0,
+        frame: 50_000.0,
+    });
+    level(&render(&mut r, 500), "seek");
+    assert_eq!(e.deck(0).frame, 50_500.0);
+    // A short loop: every seam crossfades.
+    e.send(Command::LoopIn { deck: 0 });
+    render(&mut r, 960);
+    e.send(Command::LoopOut { deck: 0 });
+    level(&render(&mut r, 5_000), "loop seam");
+    let f = e.deck(0).frame;
+    assert!((50_500.0..51_460.0).contains(&f), "{f}");
+    // A fresh seek before the previous fade ended still never exceeds it.
+    e.send(Command::LoopOut { deck: 0 });
+    e.send(Command::Seek {
+        deck: 0,
+        frame: 10.0,
+    });
+    render(&mut r, 20);
+    e.send(Command::Seek {
+        deck: 0,
+        frame: 90_000.0,
+    });
+    let out = render(&mut r, 400);
+    assert!(out.iter().all(|v| (0.0..=0.5001).contains(v)));
+    assert_eq!(out[2 * 200], 0.5);
+}
+
+#[test]
+fn declick_fades_the_old_track_out_when_a_playing_deck_is_reloaded() {
+    let (mut e, mut r) = declick_setup();
+    e.send(Command::TogglePlay { deck: 0 });
+    render(&mut r, 1_000);
+    let next = flat(1_000, -0.25);
+    e.send(Command::Load {
+        deck: 0,
+        id: 2,
+        track: next,
+    });
+    let out = render(&mut r, 300);
+    assert_eq!(e.deck(0).id, Some(2));
+    assert!(!e.deck(0).playing);
+    assert!((out[0] - 0.5).abs() < 0.01, "old track still sounding");
+    assert!(out.iter().all(|v| (0.0..=0.5).contains(v)));
+    assert_eq!(out[2 * 144], 0.0);
+    // The old track is released once its tail has played out.
+    e.poll();
+    assert!(e.retired.is_empty());
+}
+
+#[test]
+fn declick_on_a_ramp_bounds_the_step_at_a_jump() {
+    let (mut e, mut r) = Engine::manual(RATE);
+    r.set_declick_ms(DECLICK_MS);
+    // Left sample = frame / 1e6: a seek of 500,000 frames is a 0.5 step.
+    e.send(Command::Load {
+        deck: 0,
+        id: 1,
+        track: ramp(1_000_000, RATE),
+    });
+    e.send(Command::Seek {
+        deck: 0,
+        frame: 100_000.0,
+    });
+    e.send(Command::TogglePlay { deck: 0 });
+    render(&mut r, 1_000);
+    e.send(Command::Seek {
+        deck: 0,
+        frame: 600_000.0,
+    });
+    let out = render(&mut r, 400);
+    let mut joined = vec![0.100_999, 0.0];
+    joined.extend_from_slice(&out);
+    assert!(max_step(&joined[2..]) < 0.11, "start level");
+    let steps: f32 = out
+        .as_chunks::<2>()
+        .0
+        .windows(2)
+        .map(|w| (w[1][0] - w[0][0]).abs())
+        .fold(0.0, f32::max);
+    assert!(steps < 0.5 / 140.0, "largest step {steps}");
+    assert!((frame_of(out[2 * 399]) - 600_399.0).abs() < 1.0);
+}
