@@ -895,42 +895,100 @@ pub struct Renderer {
 /// Seconds for the limiter to recover about two thirds of its reduction.
 const LIMITER_RELEASE_S: f64 = 0.15;
 
-/// Main-output peak limiter: the gain drops at once to keep a peak at full
-/// scale and recovers slowly, so sustained overs (two hot tracks summed)
-/// are turned down instead of being clipped on every wave. Below full
-/// scale the gain is exactly 1.0 and the signal passes bit for bit.
-#[derive(Clone, Copy, Debug)]
+/// Look-ahead of the limiter on real outputs: the main output is delayed
+/// by this much so the gain can come down before a peak instead of on it.
+pub const LIMITER_LOOKAHEAD_MS: f64 = 1.0;
+
+/// Main-output peak limiter: sustained overs (two hot tracks summed) are
+/// turned down instead of being clipped on every wave. Below full scale
+/// the gain is exactly 1.0 and the signal passes bit for bit.
+///
+/// Without look-ahead (hand-driven renderer) the gain drops on the peak
+/// itself and nothing is delayed. With look-ahead the signal runs through
+/// a delay line of that length and the gain ramps down ahead of a peak,
+/// reaching the needed value on the frame the peak leaves the delay; it is
+/// held while overs keep arriving and recovers slowly afterwards.
+#[derive(Clone, Debug)]
 struct Limiter {
     on: bool,
     gain: f32,
     release: f32,
+    /// Delay line (interleaved stereo); empty = no look-ahead.
+    delay: Vec<f32>,
+    /// Next frame of `delay` to replace.
+    at: usize,
+    /// Lowest gain needed by a peak still in the delay line.
+    target: f32,
+    /// Gain decrease per frame while approaching `target`.
+    slope: f32,
+    /// Frames until the last over has left the delay line.
+    hold: usize,
 }
 
 impl Limiter {
-    fn new(rate: f64, on: bool) -> Self {
+    fn new(rate: f64, on: bool, lookahead_ms: f64) -> Self {
+        let frames = (rate * lookahead_ms.clamp(0.0, 20.0) / 1000.0) as usize;
         Self {
             on,
             gain: 1.0,
             release: (1.0 - (-1.0 / (LIMITER_RELEASE_S * rate.max(1.0))).exp()) as f32,
+            delay: vec![0.0; frames * 2],
+            at: 0,
+            target: 1.0,
+            slope: 0.0,
+            hold: 0,
+        }
+    }
+
+    fn recover(&mut self) {
+        if self.gain < 1.0 {
+            self.gain += (1.0 - self.gain) * self.release;
+            if self.gain > 0.9999 {
+                self.gain = 1.0;
+            }
         }
     }
 
     /// Limit `mix` (interleaved stereo, both channels by the same gain).
+    /// With look-ahead the output is the input delayed by its length, also
+    /// while the limiter is switched off (the delay never jumps).
     fn process(&mut self, mix: &mut [f32]) {
-        if !self.on {
-            self.gain = 1.0;
-            return;
-        }
+        let frames = self.delay.len() / 2;
         for f in mix.as_chunks_mut::<2>().0 {
             let peak = f[0].abs().max(f[1].abs());
-            let need = if peak > 1.0 { 1.0 / peak } else { 1.0 };
-            if self.gain < 1.0 {
-                self.gain += (1.0 - self.gain) * self.release;
-                if self.gain > 0.9999 {
-                    self.gain = 1.0;
+            let need = if self.on && peak > 1.0 {
+                1.0 / peak
+            } else {
+                1.0
+            };
+            if frames == 0 {
+                self.recover();
+                self.gain = self.gain.min(need);
+            } else {
+                if need < 1.0 {
+                    // This peak leaves the delay in `frames` frames: be at
+                    // its gain by then, never slower than already planned.
+                    self.target = self.target.min(need);
+                    self.slope = self.slope.max((self.gain - need).max(0.0) / frames as f32);
+                    self.hold = frames;
                 }
+                if self.hold > 0 {
+                    self.hold -= 1;
+                    self.gain = (self.gain - self.slope).max(self.target);
+                    if self.hold == 0 {
+                        self.target = 1.0;
+                        self.slope = 0.0;
+                    }
+                } else {
+                    self.recover();
+                }
+                if let Some(slot) = self.delay.get_mut(self.at * 2..self.at * 2 + 2) {
+                    let delayed = [slot[0], slot[1]];
+                    slot.copy_from_slice(f);
+                    *f = delayed;
+                }
+                self.at = (self.at + 1) % frames;
             }
-            self.gain = self.gain.min(need);
             if self.gain < 1.0 {
                 f[0] *= self.gain;
                 f[1] *= self.gain;
@@ -1083,6 +1141,13 @@ impl Renderer {
     /// Fade time for starts, stops and jumps (0 = sample-exact steps). Real
     /// outputs use [`DECLICK_MS`]; a hand-driven renderer ([`Engine::manual`])
     /// starts at 0. Call before rendering, not from another thread.
+    /// Limiter look-ahead (0 = none, the main output is not delayed). Real
+    /// outputs use [`LIMITER_LOOKAHEAD_MS`]; a hand-driven renderer starts
+    /// at 0. Allocates: call before rendering, not from the callback.
+    pub fn set_limiter_lookahead_ms(&mut self, ms: f64) {
+        self.limiter = Limiter::new(self.device_rate, self.limiter.on, ms);
+    }
+
     pub fn set_declick_ms(&mut self, ms: f64) {
         let frames = (self.device_rate * ms.clamp(0.0, 100.0) / 1000.0) as u32;
         for deck in &mut self.decks {
@@ -1107,9 +1172,13 @@ fn channel(
     mut decks: [DeckState; DECKS],
     device_rate: u32,
     mixer: Option<MixerParams>,
-    declick_ms: f64,
+    // A real output (declick and limiter look-ahead on) or the hand-driven
+    // renderer of the tests (sample-exact, undelayed).
+    real: bool,
     limiter: bool,
 ) -> (Renderer, rtrb::Producer<Command>, Arc<Shared>) {
+    let declick_ms = if real { DECLICK_MS } else { 0.0 };
+    let lookahead_ms = if real { LIMITER_LOOKAHEAD_MS } else { 0.0 };
     let declick = (f64::from(device_rate) * declick_ms / 1000.0) as u32;
     for deck in &mut decks {
         deck.declick = declick;
@@ -1150,7 +1219,7 @@ fn channel(
         mix: vec![0.0; CHUNK * 2],
         cue_buf: vec![0.0; CHUNK * 2],
         mixer: mixer::Mixer::new(device_rate, mixer),
-        limiter: Limiter::new(f64::from(device_rate), limiter),
+        limiter: Limiter::new(f64::from(device_rate), limiter, lookahead_ms),
     };
     (renderer, tx, shared)
 }
@@ -1216,7 +1285,7 @@ impl Engine {
 
     /// Fake sink for tests: the caller renders blocks by hand.
     pub fn manual(device_rate: u32) -> (Self, Renderer) {
-        let (renderer, tx, shared) = channel(Default::default(), device_rate, None, 0.0, true);
+        let (renderer, tx, shared) = channel(Default::default(), device_rate, None, false, true);
         let engine = Self {
             tx,
             shared,
@@ -1250,13 +1319,8 @@ impl Engine {
         // and a fallback renderer continues from the same deck state.
         let attempt = opened.and_then(|device| {
             let rate = device.rate;
-            let (renderer, tx, shared) = channel(
-                decks.clone(),
-                rate,
-                memory.mixer,
-                DECLICK_MS,
-                !memory.limiter_off,
-            );
+            let (renderer, tx, shared) =
+                channel(decks.clone(), rate, memory.mixer, true, !memory.limiter_off);
             device
                 .play(renderer, shared.clone())
                 .map(|output| (output, tx, shared, rate))
@@ -1268,7 +1332,7 @@ impl Engine {
                     decks,
                     output::SILENT_RATE,
                     memory.mixer,
-                    DECLICK_MS,
+                    true,
                     !memory.limiter_off,
                 );
                 (

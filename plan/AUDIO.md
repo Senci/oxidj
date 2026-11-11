@@ -80,7 +80,7 @@ Status: `todo`, `doing`, `done <sha>`, `parked`.
 | A11 | UI wiring: Settings for output device, buffer, limiter; status line with latency and load | parked (UI session) |
 | A12 | Spread key-lock FFT work across callbacks. Measured: cheaper preset cuts the worst block from 1.2 ms to 0.5 ms, but `key_lock_tempo_change_just_before_a_beat_stays_on_the_click` fails (6.0 ms against a 5 ms bound). Needs either `splitComputation` for the default preset (wrapper 0.1.3 does not expose it) or a re-derived position model plus a listening test | parked |
 | A13 | Build the installed app with `jack` (Linux) and prefer the JACK host when present; needs a change in the UI crate's Cargo features and `scripts/install-local.sh` | parked (UI session) |
-| A14 | Limiter look-ahead (about 1 ms) so the first over of a burst is anticipated | parked, only if listening shows a need |
+| A14 | Limiter look-ahead: real outputs delay the main output by 1 ms (`LIMITER_LOOKAHEAD_MS`) and ramp the gain down before a peak; held while overs keep arriving. The hand-driven renderer stays undelayed (`Renderer::set_limiter_lookahead_ms`). The cue pair is not delayed (1 ms ahead of main), and the 1 ms is not part of `StatsSnapshot::latency_ns` | done (see log) |
 | A15 | Real-hardware qualification: USB card unplug and replug, 4-channel cue through `OutputConfig`, 10-minute `qualify` on JACK, Windows ASIO build and run | needs owner hardware |
 | A17 | Key-lock fade-out: keep feeding the stretch engine for the declick frames on pause or jump and fade its output (today a key-locked deck's old signal stops on one sample) | parked: needs the position model to ignore those frames |
 | A16 | Split cue for 2-channel cards (master left, cue right) and free channel-pair routing | parked, YAGNI until asked |
@@ -162,6 +162,11 @@ Status: `todo`, `doing`, `done <sha>`, `parked`.
   worst render 2.28 ms = 42.6 % (target 30 %; bench says 22 % on a quiet core).
   Dropout target met, worst-load target not shown on a loaded machine.
 - Open rows are also cards on board `oxidj-audio` (A9 to A17, unassigned).
+
+- Goal run 2 (owner asked to finish A12, A14, A16, A17):
+  - A14 done: look-ahead limiter. Test: quiet mix is the input delayed 48 frames
+    bit for bit; at +4 dB the gain never moves more than 0.03 per audible frame,
+    bottoms at 0.625, nothing reaches the clamp.
 
 ## How to continue (next session)
 

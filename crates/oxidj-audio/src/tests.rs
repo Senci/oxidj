@@ -926,3 +926,48 @@ fn send_refuses_unknown_decks_and_remembers_only_valid_settings() {
     assert_eq!(e.memory.gains[0], Some(0.5));
     assert_eq!(e.memory.speeds[0], Some(1.04));
 }
+
+#[test]
+fn limiter_look_ahead_delays_the_mix_and_bends_the_gain_before_the_peak() {
+    // Quiet mix: only the 1 ms (48 frame) delay shows, bit for bit.
+    let (_e, mut plain) = hot_mix(0.45);
+    let (_e2, mut ahead) = hot_mix(0.45);
+    ahead.set_limiter_lookahead_ms(LIMITER_LOOKAHEAD_MS);
+    let a = render(&mut plain, 2_000);
+    let b = render(&mut ahead, 2_000);
+    assert!(b[..2 * 48].iter().all(|v| *v == 0.0));
+    assert_eq!(a[..2 * 1_952], b[2 * 48..]);
+
+    // Hot mix (peak 1.6): the delayed input divided into the output is the
+    // gain. It never jumps, it is already down when the first over comes
+    // out, and nothing reaches the clamp.
+    let (_e, mut dry) = hot_mix(0.8);
+    let (mut e, mut wet) = hot_mix(0.8);
+    e.send(Command::Limiter(true));
+    wet.set_limiter_lookahead_ms(LIMITER_LOOKAHEAD_MS);
+    // Reference without any limiting: the raw sum is rebuilt from one deck.
+    let (mut one, mut single) = hot_mix(0.8);
+    one.send(Command::Gain { deck: 1, gain: 0.0 });
+    let half = render(&mut single, 4_800);
+    let out = render(&mut wet, 4_800);
+    let _ = render(&mut dry, 1);
+    // The gain is first seen when the delayed signal appears (frame 48).
+    let mut last_gain = None;
+    let mut worst_jump = 0.0_f32;
+    let mut lowest = 1.0_f32;
+    for n in 48..4_800 {
+        let input = half[2 * (n - 48)] * 2.0;
+        assert!(out[2 * n].abs() <= 1.0 + 1e-6, "frame {n}: {}", out[2 * n]);
+        if input.abs() > 0.2 {
+            let gain = out[2 * n] / input;
+            worst_jump = worst_jump.max((gain - last_gain.unwrap_or(gain)).abs());
+            lowest = lowest.min(gain);
+            last_gain = Some(gain);
+        }
+    }
+    // The first over needs 1/1.6 = 0.625; ramped over 48 frames that is
+    // under 0.01 per frame. The instant limiter jumps by 0.2 and more.
+    assert!(worst_jump < 0.03, "largest gain jump {worst_jump}");
+    assert!((lowest - 0.625).abs() < 0.01, "lowest gain {lowest}");
+    assert!(flat_tops(&out) <= 2 * 2 * 100, "{}", flat_tops(&out));
+}

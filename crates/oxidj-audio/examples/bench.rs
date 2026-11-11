@@ -16,6 +16,7 @@ const RATE: u32 = 48_000;
 fn run(block: usize, keylock: bool) {
     let (mut engine, mut renderer) = Engine::manual(RATE);
     renderer.set_declick_ms(DECLICK_MS);
+    renderer.set_limiter_lookahead_ms(oxidj_audio::LIMITER_LOOKAHEAD_MS);
     // 44.1 kHz noise-like material: resampling on, every band busy.
     let mut seed = 0x9e37_79b9_u32;
     let samples: Vec<f32> = (0..44_100 * 40 * 2)
