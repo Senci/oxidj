@@ -43,11 +43,11 @@ describe('screenshots', () => {
   it('renders a sized, described figure whose link opens the full-resolution image', () => {
     const html = renderShot(screenshots.overview, '92vw', true);
     expect(html).toContain('href="./images/app-overview.webp" data-lightbox');
-    expect(html).toContain('data-width="1440" data-height="638"');
+    expect(html).toContain('data-width="1440" data-height="635"');
     expect(html).toContain(
       'srcset="./images/app-overview-720.webp 720w, ./images/app-overview.webp 1440w"',
     );
-    expect(html).toContain('width="1440" height="638"');
+    expect(html).toContain('width="1440" height="635"');
     expect(html).toContain('fetchpriority="high"');
     expect(html).not.toContain('loading="lazy"');
     expect(html).toContain(`alt="${screenshots.overview.alt}"`);
@@ -57,6 +57,21 @@ describe('screenshots', () => {
     const html = renderShot(screenshots.waveformGrid, '359px');
     expect(html).toContain('loading="lazy"');
     expect(html).not.toContain('srcset');
+  });
+  it('renders each refreshed arrangement with its correct lightbox and responsive dimensions', () => {
+    for (const [shot, height] of [
+      [screenshots.layoutA, 628],
+      [screenshots.layoutB, 635],
+      [screenshots.layoutC, 628],
+      [screenshots.layoutD, 473],
+    ] as const) {
+      const html = renderShot(shot, '92vw');
+      expect(html).toContain(`href="./images/${shot.id}.webp" data-lightbox`);
+      expect(html).toContain(`data-width="1440" data-height="${height}"`);
+      expect(html).toContain(`width="1440" height="${height}"`);
+      expect(html).toContain(`./images/${shot.id}-720.webp 720w`);
+      expect(html).toContain(`alt="${shot.alt}"`);
+    }
   });
   it('pins the imported-playlist capture dimensions, accessible description and lightbox path', () => {
     const html = renderShot(screenshots.importedPlaylists, '240px');

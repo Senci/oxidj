@@ -35,7 +35,6 @@ BEFORE = BANDS / "01-before-v16-monochrome.png"
 PLAYING = BANDS / "03-after-both-playing-played-dimmed.png"
 SYNCED = BANDS / "04-after-sync-keylock-both-playing.png"
 PLAYLISTS = MILESTONES / "v18-imported-playlists/01-imported-playlist-load-controls.png"
-LAYOUT_V2 = MILESTONES / "v19-deck-layout-v2/app-overviews-shared-scale.png"
 LAYOUTS = MILESTONES / "v19-deck-layout-v2"
 
 # Waveform section of the details panel: below the details/waveform hairline
@@ -49,14 +48,15 @@ BANDS_AREA = (0, 130, 1440, 552)
 
 # name: (source, (left, top, right, bottom)) in source pixels.
 CROPS = {
-    # Layout B, stopping before the details panel and its local scratch path.
-    "app-overview": (LAYOUT_V2, (0, 65, 1440, 703)),
-    "deck-mixer-v2": (LAYOUT_V2, (0, 430, 1440, 703)),
+    # Latest layout B, stopping before the table and Details panel.
+    "app-overview": (LAYOUTS / "app-deck-row-fit-1440x790.png", (0, 0, 1440, 635)),
+    "deck-mixer-v2": (LAYOUTS / "app-deck-row-fit-1440x790.png", (0, 350, 1440, 635)),
     # Synthetic v19 application screenshots, cropped above the Details path.
-    "layout-a": (LAYOUTS / "app-layout-a.png", (0, 65, 1440, 703)),
-    "layout-b": (LAYOUTS / "app-layout-b.png", (0, 65, 1440, 703)),
-    "layout-c": (LAYOUTS / "app-layout-c.png", (0, 65, 1440, 703)),
-    "layout-d": (LAYOUTS / "app-layout-d.png", (0, 65, 1440, 540)),
+    "layout-a": (LAYOUTS / "pages-layout-a-synthetic.png", (0, 0, 1440, 628)),
+    # Newer 1440x790 synthetic capture: complete deck row, no table or Details.
+    "layout-b": (LAYOUTS / "app-deck-row-fit-1440x790.png", (0, 0, 1440, 635)),
+    "layout-c": (LAYOUTS / "pages-layout-c-synthetic.png", (0, 0, 1440, 628)),
+    "layout-d": (LAYOUTS / "pages-layout-d-synthetic.png", (0, 0, 1440, 473)),
     # DECKS row and the merged 3-band detail waveform, both decks playing.
     "decks-merged": (PLAYING, (0, 100, 1440, 356)),
     # Seam readout, both tempo faders and KEY/SYNC lit on deck B.

@@ -289,7 +289,7 @@ export const screenshots = {
   deckMixerV2: {
     id: 'deck-mixer-v2',
     width: 1440,
-    height: 273,
+    height: 285,
     halfWidth: 720,
     alt: 'Current deck row with two synthetic tracks, hot-cue pads and the compact mixer in the centre.',
     caption: 'Decks and compact mixer in layout B. Synthetic tracks; provisional application.',
@@ -297,7 +297,7 @@ export const screenshots = {
   layoutB: {
     id: 'layout-b',
     width: 1440,
-    height: 638,
+    height: 635,
     halfWidth: 720,
     alt: 'Arrangement B: waveform above two decks with a mixer between them.',
     caption: 'B, default: waveforms above the decks and central mixer.',
@@ -305,7 +305,7 @@ export const screenshots = {
   layoutA: {
     id: 'layout-a',
     width: 1440,
-    height: 638,
+    height: 628,
     halfWidth: 720,
     alt: 'Arrangement A: decks and central mixer above the waveform.',
     caption: 'A: decks and mixer above the waveforms.',
@@ -313,7 +313,7 @@ export const screenshots = {
   layoutC: {
     id: 'layout-c',
     width: 1440,
-    height: 638,
+    height: 628,
     halfWidth: 720,
     alt: 'Arrangement C: waveform on top, decks below with the mixer on the right.',
     caption: 'C: waveforms above; mixer docked right.',
@@ -321,7 +321,7 @@ export const screenshots = {
   layoutD: {
     id: 'layout-d',
     width: 1440,
-    height: 475,
+    height: 473,
     halfWidth: 720,
     alt: 'Arrangement D: mixer beside waveforms with decks below.',
     caption: 'D: mixer beside the waveforms; decks below.',
@@ -329,7 +329,7 @@ export const screenshots = {
   overview: {
     id: 'app-overview',
     width: 1440,
-    height: 638,
+    height: 635,
     halfWidth: 720,
     alt: 'OxiDJ deck layout B with an orange and blue merged waveform, separate overviews, two synthetic tracks on the decks, and a compact mixer between them.',
     caption: 'Deck layout B in the provisional application, with synthetic tracks. Click to zoom.',

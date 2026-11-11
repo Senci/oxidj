@@ -267,6 +267,11 @@ def main():
                     page.evaluate("document.fonts.ready")
                     tag = f"{name}-{width}"
                     if motion == "reduce":
+                        # The screenshot galleries live in closed disclosures: open them
+                        # through their summaries before checking images and lightboxes.
+                        if name == "index":
+                            for summary_control in page.locator("details.layout-showcase > summary").all():
+                                summary_control.click()
                         # Load lazy images and let scroll reveals settle before measuring.
                         page.evaluate("async () => { for (let y = 0; y < document.body.scrollHeight; y += 600) { window.scrollTo(0, y); await new Promise(r => setTimeout(r, 60)); } window.scrollTo(0, 0); }")
                         page.wait_for_load_state("networkidle")

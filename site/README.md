@@ -47,12 +47,13 @@ uv run --no-project --with playwright python scripts/verify-browser.py http://12
 ```
 
 `verify-browser.py` drives the system Chromium (`CHROME_PATH`, default
-`/usr/sbin/chromium`) at 390 and 1440 px on every route, with and without reduced
-motion: console and request errors, horizontal overflow plus painted-text and
-navigation bounds (so `overflow-x: clip` cannot hide clipped copy), WCAG contrast of visible text
-on its blended background, 44 px mobile targets, layout shift, transferred bytes and an
-end-to-end lightbox run. The 390 px home audit includes an injected wide-copy/shifted-nav
-negative control. Screenshots land in the output directory (ignored).
+`/usr/sbin/chromium`) at 390 and 1440 px on every route. With reduced motion, it
+checks console and request errors, horizontal overflow, painted-text and navigation
+bounds (so `overflow-x: clip` cannot hide clipped copy), visible-text contrast,
+44 px mobile targets, transferred bytes and an end-to-end lightbox run. With normal
+motion it checks errors and layout shift. The 390 px home audit includes an
+injected wide-copy/shifted-nav negative control. Screenshots land in the output
+directory (ignored).
 
 ## Publication
 
