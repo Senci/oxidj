@@ -136,7 +136,9 @@ impl Default for Routing {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct OutputConfig {
     /// cpal host name, case-insensitive (`ALSA`, `JACK`, `ASIO`, `WASAPI`,
-    /// `CoreAudio`); `None` = the platform default host.
+    /// `CoreAudio`); `None` prefers JACK on Linux when compiled in and an
+    /// automatic output is available, otherwise uses the platform default.
+    /// A named device without a host uses the platform default host.
     pub host: Option<String>,
     /// [`OutputInfo::id`] (stable, unique) or the exact device name as listed
     /// by [`list_outputs`] (refused when two devices share it); `None` = the
@@ -307,6 +309,33 @@ fn usable(format: cpal::SampleFormat) -> bool {
     matches!(format, F::F32 | F::F64 | F::I16 | F::I32 | F::U16)
 }
 
+fn select_automatic_host<T>(
+    automatic_device: bool,
+    jack: impl FnOnce() -> Option<T>,
+    default: impl FnOnce() -> T,
+) -> T {
+    if automatic_device && let Some(host) = jack() {
+        return host;
+    }
+    default()
+}
+
+/// Prefer JACK only for automatic device selection, and fall back if absent.
+fn preferred_host(automatic_device: bool) -> cpal::Host {
+    #[cfg(all(target_os = "linux", feature = "jack"))]
+    let jack = || {
+        let id = cpal::available_hosts()
+            .into_iter()
+            .find(|id| id.name().eq_ignore_ascii_case("jack"))?;
+        let host = cpal::host_from_id(id).ok()?;
+        host.default_output_device()?;
+        Some(host)
+    };
+    #[cfg(not(all(target_os = "linux", feature = "jack")))]
+    let jack = || None;
+    select_automatic_host(automatic_device, jack, cpal::default_host)
+}
+
 /// An output device and the stream configuration chosen for it.
 pub(crate) struct Device {
     device: cpal::Device,
@@ -319,7 +348,7 @@ pub(crate) struct Device {
 impl Device {
     pub(crate) fn open(want: &OutputConfig) -> Result<Self, String> {
         let host = match want.host.as_deref() {
-            None => cpal::default_host(),
+            None => preferred_host(want.device.is_none()),
             Some(name) => {
                 let id = cpal::available_hosts()
                     .into_iter()
@@ -523,4 +552,29 @@ fn finish(stats: &Stats, frames: usize, rate: u64, origin: Instant, began: u64, 
         u64::try_from(latency.as_nanos()).unwrap_or(u64::MAX),
         Ordering::Relaxed,
     );
+}
+
+#[cfg(test)]
+mod host_selection_tests {
+    use super::select_automatic_host;
+
+    #[test]
+    fn automatic_selection_prefers_available_jack_and_falls_back() {
+        assert_eq!(
+            select_automatic_host(true, || Some("jack"), || "default"),
+            "jack"
+        );
+        assert_eq!(
+            select_automatic_host(true, || None, || "default"),
+            "default"
+        );
+        assert_eq!(
+            select_automatic_host(
+                false,
+                || panic!("explicit device must not probe JACK"),
+                || "default"
+            ),
+            "default"
+        );
+    }
 }
