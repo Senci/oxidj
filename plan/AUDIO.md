@@ -78,7 +78,7 @@ Status: `todo`, `doing`, `done <sha>`, `parked`.
 | A9 | WASAPI exclusive mode: needs cpal support or a patch; decide later | parked |
 | A10 | Streaming or i16 track storage to cut RAM | parked |
 | A11 | UI wiring: Settings for output device, buffer, limiter; status line with latency and load | parked (UI session) |
-| A12 | Spread key-lock FFT work across callbacks. Measured: cheaper preset cuts the worst block from 1.2 ms to 0.5 ms, but `key_lock_tempo_change_just_before_a_beat_stays_on_the_click` fails (6.0 ms against a 5 ms bound). Needs either `splitComputation` for the default preset (wrapper 0.1.3 does not expose it) or a re-derived position model plus a listening test | parked |
+| A12 | done by staggering (see log): the two decks' bursts are kept half an interval apart, worst steady block 1.16 ms to 0.52 ms. Not done: splitting one deck's own burst. Earlier finding kept for the record: cheaper preset cuts the worst block from 1.2 ms to 0.5 ms, but `key_lock_tempo_change_just_before_a_beat_stays_on_the_click` fails (6.0 ms against a 5 ms bound). Needs either `splitComputation` for the default preset (wrapper 0.1.3 does not expose it) or a re-derived position model plus a listening test | parked |
 | A13 | Build the installed app with `jack` (Linux) and prefer the JACK host when present; needs a change in the UI crate's Cargo features and `scripts/install-local.sh` | parked (UI session) |
 | A14 | Limiter look-ahead: real outputs delay the main output by 1 ms (`LIMITER_LOOKAHEAD_MS`) and ramp the gain down before a peak; held while overs keep arriving. The hand-driven renderer stays undelayed (`Renderer::set_limiter_lookahead_ms`). The cue pair is not delayed (1 ms ahead of main), and the 1 ms is not part of `StatsSnapshot::latency_ns` | done (see log) |
 | A15 | Real-hardware qualification: USB card unplug and replug, 4-channel cue through `OutputConfig`, 10-minute `qualify` on JACK, Windows ASIO build and run | needs owner hardware |
@@ -172,6 +172,17 @@ Status: `todo`, `doing`, `done <sha>`, `parked`.
   - A17 done: key-locked pause, seek, double seek and key-lock-off tested on a
     440 Hz sine at +8 %: largest step stays within the sine's own slope. Loop
     seams of key-locked decks are still not crossfaded.
+  - A12 done by staggering the two decks' transform bursts (discarded run-in at
+    prime; position model unchanged, all key-lock and sync tests pass, state
+    test `key_locked_decks_keep_their_transform_bursts_half_an_interval_apart`).
+    Bench: 128 frames 44 % to 19 %, 256 frames 22 % to 10.5 % worst steady load;
+    jump blocks unchanged at 1.2 to 1.7 ms. JACK 30 s runs under load average 11:
+    256 frames 17.1 % and 0 xruns; 128 frames 25 to 39 % and 1 to 3 xruns (gaps
+    between callbacks up to 9.9 ms, not render time). A single deck's burst
+    (0.5 ms) is still one piece; splitting it needs `splitComputation`.
+  - Goal run 2 result: A12, A14, A16, A17 done. Open: A9 (cpal), A10, A11 and
+    A13 (UI session), A15 (owner hardware). None of the four new commits has
+    had an independent review.
 
 ## How to continue (next session)
 

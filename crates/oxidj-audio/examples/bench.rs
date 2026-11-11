@@ -13,7 +13,7 @@ use std::time::Instant;
 
 const RATE: u32 = 48_000;
 
-fn run(block: usize, keylock: bool) {
+fn run(block: usize, keylock: bool, jumps: bool) {
     let (mut engine, mut renderer) = Engine::manual(RATE);
     renderer.set_declick_ms(DECLICK_MS);
     renderer.set_limiter_lookahead_ms(oxidj_audio::LIMITER_LOOKAHEAD_MS);
@@ -45,23 +45,35 @@ fn run(block: usize, keylock: bool) {
     let mut out = vec![0.0_f32; block * 4];
     let blocks = RATE as usize * 30 / block;
     let mut times = Vec::with_capacity(blocks);
-    for _ in 0..blocks {
+    for i in 0..blocks {
+        // Hot-cue style: one deck jumps twice a second.
+        if jumps && i % (RATE as usize / 2 / block) == 0 {
+            engine.send(Command::Seek {
+                deck: 1,
+                frame: 44_100.0 * (1.0 + (i % 7) as f64),
+            });
+        }
         let t = Instant::now();
         renderer.render(&mut out, 4);
         times.push(t.elapsed().as_nanos() as u64);
     }
+    // The first blocks carry the one-off cost of starting two key-locked
+    // decks (stretch pre-roll); report it apart from the steady state.
+    let start = times.iter().take(8).copied().max().unwrap_or(0);
+    times.drain(..8);
     times.sort_unstable();
     let period_ns = block as f64 * 1e9 / f64::from(RATE);
     let pct = |ns: u64| ns as f64 * 100.0 / period_ns;
     let mean = times.iter().sum::<u64>() as f64 / times.len() as f64;
     println!(
-        "block={block:>4} keylock={keylock:<5} mean={:.1}% p50={:.1}% p99={:.1}% p99.9={:.1}% max={:.1}% ({:.3} ms)",
+        "block={block:>4} keylock={keylock:<5} jumps={jumps:<5} mean={:.1}% p50={:.1}% p99={:.1}% p99.9={:.1}% max={:.1}% ({:.3} ms) start={:.3} ms",
         mean * 100.0 / period_ns,
         pct(times[times.len() / 2]),
         pct(times[times.len() * 99 / 100]),
         pct(times[times.len() * 999 / 1000]),
         pct(times[times.len() - 1]),
         times[times.len() - 1] as f64 / 1e6,
+        start as f64 / 1e6,
     );
 }
 
@@ -69,7 +81,10 @@ fn main() {
     println!("30 s of audio per row, two decks at 44.1 kHz into 48 kHz, mixer, 4 channels");
     for keylock in [false, true] {
         for block in [64, 128, 256, 512] {
-            run(block, keylock);
+            run(block, keylock, false);
         }
+    }
+    for block in [128, 256] {
+        run(block, true, true);
     }
 }

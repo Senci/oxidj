@@ -282,6 +282,9 @@ pub(crate) struct DeckState {
     primed: bool,
     /// Key lock: fractional input frame carried to the next chunk.
     carry: f64,
+    /// Key lock: output frames the engine ran before the play point when
+    /// it was primed (its burst phase is `clock + stagger`).
+    stagger: usize,
     /// Commands applied to this deck (the UI compares with what it sent).
     applied: u64,
     /// Declick length in output frames (0 = off: starts, stops and jumps
@@ -319,6 +322,7 @@ impl Default for DeckState {
             seg_len: 0,
             primed: false,
             carry: 0.0,
+            stagger: 0,
             applied: 0,
             declick: 0,
             fade_in: 0,
@@ -648,6 +652,7 @@ impl DeckState {
         input: &mut [f32],
         out: &mut [f32],
         device_rate: f64,
+        stagger: usize,
     ) {
         let Some(track) = self.track.clone().filter(|_| self.playing) else {
             for f in out.as_chunks_mut::<2>().0 {
@@ -674,8 +679,16 @@ impl DeckState {
             // Preroll fed the history at this tempo: extrapolates backwards.
             self.segments[0] = (0.0, lag, speed * step);
             self.seg_len = 1;
+            // Stagger: run the engine `stagger` output frames before the
+            // play point and throw them away. Its transform bursts then
+            // fall half an interval away from the other deck's instead of
+            // into the same callbacks. The read head starts that much
+            // earlier, so it is at `pos + lag` again when real output
+            // begins and nothing about the position changes.
+            let skip_in = (stagger as f64 * speed) as usize;
+            let head = self.pos + lag - skip_in as f64 * step;
             let pre = stretch.preroll_frames().min(capacity);
-            let start = self.pos + lag - pre as f64 * step;
+            let start = head - pre as f64 * step;
             for (i, f) in input[..pre * 2]
                 .as_chunks_mut::<2>()
                 .0
@@ -686,6 +699,26 @@ impl DeckState {
                 *f = [l, r];
             }
             stretch.preroll(&input[..pre * 2], speed);
+            let (mut left_out, mut left_in, mut at) = (stagger, skip_in, head);
+            while left_out > 0 && !out.is_empty() {
+                let frames = left_out.min(out.len() / 2).max(1);
+                let n = if frames == left_out {
+                    left_in
+                } else {
+                    (frames as f64 * speed) as usize
+                }
+                .min(left_in)
+                .min(capacity);
+                for f in input[..n * 2].as_chunks_mut::<2>().0 {
+                    let (l, r) = track.at(wrap(at), resampler, table);
+                    *f = [l, r];
+                    at += step;
+                }
+                stretch.process(&input[..n * 2], &mut out[..frames * 2]);
+                left_out -= frames;
+                left_in -= n;
+            }
+            self.stagger = stagger;
             self.carry = 0.0;
             self.primed = true;
         }
@@ -1183,6 +1216,13 @@ impl Renderer {
             mix.fill(0.0);
             let cue_buf = &mut cue_buf[..frames * 2];
             cue_buf.fill(0.0);
+            // Burst phase of each key-locked deck at the end of this chunk
+            // (decks not rendered yet are still `frames` behind).
+            let mut bursts: [Option<f64>; DECKS] = std::array::from_fn(|d| {
+                let deck = &decks[d];
+                (deck.keylock && deck.primed && deck.playing)
+                    .then_some(deck.clock + deck.stagger as f64 + frames as f64)
+            });
             for (c, ((deck, stretch), spare)) in decks
                 .iter_mut()
                 .zip(stretch.iter_mut())
@@ -1198,7 +1238,20 @@ impl Renderer {
                 }
                 let buf = &mut deck_buf[..frames * 2];
                 if deck.keylock && deck.track.is_some() {
-                    deck.render_keylock(stretch.as_mut(), resampler, input, buf, rate);
+                    // Used only if the deck primes now: half an interval
+                    // away from the burst phase of a deck already running.
+                    let interval = stretch.interval_frames();
+                    let stagger = bursts
+                        .iter()
+                        .enumerate()
+                        .find_map(|(o, phase)| phase.filter(|_| o != c && interval > 0))
+                        // `phase` is the other deck's at the end of this chunk;
+                        // this deck's will be `stagger + frames` by then.
+                        .map_or(0, |phase| {
+                            (phase as usize + interval / 2 + interval - frames % interval)
+                                % interval
+                        });
+                    deck.render_keylock(stretch.as_mut(), resampler, input, buf, rate, stagger);
                 } else {
                     deck.primed = false;
                     for f in buf.as_chunks_mut::<2>().0 {
@@ -1209,6 +1262,9 @@ impl Renderer {
                 if deck.key_tail.is_some() {
                     deck.render_key_tail(spare.as_mut(), resampler, input, tail_buf, buf, rate);
                 }
+                // This deck's burst phase at the start of the next chunk.
+                bursts[c] = (deck.keylock && deck.primed && deck.playing)
+                    .then_some(deck.clock + deck.stagger as f64);
                 // Capture pre-fader signal for cue bus.
                 let pre = &mut pre_fader[..frames * 2];
                 if mixing {

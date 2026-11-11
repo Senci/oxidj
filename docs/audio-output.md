@@ -37,11 +37,12 @@ List devices, ids, channel counts and buffer ranges:
 |---|---|---|
 | 512 | 10.7 ms | safe on any machine |
 | 256 | 5.3 ms | recommended for playing live (set it; the engine does not pick it by itself) |
-| 128 | 2.7 ms | fine without key lock; with key lock on both decks the worst block uses about 45 % of its time |
+| 128 | 2.7 ms | fine without key lock; with key lock on both decks the worst steady block uses about 20 % of its time, a block with a jump about 60 % |
 | 64 | 1.3 ms | varispeed only |
 
 Key lock (Signalsmith) does its transform in bursts of about 0.6 ms per deck
-every 30 ms; everything else in the engine costs under 1 % of a block.
+every 30 ms; the engine keeps the two decks' bursts 15 ms apart. Everything
+else in the engine costs under 1 % of a block.
 
 ## Linux
 
