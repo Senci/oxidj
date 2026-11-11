@@ -44,6 +44,20 @@ fn imported(db: &Path, root: &Path) {
 }
 
 #[test]
+fn pdb_import_can_be_cancelled_without_modifying_the_active_catalog() {
+    let (root, db) = catalog_root("pdb-import-cancel");
+    let before = Catalog::open_read_only(&db).unwrap().library_snapshot().unwrap();
+    let mut shell = Shell::new(&db, 1440.0);
+    let menu = shell.click(shell.app.shell.more.unwrap().center());
+    let dialog = shell.click(find(&nodes(&menu), "Import Rekordbox PDB…").2.center());
+    shell.click(find(&nodes(&dialog), "Cancel").2.center());
+    assert_eq!(shell.app.db_path, db);
+    assert_eq!(Catalog::open_read_only(&db).unwrap().library_snapshot().unwrap(), before);
+    drop(shell);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn selected_root_playlist_can_be_renamed_after_confirmation() {
     let (root, db) = catalog_root("rename-root");
     Catalog::open(&db).unwrap().import_library(&LibrarySnapshot {

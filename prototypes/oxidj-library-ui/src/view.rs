@@ -61,6 +61,7 @@ impl LibraryApp {
         self.sync_artwork_settings();
         self.decks.pump_artwork(ctx);
         self.pump_waveform_job(ctx);
+        self.pump_pdb_import(ctx);
         self.theme.apply(self.custom_tokens, ctx);
         let tokens = self.active_tokens();
         self.shell = ShellLayout::default();
@@ -133,6 +134,7 @@ impl LibraryApp {
         self.show_control_gallery_window(ctx, tokens);
         self.show_waveform_demo_window(ctx);
         self.xml_preview_window(ctx, tokens);
+        self.pdb_import_window(ctx);
         self.catalog_export_window(ctx);
         self.catalog_rename_window(ctx);
         let status = egui::TopBottomPanel::bottom("status-bar")
@@ -469,6 +471,10 @@ impl LibraryApp {
                 ui.end_row();
             });
         ui.separator();
+        if ui.button("Import Rekordbox PDB…").clicked() {
+            self.pdb_import_open = true;
+            close = true;
+        }
         if ui.button("Export catalog XML…").clicked() {
             self.catalog_export_open = true;
             close = true;
@@ -483,6 +489,81 @@ impl LibraryApp {
         });
         if close {
             egui::Popup::close_all(ui.ctx());
+        }
+    }
+
+    fn pdb_import_window(&mut self, ctx: &egui::Context) {
+        if !self.pdb_import_open { return; }
+        let mut open = true;
+        let mut cancel = false;
+        egui::Window::new("Import Rekordbox PDB").default_width(560.0).open(&mut open).show(ctx, |ui| {
+            ui.label("Import into a new catalog; the current catalog stays open.");
+            ui.label("Choose a local destination outside the source USB/device. No audio is copied.");
+            if self.pdb_job.is_some() {
+                ui.spinner();
+                ui.label("Import in progress… You can keep browsing. Closing this window does not cancel a running import.");
+            } else if let Some((source, destination)) = self.pdb_pending.clone() {
+                ui.label(format!("Read PDB: {}", source.display()));
+                ui.label(format!("Create NEW catalog: {}", destination.display()));
+                ui.label("Confirm creation? Existing files and the active catalog will not be reused or merged.");
+                if ui.button("Confirm import").clicked() {
+                    self.start_pdb_import(ctx, source, destination);
+                    self.pdb_pending = None;
+                }
+            } else {
+                ui.horizontal(|ui| { ui.label("PDB source"); ui.text_edit_singleline(&mut self.pdb_source_path); });
+                ui.horizontal(|ui| { ui.label("New catalog destination"); ui.text_edit_singleline(&mut self.pdb_destination_path); });
+                if ui.button("Review import…").clicked() {
+                    if self.pdb_source_path.trim().is_empty() || self.pdb_destination_path.trim().is_empty() {
+                        self.notice = "Import refused: choose a PDB source and explicitly name a new catalog file".into();
+                    } else {
+                        self.pdb_pending = Some((PathBuf::from(&self.pdb_source_path), PathBuf::from(&self.pdb_destination_path)));
+                    }
+                }
+            }
+            if ui.button(if self.pdb_job.is_some() { "Close" } else { "Cancel" }).clicked() { cancel = true; }
+            if !self.notice.is_empty() { ui.label(&self.notice); }
+        });
+        self.pdb_import_open = open && !cancel;
+        if !self.pdb_import_open { self.pdb_pending = None; }
+    }
+
+    fn start_pdb_import(&mut self, ctx: &egui::Context, source: PathBuf, destination: PathBuf) {
+        if self.pdb_job.is_some() { return; }
+        let (tx, rx) = std::sync::mpsc::channel();
+        let repaint = ctx.clone();
+        #[cfg(test)]
+        let gate = self.pdb_gate.take();
+        match std::thread::Builder::new().name("oxidj-pdb-import".into()).spawn(move || {
+            #[cfg(test)]
+            if let Some(gate) = gate { gate.wait(); }
+            let result = oxidj_application::import_library_from_pdb(&source, &destination, None).map_err(|e| e.to_string());
+            let _ = tx.send((destination, result));
+            repaint.request_repaint();
+        }) {
+            Ok(_) => {
+                self.pdb_job = Some(rx);
+                self.notice = "PDB import started; the active catalog remains open".into();
+            }
+            Err(_) => self.notice = "Import failed: could not start background worker".into(),
+        }
+    }
+
+    fn pump_pdb_import(&mut self, ctx: &egui::Context) {
+        let Some(rx) = &self.pdb_job else { return; };
+        match rx.try_recv() {
+            Ok((destination, result)) => {
+                self.pdb_job = None;
+                self.notice = match result {
+                    Ok(r) => format!("Created catalog {}: {} tracks, {} folders, {} playlists, {} entries. {} unresolved field values. XML cannot carry every vendor field. No audio copied. Current catalog unchanged. To open the new catalog, launch oxidj-library-ui with --db and this path: {}", destination.display(), r.counts.tracks, r.counts.folders, r.counts.playlists, r.counts.memberships, r.unresolved.iter().map(|(_, n)| n).sum::<usize>(), destination.display()),
+                    Err(e) => format!("PDB import failed: {e}. Current catalog unchanged."),
+                };
+            }
+            Err(std::sync::mpsc::TryRecvError::Empty) => ctx.request_repaint_after(std::time::Duration::from_millis(100)),
+            Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                self.pdb_job = None;
+                self.notice = "PDB import failed: background worker stopped unexpectedly. Current catalog unchanged.".into();
+            }
         }
     }
 

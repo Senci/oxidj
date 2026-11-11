@@ -63,6 +63,8 @@ type Node = (Role, Option<String>, Rect);
 
 #[path = "library_interaction_tests.rs"]
 mod library_interaction_tests;
+#[path = "pdb_import_tests.rs"]
+mod pdb_import_tests;
 
 struct Shell {
     ctx: egui::Context,

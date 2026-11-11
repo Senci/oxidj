@@ -2,6 +2,25 @@
 
 Condensed 2026-11-02. Full prior text (per-increment evidence, M0-09 verification, decisions, risks, F-09 oracle notes): [docs/history/status-2026-11-02.md](../docs/history/status-2026-11-02.md). Milestone contract: [plan/MVP.md](MVP.md). Live work: Kanban; this file records stages and gates only.
 
+## M7 in-app PDB import — implemented, pending independent review
+
+`t_169085d9` adds More → Import Rekordbox PDB: explicit source and new
+catalog path, review/confirm/cancel, background import and completion/error
+reporting. The active catalog is neither merged nor switched. The result gives
+counts, metadata limitations and the new path; open it in a new UI launch with
+`oxidj-library-ui --db <path>`. Audio is not copied. Choose a local filesystem
+outside the source device; standard `PIONEER/rekordbox` source-device destinations
+(including directory aliases) are refused. Existing catalog/sidecar paths are
+refused; SQLite work and verification happen in a private staging directory,
+then a no-clobber hard link publishes the closed database. Failure cleanup only
+removes that owned stage, never a competing destination or its sidecars.
+Synthetic actual-egui tests cover cancel, confirm, held-worker browsing,
+completion, invalid PDB and destination refusals; a fresh UI reopens the artifact
+and exports XML checked by an independent complete-tree oracle with a mutation
+control. Required gate evidence is on the card and commit. Independent approval
+and installation remain pending; no private library data was used. Real
+Rekordbox, removable-filesystem and hardware qualification remain separate.
+
 ## M8 deck and mixer layout v2 — implemented, reviewed and installed (2026-11-10)
 
 The owner approved the direction in a static web mockup
