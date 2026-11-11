@@ -83,7 +83,7 @@ Status: `todo`, `doing`, `done <sha>`, `parked`.
 | A14 | Limiter look-ahead: real outputs delay the main output by 1 ms (`LIMITER_LOOKAHEAD_MS`) and ramp the gain down before a peak; held while overs keep arriving. The hand-driven renderer stays undelayed (`Renderer::set_limiter_lookahead_ms`). The cue pair is not delayed (1 ms ahead of main), and the 1 ms is not part of `StatsSnapshot::latency_ns` | done (see log) |
 | A15 | Real-hardware qualification: USB card unplug and replug, 4-channel cue through `OutputConfig`, 10-minute `qualify` on JACK, Windows ASIO build and run | needs owner hardware |
 | A17 | Key-lock fade-out: keep feeding the stretch engine for the declick frames on pause or jump and fade its output (today a key-locked deck's old signal stops on one sample) | parked: needs the position model to ignore those frames |
-| A16 | Split cue for 2-channel cards (master left, cue right) and free channel-pair routing | parked, YAGNI until asked |
+| A16 | Split cue for 2-channel cards (main mono left, cue mono right) and free channel-pair routing: `Routing` in `OutputConfig`, `OXIDJ_AUDIO_MASTER` / `_CUE` / `_SPLIT_CUE`, `Renderer::set_routing` | done (see log) |
 
 ## Decisions log
 
@@ -167,6 +167,8 @@ Status: `todo`, `doing`, `done <sha>`, `parked`.
   - A14 done: look-ahead limiter. Test: quiet mix is the input delayed 48 frames
     bit for bit; at +4 dB the gain never moves more than 0.03 per audible frame,
     bottoms at 0.625, nothing reaches the clamp.
+  - A16 done: routing and split cue, tested on the fake sink for 1 to 8 channels.
+    Not run on a real multi-channel card.
 
 ## How to continue (next session)
 

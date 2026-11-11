@@ -463,6 +463,7 @@ fn output_config_reads_the_environment_keys() {
             sample_rate: Some(44_100),
             buffer_frames: Some(128),
             channels: Some(2),
+            routing: Routing::default(),
         }
     );
     // A named device alone keeps the cue contract: 4 channels at 48 kHz.
@@ -970,4 +971,136 @@ fn limiter_look_ahead_delays_the_mix_and_bends_the_gain_before_the_peak() {
     assert!(worst_jump < 0.03, "largest gain jump {worst_jump}");
     assert!((lowest - 0.625).abs() < 0.01, "lowest gain {lowest}");
     assert!(flat_tops(&out) <= 2 * 2 * 100, "{}", flat_tops(&out));
+}
+
+/// Deck 0 (0.25, fader down, CUE on) is heard on the cue bus only; deck 1
+/// (0.5) on main only.
+fn routed(routing: Routing, channels: usize) -> Vec<f32> {
+    let (mut e, mut r) = Engine::manual(RATE);
+    r.set_routing(routing);
+    let mut params = MixerParams {
+        cue_mix: 0.0,
+        ..MixerParams::default()
+    };
+    params.channels[0].cue = true;
+    params.channels[0].fader = 0.0;
+    e.send(Command::Mixer(Some(params)));
+    for (deck, level) in [(0, 0.25), (1, 0.5)] {
+        e.send(Command::Load {
+            deck,
+            id: deck as u64,
+            track: flat(48_000, level),
+        });
+        e.send(Command::TogglePlay { deck });
+    }
+    let mut out = vec![9.0; 4_000 * channels];
+    r.render(&mut out, channels);
+    // The settled last frame (filters and ramps have run in).
+    out[out.len() - channels..].to_vec()
+}
+
+fn near(got: &[f32], want: &[f32]) {
+    assert_eq!(got.len(), want.len());
+    for (g, w) in got.iter().zip(want) {
+        assert!((g - w).abs() < 1e-3, "{got:?} != {want:?}");
+    }
+}
+
+#[test]
+fn routing_places_main_and_cue_on_the_chosen_pairs() {
+    let default = Routing::default();
+    near(&routed(default, 4), &[0.5, 0.5, 0.25, 0.25]);
+    near(&routed(default, 2), &[0.5, 0.5]);
+    near(&routed(default, 3), &[0.5, 0.5, 0.0]);
+    near(&routed(default, 6), &[0.5, 0.5, 0.25, 0.25, 0.0, 0.0]);
+    // Swapped pairs, and pairs further up an 8-channel card.
+    let swapped = Routing {
+        master: 2,
+        cue: 0,
+        split: false,
+    };
+    near(&routed(swapped, 4), &[0.25, 0.25, 0.5, 0.5]);
+    let high = Routing {
+        master: 4,
+        cue: 6,
+        split: false,
+    };
+    near(
+        &routed(high, 8),
+        &[0.0, 0.0, 0.0, 0.0, 0.5, 0.5, 0.25, 0.25],
+    );
+    // A pair the device lacks stays silent; overlapping pairs give main.
+    near(&routed(high, 4), &[0.0; 4]);
+    let overlap = Routing {
+        master: 0,
+        cue: 1,
+        split: false,
+    };
+    near(&routed(overlap, 4), &[0.5, 0.5, 0.0, 0.0]);
+}
+
+#[test]
+fn split_cue_puts_mono_main_left_and_mono_cue_right() {
+    let split = Routing {
+        split: true,
+        ..Routing::default()
+    };
+    near(&routed(split, 2), &[0.5, 0.25]);
+    near(&routed(split, 4), &[0.5, 0.25, 0.0, 0.0]);
+    // Mono devices carry main only, as before.
+    near(&routed(split, 1), &[0.5]);
+}
+
+#[test]
+fn routing_is_checked_against_the_device_and_read_from_the_environment() {
+    let ok = Routing::default();
+    assert!(ok.check(2).is_ok() && ok.check(4).is_ok() && ok.check(1).is_ok());
+    let high = Routing {
+        master: 4,
+        cue: 6,
+        split: false,
+    };
+    assert!(high.check(8).is_ok());
+    assert!(
+        high.check(4)
+            .unwrap_err()
+            .contains("main outputs 5/6 do not exist")
+    );
+    let overlap = Routing {
+        master: 0,
+        cue: 1,
+        split: false,
+    };
+    assert!(overlap.check(4).unwrap_err().contains("overlap"));
+    let split = Routing { split: true, ..ok };
+    assert!(split.check(2).is_ok());
+    assert!(split.check(1).unwrap_err().contains("split cue"));
+
+    let env = OutputConfig::from_lookup(|k| {
+        Some(
+            match k {
+                "OXIDJ_AUDIO_MASTER" => "3",
+                "OXIDJ_AUDIO_CUE" => "1",
+                _ => return None,
+            }
+            .to_owned(),
+        )
+    });
+    assert_eq!(
+        (env.routing.master, env.routing.cue, env.routing.split),
+        (2, 0, false)
+    );
+    assert_eq!(env.channels, None);
+    let env = OutputConfig::from_lookup(|k| match k {
+        "OXIDJ_AUDIO_SPLIT_CUE" => Some("yes".into()),
+        "OXIDJ_AUDIO_DEVICE" => Some("card".into()),
+        "OXIDJ_AUDIO_MASTER" => Some("0".into()),
+        _ => None,
+    });
+    assert!(env.routing.split);
+    assert_eq!(env.channels, Some(2), "split cue asks for a stereo output");
+    assert_eq!(
+        env.routing.master, 0,
+        "output 0 does not exist: default kept"
+    );
 }

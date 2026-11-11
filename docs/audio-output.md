@@ -17,8 +17,13 @@ same values as `OutputConfig` to `Engine::start_with` or `Engine::reopen`
 | `OXIDJ_AUDIO_RATE` | sample rate in Hz | device default |
 | `OXIDJ_AUDIO_BUFFER` | callback size in frames | host default (often 512 to 1024) |
 | `OXIDJ_AUDIO_CHANNELS` | 2 = master only, 4 = master on 1/2 and headphone cue on 3/4 | device default |
+| `OXIDJ_AUDIO_MASTER` | first output of the main pair, counted from 1 (3 = outputs 3/4) | 1 |
+| `OXIDJ_AUDIO_CUE` | first output of the headphone cue pair, counted from 1 | 3 |
+| `OXIDJ_AUDIO_SPLIT_CUE` | `1` = split cue for a 2-channel card: main in mono on the left output, cue in mono on the right | off |
 
 A named device without rate or channels asks for 4 channels at 48 kHz.
+Main outputs the device does not have, or main and cue pairs that overlap,
+are an error too; a missing cue pair only leaves cue silent.
 A rate or channel count the device does not offer is an error: the engine
 runs silently, shows the reason and retries every 2 seconds.
 

@@ -105,6 +105,31 @@ impl Drop for Output {
     }
 }
 
+/// Which device channels carry the two buses. Channels are 0-based here
+/// (`master: 0` = outputs 1/2).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Routing {
+    /// First channel of the main stereo pair.
+    pub master: u16,
+    /// First channel of the headphone cue pair. Silent when the device has
+    /// no such pair.
+    pub cue: u16,
+    /// Split cue for a 2-channel card: main in mono on the left output, cue
+    /// in mono on the right (`master` and `cue` are ignored).
+    pub split: bool,
+}
+
+impl Default for Routing {
+    /// Main on outputs 1/2, cue on 3/4.
+    fn default() -> Self {
+        Self {
+            master: 0,
+            cue: 2,
+            split: false,
+        }
+    }
+}
+
 /// Which output to open and how. Every field is optional; `None` means
 /// "what the host suggests". Build one in the UI's settings, or read it from
 /// the environment with [`OutputConfig::from_env`].
@@ -125,11 +150,47 @@ pub struct OutputConfig {
     /// Output channels; 4 or more puts headphone cue on 3/4. `None` = the
     /// device default.
     pub channels: Option<u16>,
+    /// Which channels carry main and cue.
+    pub routing: Routing,
+}
+
+impl Routing {
+    /// Whether a device with `channels` outputs can carry this routing.
+    /// The main pair must exist; a missing cue pair only silences cue.
+    pub(crate) fn check(self, channels: u16) -> Result<(), String> {
+        if self.split {
+            return if channels >= 2 {
+                Ok(())
+            } else {
+                Err("split cue needs a 2-channel output".to_owned())
+            };
+        }
+        if self.master.abs_diff(self.cue) < 2 {
+            return Err(format!(
+                "main outputs {}/{} and cue outputs {}/{} overlap",
+                self.master + 1,
+                self.master + 2,
+                self.cue + 1,
+                self.cue + 2
+            ));
+        }
+        if channels > 1 && u32::from(self.master) + 2 > u32::from(channels) {
+            return Err(format!(
+                "main outputs {}/{} do not exist on a {channels}-channel output",
+                self.master + 1,
+                self.master + 2
+            ));
+        }
+        Ok(())
+    }
 }
 
 impl OutputConfig {
     /// `OXIDJ_AUDIO_HOST`, `OXIDJ_AUDIO_DEVICE`, `OXIDJ_AUDIO_RATE`,
-    /// `OXIDJ_AUDIO_BUFFER`, `OXIDJ_AUDIO_CHANNELS`. A named device without
+    /// `OXIDJ_AUDIO_BUFFER`, `OXIDJ_AUDIO_CHANNELS`; routing with
+    /// `OXIDJ_AUDIO_MASTER` and `OXIDJ_AUDIO_CUE` (first output of the pair,
+    /// counted from 1 as on the sound card) and `OXIDJ_AUDIO_SPLIT_CUE=1`
+    /// (which asks for 2 channels). A named device without
     /// rate or channels asks for 4 channels at 48 kHz (master + cue), as the
     /// cue smoke always did.
     pub fn from_env() -> Self {
@@ -142,6 +203,18 @@ impl OutputConfig {
         let number = |k: &str| text(k).and_then(|v| v.trim().parse::<u32>().ok());
         let device = text("OXIDJ_AUDIO_DEVICE");
         let named = device.is_some();
+        // Outputs are numbered from 1 on the card, from 0 in `Routing`.
+        let output = |k: &str, default: u16| {
+            number(k)
+                .and_then(|n| u16::try_from(n.checked_sub(1)?).ok())
+                .unwrap_or(default)
+        };
+        let split = text("OXIDJ_AUDIO_SPLIT_CUE").is_some_and(|v| {
+            matches!(
+                v.trim().to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes" | "on"
+            )
+        });
         Self {
             host: text("OXIDJ_AUDIO_HOST"),
             device,
@@ -149,7 +222,13 @@ impl OutputConfig {
             buffer_frames: number("OXIDJ_AUDIO_BUFFER"),
             channels: number("OXIDJ_AUDIO_CHANNELS")
                 .and_then(|c| u16::try_from(c).ok())
+                .or(split.then_some(2))
                 .or(named.then_some(4)),
+            routing: Routing {
+                master: output("OXIDJ_AUDIO_MASTER", 0),
+                cue: output("OXIDJ_AUDIO_CUE", 2),
+                split,
+            },
         }
     }
 }
@@ -313,6 +392,7 @@ impl Device {
                 })?
                 .with_sample_rate(rate)
         };
+        want.routing.check(config.channels())?;
         let buffer_frames = want.buffer_frames.map(|n| match *config.buffer_size() {
             SupportedBufferSize::Range { min, max } => n.clamp(min, max.max(min)),
             SupportedBufferSize::Unknown => n,

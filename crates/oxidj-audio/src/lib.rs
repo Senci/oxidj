@@ -53,7 +53,7 @@ pub use mixer::{
     Assign, ChannelParams, Curve, EQ_KILL_DB, EQ_MAX_DB, FILTER_DEADZONE, LOW_MID_HZ, MID_HIGH_HZ,
     MixerParams, TRIM_DB, crossfader_gains, db_to_gain, eq_gain, trim_gain,
 };
-pub use output::{OutputConfig, OutputInfo, OutputKind, list_outputs};
+pub use output::{OutputConfig, OutputInfo, OutputKind, Routing, list_outputs};
 use resample::Resampler;
 pub use stretch::{Signalsmith, TimeStretch};
 
@@ -890,6 +890,8 @@ pub struct Renderer {
     mixer: mixer::Mixer,
     /// Master peak limiter on the main output.
     limiter: Limiter,
+    /// Which device channels carry main and cue.
+    routing: Routing,
 }
 
 /// Seconds for the limiter to recover about two thirds of its reduction.
@@ -1001,8 +1003,9 @@ impl Renderer {
     /// Render `out` (interleaved, `channels` per frame) at the device rate:
     /// drain queued commands, mix both decks at their gains (unity = 1.0)
     /// and publish the deck snapshots. Channels 1–2 are main L/R, 3–4 are
-    /// headphone cue L/R when a complete pair exists; any later channels
-    /// are silent. Mono folds main only; cue is never folded into main.
+    /// headphone cue L/R when a complete pair exists (other pairs or split
+    /// cue: [`Routing`]); any other channels are silent. Mono folds main
+    /// only; cue is never folded into main.
     /// RT-safe: see the crate docs.
     pub fn render(&mut self, out: &mut [f32], channels: usize) {
         while let Ok(command) = self.rx.pop() {
@@ -1061,6 +1064,7 @@ impl Renderer {
             mixer,
             limiter,
             shared,
+            routing,
             ..
         } = self;
         let mixing = mixer.params.is_some();
@@ -1106,26 +1110,40 @@ impl Renderer {
                 meter(shared, CUE_METER, cue_peak);
             }
             limiter.process(mix);
+            let routing = *routing;
             for ((frame, [l, r]), [cue_l, cue_r]) in block
                 .chunks_mut(channels)
                 .zip(mix.as_chunks::<2>().0)
                 .zip(cue_buf.as_chunks::<2>().0)
             {
                 let (l, r) = (l.clamp(-1.0, 1.0), r.clamp(-1.0, 1.0));
+                let (cue_l, cue_r) = (cue_l.clamp(-1.0, 1.0), cue_r.clamp(-1.0, 1.0));
                 match frame {
                     [mono] => *mono = (l + r) * 0.5,
-                    [left, right, rest @ ..] => {
-                        *left = l;
-                        *right = r;
+                    [first, second, rest @ ..] if routing.split => {
+                        // Split cue: main in mono on the left, cue in mono
+                        // on the right of the first pair.
+                        *first = (l + r) * 0.5;
+                        *second = (cue_l + cue_r) * 0.5;
                         rest.fill(0.0);
-                        // A complete, separate stereo headphone pair only. A
-                        // three-channel device must not receive half a cue bus.
-                        if let [cue_left, cue_right, ..] = rest {
-                            *cue_left = cue_l.clamp(-1.0, 1.0);
-                            *cue_right = cue_r.clamp(-1.0, 1.0);
+                    }
+                    _ => {
+                        // Complete, separate stereo pairs only: a device
+                        // never receives half a bus, and cue is never
+                        // folded into main.
+                        frame.fill(0.0);
+                        let (master, cue) = (usize::from(routing.master), usize::from(routing.cue));
+                        if let Some(pair) = frame.get_mut(master..master + 2) {
+                            pair[0] = l;
+                            pair[1] = r;
+                        }
+                        if master.abs_diff(cue) >= 2
+                            && let Some(pair) = frame.get_mut(cue..cue + 2)
+                        {
+                            pair[0] = cue_l;
+                            pair[1] = cue_r;
                         }
                     }
-                    [] => {}
                 }
             }
         }
@@ -1141,6 +1159,12 @@ impl Renderer {
     /// Fade time for starts, stops and jumps (0 = sample-exact steps). Real
     /// outputs use [`DECLICK_MS`]; a hand-driven renderer ([`Engine::manual`])
     /// starts at 0. Call before rendering, not from another thread.
+    /// Which device channels carry main and cue (default: main on 1/2, cue
+    /// on 3/4). Call before rendering, not from another thread.
+    pub fn set_routing(&mut self, routing: Routing) {
+        self.routing = routing;
+    }
+
     /// Limiter look-ahead (0 = none, the main output is not delayed). Real
     /// outputs use [`LIMITER_LOOKAHEAD_MS`]; a hand-driven renderer starts
     /// at 0. Allocates: call before rendering, not from the callback.
@@ -1220,6 +1244,7 @@ fn channel(
         cue_buf: vec![0.0; CHUNK * 2],
         mixer: mixer::Mixer::new(device_rate, mixer),
         limiter: Limiter::new(f64::from(device_rate), limiter, lookahead_ms),
+        routing: Routing::default(),
     };
     (renderer, tx, shared)
 }
@@ -1319,8 +1344,9 @@ impl Engine {
         // and a fallback renderer continues from the same deck state.
         let attempt = opened.and_then(|device| {
             let rate = device.rate;
-            let (renderer, tx, shared) =
+            let (mut renderer, tx, shared) =
                 channel(decks.clone(), rate, memory.mixer, true, !memory.limiter_off);
+            renderer.set_routing(config.routing);
             device
                 .play(renderer, shared.clone())
                 .map(|output| (output, tx, shared, rate))
