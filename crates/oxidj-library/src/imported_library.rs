@@ -316,6 +316,73 @@ impl Catalog {
         Ok(members.len())
     }
 
+    /// Remove one occurrence only if the complete old order and selected member still match.
+    pub fn remove_library_playlist_member(
+        &mut self,
+        name: &str,
+        expected: &[usize],
+        index: usize,
+        member: usize,
+    ) -> Result<(), CatalogError> {
+        validate_library_playlist_name(name)?;
+        let tx = self
+            .connection
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let mut stmt = tx.prepare(
+            "SELECT id, is_folder FROM library_nodes WHERE parent_id IS NULL AND name = ?1",
+        )?;
+        let mut rows = stmt.query([name])?;
+        let target = rows
+            .next()?
+            .map(|r| Ok::<_, rusqlite::Error>((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?)))
+            .transpose()?;
+        if rows.next()?.is_some() {
+            return Err(CatalogError::InvalidRecord(
+                "root playlist name is ambiguous",
+            ));
+        }
+        drop(rows);
+        drop(stmt);
+        let Some((id, folder)) = target else {
+            return Err(CatalogError::InvalidRecord("root playlist does not exist"));
+        };
+        if folder != 0 {
+            return Err(CatalogError::InvalidRecord(
+                "root name refers to a folder, not a playlist",
+            ));
+        }
+        let mut stmt = tx.prepare("SELECT position, track_position FROM library_members WHERE node_id = ?1 ORDER BY position")?;
+        let rows = stmt
+            .query_map([id], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?)))?
+            .collect::<Result<Vec<_>, _>>()?;
+        drop(stmt);
+        let expected = expected
+            .iter()
+            .map(|&v| to_i64(v))
+            .collect::<Result<Vec<_>, _>>()?;
+        if rows.iter().map(|row| row.1).ne(expected.iter().copied()) {
+            return Err(CatalogError::InvalidRecord(
+                "playlist membership order is stale",
+            ));
+        }
+        let Some(&(position, actual)) = rows.get(index) else {
+            return Err(CatalogError::InvalidRecord(
+                "playlist member index out of range",
+            ));
+        };
+        if actual != to_i64(member)? {
+            return Err(CatalogError::InvalidRecord(
+                "playlist member ID does not match",
+            ));
+        }
+        tx.execute(
+            "DELETE FROM library_members WHERE node_id = ?1 AND position = ?2",
+            rusqlite::params![id, position],
+        )?;
+        tx.commit()?;
+        Ok(())
+    }
+
     /// Reorder exactly the existing membership of one unique root playlist.
     pub fn reorder_library_playlist_members(
         &mut self,
@@ -1264,6 +1331,91 @@ mod tests {
             catalog.append_library_playlist_members("Zeta", &[1, 2]),
             Err(CatalogError::Sqlite(_))
         ));
+        assert_eq!(catalog.library_snapshot().unwrap(), expected);
+    }
+
+    #[test]
+    fn remove_member_refuses_stale_and_rolls_back() {
+        let path = path();
+        let mut catalog = Catalog::open(&path).unwrap();
+        catalog.import_library(&snapshot()).unwrap();
+        catalog
+            .create_library_playlist("Remove", &[2, 0, 2])
+            .unwrap();
+        let before = catalog.library_snapshot().unwrap();
+        for (name, expected, index, member, reason) in [
+            (
+                "Remove",
+                vec![2, 2, 0],
+                0,
+                2,
+                "playlist membership order is stale",
+            ),
+            (
+                "Remove",
+                vec![2, 0, 2],
+                3,
+                2,
+                "playlist member index out of range",
+            ),
+            (
+                "Remove",
+                vec![2, 0, 2],
+                1,
+                2,
+                "playlist member ID does not match",
+            ),
+            (
+                "missing",
+                vec![2, 0, 2],
+                0,
+                2,
+                "root playlist does not exist",
+            ),
+            (
+                "Folder",
+                vec![2, 0, 2],
+                0,
+                2,
+                "root name refers to a folder, not a playlist",
+            ),
+        ] {
+            assert!(
+                matches!(catalog.remove_library_playlist_member(name, &expected, index, member), Err(CatalogError::InvalidRecord(actual)) if actual == reason)
+            );
+            assert_eq!(catalog.library_snapshot().unwrap(), before);
+        }
+        catalog.connection.execute("INSERT INTO library_nodes(id,parent_id,sibling_order,name,is_folder) VALUES(999,NULL,999,'Remove',0)", []).unwrap();
+        let ambiguous = catalog.library_snapshot().unwrap();
+        assert!(matches!(
+            catalog.remove_library_playlist_member("Remove", &[2, 0, 2], 0, 2),
+            Err(CatalogError::InvalidRecord(
+                "root playlist name is ambiguous"
+            ))
+        ));
+        assert_eq!(catalog.library_snapshot().unwrap(), ambiguous);
+        catalog
+            .connection
+            .execute("DELETE FROM library_nodes WHERE id = 999", [])
+            .unwrap();
+        catalog.connection.execute_batch("CREATE TEMP TRIGGER fail_remove AFTER DELETE ON library_members BEGIN SELECT RAISE(ABORT, 'injected failure'); END;").unwrap();
+        assert!(matches!(
+            catalog.remove_library_playlist_member("Remove", &[2, 0, 2], 0, 2),
+            Err(CatalogError::Sqlite(_))
+        ));
+        assert_eq!(catalog.library_snapshot().unwrap(), before);
+        catalog
+            .connection
+            .execute_batch("DROP TRIGGER fail_remove")
+            .unwrap();
+        catalog
+            .remove_library_playlist_member("Remove", &[2, 0, 2], 0, 2)
+            .unwrap();
+        let mut expected = before;
+        let Some(LibraryNode::Playlist { members, .. }) = expected.roots.last_mut() else {
+            panic!("playlist")
+        };
+        *members = vec![0, 2];
         assert_eq!(catalog.library_snapshot().unwrap(), expected);
     }
 

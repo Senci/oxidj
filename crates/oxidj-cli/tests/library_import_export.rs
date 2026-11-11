@@ -1463,6 +1463,114 @@ fn catalog_playlist_creation_persists_order_and_preserves_the_exported_library()
 }
 
 #[test]
+fn catalog_playlist_remove_one_occurrence_preserves_baseline() {
+    let dir = scratch();
+    let device = dir.join("device");
+    std::fs::create_dir_all(device.join("PIONEER/rekordbox")).unwrap();
+    let pdb = device.join("PIONEER/rekordbox/export.pdb");
+    let source = synthetic_pdb(None);
+    std::fs::write(&pdb, &source).unwrap();
+    let analysis = write_analysis(&device);
+    let catalog = dir.join("catalog.sqlite");
+    stdout(&cli(&[
+        s("catalog"),
+        s("import-library"),
+        s("--pdb"),
+        pdb.as_os_str(),
+        s("--catalog"),
+        catalog.as_os_str(),
+    ]));
+    let before = dir.join("before.xml");
+    stdout(&cli(&[
+        s("catalog"),
+        s("export-library-xml"),
+        s("--catalog"),
+        catalog.as_os_str(),
+        s("--output"),
+        before.as_os_str(),
+    ]));
+    let mut expected = expected();
+    assert_eq!(decode(&std::fs::read(before).unwrap()), expected);
+    for (ids, index, id, reason) in [
+        ("1,2,1", "0", "2", "playlist membership order is stale"),
+        ("2,1,1", "3", "1", "playlist member index out of range"),
+        ("2,1,1", "1", "2", "playlist member ID does not match"),
+    ] {
+        let refused = cli(&[
+            s("catalog"),
+            s("remove-library-playlist-member"),
+            s("--catalog"),
+            catalog.as_os_str(),
+            s("--playlist-name"),
+            s("Top"),
+            s("--expected-track-ids"),
+            s(ids),
+            s("--index"),
+            s(index),
+            s("--expected-track-id"),
+            s(id),
+        ]);
+        assert_eq!(refused.status.code(), Some(1));
+        assert!(String::from_utf8_lossy(&refused.stderr).contains(reason));
+        let check = dir.join(format!("refusal-{index}-{id}.xml"));
+        stdout(&cli(&[
+            s("catalog"),
+            s("export-library-xml"),
+            s("--catalog"),
+            catalog.as_os_str(),
+            s("--output"),
+            check.as_os_str(),
+        ]));
+        assert_eq!(decode(&std::fs::read(check).unwrap()), expected);
+    }
+    let result = cli(&[
+        s("catalog"),
+        s("remove-library-playlist-member"),
+        s("--catalog"),
+        catalog.as_os_str(),
+        s("--playlist-name"),
+        s("Top"),
+        s("--expected-track-ids"),
+        s("2,1,1"),
+        s("--index"),
+        s("1"),
+        s("--expected-track-id"),
+        s("1"),
+    ]);
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let Node::Folder(_, roots) = &mut expected.root else {
+        panic!("fixture root")
+    };
+    let Node::Playlist(_, members) = roots
+        .iter_mut()
+        .find(|node| matches!(node, Node::Playlist(name, _) if name == "Top"))
+        .unwrap()
+    else {
+        panic!("playlist")
+    };
+    *members = vec!["2".into(), "1".into()];
+    let after = dir.join("after.xml");
+    stdout(&cli(&[
+        s("catalog"),
+        s("export-library-xml"),
+        s("--catalog"),
+        catalog.as_os_str(),
+        s("--output"),
+        after.as_os_str(),
+    ]));
+    assert_eq!(decode(&std::fs::read(after).unwrap()), expected);
+    assert_eq!(std::fs::read(&pdb).unwrap(), source);
+    for (path, bytes) in analysis {
+        assert_eq!(std::fs::read(path).unwrap(), bytes);
+    }
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
 fn catalog_playlist_reorder_preserves_everything_but_member_order() {
     let dir = scratch();
     let device = dir.join("device");
@@ -1756,6 +1864,31 @@ fn catalog_playlist_append_refuses_non_imported_sqlite_without_mutation() {
             "CREATE TABLE IF NOT EXISTS sentinel(value TEXT); DELETE FROM sentinel; \
              INSERT INTO sentinel VALUES ('synthetic sentinel'); PRAGMA user_version={version};"
         ));
+        let refused = cli(&[
+            s("catalog"),
+            s("remove-library-playlist-member"),
+            s("--catalog"),
+            catalog.as_os_str(),
+            s("--playlist-name"),
+            s("Top"),
+            s("--expected-track-ids"),
+            s("1"),
+            s("--index"),
+            s("0"),
+            s("--expected-track-id"),
+            s("1"),
+        ]);
+        assert_eq!(refused.status.code(), Some(1));
+        let error = String::from_utf8_lossy(&refused.stderr);
+        assert!(
+            if version == 0 {
+                error.contains("catalog schema version 0 is newer than supported")
+            } else {
+                error.contains("no such table: library_tracks")
+            },
+            "{error}"
+        );
+        assert_eq!(sql(""), before, "schema/version/data changed on refusal");
         for action in [
             "append-library-playlist-members",
             "reorder-library-playlist-members",

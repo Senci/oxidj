@@ -870,6 +870,51 @@ pub fn append_library_playlist_members(
         .map_err(|e| LibraryWorkflowError(e.to_string()))
 }
 
+/// Remove a guarded occurrence using exported TrackIDs and a zero-based index.
+pub fn remove_library_playlist_member(
+    catalog: impl AsRef<Path>,
+    name: &str,
+    ids: &str,
+    index: usize,
+    id: &str,
+) -> Result<(), LibraryWorkflowError> {
+    oxidj_library::validate_library_playlist_name(name)
+        .map_err(|e| LibraryWorkflowError(e.to_string()))?;
+    let parse_id = |id: &str| -> Result<usize, LibraryWorkflowError> {
+        if id.is_empty() || !id.bytes().all(|c| c.is_ascii_digit()) {
+            return Err(fail("track IDs must be positive integers"));
+        }
+        id.parse::<usize>()
+            .ok()
+            .and_then(|n| n.checked_sub(1))
+            .ok_or_else(|| fail("track IDs must be positive integers within range"))
+    };
+    let expected = ids
+        .split(',')
+        .map(parse_id)
+        .collect::<Result<Vec<_>, _>>()?;
+    let member = parse_id(id)?;
+    if !catalog.as_ref().is_file() {
+        return Err(fail("catalog does not exist"));
+    }
+    {
+        let read_only = Catalog::open_read_only(catalog.as_ref())
+            .map_err(|e| LibraryWorkflowError(e.to_string()))?;
+        if read_only
+            .library_snapshot()
+            .map_err(|e| LibraryWorkflowError(e.to_string()))?
+            .tracks
+            .is_empty()
+        {
+            return Err(fail("catalog holds no imported tracks"));
+        }
+    }
+    Catalog::open(catalog)
+        .map_err(|e| LibraryWorkflowError(e.to_string()))?
+        .remove_library_playlist_member(name, &expected, index, member)
+        .map_err(|e| LibraryWorkflowError(e.to_string()))
+}
+
 /// Reorder a root playlist using the complete desired sequence of XML TrackIDs.
 pub fn reorder_library_playlist_members(
     catalog: impl AsRef<Path>,
