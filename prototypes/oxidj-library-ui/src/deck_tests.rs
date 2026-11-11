@@ -5262,3 +5262,59 @@ fn master_and_cue_controls_follow_their_placement() {
     assert_eq!(Settings::decode("smooth=1").mixer.monitor, P::TopBar);
     std::fs::remove_dir_all(root).unwrap();
 }
+
+/// Every deck-panel and mixer widget lies inside the visible part of the
+/// Decks panel (above the library) at common window sizes, in every
+/// arrangement, with and without tracks loaded. The detail waveform shrinks
+/// before the deck row does.
+#[test]
+fn deck_panels_and_mixer_fit_the_visible_deck_area_at_common_sizes() {
+    use crate::settings::DeckArrangement as Arr;
+    for loaded in [false, true] {
+        let (root, mut h) = fresh(if loaded { "fit-loaded" } else { "fit-empty" }, 5.0);
+        if loaded {
+            h.select_and_load("a-120.wav", egui::Key::A);
+            h.select_and_load("b-124.wav", egui::Key::B);
+        }
+        h.app.settings.sections = DeckSections::from_bits(0b1111);
+        h.app.settings.crossfader = true;
+        for arr in [Arr::A, Arr::B, Arr::C, Arr::D] {
+            h.app.settings.arrangement = arr;
+            for size in [
+                (1280.0, 720.0),
+                (1366.0, 768.0),
+                (1440.0, 790.0),
+                (1600.0, 900.0),
+            ] {
+                h.viewport = egui::vec2(size.0, size.1);
+                h.settle();
+                let l = h.layout();
+                let tag = format!("{arr:?} {size:?} loaded={loaded}");
+                let panel = h.app.shell.decks.unwrap();
+                let table = h.app.shell.table.unwrap();
+                let mut visible = panel.shrink2(egui::vec2(
+                    0.0,
+                    crate::theme::PANEL_MARGIN.top as f32,
+                ));
+                visible.set_bottom(visible.bottom().min(table.top()));
+                let mut rects = vec![l.mixer.unwrap(), l.crossfader.unwrap()];
+                for d in 0..2 {
+                    rects.extend([
+                        l.cue[d].unwrap(),
+                        l.play[d].unwrap(),
+                        l.tempo[d].unwrap(),
+                        l.range[d].unwrap(),
+                    ]);
+                    rects.extend(l.pads[d].unwrap());
+                }
+                for r in rects {
+                    assert!(
+                        visible.expand(0.5).contains_rect(r),
+                        "{tag}: {r:?} outside visible {visible:?}"
+                    );
+                }
+            }
+        }
+        std::fs::remove_dir_all(root).unwrap();
+    }
+}

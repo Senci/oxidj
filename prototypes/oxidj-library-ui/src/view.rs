@@ -80,15 +80,24 @@ impl LibraryApp {
                 .show(ctx, |ui| {
                     // Tall mixer faders must remain reachable on short displays.
                     // The library table keeps `LIBRARY_MIN_H` below the decks.
-                    let chrome = self.shell.toolbar.map_or(40.0, |t| t.height()) + 30.0 + 16.0;
-                    let max_height =
-                        (ctx.screen_rect().height() - chrome - decks::LIBRARY_MIN_H).max(100.0);
+                    let screen = ctx.screen_rect();
+                    let max_height = decks::deck_budget(
+                        screen.height(),
+                        self.shell.toolbar.map_or(40.0, |t| t.height()),
+                    );
+                    let mixer_h = crate::mixer_view::mixer_height(self.settings.mixer);
+                    let detail = decks::fitted_detail(
+                        self.settings.arrangement,
+                        self.settings.sections,
+                        mixer_h,
+                        screen.height(),
+                        max_height,
+                    );
                     if decks::area_height(
                         self.settings.arrangement,
                         self.settings.sections,
-                        crate::mixer_view::mixer_height(self.settings.mixer),
-                        ctx.screen_rect(),
-                        ui.available_width(),
+                        mixer_h,
+                        detail,
                     ) > max_height
                     {
                         egui::ScrollArea::vertical()

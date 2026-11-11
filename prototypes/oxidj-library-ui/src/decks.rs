@@ -1876,9 +1876,9 @@ pub(crate) fn band_height(avail: f32, column: f32, cover: bool) -> f32 {
 }
 
 /// Height of the detail + overview stack (0 when both are hidden).
-pub(crate) fn wave_height(sections: DeckSections, screen: Rect) -> f32 {
+pub(crate) fn wave_height(sections: DeckSections, detail: f32) -> f32 {
     let detail = if sections.detail {
-        detail_height(screen.height())
+        detail
     } else {
         0.0
     };
@@ -1901,9 +1901,9 @@ pub(crate) fn block_heights(
     arrangement: DeckArrangement,
     sections: DeckSections,
     mixer_h: f32,
-    screen: Rect,
+    detail: f32,
 ) -> [f32; 2] {
-    let wave = wave_height(sections, screen);
+    let wave = wave_height(sections, detail);
     let row = bottom_row_height(sections, mixer_h);
     match arrangement {
         DeckArrangement::B | DeckArrangement::C => [wave, row],
@@ -1922,16 +1922,47 @@ pub(crate) fn area_height(
     arrangement: DeckArrangement,
     sections: DeckSections,
     mixer_h: f32,
-    screen: Rect,
-    _width: f32,
+    detail: f32,
 ) -> f32 {
     let mut h = SECTION_BAR_HEIGHT;
-    for block in block_heights(arrangement, sections, mixer_h, screen) {
+    for block in block_heights(arrangement, sections, mixer_h, detail) {
         if block > 0.0 {
             h += GAP + block;
         }
     }
     h
+}
+
+/// Smallest detail-waveform height.
+pub(crate) const DETAIL_MIN_H: f32 = 120.0;
+
+/// Height the deck area may take: the window minus toolbar, status bar and
+/// panel margins, minus what the library table keeps.
+pub(crate) fn deck_budget(screen_h: f32, toolbar_h: f32) -> f32 {
+    (screen_h - toolbar_h - 30.0 - 16.0 - 8.0 - LIBRARY_MIN_H).max(100.0)
+}
+
+/// Detail-waveform height: the preferred share of the window, shrunk (down
+/// to `DETAIL_MIN_H`) before anything else when the deck area exceeds
+/// `budget`. The deck row and mixer never shrink; if still too tall the
+/// deck area scrolls.
+pub(crate) fn fitted_detail(
+    arrangement: DeckArrangement,
+    sections: DeckSections,
+    mixer_h: f32,
+    screen_h: f32,
+    budget: f32,
+) -> f32 {
+    let want = detail_height(screen_h);
+    let mut d = want;
+    for _ in 0..4 {
+        let over = area_height(arrangement, sections, mixer_h, d) - budget;
+        if over <= 0.0 || d <= DETAIL_MIN_H {
+            break;
+        }
+        d = (d - over).max(DETAIL_MIN_H);
+    }
+    d
 }
 
 /// Height the library table keeps below the deck area (the deck area
@@ -1954,7 +1985,9 @@ impl LibraryApp {
         let sections = self.settings.sections;
         let mixer_h = crate::mixer_view::mixer_height(self.settings.mixer);
         let arrangement = self.settings.arrangement;
-        let height = area_height(arrangement, sections, mixer_h, screen, width);
+        let budget = deck_budget(screen.height(), self.shell.toolbar.map_or(40.0, |t| t.height()));
+        let detail = fitted_detail(arrangement, sections, mixer_h, screen.height(), budget);
+        let height = area_height(arrangement, sections, mixer_h, detail);
         let (area, _) = ui.allocate_exact_size(vec2(width, height), Sense::hover());
         layout.area = Some(area);
         let colours = [0, 1].map(|d| deck_colours(self.settings.deck_palette, d, tokens));
@@ -1971,7 +2004,7 @@ impl LibraryApp {
         } else {
             0.0
         };
-        let heights = block_heights(arrangement, sections, mixer_h, screen);
+        let heights = block_heights(arrangement, sections, mixer_h, detail);
         let blocks = [0, 1].map(|i| (heights[i] > 0.0).then(|| take(heights[i], &mut y)));
         // Which block holds the waves and which the deck row.
         let (wave_block, row_block) = match arrangement {
@@ -1988,7 +2021,7 @@ impl LibraryApp {
                 );
                 self.mixer(ui, r, tokens, colours, &mut layout);
             }
-            self.waveforms(ui, waves, screen, tokens, colours, &mut layout);
+            self.waveforms(ui, waves, detail, tokens, colours, &mut layout);
         }
         if let Some(row) = row_block {
             match arrangement {
@@ -2043,7 +2076,7 @@ impl LibraryApp {
         &mut self,
         ui: &mut Ui,
         rect: Rect,
-        screen: Rect,
+        detail: f32,
         tokens: ColorTokens,
         colours: [DeckColours; 2],
         layout: &mut DeckLayout,
@@ -2052,7 +2085,7 @@ impl LibraryApp {
         let width = rect.width();
         let mut y = rect.top();
         if sections.detail {
-            let h = detail_height(screen.height());
+            let h = detail;
             let r = Rect::from_min_size(pos2(rect.left(), y), vec2(width, h));
             y += h + GAP;
             self.detail_view(ui, r, tokens, colours, layout);
