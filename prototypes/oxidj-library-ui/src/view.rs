@@ -133,6 +133,7 @@ impl LibraryApp {
         self.show_control_gallery_window(ctx, tokens);
         self.show_waveform_demo_window(ctx);
         self.xml_preview_window(ctx, tokens);
+        self.catalog_export_window(ctx);
         let status = egui::TopBottomPanel::bottom("status-bar")
             .frame(status_frame)
             .show(ctx, |ui| self.status_bar(ui, tokens));
@@ -467,6 +468,10 @@ impl LibraryApp {
                 ui.end_row();
             });
         ui.separator();
+        if ui.button("Export catalog XML…").clicked() {
+            self.catalog_export_open = true;
+            close = true;
+        }
         ui.horizontal(|ui| {
             if ui.button("Settings… (Ctrl+,)").clicked() {
                 self.set_settings_open(ui.ctx(), true);
@@ -478,6 +483,39 @@ impl LibraryApp {
         if close {
             egui::Popup::close_all(ui.ctx());
         }
+    }
+
+    fn catalog_export_window(&mut self, ctx: &egui::Context) {
+        if !self.catalog_export_open {
+            return;
+        }
+        let mut open = self.catalog_export_open;
+        let mut cancel = false;
+        egui::Window::new("Export imported catalog").open(&mut open).show(ctx, |ui| {
+            ui.label("Export to a new Rekordbox XML file; existing files are never overwritten.");
+            ui.horizontal(|ui| { ui.label("New XML destination"); ui.text_edit_singleline(&mut self.catalog_export_path); });
+            ui.horizontal(|ui| { ui.label("Windows drive letter (optional)"); ui.text_edit_singleline(&mut self.catalog_export_drive); });
+            ui.label("Computed grids are not included.");
+            ui.horizontal(|ui| {
+                if ui.button("Export catalog XML").clicked() {
+                    let drive = self.catalog_export_drive.trim();
+                    let drive = if drive.is_empty() { Some(None) } else { oxidj_application::DriveLetter::parse(drive).map(Some) };
+                    if self.catalog_export_path.trim().is_empty() {
+                        self.notice = "Catalog export refused: choose a new XML destination".into();
+                    } else if let Some(drive) = drive {
+                        match oxidj_application::export_library_xml(&self.db_path, &self.catalog_export_path, drive, false) {
+                            Ok(report) => self.notice = format!("Catalog exported to {}: {} tracks, {} folders, {} playlists, {} entries. Some metadata cannot be carried in XML.", self.catalog_export_path, report.counts.tracks, report.counts.folders, report.counts.playlists, report.counts.memberships),
+                            Err(error) => self.notice = format!("Catalog export failed: {error}"),
+                        }
+                    } else {
+                        self.notice = "Catalog export refused: drive must be one letter A–Z".into();
+                    }
+                }
+                if ui.button("Cancel").clicked() { cancel = true; }
+            });
+            if !self.notice.is_empty() { ui.label(&self.notice); }
+        });
+        self.catalog_export_open = open && !cancel;
     }
 
     /// W11 search: one framed control holding a painted magnifier, the

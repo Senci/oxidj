@@ -1031,7 +1031,8 @@ pub fn export_library_xml(
     if output.as_ref().symlink_metadata().is_ok() {
         return Err(fail("refusing to overwrite existing output"));
     }
-    let opened = Catalog::open(catalog).map_err(|e| LibraryWorkflowError(e.to_string()))?;
+    let opened =
+        Catalog::open_read_only(catalog).map_err(|e| LibraryWorkflowError(e.to_string()))?;
     let mut snapshot = opened
         .library_snapshot()
         .map_err(|e| LibraryWorkflowError(e.to_string()))?;

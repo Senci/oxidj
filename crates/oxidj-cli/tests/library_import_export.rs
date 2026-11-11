@@ -9,6 +9,34 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 
 #[test]
+fn export_refuses_unrelated_sqlite_without_modifying_it() {
+    let dir = scratch();
+    let catalog = dir.join("unrelated.sqlite");
+    let script = "import sqlite3,sys; c=sqlite3.connect(sys.argv[1]); c.execute('create table sentinel(value text)'); c.execute(\"insert into sentinel values ('keep')\"); c.execute('pragma user_version=7'); c.commit()";
+    assert!(
+        Command::new("python3")
+            .args(["-c", script])
+            .arg(&catalog)
+            .status()
+            .unwrap()
+            .success()
+    );
+    let before = std::fs::read(&catalog).unwrap();
+    let output = dir.join("out.xml");
+    let result = cli(&[
+        s("catalog"),
+        s("export-library-xml"),
+        s("--catalog"),
+        catalog.as_os_str(),
+        s("--output"),
+        output.as_os_str(),
+    ]);
+    assert_ne!(result.status.code(), Some(0));
+    assert!(!output.exists());
+    assert_eq!(std::fs::read(&catalog).unwrap(), before);
+}
+
+#[test]
 fn step_inspection_is_explicit_and_leaves_catalog_sources_and_exports_unchanged() {
     let dir = scratch();
     let audio = dir.join("a.wav");
