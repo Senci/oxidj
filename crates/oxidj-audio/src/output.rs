@@ -347,8 +347,16 @@ pub(crate) struct Device {
 
 impl Device {
     pub(crate) fn open(want: &OutputConfig) -> Result<Self, String> {
+        Self::open_with(want, true)
+    }
+
+    pub(crate) fn open_default(want: &OutputConfig) -> Result<Self, String> {
+        Self::open_with(want, false)
+    }
+
+    fn open_with(want: &OutputConfig, prefer_jack: bool) -> Result<Self, String> {
         let host = match want.host.as_deref() {
-            None => preferred_host(want.device.is_none()),
+            None => preferred_host(prefer_jack && want.device.is_none()),
             Some(name) => {
                 let id = cpal::available_hosts()
                     .into_iter()

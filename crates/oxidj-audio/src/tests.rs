@@ -5,6 +5,42 @@ use super::*;
 
 const RATE: u32 = 48_000;
 
+#[cfg(all(target_os = "linux", feature = "jack"))]
+#[test]
+fn automatic_output_retries_failure_but_explicit_never_does() {
+    for stage in ["configuration", "build", "play"] {
+        let mut calls = Vec::new();
+        let result = try_output(&OutputConfig::default(), |preferred| {
+            calls.push(preferred);
+            if preferred {
+                Err(stage.to_owned())
+            } else {
+                Ok("default")
+            }
+        });
+        assert_eq!(result.unwrap(), "default");
+        assert_eq!(calls, [true, false]);
+    }
+    for config in [
+        OutputConfig {
+            host: Some("JACK".into()),
+            ..Default::default()
+        },
+        OutputConfig {
+            device: Some("named".into()),
+            ..Default::default()
+        },
+    ] {
+        let mut calls = 0;
+        let result: Result<(), _> = try_output(&config, |_| {
+            calls += 1;
+            Err("refused".into())
+        });
+        assert_eq!(result.unwrap_err(), "refused");
+        assert_eq!(calls, 1);
+    }
+}
+
 /// A track whose left sample at frame `i` is `i` (scaled) and right is `-i`,
 /// so every output sample names the source frame it came from.
 fn ramp(frames: usize, rate: u32) -> Arc<TrackPcm> {
