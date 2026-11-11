@@ -1002,6 +1002,26 @@ fn send_refuses_unknown_decks_and_remembers_only_valid_settings() {
 }
 
 #[test]
+fn limiter_holds_isolated_peaks_through_delay_across_blocks() {
+    for chunk in [1, 17, 48, 64] {
+        let mut limiter = Limiter::new(48_000.0, true, 1.0);
+        let mut samples = vec![0.0_f32; 200 * 2];
+        samples[20 * 2] = 2.0;
+        samples[20 * 2 + 1] = -2.0;
+        for block in samples.chunks_mut(chunk * 2) {
+            limiter.process(block);
+        }
+        assert!(samples[68 * 2] <= 1.0, "chunk {chunk}: {}", samples[68 * 2]);
+        assert!(
+            samples[68 * 2 + 1] >= -1.0,
+            "chunk {chunk}: {}",
+            samples[68 * 2 + 1]
+        );
+        assert!(samples[68 * 2] > 0.99);
+    }
+}
+
+#[test]
 fn limiter_look_ahead_delays_the_mix_and_bends_the_gain_before_the_peak() {
     // Quiet mix: only the 1 ms (48 frame) delay shows, bit for bit.
     let (_e, mut plain) = hot_mix(0.45);

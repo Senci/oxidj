@@ -1111,7 +1111,9 @@ impl Limiter {
                     // its gain by then, never slower than already planned.
                     self.target = self.target.min(need);
                     self.slope = self.slope.max((self.gain - need).max(0.0) / frames as f32);
-                    self.hold = frames;
+                    // Include this input frame and the frame on which it
+                    // emerges from the delay before starting recovery.
+                    self.hold = frames + 1;
                 }
                 if self.hold > 0 {
                     self.hold -= 1;
