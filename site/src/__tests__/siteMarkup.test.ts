@@ -27,8 +27,8 @@ describe('shared public pages', () => {
     expect(html.match(/class="status-callout[ "]/g)).toHaveLength(1);
     expect(html).toContain('Works today');
     expect(html).toContain('Not yet demonstrated');
-    expect(html).toContain(roadmapSnapshot.working);
-    expect(html).toContain(roadmapSnapshot.unfinished);
+    expect(html.replaceAll('</p><p>', ' ')).toContain(roadmapSnapshot.working);
+    expect(html.replaceAll('</p><p>', ' ')).toContain(roadmapSnapshot.unfinished);
     expect(html).toContain('Status: pre-release');
   });
   it('rejects unknown pages and fragments', () => {
@@ -43,11 +43,11 @@ describe('screenshots', () => {
   it('renders a sized, described figure whose link opens the full-resolution image', () => {
     const html = renderShot(screenshots.overview, '92vw', true);
     expect(html).toContain('href="./images/app-overview.webp" data-lightbox');
-    expect(html).toContain('data-width="1440" data-height="680"');
+    expect(html).toContain('data-width="1440" data-height="638"');
     expect(html).toContain(
       'srcset="./images/app-overview-720.webp 720w, ./images/app-overview.webp 1440w"',
     );
-    expect(html).toContain('width="1440" height="680"');
+    expect(html).toContain('width="1440" height="638"');
     expect(html).toContain('fetchpriority="high"');
     expect(html).not.toContain('loading="lazy"');
     expect(html).toContain(`alt="${screenshots.overview.alt}"`);
@@ -79,7 +79,7 @@ describe('screenshots', () => {
       renderRoadmap(readFileSync(new URL('../../index.html', import.meta.url), 'utf8')),
       'index.html',
     );
-    expect(home.match(/data-lightbox/g)).toHaveLength(13);
+    expect(home.match(/data-lightbox/g)).toHaveLength(18);
     expect(home).toContain('class="wave"');
     expect(home.match(/class="rail-stop /g)).toHaveLength(9);
     for (const shot of Object.values(screenshots)) {

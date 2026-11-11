@@ -27,11 +27,11 @@ describe('static public pages', () => {
         .every((m) => m.status === 'complete'),
     ).toBe(true);
     expect(
-      milestones.filter((m) => ['m5'].includes(m.id)).every((m) => m.status === 'planned'),
+      milestones.filter((m) => ['m5'].includes(m.id)).every((m) => m.status === 'complete'),
     ).toBe(true);
     expect(milestones.find((m) => m.id === 'm6')?.status).toBe('in-progress');
     expect(milestones.find((m) => m.id === 'm7')?.status).toBe('in-progress');
-    expect(roadmapSnapshot.verifiedAt).toBe('2026-11-07');
+    expect(roadmapSnapshot.verifiedAt).toBe('2026-11-11');
     expect(milestones.find((m) => m.id === 'm8')?.status).toBe('in-progress');
     expect(milestones.find((m) => m.id === 'm8')?.detail).toMatch(
       /merged waveform.*warm.*cool.*Settings \(Ctrl\+,\)/,
@@ -65,9 +65,10 @@ describe('static public pages', () => {
     expect(milestones.find((m) => m.id === 'm4')?.detail).toMatch(
       /broader compatibility with real Rekordbox or OneLibrary.*not been demonstrated/i,
     );
-    expect(projectUpdates).toHaveLength(21);
-    expect(projectUpdates[0]?.source.href).toMatch(/\/commit\/8068744$/);
+    expect(projectUpdates).toHaveLength(22);
+    expect(projectUpdates[0]?.source.href).toMatch(/\/commit\/5bffdad$/);
     expect(projectUpdates.map((u) => u.date)).toEqual([
+      '2026-11-10',
       '2026-11-07',
       '2026-11-05',
       '2026-11-05',
@@ -110,8 +111,8 @@ describe('static public pages', () => {
       expect(html.match(/class="status-callout[ "]/g)).toHaveLength(1);
       expect(html).toContain(escapeHtml(roadmapSnapshot.currentFocus));
       expect(html).toContain(roadmapSnapshot.verifiedAt);
-      expect(html).toContain(escapeHtml(roadmapSnapshot.working));
-      expect(html).toContain(escapeHtml(roadmapSnapshot.unfinished));
+      expect(html.replaceAll('</p><p>', ' ')).toContain(escapeHtml(roadmapSnapshot.working));
+      expect(html.replaceAll('</p><p>', ' ')).toContain(escapeHtml(roadmapSnapshot.unfinished));
       const header = html.match(/<header[\s\S]*?<\/header>/)?.[0] ?? '';
       for (const name of ['Home', 'Roadmap', 'Updates', 'Source'])
         expect(header).toContain(`>${name}</a>`);

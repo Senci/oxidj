@@ -29,7 +29,7 @@ export interface ProjectUpdate {
 const repo = 'https://github.com/Senci/oxidj';
 const closeout = `${repo}/blob/master/plan/MVP.md#bounded-local-m1m3-acceptance-closeout-2026-10-26`;
 export const roadmapSnapshot = {
-  verifiedAt: '2026-11-07',
+  verifiedAt: '2026-11-11',
   currentFocus: 'M8 imported playlists and two-deck playback; M4/M7 exchange remains in progress',
   currentSummary:
     'The library window now browses imported nested playlists, shows their stored-order members and loads a selected member explicitly onto deck A or B from its exact imported location. Selection does not load, loading does not autoplay, missing locations are refused, and imported data is not edited. The screen capture is synthetic-only. The window also has two playable decks: one merged 3-band waveform with deck A above and deck B below, an audio engine, hot cues and loops, tempo with key lock, SYNC and an optional mixer. The owner listened to the installed build and reports that it works (no measurements); DJ hardware checks are still open. On the exchange side, synthetic Rekordbox XML fixtures support read-only preview, bounded export of a supported subset to a new file, and exact-value guarded edits. On one real library, playlists, track details, beat grids and cues went into a catalog and a new XML file, and the owner confirmed in Rekordbox on Windows that the export and an edited re-export load with tracks, BPM, key, cues, beat grids, playlists and the edits intact.',
@@ -93,10 +93,10 @@ export const milestones: readonly Milestone[] = [
   {
     id: 'm5',
     title: 'DJ metadata',
-    status: 'planned',
-    statusLabel: 'Later',
+    status: 'complete',
+    statusLabel: 'Local UI scope complete',
     detail:
-      'Cues, loops, beat grids and key. Beat grids and cues from a real library are already read during import; editing them comes later.',
+      'Read-only imported cues, loops and key in Details, with imported beat grids displayed in the waveform. Vendor and hardware checks remain open.',
     source: { label: 'Priorities', href: `${repo}/blob/master/idea.md#priorities` },
   },
   {
@@ -105,8 +105,8 @@ export const milestones: readonly Milestone[] = [
     status: 'in-progress',
     statusLabel: 'First slice',
     detail:
-      'Musical and technical analysis workflows. The first piece is a smooth vector waveform view with mono, 3-band and RGB styles, live per-band EQ gain, and bar and beat lines when the imported library has a beat grid. OxiDJ now also computes BPM and a beat grid itself (with the taktus library) and shows them when no imported grid exists. Across one whole real library (1,317 tracks) its mean tempo was within 2% of Rekordbox on 97% of tracks, with a median beat-tracking score (F70) of 0.84 on the agreeing tracks. That compares one mean tempo per track; it is a suggestion, not Rekordbox parity. Downbeats, tempo changes and key are not detected yet.',
-    source: { label: 'Priorities', href: `${repo}/blob/master/idea.md#priorities` },
+      'Musical and technical analysis workflows. The first piece is a smooth vector waveform view with mono, 3-band and RGB styles, live per-band EQ gain, and bar and beat lines when the imported library has a beat grid. OxiDJ can compute BPM, a beat grid and a key suggestion; imported grid data takes precedence. Across one whole real library (1,317 tracks) its mean tempo was within 2% of Rekordbox on 97% of tracks, with a median beat-tracking score (F70) of 0.84 on the agreeing tracks. That compares one mean tempo per track; it is a suggestion, not Rekordbox parity. The normal computed grid uses one constant tempo; a separate variable-tempo inspector is not used for export or SYNC.',
+    source: { label: 'Analysis status', href: `${repo}/blob/master/plan/MVP.md#milestones` },
   },
   {
     id: 'm7',
@@ -128,6 +128,13 @@ export const milestones: readonly Milestone[] = [
   },
 ];
 export const projectUpdates: readonly ProjectUpdate[] = [
+  {
+    date: '2026-11-10',
+    title: 'Deck and mixer layout v2.',
+    detail:
+      'Four selectable deck arrangements, a compact mixer, aligned deck controls and shared playback-time overviews. The reviewed build is installed; native display, accessibility and performance checks remain open.',
+    source: { label: 'Layout status', href: `${repo}/commit/5bffdad` },
+  },
   {
     date: '2026-11-07',
     title: 'Browse imported playlists and load a member to either deck.',
@@ -279,13 +286,53 @@ export const projectUpdates: readonly ProjectUpdate[] = [
  * 1440x900 Bot Screen). Provenance: public/images/README.md.
  */
 export const screenshots = {
+  deckMixerV2: {
+    id: 'deck-mixer-v2',
+    width: 1440,
+    height: 273,
+    halfWidth: 720,
+    alt: 'Current deck row with two synthetic tracks, hot-cue pads and the compact mixer in the centre.',
+    caption: 'Decks and compact mixer in layout B. Synthetic tracks; provisional application.',
+  },
+  layoutB: {
+    id: 'layout-b',
+    width: 1440,
+    height: 638,
+    halfWidth: 720,
+    alt: 'Arrangement B: waveform above two decks with a mixer between them.',
+    caption: 'B, default: waveforms above the decks and central mixer.',
+  },
+  layoutA: {
+    id: 'layout-a',
+    width: 1440,
+    height: 638,
+    halfWidth: 720,
+    alt: 'Arrangement A: decks and central mixer above the waveform.',
+    caption: 'A: decks and mixer above the waveforms.',
+  },
+  layoutC: {
+    id: 'layout-c',
+    width: 1440,
+    height: 638,
+    halfWidth: 720,
+    alt: 'Arrangement C: waveform on top, decks below with the mixer on the right.',
+    caption: 'C: waveforms above; mixer docked right.',
+  },
+  layoutD: {
+    id: 'layout-d',
+    width: 1440,
+    height: 475,
+    halfWidth: 720,
+    alt: 'Arrangement D: mixer beside waveforms with decks below.',
+    caption: 'D: mixer beside the waveforms; decks below.',
+  },
   overview: {
     id: 'app-overview',
     width: 1440,
-    height: 680,
+    height: 638,
     halfWidth: 720,
-    alt: 'OxiDJ library window with both decks playing in sync: a toolbar with search and panel toggles, one merged waveform with deck A in orange, amber and pale yellow above the centre line and deck B in blue, cyan and white below, a control strip with KEY and SYNC lit on deck B, a mixer row with level meters, two 3-band overview strips and a list of four synthetic tracks with A and B badges.',
-    caption: 'Provisional prototype with synthetic audio. Click to zoom.',
+    alt: 'OxiDJ deck layout B with an orange and blue merged waveform, separate overviews, two synthetic tracks on the decks, and a compact mixer between them.',
+    caption: 'Deck layout B in the provisional application, with synthetic tracks. Click to zoom.',
   },
   decksMerged: {
     id: 'decks-merged',

@@ -35,6 +35,8 @@ BEFORE = BANDS / "01-before-v16-monochrome.png"
 PLAYING = BANDS / "03-after-both-playing-played-dimmed.png"
 SYNCED = BANDS / "04-after-sync-keylock-both-playing.png"
 PLAYLISTS = MILESTONES / "v18-imported-playlists/01-imported-playlist-load-controls.png"
+LAYOUT_V2 = MILESTONES / "v19-deck-layout-v2/app-overviews-shared-scale.png"
+LAYOUTS = MILESTONES / "v19-deck-layout-v2"
 
 # Waveform section of the details panel: below the details/waveform hairline
 # (y 361), right of the panel edge (x 1080), above the window bottom bar.
@@ -47,9 +49,14 @@ BANDS_AREA = (0, 130, 1440, 552)
 
 # name: (source, (left, top, right, bottom)) in source pixels.
 CROPS = {
-    # Toolbar, merged decks after SYNC, control strip, mixer, overviews and the
-    # four table rows; stops above the pointer in the empty table (y 775).
-    "app-overview": (SYNCED, (0, 65, 1440, 745)),
+    # Layout B, stopping before the details panel and its local scratch path.
+    "app-overview": (LAYOUT_V2, (0, 65, 1440, 703)),
+    "deck-mixer-v2": (LAYOUT_V2, (0, 430, 1440, 703)),
+    # Synthetic v19 application screenshots, cropped above the Details path.
+    "layout-a": (LAYOUTS / "app-layout-a.png", (0, 65, 1440, 703)),
+    "layout-b": (LAYOUTS / "app-layout-b.png", (0, 65, 1440, 703)),
+    "layout-c": (LAYOUTS / "app-layout-c.png", (0, 65, 1440, 703)),
+    "layout-d": (LAYOUTS / "app-layout-d.png", (0, 65, 1440, 540)),
     # DECKS row and the merged 3-band detail waveform, both decks playing.
     "decks-merged": (PLAYING, (0, 100, 1440, 356)),
     # Seam readout, both tempo faders and KEY/SYNC lit on deck B.
@@ -72,6 +79,11 @@ CROPS = {
 
 HALF = {
     "app-overview",
+    "deck-mixer-v2",
+    "layout-a",
+    "layout-b",
+    "layout-c",
+    "layout-d",
     "decks-merged",
     "decks-mixer",
     "bands-before",
@@ -119,7 +131,7 @@ def social() -> None:
     bold = ImageFont.truetype(str(SITE / "fonts-src/epilogue-700.ttf"), 78)
     body = ImageFont.truetype(str(SITE / "fonts-src/epilogue-400.ttf"), 30)
     draw.rectangle((0, 0, 470, h), fill=(16, 16, 22))
-    draw.text((56, 170), "A library\nbefore\nthe decks.", font=bold, fill=(234, 232, 247), spacing=6)
+    draw.text((56, 170), "Your music.\nYour decks.", font=bold, fill=(234, 232, 247), spacing=6)
     draw.text((56, 470), "Library and two decks, in Rust.", font=body, fill=(196, 190, 226))
     draw.rectangle((56, 132, 120, 138), fill=(187, 154, 247))
     card.save(OUT / "social.png", optimize=True)

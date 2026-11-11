@@ -12,11 +12,11 @@
   <body>
     <!-- site:header -->
     <main id="main">
-      <section class="hero" aria-labelledby="title">
+      <section class="hero hero-home" aria-labelledby="title">
         <div class="hero-glow" aria-hidden="true"></div>
         <div class="container hero-copy">
-          <h1 id="title">A library before the decks.</h1>
-          <p class="lead">Your local DJ library, built in Rust. Your files stay where they are.</p>
+          <h1 id="title">Your music. Your decks.</h1>
+          <p class="lead">A local-first DJ library and two-deck prototype, built in Rust.</p>
           <div class="actions">
             <a class="button" href="#try-it">Try the CLI</a
             ><a class="button button-quiet" href="./roadmap.html">See the roadmap</a>
@@ -32,6 +32,28 @@
           <!-- site:stage -->
         </div>
       </section>
+
+      <nav class="container page-jumps" aria-label="On this page">
+        <a href="#why"
+          ><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h6l2 2h8v10H4z" /></svg> Your
+          library</a
+        >
+        <a href="#inside"
+          ><svg viewBox="0 0 24 24" aria-hidden="true">
+            <rect x="3" y="5" width="18" height="14" rx="2" />
+            <path d="M8 15l3-3 2 2 3-4 3 5" />
+          </svg>
+          The prototype</a
+        >
+        <a href="#path"
+          ><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 6h14M5 12h14M5 18h14" /></svg>
+          Roadmap</a
+        >
+        <a href="#try-it"
+          ><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 7 5 5-5 5M12 17h7" /></svg> Get
+          started</a
+        >
+      </nav>
 
       <div class="container">
         <!-- site:status -->
@@ -112,37 +134,82 @@
         </figure>
       </section>
 
+      <section class="section container" aria-labelledby="shared-time-title">
+        <div class="section-head">
+          <h2 id="shared-time-title">Two tracks. One timeline.</h2>
+          <p>
+            Each overview fits its track to a shared playback-time scale. One aligned playhead makes
+            their positions easy to compare, even when tracks have different lengths or tempos.
+          </p>
+        </div>
+        <figure class="shared-time">
+          <div class="shared-time-diagram" aria-hidden="true">
+            <span class="shared-time-needle"></span>
+            <div class="shared-time-row">
+              <strong>A</strong><span class="shared-time-track shared-time-a"></span>
+            </div>
+            <div class="shared-time-row">
+              <strong>B</strong><span class="shared-time-track shared-time-b"></span>
+            </div>
+          </div>
+          <figcaption>
+            Illustration: tracks can start and end at different points while their playheads stay
+            aligned. Not recorded audio.
+          </figcaption>
+        </figure>
+      </section>
+
       <section class="section container" aria-labelledby="inside">
         <div class="section-head reveal">
           <h2 id="inside">Inside the prototype.</h2>
           <p>
-            Captures of the current build, cropped to the parts that matter: imported nested
+            A closer look at the prototype and earlier development captures: imported nested
             playlists with explicit Load A/B controls, two decks in one merged 3-band waveform, SYNC
             with key lock, the optional mixer and track details. Selecting a playlist member does
-            not load it; loading does not autoplay. The catalog data is synthetic. Click an image to
-            zoom and drag.
+            not load it; loading does not autoplay. Captures use synthetic data except the labelled
+            owner-library record. Click an image to zoom and drag.
           </p>
         </div>
-        <div class="gallery">
-          <div class="gallery-wide reveal">
-            <!-- site:shotMerged -->
-            <!-- site:shotBandsBefore -->
-            <!-- site:shotBandsAfter -->
-            <!-- site:shotMixer -->
-            <!-- site:shotFallback -->
-            <!-- site:shotCollapsed -->
+        <div class="current-deck-shot">
+          <!-- site:deckMixerV2 -->
+        </div>
+        <details class="layout-showcase">
+          <summary>Explore the four deck arrangements</summary>
+          <p>
+            Selectable in Settings. These are synthetic captures of the provisional application;
+            some overview strips extend below the visible area.
+          </p>
+          <div class="layout-grid">
+            <!-- site:layoutB -->
+            <!-- site:layoutA -->
+            <!-- site:layoutC -->
+            <!-- site:layoutD -->
           </div>
-          <div class="gallery-wide reveal">
-            <!-- site:shotSynced -->
-            <!-- site:shotRefused -->
-            <!-- site:shotImportedPlaylists -->
-            <!-- site:shotOwnerLibraryRecord -->
-            <div class="gallery-pair">
-              <!-- site:shotWaveGrid -->
-              <!-- site:shotWaveClick -->
+        </details>
+        <details class="layout-showcase history-showcase">
+          <summary>Earlier development captures</summary>
+          <p>These show earlier versions, not necessarily the current layout.</p>
+          <div class="gallery">
+            <div class="gallery-wide reveal">
+              <!-- site:shotMerged -->
+              <!-- site:shotBandsBefore -->
+              <!-- site:shotBandsAfter -->
+              <!-- site:shotMixer -->
+              <!-- site:shotFallback -->
+              <!-- site:shotCollapsed -->
+            </div>
+            <div class="gallery-wide reveal">
+              <!-- site:shotSynced -->
+              <!-- site:shotRefused -->
+              <!-- site:shotImportedPlaylists -->
+              <!-- site:shotOwnerLibraryRecord -->
+              <div class="gallery-pair">
+                <!-- site:shotWaveGrid -->
+                <!-- site:shotWaveClick -->
+              </div>
             </div>
           </div>
-        </div>
+        </details>
       </section>
 
       <section class="section container" aria-labelledby="path">
@@ -185,6 +252,12 @@
         </div>
         <div class="terminal-grid">
           <div class="terminal-notes reveal">
+            <p class="prerequisite-title">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M12 3v10m-4-4 4 4 4-4M5 16v4h14v-4" />
+              </svg>
+              Before you start
+            </p>
             <p>
               Install Git, Rust via rustup and a native C toolchain. The repository pins its Rust
               toolchain. Use a writable local disk and a small test folder of audio; the catalog is
@@ -207,14 +280,15 @@
             >
           </div>
           <div class="terminal reveal">
-            <p class="terminal-label">Build</p>
+            <p class="terminal-label"><span class="step-number">1</span> Clone and build</p>
             <pre><code>git clone https://github.com/Senci/oxidj.git
 cd oxidj
 cargo build -p oxidj-cli --locked
 cargo run -p oxidj-cli -- --help</code></pre>
             <p class="terminal-label">
-              Create, import, list. Replace <code>/path/to/test-audio</code> with your folder.
+              <span class="step-number">2</span> Create a catalog and import a test folder.
             </p>
+            <p class="terminal-hint">Replace <code>/path/to/test-audio</code> with your folder.</p>
             <pre><code>cargo run -p oxidj-cli -- catalog init --db ./catalog.sqlite
 cargo run -p oxidj-cli -- catalog import --db ./catalog.sqlite --dir /path/to/test-audio
 cargo run -p oxidj-cli -- catalog list --db ./catalog.sqlite</code></pre>
