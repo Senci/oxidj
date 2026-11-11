@@ -146,6 +146,88 @@ pub struct Settings {
     pub arrangement: DeckArrangement,
 }
 
+/// Persisted Settings window rectangle (whole points).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct WindowGeom {
+    pub x: i32,
+    pub y: i32,
+    pub w: i32,
+    pub h: i32,
+}
+
+/// Smallest Settings window; content scrolls below its natural size.
+pub(crate) const WINDOW_MIN_SIZE: egui::Vec2 = egui::vec2(360.0, 240.0);
+/// Default Settings window width.
+const WINDOW_DEFAULT_WIDTH: f32 = 480.0;
+/// Gap kept between the window and the screen edge.
+const WINDOW_MARGIN: f32 = 8.0;
+
+/// Frame and title-bar overhead around a window's content (egui sizes the
+/// content; Settings stores and clamps the outer rect).
+fn window_chrome(ctx: &egui::Context) -> egui::Vec2 {
+    let style = ctx.style();
+    let frame = egui::Frame::window(&style);
+    let heading = ctx.fonts(|f| f.row_height(&egui::TextStyle::Heading.resolve(&style)));
+    let title = heading.max(style.spacing.interact_size.y) + frame.inner_margin.sum().y;
+    frame.total_margin().sum() + egui::vec2(0.0, title + frame.stroke.width)
+}
+
+const WINDOW_KEY: &str = "settings_window";
+
+impl WindowGeom {
+    /// `x,y,w,h`; absent or invalid storage means the centred default.
+    pub fn load(storage: Option<&dyn eframe::Storage>) -> Option<Self> {
+        Self::decode(&storage?.get_string(WINDOW_KEY)?)
+    }
+
+    pub fn save(&self, storage: &mut dyn eframe::Storage) {
+        storage.set_string(WINDOW_KEY, self.encode());
+    }
+
+    pub(crate) fn encode(&self) -> String {
+        format!("{},{},{},{}", self.x, self.y, self.w, self.h)
+    }
+
+    pub(crate) fn decode(raw: &str) -> Option<Self> {
+        let n: Vec<i32> = raw
+            .split(',')
+            .filter_map(|v| v.trim().parse().ok())
+            .collect();
+        match n[..] {
+            [x, y, w, h] if (1..=20_000).contains(&w) && (1..=20_000).contains(&h) => {
+                Some(Self { x, y, w, h })
+            }
+            _ => None,
+        }
+    }
+
+    fn from_rect(r: egui::Rect) -> Self {
+        Self {
+            x: r.min.x.round() as i32,
+            y: r.min.y.round() as i32,
+            w: r.width().round() as i32,
+            h: r.height().round() as i32,
+        }
+    }
+
+    /// Size and position fitted to `screen`: never below the minimum (unless
+    /// the screen is smaller), never larger than the screen, fully on it.
+    pub(crate) fn clamped(self, screen: egui::Rect) -> egui::Rect {
+        let avail =
+            (screen.size() - egui::Vec2::splat(2.0 * WINDOW_MARGIN)).max(egui::Vec2::splat(1.0));
+        let size = egui::vec2(self.w as f32, self.h as f32)
+            .max(WINDOW_MIN_SIZE.min(avail))
+            .min(avail);
+        let lo = screen.min + egui::Vec2::splat(WINDOW_MARGIN);
+        let hi = (screen.max - egui::Vec2::splat(WINDOW_MARGIN) - size).max(lo);
+        let min = egui::pos2(
+            (self.x as f32).clamp(lo.x, hi.x),
+            (self.y as f32).clamp(lo.y, hi.y),
+        );
+        egui::Rect::from_min_size(min, size)
+    }
+}
+
 /// Mixer width as a share of the screen width.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MixerDensity {
@@ -165,7 +247,7 @@ impl MixerDensity {
     }
 }
 
-/// Mixer v2 preferences (persisted; all in Settings, Deck view tab).
+/// Mixer v2 preferences (persisted; all in Settings, Layout tab).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct MixerPrefs {
     pub density: MixerDensity,
@@ -438,6 +520,8 @@ impl Settings {
 pub(crate) struct SettingsUi {
     pub(crate) open: bool,
     pub(crate) tab: usize,
+    /// Last Settings window rectangle (persisted separately from Settings).
+    pub(crate) geom: Option<WindowGeom>,
     /// Widget focused before the window opened; refocused on close.
     return_focus: Option<egui::Id>,
     /// Focus the first control on the frame after opening.
@@ -522,16 +606,33 @@ impl LibraryApp {
         }
         let mut open = true;
         let mut layout = SettingsLayout::default();
+        let screen = ctx.screen_rect();
+        // egui sizes the window content; geometry here is the outer rect.
+        let chrome = window_chrome(ctx);
+        let avail =
+            (screen.size() - egui::Vec2::splat(2.0 * WINDOW_MARGIN)).max(egui::Vec2::splat(1.0));
+        // First show: saved geometry (fitted to this screen) or centred default.
+        let initial = self.settings_ui.geom.map_or_else(
+            || {
+                let size = egui::vec2(
+                    WINDOW_DEFAULT_WIDTH.min(avail.x),
+                    (screen.height() - 64.0).clamp(WINDOW_MIN_SIZE.y.min(avail.y), avail.y),
+                );
+                egui::Rect::from_center_size(screen.center(), size)
+            },
+            |g| g.clamped(screen),
+        );
         let shown = egui::Window::new(WINDOW_TITLE)
             .id(egui::Id::new("oxidj-settings"))
             .open(&mut open)
             .collapsible(false)
-            // Leave room for the title bar and window frame on small screens.
-            .default_height((ctx.screen_rect().height() - 64.0).max(1.0))
-            .max_height((ctx.screen_rect().height() - 64.0).max(1.0))
+            .default_pos(initial.min)
+            .default_size((initial.size() - chrome).max(egui::Vec2::splat(1.0)))
+            .min_size((WINDOW_MIN_SIZE.min(avail) - chrome).max(egui::Vec2::splat(1.0)))
+            .max_size((avail - chrome).max(egui::Vec2::splat(1.0)))
+            .constrain_to(screen.shrink(WINDOW_MARGIN))
             .vscroll(true)
-            .resizable(false)
-            .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
+            .resizable(true)
             .show(ctx, |ui| {
                 self.settings_contents(ui, tokens, &mut layout);
                 // Native keyboard focus can advance to a clipped widget;
@@ -549,6 +650,12 @@ impl LibraryApp {
                 }
             });
         layout.window = shown.map(|w| w.response.rect);
+        if let Some(rect) = layout.window {
+            let geom = WindowGeom::from_rect(rect);
+            if self.settings_ui.geom != Some(geom) {
+                self.settings_ui.geom = Some(geom);
+            }
+        }
         if self.settings_ui.focus_first {
             if let Some(id) = layout.first_control {
                 ctx.memory_mut(|m| m.request_focus(id));
@@ -569,7 +676,7 @@ impl LibraryApp {
     ) {
         let mut tabs = [egui::Rect::NOTHING; 4];
         ui.horizontal_wrapped(|ui| {
-            for (i, name) in ["Appearance", "Waveform", "Deck view", "Keyboard"]
+            for (i, name) in ["Appearance", "Layout", "Waveform", "Keyboard"]
                 .iter()
                 .enumerate()
             {
@@ -618,7 +725,7 @@ impl LibraryApp {
             }
         }
 
-        if self.settings_ui.tab == 1 {
+        if self.settings_ui.tab == 2 {
             SectionHeading { title: "Waveform" }.show(ui, tokens);
             let s = &mut self.settings;
             let mut index = Style::ALL
@@ -648,8 +755,8 @@ impl LibraryApp {
             layout.zoom = Some(rects(&responses));
         }
 
-        if self.settings_ui.tab == 2 {
-            SectionHeading { title: "Deck view" }.show(ui, tokens);
+        if self.settings_ui.tab == 1 {
+            SectionHeading { title: "Layout" }.show(ui, tokens);
             let s = &mut self.settings;
             macro_rules! pick {
                 ($label:expr, $cells:expr, $index:expr $(,)?) => {

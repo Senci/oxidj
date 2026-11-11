@@ -20,7 +20,7 @@ fn settings_tabs_show_only_the_selected_group() {
     let labels: Vec<_> = texts(&out).into_iter().map(|(text, _)| text).collect();
     assert!(labels.iter().any(|s| s == "Theme"));
     assert!(!labels.iter().any(|s| s == "Smooth edges"), "waveform controls belong on their own tab");
-    let out = h.click(h.layout().tabs.unwrap()[2].center());
+    let out = h.click(h.layout().tabs.unwrap()[1].center());
     assert!(texts(&out).iter().any(|(s, _)| s == "Crossfader curve"));
     assert!(h.layout().theme.is_none());
     let out = h.click(h.layout().tabs.unwrap()[3].center());
@@ -223,6 +223,25 @@ impl Harness {
         self.settle()
     }
 
+    fn drag(&mut self, from: Pos2, to: Pos2) -> Frame {
+        let button = |pos, pressed| egui::Event::PointerButton {
+            pos,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: Default::default(),
+        };
+        self.frame_with(
+            vec![egui::Event::PointerMoved(from), button(from, true)],
+            Default::default(),
+        );
+        for k in 1..=4 {
+            let p = from + (to - from) * (k as f32 / 4.0);
+            self.frame_with(vec![egui::Event::PointerMoved(p)], Default::default());
+        }
+        self.frame_with(vec![button(to, false)], Default::default());
+        self.settle()
+    }
+
     fn key(&mut self, key: egui::Key, modifiers: egui::Modifiers) -> Frame {
         let event = |pressed| egui::Event::Key { key, physical_key: None, pressed, repeat: false, modifiers };
         self.frame_with(vec![event(true)], modifiers);
@@ -316,17 +335,17 @@ fn ctrl_comma_and_gear_toggle_settings_esc_closes_and_focus_returns() {
     let next = h.focused().expect("tab focus");
     assert_ne!(next, first);
     h.key(egui::Key::Space, Default::default());
-    assert!(h.layout().smooth.is_some(), "keyboard activates Waveform tab");
+    assert!(h.layout().sections.is_some(), "keyboard activates Layout tab");
     let mut guard = 0;
-    while h.layout().smooth.is_some_and(|r| {
+    while h.layout().sections.map(|s| s[0]).is_some_and(|r| {
         h.ctx.memory(|m| m.focused()).and_then(|id| h.ctx.read_response(id)).map(|r| r.rect) != Some(r)
     }) {
         h.key(egui::Key::Tab, Default::default());
         guard += 1;
-        assert!(guard < 12, "Smooth switch reachable by Tab");
+        assert!(guard < 40, "Detail switch reachable by Tab");
     }
     h.key(egui::Key::Space, Default::default());
-    assert!(!h.app.settings.smooth, "Space flips the focused switch");
+    assert!(!h.app.settings.sections.detail, "Space flips the focused switch");
 
     // Esc closes and returns focus to the search field.
     h.key(egui::Key::Escape, Default::default());
@@ -369,7 +388,7 @@ fn each_wired_option_changes_the_next_rendered_frame_and_persists() {
     assert_eq!(window.1 - window.0, 8_000.0, "default 4 bars at 120 BPM");
 
     h.ctrl_comma();
-    h.click(h.layout().tabs.unwrap()[1].center());
+    h.click(h.layout().tabs.unwrap()[2].center());
 
     // Waveform style: RGB.
     let out = h.click(h.layout().style.unwrap()[2].center());
@@ -492,4 +511,138 @@ impl eframe::Storage for MemoryStorage {
         self.0.insert(key.to_owned(), value);
     }
     fn flush(&mut self) {}
+}
+
+#[test]
+fn settings_window_opens_centred_and_title_bar_drag_moves_it() {
+    let root = temp_root("win-drag");
+    let mut h = Harness::new(root.join("catalog.sqlite"));
+    h.ctrl_comma();
+    let before = h.layout().window.unwrap();
+    let screen = Rect::from_min_size(Pos2::ZERO, h.viewport);
+    assert!(
+        (before.center().x - screen.center().x).abs() < 2.0,
+        "centred first time {before:?} {screen:?}"
+    );
+    let grab = Pos2::new(before.center().x - 60.0, before.min.y + 10.0);
+    h.drag(grab, grab + egui::vec2(-150.0, -20.0));
+    let after = h.layout().window.unwrap();
+    assert!(
+        (after.min.x - (before.min.x - 150.0)).abs() < 2.0,
+        "{before:?} -> {after:?}"
+    );
+    assert!(
+        (after.min.y - (before.min.y - 20.0)).abs() < 2.0,
+        "{before:?} -> {after:?}"
+    );
+    assert_eq!(after.size(), before.size(), "a move does not resize");
+    let saved = h.app.settings_ui.geom.expect("geometry recorded");
+    assert_eq!(
+        (saved.x, saved.y),
+        (after.min.x.round() as i32, after.min.y.round() as i32)
+    );
+}
+
+#[test]
+fn settings_window_corner_drag_resizes_and_respects_the_minimum() {
+    let root = temp_root("win-resize");
+    let mut h = Harness::new(root.join("catalog.sqlite"));
+    h.ctrl_comma();
+    let before = h.layout().window.unwrap();
+    let corner = before.max - egui::vec2(2.0, 2.0);
+    h.drag(corner, corner + egui::vec2(-60.0, -80.0));
+    let smaller = h.layout().window.unwrap();
+    assert!(
+        (smaller.width() - (before.width() - 60.0)).abs() < 3.0,
+        "{before:?} -> {smaller:?}"
+    );
+    assert!(
+        (smaller.height() - (before.height() - 80.0)).abs() < 3.0,
+        "{before:?} -> {smaller:?}"
+    );
+    assert_eq!(smaller.min, before.min, "top-left corner stays put");
+    // Dragging far past the minimum stops at it.
+    let corner = smaller.max - egui::vec2(2.0, 2.0);
+    h.drag(corner, corner - egui::vec2(900.0, 900.0));
+    let min = h.layout().window.unwrap();
+    assert!(
+        min.width() >= crate::settings::WINDOW_MIN_SIZE.x - 1.0,
+        "{min:?}"
+    );
+    assert!(
+        min.height() >= crate::settings::WINDOW_MIN_SIZE.y - 1.0,
+        "{min:?}"
+    );
+    assert!(
+        min.width() < crate::settings::WINDOW_MIN_SIZE.x + 3.0,
+        "{min:?}"
+    );
+    // Content still reachable: the tab row stays inside the window.
+    assert!(h.layout().tabs.unwrap()[0].min.x >= min.min.x);
+}
+
+#[test]
+fn saved_settings_window_geometry_is_restored_and_clamped_on_a_smaller_screen() {
+    use crate::settings::WindowGeom;
+    let root = temp_root("win-restore");
+    let mut h = Harness::new(root.join("catalog.sqlite"));
+    h.app.settings_ui.geom = Some(WindowGeom {
+        x: 100,
+        y: 120,
+        w: 520,
+        h: 400,
+    });
+    h.ctrl_comma();
+    let rect = h.layout().window.unwrap();
+    assert_eq!((rect.min.x, rect.min.y), (100.0, 120.0));
+    assert_eq!((rect.width(), rect.height()), (520.0, 400.0));
+
+    // Stored on a large screen, restored on a small one: pulled back on-screen.
+    let root = temp_root("win-clamp");
+    let mut h = Harness::new(root.join("catalog.sqlite"));
+    h.viewport = egui::vec2(640.0, 480.0);
+    h.settle();
+    h.app.settings_ui.geom = Some(WindowGeom {
+        x: 1800,
+        y: 1000,
+        w: 1200,
+        h: 900,
+    });
+    h.ctrl_comma();
+    let rect = h.layout().window.unwrap();
+    let screen = Rect::from_min_size(Pos2::ZERO, h.viewport);
+    assert!(screen.contains_rect(rect), "{rect:?} not inside {screen:?}");
+    assert!(rect.width() >= crate::settings::WINDOW_MIN_SIZE.x);
+
+    // Round trip through the persisted string.
+    let geom = h.app.settings_ui.geom.unwrap();
+    assert_eq!(WindowGeom::decode(&geom.encode()), Some(geom));
+    assert_eq!(WindowGeom::decode("1,2,0,4"), None);
+}
+
+#[test]
+fn layout_tab_is_second_and_deck_view_is_gone() {
+    let root = temp_root("tab-names");
+    let mut h = Harness::new(root.join("catalog.sqlite"));
+    let out = h.ctrl_comma();
+    let labels: Vec<_> = texts(&out).into_iter().map(|(t, _)| t).collect();
+    let pos = |name: &str| labels.iter().position(|s| s == name);
+    let (a, l, w, k) = (
+        pos("Appearance"),
+        pos("Layout"),
+        pos("Waveform"),
+        pos("Keyboard"),
+    );
+    assert!(a < l && l < w && w < k, "{labels:?}");
+    assert!(pos("Deck view").is_none());
+    let out = h.click(h.layout().tabs.unwrap()[1].center());
+    let labels: Vec<_> = texts(&out).into_iter().map(|(t, _)| t).collect();
+    for name in [
+        "Deck arrangement",
+        "Crossfader",
+        "Track metadata",
+        "Mirror deck B",
+    ] {
+        assert!(labels.iter().any(|s| s == name), "{name} on the Layout tab");
+    }
 }

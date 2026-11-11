@@ -17,6 +17,7 @@ pub(crate) enum Icon {
     Lock,
     Timer,
     Headphones,
+    Settings,
 }
 
 /// One drawable path on the 24 x 24 grid.
@@ -156,6 +157,23 @@ impl Icon {
                     closed: false,
                 }]
             }
+            Icon::Settings => {
+                // Lucide "settings": a six-lobed cog around a hub.
+                let cog = (0..72)
+                    .map(|k| {
+                        let a = (k as f32 * 5.0).to_radians();
+                        let r = 8.3 + 1.2 * (6.0 * a).cos();
+                        pos2(12.0 + r * a.cos(), 12.0 + r * a.sin())
+                    })
+                    .collect();
+                vec![
+                    Path {
+                        points: cog,
+                        closed: true,
+                    },
+                    circle(12.0, 12.0, 3.0),
+                ]
+            }
             Icon::Timer => vec![
                 line(&[(10.0, 2.0), (14.0, 2.0)]),
                 line(&[(12.0, 14.0), (15.0, 11.0)]),
@@ -205,6 +223,7 @@ mod tests {
             Icon::Repeat,
             Icon::Lock,
             Icon::Timer,
+            Icon::Settings,
         ] {
             let paths = icon.paths();
             assert!(!paths.is_empty(), "{icon:?}");

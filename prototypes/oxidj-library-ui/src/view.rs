@@ -6,6 +6,9 @@ impl eframe::App for LibraryApp {
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
         self.theme.save(self.custom_tokens, storage);
         self.settings.save(storage);
+        if let Some(geom) = self.settings_ui.geom {
+            geom.save(storage);
+        }
     }
 
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
@@ -307,10 +310,19 @@ impl LibraryApp {
                 self.shell.more_popup = popup.map(|popup| popup.response.rect);
                 let gear = ui
                     .add(
-                        egui::Button::new("⚙")
+                        egui::Button::new("")
                             .min_size(egui::vec2(theme::CONTROL_HEIGHT + 8.0, 0.0)),
                     )
                     .on_hover_text("Settings (Ctrl+,)");
+                crate::icons::paint(
+                    ui.painter(),
+                    crate::icons::Icon::Settings,
+                    egui::Rect::from_center_size(
+                        gear.rect.center(),
+                        egui::Vec2::splat(theme::CONTROL_HEIGHT - 8.0),
+                    ),
+                    ui.style().interact(&gear).fg_stroke.color,
+                );
                 gear.widget_info(|| {
                     egui::WidgetInfo::labeled(egui::WidgetType::Button, true, "Settings")
                 });

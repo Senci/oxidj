@@ -3027,7 +3027,7 @@ fn mixer_controls_drive_the_engine_and_meters_through_the_ui() {
         ..Default::default()
     };
     h.key(egui::Key::Comma, ctrl);
-    h.click(h.app.settings_ui.layout.tabs.unwrap()[2].center());
+    h.click(h.app.settings_ui.layout.tabs.unwrap()[1].center());
     let cells = h
         .app
         .settings_ui
@@ -4088,7 +4088,7 @@ fn deck_artwork_toggle_in_settings_hides_and_shows_the_artwork() {
     wait_artwork(&mut h, 0);
     assert!(h.app.decks.layout.artwork[0].is_some());
 
-    // Ctrl+, opens Settings; the Deck view tab holds the artwork toggle.
+    // Ctrl+, opens Settings; the Layout tab holds the artwork toggle.
     h.key(
         egui::Key::Comma,
         egui::Modifiers {
@@ -4099,7 +4099,7 @@ fn deck_artwork_toggle_in_settings_hides_and_shows_the_artwork() {
     );
     assert!(h.app.settings_ui.open, "Settings opens");
     let tabs = h.app.settings_ui.layout.tabs.unwrap();
-    h.click(tabs[2].center());
+    h.click(tabs[1].center());
     let budget = h
         .app
         .settings_ui

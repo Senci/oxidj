@@ -60,6 +60,7 @@ fn main() -> eframe::Result<()> {
             let (theme, custom_tokens) = ThemeMode::load(cc.storage);
             let mut app = LibraryApp::new(db, theme, custom_tokens);
             app.settings = settings::Settings::load(cc.storage);
+            app.settings_ui.geom = settings::WindowGeom::load(cc.storage);
             // D2: the default output device, or the silent fallback.
             app.decks.attach(oxidj_audio::Engine::start());
             Ok(Box::new(app))
