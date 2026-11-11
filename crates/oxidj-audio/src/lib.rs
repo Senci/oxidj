@@ -532,6 +532,8 @@ impl DeckState {
             Command::Load { id, track, .. } => {
                 let (gain, speed, keylock, applied) =
                     (self.gain, self.speed, self.keylock, self.applied);
+                let key_tail = self.key_tail.take();
+                let swap = self.swap;
                 // Dropping the old Arc here only decrements: the UI holds a clone.
                 *self = Self {
                     track: Some(track),
@@ -540,18 +542,24 @@ impl DeckState {
                     speed,
                     keylock,
                     applied,
+                    key_tail,
+                    swap,
                     ..Self::default()
                 };
             }
             Command::Unload { .. } => {
                 let (gain, speed, keylock, applied) =
                     (self.gain, self.speed, self.keylock, self.applied);
+                let key_tail = self.key_tail.take();
+                let swap = self.swap;
                 // As for Load: the UI's retired list still holds the track.
                 *self = Self {
                     gain,
                     speed,
                     keylock,
                     applied,
+                    key_tail,
+                    swap,
                     ..Self::default()
                 };
             }

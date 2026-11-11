@@ -1002,6 +1002,59 @@ fn send_refuses_unknown_decks_and_remembers_only_valid_settings() {
 }
 
 #[test]
+fn key_locked_fade_survives_load_and_unload_after_seek() {
+    for gap in [0, 32] {
+        for unload in [false, true] {
+            let (mut engine, mut renderer) = Engine::manual(48_000);
+            renderer.set_declick_ms(DECLICK_MS);
+            let samples = (0..192_000)
+                .flat_map(|i| {
+                    let v = (i as f32 * 440.0 * std::f32::consts::TAU / 48_000.0).sin() * 0.5;
+                    [v, v]
+                })
+                .collect();
+            engine.send(Command::Load {
+                deck: 0,
+                id: 1,
+                track: Arc::new(TrackPcm::new(48_000, samples).unwrap()),
+            });
+            engine.send(Command::KeyLock { deck: 0, on: true });
+            engine.send(Command::Speed {
+                deck: 0,
+                speed: 1.08,
+            });
+            engine.send(Command::TogglePlay { deck: 0 });
+            let warm = render(&mut renderer, 20_000);
+            engine.send(Command::Seek {
+                deck: 0,
+                frame: 100_000.0,
+            });
+            let middle = render(&mut renderer, gap);
+            if unload {
+                engine.send(Command::Unload { deck: 0 });
+            } else {
+                engine.send(Command::Load {
+                    deck: 0,
+                    id: 2,
+                    track: Arc::new(TrackPcm::new(48_000, vec![0.0; 384_000]).unwrap()),
+                });
+            }
+            let next = render(&mut renderer, 600);
+            let previous = if gap == 0 {
+                warm[warm.len() - 2]
+            } else {
+                middle[middle.len() - 2]
+            };
+            assert!(
+                (next[0] - previous).abs() < 0.06,
+                "gap={gap} unload={unload}: {previous} -> {}",
+                next[0]
+            );
+        }
+    }
+}
+
+#[test]
 fn limiter_holds_isolated_peaks_through_delay_across_blocks() {
     for chunk in [1, 17, 48, 64] {
         let mut limiter = Limiter::new(48_000.0, true, 1.0);
