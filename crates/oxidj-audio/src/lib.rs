@@ -232,6 +232,22 @@ struct Tail {
     left: u32,
 }
 
+/// What a key-locked deck was playing just before a stop or jump: the read
+/// head of its stretch engine. The renderer moves that engine aside (each
+/// deck has a spare) and keeps feeding it for the declick time, so the old
+/// stretched signal itself fades out while the other engine starts the new
+/// one.
+#[derive(Clone, Debug)]
+struct KeyTail {
+    track: Arc<TrackPcm>,
+    read: f64,
+    carry: f64,
+    speed: f64,
+    range: Option<(f64, f64)>,
+    /// Output frames still to play.
+    left: u32,
+}
+
 /// Callback-side state of one deck.
 #[derive(Clone, Debug)]
 pub(crate) struct DeckState {
@@ -275,6 +291,10 @@ pub(crate) struct DeckState {
     fade_in: u32,
     /// The pre-jump signal fading out.
     tail: Option<Tail>,
+    /// The pre-jump key-locked signal fading out (on the spare engine).
+    key_tail: Option<KeyTail>,
+    /// Ask the renderer to exchange this deck's stretch engine and spare.
+    swap: bool,
 }
 
 impl Default for DeckState {
@@ -303,6 +323,8 @@ impl Default for DeckState {
             declick: 0,
             fade_in: 0,
             tail: None,
+            key_tail: None,
+            swap: false,
         }
     }
 }
@@ -329,6 +351,7 @@ impl DeckState {
         before: Option<f64>,
         old: Option<Arc<TrackPcm>>,
         raw: bool,
+        key: Option<KeyTail>,
         switched: bool,
     ) {
         if self.declick == 0 {
@@ -357,7 +380,85 @@ impl DeckState {
         } else if !early {
             self.tail = None;
         }
+        // The stretched signal: one tail too; a running one is kept (the
+        // signal started since has had at most a few frames of fade-in).
+        if let Some(key) = key
+            && self.key_tail.is_none()
+        {
+            self.key_tail = Some(KeyTail {
+                left: self.declick,
+                ..key
+            });
+            self.swap = true;
+        }
         self.fade_in = if now.is_some() { self.declick } else { 0 };
+    }
+
+    /// The stretch read head to continue as a tail, when the deck is
+    /// audibly playing through its stretch engine right now.
+    fn key_source(&self) -> Option<KeyTail> {
+        let track = self.track.clone()?;
+        (self.declick > 0 && self.keylock && self.primed && self.playing).then(|| KeyTail {
+            track,
+            read: self.read,
+            carry: self.carry,
+            speed: self.speed.min(MAX_KEYLOCK_SPEED),
+            range: self.loop_range.filter(|(start, end)| end > start),
+            left: 0,
+        })
+    }
+
+    /// Add the fading stretched tail to `out` (interleaved stereo, at most
+    /// [`CHUNK`] frames): keep feeding `spare` from the old read head.
+    fn render_key_tail(
+        &mut self,
+        spare: &mut dyn TimeStretch,
+        resampler: &Resampler,
+        input: &mut [f32],
+        scratch: &mut [f32],
+        out: &mut [f32],
+        device_rate: f64,
+    ) {
+        let Some(mut tail) = self.key_tail.take() else {
+            return;
+        };
+        let frames = (tail.left as usize)
+            .min(out.len() / 2)
+            .min(scratch.len() / 2);
+        let step = f64::from(tail.track.sample_rate) / device_rate;
+        let table = Resampler::table(step);
+        let want = frames as f64 * tail.speed + tail.carry;
+        let n_in = (want as usize).min(input.len() / 2);
+        tail.carry = (want - n_in as f64).min(1.0);
+        let wrap = |x: f64| match tail.range {
+            Some((start, end)) if x >= end => start + (x - end) % (end - start),
+            _ => x,
+        };
+        let (Some(input), Some(scratch)) =
+            (input.get_mut(..n_in * 2), scratch.get_mut(..frames * 2))
+        else {
+            return;
+        };
+        for f in input.as_chunks_mut::<2>().0 {
+            let (l, r) = tail.track.at(tail.read, resampler, table);
+            *f = [l, r];
+            tail.read = wrap(tail.read + step);
+        }
+        spare.process(input, scratch);
+        for (o, s) in out
+            .as_chunks_mut::<2>()
+            .0
+            .iter_mut()
+            .zip(scratch.as_chunks::<2>().0)
+        {
+            let g = tail.left as f32 / (self.declick as f32 + 1.0) * self.gain;
+            o[0] += s[0] * g;
+            o[1] += s[1] * g;
+            tail.left = tail.left.saturating_sub(1);
+        }
+        if tail.left > 0 && frames > 0 {
+            self.key_tail = Some(tail);
+        }
     }
 
     /// Gain of the next fade-in frame (1.0 when no fade is running).
@@ -404,10 +505,10 @@ impl DeckState {
             _ => None,
         };
         let switched = matches!(command, Command::KeyLock { on, .. } if on != self.keylock);
-        let raw = !self.keylock;
+        let (raw, key) = (!self.keylock, self.key_source());
         self.apply_command(command);
         self.declick = declick;
-        self.declick_after(before, old, raw, switched);
+        self.declick_after(before, old, raw, key, switched);
     }
 
     fn apply_command(&mut self, command: Command) {
@@ -697,7 +798,7 @@ impl DeckState {
         if wrapped && self.declick > 0 {
             // Crossfade the loop seam: what followed the loop end fades out
             // under the loop start fading in.
-            self.declick_after(Some(before + step), None, true, false);
+            self.declick_after(Some(before + step), None, true, None, false);
         }
         (l * g + tl, r * g + tr)
     }
@@ -875,6 +976,11 @@ pub struct Renderer {
     device_rate: f64,
     /// One stretch engine per deck (key lock), built off the callback.
     stretch: [Box<dyn TimeStretch>; DECKS],
+    /// A second engine per deck: it carries the fading tail of a key-locked
+    /// deck across a stop or jump, then waits to be the next main engine.
+    spare: [Box<dyn TimeStretch>; DECKS],
+    /// Output of the spare engine for one chunk (interleaved stereo).
+    tail_buf: Vec<f32>,
     /// Interpolation kernels (built off the callback).
     resampler: Resampler,
     /// Key-lock input scratch (interleaved stereo, preallocated).
@@ -1042,8 +1148,9 @@ impl Renderer {
                 if let Some(phase) = phase {
                     let state = &mut self.decks[deck];
                     let (before, raw) = (state.sounding(), !state.keylock);
+                    let key = state.key_source();
                     state.sync(speed, beat, anchor, phase);
-                    state.declick_after(before, None, raw, false);
+                    state.declick_after(before, None, raw, key, false);
                 }
             }
             let state = &mut self.decks[deck];
@@ -1055,6 +1162,8 @@ impl Renderer {
         let Self {
             decks,
             stretch,
+            spare,
+            tail_buf,
             resampler,
             input,
             deck_buf,
@@ -1074,7 +1183,19 @@ impl Renderer {
             mix.fill(0.0);
             let cue_buf = &mut cue_buf[..frames * 2];
             cue_buf.fill(0.0);
-            for (c, (deck, stretch)) in decks.iter_mut().zip(stretch.iter_mut()).enumerate() {
+            for (c, ((deck, stretch), spare)) in decks
+                .iter_mut()
+                .zip(stretch.iter_mut())
+                .zip(spare.iter_mut())
+                .enumerate()
+            {
+                if deck.swap {
+                    // The engine that was sounding becomes the fading tail;
+                    // the other one starts the new signal from scratch.
+                    std::mem::swap(stretch, spare);
+                    deck.swap = false;
+                    deck.primed = false;
+                }
                 let buf = &mut deck_buf[..frames * 2];
                 if deck.keylock && deck.track.is_some() {
                     deck.render_keylock(stretch.as_mut(), resampler, input, buf, rate);
@@ -1084,6 +1205,9 @@ impl Renderer {
                         let (l, r) = deck.next(rate, resampler);
                         *f = [l, r];
                     }
+                }
+                if deck.key_tail.is_some() {
+                    deck.render_key_tail(spare.as_mut(), resampler, input, tail_buf, buf, rate);
                 }
                 // Capture pre-fader signal for cue bus.
                 let pre = &mut pre_fader[..frames * 2];
@@ -1178,6 +1302,7 @@ impl Renderer {
             deck.declick = frames;
             deck.fade_in = 0;
             deck.tail = None;
+            deck.key_tail = None;
         }
     }
 }
@@ -1222,8 +1347,10 @@ fn channel(
     for (s, d) in shared.decks.iter().zip(&decks) {
         s.publish(d);
     }
-    let stretch: [Box<dyn TimeStretch>; DECKS] =
-        std::array::from_fn(|_| Box::new(Signalsmith::new(device_rate)) as Box<dyn TimeStretch>);
+    let engines = || -> [Box<dyn TimeStretch>; DECKS] {
+        std::array::from_fn(|_| Box::new(Signalsmith::new(device_rate)) as Box<dyn TimeStretch>)
+    };
+    let (stretch, spare) = (engines(), engines());
     let input_frames = stretch
         .iter()
         .map(|s| s.preroll_frames())
@@ -1236,6 +1363,8 @@ fn channel(
         shared: shared.clone(),
         device_rate: f64::from(device_rate.max(1)),
         stretch,
+        spare,
+        tail_buf: vec![0.0; CHUNK * 2],
         resampler: Resampler::new(),
         input: vec![0.0; input_frames * 2],
         deck_buf: vec![0.0; CHUNK * 2],

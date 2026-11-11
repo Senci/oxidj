@@ -848,19 +848,92 @@ fn declick_a_jump_in_the_middle_of_a_fade_never_steps_by_more_than_half() {
     }
 }
 
-#[test]
-fn declick_gives_a_key_locked_deck_no_mismatched_tail() {
-    let (mut e, mut r) = declick_setup();
+/// Deck 0 key-locked at +8 % on a 440 Hz sine of peak 0.5, already playing
+/// for `warm` frames. Returns the last rendered left sample too.
+fn key_locked_sine(warm: usize) -> (Engine, Renderer, f32) {
+    let (mut e, mut r) = Engine::manual(RATE);
+    r.set_declick_ms(DECLICK_MS);
+    let samples = (0..RATE as usize * 4)
+        .flat_map(|i| {
+            let v = (i as f32 * 440.0 * std::f32::consts::TAU / RATE as f32).sin() * 0.5;
+            [v, v]
+        })
+        .collect();
+    e.send(Command::Load {
+        deck: 0,
+        id: 1,
+        track: Arc::new(TrackPcm::new(RATE, samples).unwrap()),
+    });
     e.send(Command::KeyLock { deck: 0, on: true });
     e.send(Command::Speed {
         deck: 0,
         speed: 1.08,
     });
     e.send(Command::TogglePlay { deck: 0 });
-    render(&mut r, 20_000);
-    e.send(Command::TogglePlay { deck: 0 });
-    // The stretch output stops; no plain-read tail is laid over it.
-    assert!(render(&mut r, 300).iter().all(|v| *v == 0.0));
+    let out = render(&mut r, warm);
+    let last = out[2 * (warm - 1)];
+    (e, r, last)
+}
+
+/// The steepest a 440 Hz sine of peak 0.5 moves per frame is 0.029.
+const SINE_STEP: f32 = 0.04;
+
+#[test]
+fn declick_fades_a_key_locked_deck_out_through_its_own_stretch_engine() {
+    // Pause at several phases of the wave: the stretched signal carries on
+    // and fades; it neither stops dead nor switches to a plain read.
+    for warm in [20_000, 20_013, 20_027, 20_041, 20_090] {
+        let (mut e, mut r, last) = key_locked_sine(warm);
+        e.send(Command::TogglePlay { deck: 0 });
+        let out = render(&mut r, 400);
+        assert!(!e.deck(0).playing);
+        let step = worst_step(last, &out);
+        assert!(step < SINE_STEP, "pause after {warm}: step {step}");
+        assert!(out[2 * 150..].iter().all(|v| *v == 0.0));
+        let heard = out[..2 * 100].iter().fold(0.0_f32, |m, v| m.max(v.abs()));
+        assert!(heard > 0.1, "the tail is audible: {heard}");
+    }
+}
+
+#[test]
+fn declick_crossfades_a_key_locked_jump_and_a_key_lock_switch_off() {
+    for warm in [20_000, 20_031, 20_077] {
+        // Seek: old stretched signal out, new stretched signal in.
+        let (mut e, mut r, last) = key_locked_sine(warm);
+        e.send(Command::Seek {
+            deck: 0,
+            frame: 100_000.0,
+        });
+        let out = render(&mut r, 600);
+        let step = worst_step(last, &out);
+        assert!(step < SINE_STEP * 1.5, "seek after {warm}: step {step}");
+        assert!(e.deck(0).playing);
+        // Key lock off: stretched signal out, plain read in.
+        let (mut e, mut r, last) = key_locked_sine(warm);
+        e.send(Command::KeyLock { deck: 0, on: false });
+        let out = render(&mut r, 600);
+        let step = worst_step(last, &out);
+        assert!(
+            step < SINE_STEP * 1.5,
+            "key lock off after {warm}: step {step}"
+        );
+        // A second jump inside the fade keeps the first tail.
+        let (mut e, mut r, last) = key_locked_sine(warm);
+        e.send(Command::Seek {
+            deck: 0,
+            frame: 100_000.0,
+        });
+        e.send(Command::Seek {
+            deck: 0,
+            frame: 50_000.0,
+        });
+        let out = render(&mut r, 600);
+        let step = worst_step(last, &out);
+        assert!(
+            step < SINE_STEP * 1.5,
+            "double seek after {warm}: step {step}"
+        );
+    }
 }
 
 #[test]
