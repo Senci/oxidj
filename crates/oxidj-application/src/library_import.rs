@@ -870,6 +870,37 @@ pub fn append_library_playlist_members(
         .map_err(|e| LibraryWorkflowError(e.to_string()))
 }
 
+/// Rename a uniquely named imported root playlist after a read-only preflight.
+pub fn rename_library_playlist(
+    catalog: impl AsRef<Path>,
+    old: &str,
+    new: &str,
+) -> Result<(), LibraryWorkflowError> {
+    oxidj_library::validate_library_playlist_name(old)
+        .map_err(|e| LibraryWorkflowError(e.to_string()))?;
+    oxidj_library::validate_library_playlist_name(new)
+        .map_err(|e| LibraryWorkflowError(e.to_string()))?;
+    if !catalog.as_ref().is_file() {
+        return Err(fail("catalog does not exist"));
+    }
+    {
+        let read_only = Catalog::open_read_only(catalog.as_ref())
+            .map_err(|e| LibraryWorkflowError(e.to_string()))?;
+        if read_only
+            .library_snapshot()
+            .map_err(|e| LibraryWorkflowError(e.to_string()))?
+            .tracks
+            .is_empty()
+        {
+            return Err(fail("catalog holds no imported tracks"));
+        }
+    }
+    Catalog::open(catalog)
+        .map_err(|e| LibraryWorkflowError(e.to_string()))?
+        .rename_library_playlist(old, new)
+        .map_err(|e| LibraryWorkflowError(e.to_string()))
+}
+
 /// Remove a guarded occurrence using exported TrackIDs and a zero-based index.
 pub fn remove_library_playlist_member(
     catalog: impl AsRef<Path>,

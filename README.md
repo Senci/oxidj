@@ -74,6 +74,7 @@ oxidj-cli catalog create-library-playlist --catalog lib.sqlite --name 'New set' 
 oxidj-cli catalog append-library-playlist-members --catalog lib.sqlite --playlist-name 'New set' --track-ids 2,1
 oxidj-cli catalog reorder-library-playlist-members --catalog lib.sqlite --playlist-name 'New set' --track-ids 1,2,3,1,3
 oxidj-cli catalog remove-library-playlist-member --catalog lib.sqlite --playlist-name 'New set' --expected-track-ids 1,2,3,1,3 --index 0 --expected-track-id 1
+oxidj-cli catalog rename-library-playlist --catalog lib.sqlite --playlist-name 'New set' --new-name 'Friday set'
 oxidj-cli catalog export-library-xml --catalog lib.sqlite --output with-playlist.xml --drive D
 ```
 

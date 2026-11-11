@@ -1463,6 +1463,84 @@ fn catalog_playlist_creation_persists_order_and_preserves_the_exported_library()
 }
 
 #[test]
+fn catalog_playlist_rename_preserves_complete_baseline() {
+    let dir = scratch();
+    let device = dir.join("device");
+    std::fs::create_dir_all(device.join("PIONEER/rekordbox")).unwrap();
+    let pdb = device.join("PIONEER/rekordbox/export.pdb");
+    let source = synthetic_pdb(None);
+    std::fs::write(&pdb, &source).unwrap();
+    let analysis = write_analysis(&device);
+    let catalog = dir.join("catalog.sqlite");
+    stdout(&cli(&[
+        s("catalog"),
+        s("import-library"),
+        s("--pdb"),
+        pdb.as_os_str(),
+        s("--catalog"),
+        catalog.as_os_str(),
+    ]));
+    let before = dir.join("before.xml");
+    stdout(&cli(&[
+        s("catalog"),
+        s("export-library-xml"),
+        s("--catalog"),
+        catalog.as_os_str(),
+        s("--output"),
+        before.as_os_str(),
+    ]));
+    let mut expected = expected();
+    assert_eq!(decode(&std::fs::read(before).unwrap()), expected);
+    let rename = |old: &str, new: &str| {
+        cli(&[
+            s("catalog"),
+            s("rename-library-playlist"),
+            s("--catalog"),
+            catalog.as_os_str(),
+            s("--playlist-name"),
+            s(old),
+            s("--new-name"),
+            s(new),
+        ])
+    };
+    for (old, new) in [("missing", "New"), ("Top", ""), ("Top", "bad\u{1}")] {
+        assert!(!rename(old, new).status.success());
+    }
+    let result = rename("Top", "Renamed & Café");
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let Node::Folder(_, roots) = &mut expected.root else {
+        panic!("fixture root")
+    };
+    let Node::Playlist(name, _) = roots
+        .iter_mut()
+        .find(|n| matches!(n, Node::Playlist(name, _) if name == "Top"))
+        .unwrap()
+    else {
+        panic!("playlist")
+    };
+    *name = "Renamed & Café".into();
+    let after = dir.join("after.xml");
+    stdout(&cli(&[
+        s("catalog"),
+        s("export-library-xml"),
+        s("--catalog"),
+        catalog.as_os_str(),
+        s("--output"),
+        after.as_os_str(),
+    ]));
+    assert_eq!(decode(&std::fs::read(after).unwrap()), expected);
+    assert_eq!(std::fs::read(&pdb).unwrap(), source);
+    for (path, bytes) in analysis {
+        assert_eq!(std::fs::read(path).unwrap(), bytes);
+    }
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
 fn catalog_playlist_remove_one_occurrence_preserves_baseline() {
     let dir = scratch();
     let device = dir.join("device");
@@ -1889,6 +1967,23 @@ fn catalog_playlist_append_refuses_non_imported_sqlite_without_mutation() {
             "{error}"
         );
         assert_eq!(sql(""), before, "schema/version/data changed on refusal");
+        let refused = cli(&[
+            s("catalog"),
+            s("rename-library-playlist"),
+            s("--catalog"),
+            catalog.as_os_str(),
+            s("--playlist-name"),
+            s("Top"),
+            s("--new-name"),
+            s("New"),
+        ]);
+        assert_eq!(refused.status.code(), Some(1));
+        assert!(refused.stdout.is_empty());
+        assert_eq!(
+            sql(""),
+            before,
+            "rename changed schema/version/data on refusal"
+        );
         for action in [
             "append-library-playlist-members",
             "reorder-library-playlist-members",

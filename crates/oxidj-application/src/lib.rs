@@ -16,7 +16,7 @@ pub use library_import::{
     LibraryImportReport, LibraryWorkflowError, NotCarried, OneLibraryCrossCheck,
     append_library_playlist_members, create_library_playlist, drive_qualified_location,
     export_library_xml, import_library_from_pdb, library_from_pdb_preview, list_library_tracks,
-    location_uri, onelibrary_cross_check, remove_library_playlist_member,
+    location_uri, onelibrary_cross_check, remove_library_playlist_member, rename_library_playlist,
     reorder_library_playlist_members,
 };
 /// The neutral peak model, re-exported so UI adapters need no direct core edge.

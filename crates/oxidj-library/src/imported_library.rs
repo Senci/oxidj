@@ -165,6 +165,53 @@ pub fn validate_library_playlist_name(name: &str) -> Result<(), CatalogError> {
 }
 
 impl Catalog {
+    /// Rename a unique root playlist under the same lock as collision validation.
+    pub fn rename_library_playlist(&mut self, old: &str, new: &str) -> Result<(), CatalogError> {
+        validate_library_playlist_name(old)?;
+        validate_library_playlist_name(new)?;
+        let tx = self
+            .connection
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let mut stmt = tx.prepare(
+            "SELECT id, is_folder FROM library_nodes WHERE parent_id IS NULL AND name = ?1",
+        )?;
+        let mut rows = stmt.query([old])?;
+        let target = rows
+            .next()?
+            .map(|r| Ok::<_, rusqlite::Error>((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?)))
+            .transpose()?;
+        if rows.next()?.is_some() {
+            return Err(CatalogError::InvalidRecord(
+                "root playlist name is ambiguous",
+            ));
+        }
+        drop(rows);
+        drop(stmt);
+        let Some((id, folder)) = target else {
+            return Err(CatalogError::InvalidRecord("root playlist does not exist"));
+        };
+        if folder != 0 {
+            return Err(CatalogError::InvalidRecord(
+                "root name refers to a folder, not a playlist",
+            ));
+        }
+        let collision: bool = tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM library_nodes WHERE parent_id IS NULL AND name = ?1)",
+            [new],
+            |r| r.get(0),
+        )?;
+        if collision {
+            return Err(CatalogError::InvalidRecord(
+                "a root node with this name already exists",
+            ));
+        }
+        tx.execute(
+            "UPDATE library_nodes SET name = ?1 WHERE id = ?2",
+            rusqlite::params![new, id],
+        )?;
+        tx.commit()?;
+        Ok(())
+    }
     /// Append one root playlist atomically. Members are zero-based imported-library
     /// positions, NOT local audio IDs. Order and duplicates are retained; existing
     /// records are never changed. Return the member count only after commit.
@@ -1330,6 +1377,81 @@ mod tests {
         assert!(matches!(
             catalog.append_library_playlist_members("Zeta", &[1, 2]),
             Err(CatalogError::Sqlite(_))
+        ));
+        assert_eq!(catalog.library_snapshot().unwrap(), expected);
+    }
+
+    #[test]
+    fn rename_refuses_invalid_targets_and_rolls_back() {
+        let path = path();
+        let mut catalog = Catalog::open(&path).unwrap();
+        catalog.import_library(&snapshot()).unwrap();
+        catalog
+            .create_library_playlist("Rename", &[2, 0, 2])
+            .unwrap();
+        let before = catalog.library_snapshot().unwrap();
+        for (old, new, reason) in [
+            ("missing", "New", "root playlist does not exist"),
+            (
+                "Folder",
+                "New",
+                "root name refers to a folder, not a playlist",
+            ),
+            (
+                "Rename",
+                "Folder",
+                "a root node with this name already exists",
+            ),
+            (
+                "Rename",
+                "Rename",
+                "a root node with this name already exists",
+            ),
+            ("Rename", "", "playlist name must not be blank"),
+            (
+                "Rename",
+                "bad\u{1}",
+                "playlist name contains invalid XML 1.0 text",
+            ),
+        ] {
+            assert!(
+                matches!(catalog.rename_library_playlist(old, new), Err(CatalogError::InvalidRecord(actual)) if actual == reason)
+            );
+            assert_eq!(catalog.library_snapshot().unwrap(), before);
+        }
+        catalog.connection.execute("INSERT INTO library_nodes(id,parent_id,sibling_order,name,is_folder) VALUES(999,NULL,999,'Rename',0)", []).unwrap();
+        let ambiguous = catalog.library_snapshot().unwrap();
+        assert!(matches!(
+            catalog.rename_library_playlist("Rename", "New"),
+            Err(CatalogError::InvalidRecord(
+                "root playlist name is ambiguous"
+            ))
+        ));
+        assert_eq!(catalog.library_snapshot().unwrap(), ambiguous);
+        catalog
+            .connection
+            .execute("DELETE FROM library_nodes WHERE id = 999", [])
+            .unwrap();
+        catalog.connection.execute_batch("CREATE TEMP TRIGGER fail_rename AFTER UPDATE ON library_nodes BEGIN SELECT RAISE(ABORT, 'injected failure'); END;").unwrap();
+        assert!(matches!(
+            catalog.rename_library_playlist("Rename", "New"),
+            Err(CatalogError::Sqlite(_))
+        ));
+        assert_eq!(catalog.library_snapshot().unwrap(), before);
+        catalog
+            .connection
+            .execute_batch("DROP TRIGGER fail_rename")
+            .unwrap();
+        catalog.rename_library_playlist("Rename", "New").unwrap();
+        let mut expected = before;
+        let Some(LibraryNode::Playlist { name, .. }) = expected.roots.last_mut() else {
+            panic!("playlist")
+        };
+        *name = "New".into();
+        assert_eq!(catalog.library_snapshot().unwrap(), expected);
+        assert!(matches!(
+            catalog.rename_library_playlist("Rename", "Other"),
+            Err(CatalogError::InvalidRecord("root playlist does not exist"))
         ));
         assert_eq!(catalog.library_snapshot().unwrap(), expected);
     }
