@@ -172,6 +172,9 @@ pub(crate) struct ShellLayout {
     /// Search text field and, when there is text, its clear (x) button.
     pub(crate) search: Option<egui::Rect>,
     pub(crate) search_clear: Option<egui::Rect>,
+    /// Top-bar master and cue controls: master, cue mix, cue volume, then the
+    /// master and cue meters (`Rect::NOTHING` when dropped for width).
+    pub(crate) monitor: Option<[egui::Rect; 5]>,
 }
 
 impl LibraryApp {

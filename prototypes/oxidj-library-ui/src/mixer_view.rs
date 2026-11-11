@@ -22,7 +22,7 @@ use crate::decks::{
     DECKS, DeckColours, DeckLayout, GAP, MeterLevel, chip, deck_button, icon_button, reset_clicked,
 };
 use crate::icons::Icon;
-use crate::settings::{MixerDensity, MixerPrefs};
+use crate::settings::{MixerDensity, MixerPrefs, MonitorPlacement};
 use crate::theme::ColorTokens;
 use eframe::egui::{self, FontId, Rect, Sense, Shape, Stroke, Ui, pos2, vec2};
 use oxidj_audio::{Assign, EQ_KILL_DB, EQ_MAX_DB, TRIM_DB};
@@ -618,6 +618,8 @@ enum LabelAt {
     Left,
     Above,
     Below,
+    /// No label: the cell is the knob.
+    None,
 }
 
 /// Knob body: the round club knob, or the small square TRIM trimpot.
@@ -664,6 +666,7 @@ fn mixer_rotary_styled(
             );
             Rect::from_min_max(pos2(cell.left() + label_w, cell.top()), cell.max)
         }
+        LabelAt::None => cell,
         LabelAt::Above | LabelAt::Below => {
             let g = ui.painter().layout_no_wrap(
                 label.to_owned(),
@@ -893,12 +896,14 @@ fn db_text(level: f32) -> String {
 
 /// A peak meter with clip indicator, tokens only: green body, amber above
 /// [`METER_HOT_DB`], red clip box while the clip is held.
-pub(crate) fn level_meter(
+/// A horizontal peak meter with `pad` above and below the bar.
+fn level_meter_padded(
     ui: &mut Ui,
     rect: Rect,
     meter: MeterLevel,
     name: &str,
     tokens: ColorTokens,
+    pad: f32,
 ) {
     let response = ui.interact(rect, ui.id().with(("level-meter", name)), Sense::hover());
     let text = format!(
@@ -911,8 +916,8 @@ pub(crate) fn level_meter(
     });
     let painter = ui.painter_at(rect);
     let bar = Rect::from_min_max(
-        rect.min + vec2(0.0, 6.0),
-        pos2(rect.right() - CLIP_W - 2.0, rect.bottom() - 6.0),
+        rect.min + vec2(0.0, pad),
+        pos2(rect.right() - CLIP_W - 2.0, rect.bottom() - pad),
     );
     painter.rect_filled(bar, 2.0, tokens.background);
     let f = meter_fraction(meter.level);
@@ -958,7 +963,7 @@ pub(crate) fn level_meter(
 }
 
 /// A vertical peak meter filling `rect` (clip box on top, scale bottom up),
-/// tokens only; same accessible name as [`level_meter`].
+/// tokens only; same accessible name as [`level_meter_padded`].
 pub(crate) fn level_meter_v(
     ui: &mut Ui,
     rect: Rect,
@@ -1027,6 +1032,15 @@ pub(crate) fn level_meter_v(
 const CLIP_H: f32 = 4.0;
 /// Master / cue controls sit in a small column right of the mixer block.
 const MON_W: f32 = 100.0;
+/// Master / cue knob cells (about 60 % of the former 56x54 and 46x40 cells).
+const MASTER_CELL: (f32, f32) = (34.0, 36.0);
+const SMALL_CELL: (f32, f32) = (30.0, 27.0);
+/// Height of the horizontal master / cue strip above or below the mixer.
+const STRIP_H: f32 = 38.0;
+/// Narrowest strip: three knobs and two short meters.
+const STRIP_MIN_W: f32 = 190.0;
+/// Knob diameter-giving height of a top-bar knob (toolbar row is 24 px).
+const BAR_KNOB: f32 = 22.0;
 /// Crossfader area: separator, label row, slider row, assign row.
 const XF_H: f32 = 1.0 + 3.0 + 14.0 + 2.0 + 14.0 + 2.0 + 14.0;
 /// Narrowest mixer block (screen share is clamped to this on tiny windows).
@@ -1098,7 +1112,11 @@ fn channel_h(prefs: MixerPrefs) -> f32 {
 
 /// Total mixer section height for the chosen configuration.
 pub(crate) fn mixer_height(prefs: MixerPrefs) -> f32 {
-    2.0 * INSET + channel_h(prefs) + GAP + XF_H
+    let strip = match prefs.monitor {
+        MonitorPlacement::Above | MonitorPlacement::Below => STRIP_H + GAP,
+        _ => 0.0,
+    };
+    2.0 * INSET + channel_h(prefs) + GAP + XF_H + strip
 }
 
 /// Width of the mixer block (outline inset included): a share of the
@@ -1112,7 +1130,12 @@ pub(crate) fn mixer_width(prefs: MixerPrefs, screen_w: f32, avail: f32) -> f32 {
 /// Width of the whole mixer section (block, monitor column, insets) in the
 /// Layout B bottom row.
 pub(crate) fn mixer_total_width(prefs: MixerPrefs, screen_w: f32) -> f32 {
-    mixer_width(prefs, screen_w, f32::MAX / 4.0) + 2.0 * INSET + SPLIT + MON_W
+    let block = mixer_width(prefs, screen_w, f32::MAX / 4.0) + 2.0 * INSET;
+    match prefs.monitor {
+        MonitorPlacement::Beside => block + SPLIT + MON_W,
+        MonitorPlacement::TopBar => block,
+        _ => block.max(STRIP_MIN_W),
+    }
 }
 
 /// Where one channel's parts sit.
@@ -1134,6 +1157,35 @@ impl LibraryApp {
         layout: &mut DeckLayout,
     ) {
         let prefs = self.settings.mixer;
+        let screen_w = ui.ctx().screen_rect().width();
+        // The strip placements split `r` into the strip and the mixer block.
+        let side = if prefs.monitor == MonitorPlacement::Beside {
+            MON_W + SPLIT
+        } else {
+            0.0
+        };
+        let mut strip_r = None;
+        let mut r = r;
+        if matches!(
+            prefs.monitor,
+            MonitorPlacement::Above | MonitorPlacement::Below
+        ) {
+            let w = r.width();
+            if prefs.monitor == MonitorPlacement::Above {
+                strip_r = Some(Rect::from_min_size(r.min, vec2(w, STRIP_H)));
+                r.set_top(r.top() + STRIP_H + GAP);
+            } else {
+                strip_r = Some(Rect::from_min_size(
+                    pos2(r.left(), r.bottom() - STRIP_H),
+                    vec2(w, STRIP_H),
+                ));
+                r.set_bottom(r.bottom() - STRIP_H - GAP);
+            }
+        }
+        if prefs.monitor != MonitorPlacement::Beside {
+            let bw = mixer_width(prefs, screen_w, r.width() - 2.0 * INSET) + 2.0 * INSET;
+            r = Rect::from_center_size(r.center(), vec2(bw, r.height()));
+        }
         // Outline only: a surface fill would hide the slider rails.
         ui.painter().rect_stroke(
             r,
@@ -1142,11 +1194,10 @@ impl LibraryApp {
             egui::StrokeKind::Inside,
         );
         let inner = r.shrink(INSET);
-        let screen_w = ui.ctx().screen_rect().width();
-        let mw = mixer_width(prefs, screen_w, inner.width() - MON_W - SPLIT);
+        let mw = mixer_width(prefs, screen_w, inner.width() - side);
         let bw = mw - 2.0 * INSET;
         let x0 = (r.center().x - bw / 2.0)
-            .min(inner.right() - MON_W - SPLIT - bw)
+            .min(inner.right() - side - bw)
             .max(inner.left());
         let ch_h = channel_h(prefs);
         let ca = Rect::from_min_size(pos2(x0, inner.top()), vec2(bw, ch_h));
@@ -1227,7 +1278,11 @@ impl LibraryApp {
             );
             layout.meters[d] = Some(meters[d]);
         }
-        self.mixer_centre(ui, mon, tokens, layout);
+        match (prefs.monitor, strip_r) {
+            (MonitorPlacement::Beside, _) => self.mixer_column(ui, mon, tokens, layout),
+            (_, Some(sr)) => self.mixer_strip(ui, sr, tokens, layout),
+            _ => {}
+        }
         self.crossfader_area(ui, xf, tokens, layout);
         layout.mixer = Some(r);
     }
@@ -1420,74 +1475,202 @@ impl LibraryApp {
         layout.mixer_cue[d] = Some(geo.cue);
     }
 
-    /// Master volume, cue mix and cue volume and the master and cue meters.
-    fn mixer_centre(
+    /// The three knobs in the given cells (master, cue mix, cue volume).
+    fn monitor_knobs(
+        &mut self,
+        ui: &mut Ui,
+        cells: [Rect; 3],
+        label_at: LabelAt,
+        tokens: ColorTokens,
+        layout: &mut DeckLayout,
+    ) {
+        let [master_r, mix_r, volume_r] = cells;
+        let knob = |ui: &mut Ui,
+                    cell: Rect,
+                    label: &str,
+                    value: &mut f32,
+                    default: f32,
+                    name: &str,
+                    hover: &str,
+                    fill| {
+            mixer_rotary_styled(
+                ui,
+                cell,
+                label,
+                label_at,
+                KnobShape::Round,
+                value,
+                0.0..=1.0,
+                FADER_STEP,
+                default,
+                name,
+                hover.into(),
+                fill,
+                tokens,
+            );
+        };
+        knob(
+            ui,
+            master_r,
+            "MASTER",
+            &mut self.decks.master,
+            1.0,
+            "Master volume",
+            "Master volume; double-click resets",
+            tokens.primary,
+        );
+        layout.master = Some(master_r);
+        knob(
+            ui,
+            mix_r,
+            "MIX",
+            &mut self.decks.cue_mix,
+            0.5,
+            "Cue mix",
+            "Headphones: A ↔ B; double-click centres",
+            tokens.warning,
+        );
+        layout.cue_mix = Some(mix_r);
+        knob(
+            ui,
+            volume_r,
+            "CUE",
+            &mut self.decks.cue_volume,
+            1.0,
+            "Cue volume",
+            "Headphone volume; double-click resets",
+            tokens.success,
+        );
+        layout.cue_volume = Some(volume_r);
+    }
+
+    fn monitor_meters(
+        &mut self,
+        ui: &mut Ui,
+        rects: [Rect; 2],
+        pad: f32,
+        tokens: ColorTokens,
+        layout: &mut DeckLayout,
+    ) {
+        level_meter_padded(
+            ui,
+            rects[0],
+            self.decks.meters[2],
+            "Master level",
+            tokens,
+            pad,
+        );
+        layout.meters[2] = Some(rects[0]);
+        level_meter_padded(ui, rects[1], self.decks.meters[3], "Cue level", tokens, pad);
+        layout.meters[3] = Some(rects[1]);
+    }
+
+    /// Compact column beside the mixer: master over cue mix | cue volume,
+    /// then the master and cue meters.
+    fn mixer_column(
         &mut self,
         ui: &mut Ui,
         mon: Rect,
         tokens: ColorTokens,
         layout: &mut DeckLayout,
     ) {
-        let master_r =
-            Rect::from_center_size(pos2(mon.center().x, mon.top() + 27.0), vec2(56.0, 54.0));
-        mixer_rotary_styled(
-            ui,
-            master_r,
-            "MASTER",
-            LabelAt::Above,
-            KnobShape::Round,
-            &mut self.decks.master,
-            0.0..=1.0,
-            FADER_STEP,
-            1.0,
-            "Master volume",
-            "Master volume; double-click resets".into(),
-            tokens.primary,
-            tokens,
+        let master_r = Rect::from_center_size(
+            pos2(mon.center().x, mon.top() + MASTER_CELL.1 / 2.0),
+            vec2(MASTER_CELL.0, MASTER_CELL.1),
         );
-        layout.master = Some(master_r);
         let y = master_r.bottom() + 4.0;
-        let mix_r = Rect::from_min_size(pos2(mon.left(), y), vec2(46.0, 40.0));
-        mixer_rotary_styled(
+        let small = vec2(SMALL_CELL.0, SMALL_CELL.1);
+        let mix_r = Rect::from_min_size(pos2(mon.left() + 6.0, y), small);
+        let volume_r = Rect::from_min_size(pos2(mon.right() - 6.0 - small.x, y), small);
+        self.monitor_knobs(
             ui,
-            mix_r,
-            "MIX",
+            [master_r, mix_r, volume_r],
             LabelAt::Above,
-            KnobShape::Round,
-            &mut self.decks.cue_mix,
-            0.0..=1.0,
-            FADER_STEP,
-            0.5,
-            "Cue mix",
-            "Headphones: A ↔ B; double-click centres".into(),
-            tokens.warning,
             tokens,
+            layout,
         );
-        layout.cue_mix = Some(mix_r);
-        let volume_r = Rect::from_min_size(pos2(mon.right() - 46.0, y), vec2(46.0, 40.0));
-        mixer_rotary_styled(
+        let m = Rect::from_min_size(pos2(mon.left(), mix_r.bottom() + 4.0), vec2(MON_W, 24.0));
+        let c = Rect::from_min_size(pos2(mon.left(), m.bottom()), vec2(MON_W, 24.0));
+        self.monitor_meters(ui, [m, c], 6.0, tokens, layout);
+    }
+
+    /// Horizontal strip above or below the mixer: three knobs, then the two
+    /// meters stacked in the remaining width.
+    fn mixer_strip(&mut self, ui: &mut Ui, sr: Rect, tokens: ColorTokens, layout: &mut DeckLayout) {
+        let g = 6.0;
+        let top = |h: f32| sr.top() + (sr.height() - h) / 2.0;
+        let master_r = Rect::from_min_size(
+            pos2(sr.left() + g, top(MASTER_CELL.1)),
+            vec2(MASTER_CELL.0, MASTER_CELL.1),
+        );
+        let small = vec2(SMALL_CELL.0, SMALL_CELL.1);
+        let mix_r = Rect::from_min_size(pos2(master_r.right() + g, top(small.y)), small);
+        let volume_r = Rect::from_min_size(pos2(mix_r.right() + g, top(small.y)), small);
+        self.monitor_knobs(
             ui,
-            volume_r,
-            "CUE",
+            [master_r, mix_r, volume_r],
             LabelAt::Above,
-            KnobShape::Round,
-            &mut self.decks.cue_volume,
-            0.0..=1.0,
-            FADER_STEP,
-            1.0,
-            "Cue volume",
-            "Headphone volume; double-click resets".into(),
-            tokens.success,
             tokens,
+            layout,
         );
-        layout.cue_volume = Some(volume_r);
-        let master_m =
-            Rect::from_min_size(pos2(mon.left(), mix_r.bottom() + 4.0), vec2(MON_W, 24.0));
-        level_meter(ui, master_m, self.decks.meters[2], "Master level", tokens);
-        layout.meters[2] = Some(master_m);
-        let cue_m = Rect::from_min_size(pos2(mon.left(), master_m.bottom()), vec2(MON_W, 24.0));
-        level_meter(ui, cue_m, self.decks.meters[3], "Cue level", tokens);
-        layout.meters[3] = Some(cue_m);
+        let x = volume_r.right() + g;
+        let w = (sr.right() - g - x).max(20.0);
+        let m = Rect::from_min_size(pos2(x, sr.top() + 2.0), vec2(w, 16.0));
+        let c = Rect::from_min_size(pos2(x, m.bottom() + 2.0), vec2(w, 16.0));
+        self.monitor_meters(ui, [m, c], 5.0, tokens, layout);
+    }
+
+    /// Master and cue controls inside the top bar's one-control-high row.
+    /// Drops the labels first, then the meters, when `avail` is short;
+    /// draws nothing when even the knobs do not fit.
+    pub(crate) fn toolbar_monitor(&mut self, ui: &mut Ui, tokens: ColorTokens, avail: f32) {
+        let h = crate::theme::CONTROL_HEIGHT;
+        let font = FontId::proportional(10.5);
+        let label_w = |ui: &Ui, t: &str| {
+            let g = ui
+                .painter()
+                .layout_no_wrap(t.to_owned(), font.clone(), tokens.muted_text);
+            LABEL_W.max(g.size().x + 6.0)
+        };
+        let g = 6.0;
+        let labelled = [
+            label_w(ui, "MASTER") + BAR_KNOB,
+            label_w(ui, "MIX") + BAR_KNOB,
+            label_w(ui, "CUE") + BAR_KNOB,
+        ];
+        let meters_w = 64.0;
+        let bare = [BAR_KNOB; 3];
+        let sum = |w: &[f32; 3]| w.iter().sum::<f32>() + 2.0 * g;
+        let (widths, label_at, meters) = if sum(&labelled) + g + meters_w <= avail {
+            (labelled, LabelAt::Left, true)
+        } else if sum(&bare) + g + meters_w <= avail {
+            (bare, LabelAt::None, true)
+        } else if sum(&bare) <= avail {
+            (bare, LabelAt::None, false)
+        } else {
+            return;
+        };
+        let total = sum(&widths) + if meters { g + meters_w } else { 0.0 };
+        let (outer, _) = ui.allocate_exact_size(vec2(total, h), Sense::hover());
+        // Right-to-left parent: `outer` is already placed; fill it left to right.
+        let mut x = outer.left();
+        let mut cells = [Rect::NOTHING; 3];
+        for (i, w) in widths.iter().enumerate() {
+            cells[i] = Rect::from_min_size(pos2(x, outer.top()), vec2(*w, h));
+            x += w + g;
+        }
+        let mut local = DeckLayout::default();
+        self.monitor_knobs(ui, cells, label_at, tokens, &mut local);
+        let mut rects = [Rect::NOTHING; 5];
+        rects[..3].copy_from_slice(&cells);
+        if meters {
+            let m = Rect::from_min_size(pos2(x, outer.top()), vec2(meters_w, h / 2.0));
+            let c = Rect::from_min_size(pos2(x, m.bottom()), vec2(meters_w, h / 2.0));
+            self.monitor_meters(ui, [m, c], 4.0, tokens, &mut local);
+            rects[3] = m;
+            rects[4] = c;
+        }
+        self.shell.monitor = Some(rects);
     }
 
     /// Below the faders, under a separator line: show/hide toggle and the

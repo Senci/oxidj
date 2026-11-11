@@ -16,6 +16,8 @@ selectable (Settings → Deck view → Deck arrangement, B default; commits e8fc
 evidence of anything shipped; native display, accessibility and performance
 qualification stay NOT DEMONSTRATED.
 
+Master and cue controls (t_5b8cde00): placement preference in Settings → Layout (Top bar default, Above, Below, Beside), knobs about 60 % of the former size; implemented, pending independent review and install; captures `app-monitor-*.png`.
+
 ## M8 deck album artwork — implementation pending independent review
 
 `t_383435d2` adds read-only FLAC/MP3/AIFF embedded artwork extraction,

@@ -361,6 +361,15 @@ impl LibraryApp {
                 }
                 self.shell.toggles = Some(toggles);
                 ui.separator();
+                if self.show_decks
+                    && self.settings.sections.mixer
+                    && self.settings.mixer.monitor == crate::settings::MonitorPlacement::TopBar
+                {
+                    // Leave the title and a usable search field their room.
+                    let avail = ui.available_width() - 70.0 - 160.0 - 24.0;
+                    self.toolbar_monitor(ui, tokens, avail);
+                    ui.separator();
+                }
                 ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
                     ui.label(egui::RichText::new("OxiDJ").strong().color(tokens.text));
                     ui.add_space(4.0);

@@ -2028,6 +2028,13 @@ impl LibraryApp {
             ui.ctx()
                 .request_repaint_after(std::time::Duration::from_millis(100));
         }
+        if let Some([master, mix, cue, mm, cm]) = self.shell.monitor {
+            layout.master = Some(master);
+            layout.cue_mix = Some(mix);
+            layout.cue_volume = Some(cue);
+            layout.meters[2] = mm.is_positive().then_some(mm);
+            layout.meters[3] = cm.is_positive().then_some(cm);
+        }
         self.decks.layout = layout;
     }
 

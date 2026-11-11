@@ -257,7 +257,25 @@ pub struct MixerPrefs {
     pub inputs: bool,
     /// Knobs in an outer column beside the faders (default) instead of above.
     pub knobs_outside: bool,
+    /// Where the master / cue-mix / cue-volume controls sit.
+    pub monitor: MonitorPlacement,
 }
+
+/// Placement of the master and cue controls (Settings > Layout).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MonitorPlacement {
+    TopBar,
+    Above,
+    Below,
+    Beside,
+}
+
+pub(crate) const MONITORS: [(MonitorPlacement, &str); 4] = [
+    (MonitorPlacement::TopBar, "top"),
+    (MonitorPlacement::Above, "above"),
+    (MonitorPlacement::Below, "below"),
+    (MonitorPlacement::Beside, "beside"),
+];
 
 impl Default for MixerPrefs {
     fn default() -> Self {
@@ -266,6 +284,7 @@ impl Default for MixerPrefs {
             ab_labels: false,
             inputs: false,
             knobs_outside: true,
+            monitor: MonitorPlacement::TopBar,
         }
     }
 }
@@ -415,7 +434,7 @@ impl Settings {
             .map(|i| format!(";{}={}", DeckSections::KEYS[i], b(self.sections.get(i))))
             .collect();
         format!(
-            "style={};smooth={};auto_gain={};beat_lines={};zoom={};deck_palette={};playhead={};phase={};tempo={};sec_xfader={};xf_curve={};artwork={};artwork_mib={};simple_keys={};mixer_density={};mixer_ab={};mixer_input={};mixer_outer={};deck_theme={};deck_meta={};mirror_b={};arrangement={}",
+            "style={};smooth={};auto_gain={};beat_lines={};zoom={};deck_palette={};playhead={};phase={};tempo={};sec_xfader={};xf_curve={};artwork={};artwork_mib={};simple_keys={};mixer_density={};mixer_ab={};mixer_input={};mixer_outer={};mixer_monitor={};deck_theme={};deck_meta={};mirror_b={};arrangement={}",
             name_of(&STYLES, self.waveform_style),
             b(self.smooth),
             b(self.auto_gain),
@@ -434,6 +453,7 @@ impl Settings {
             b(self.mixer.ab_labels),
             b(self.mixer.inputs),
             b(self.mixer.knobs_outside),
+            name_of(&MONITORS, self.mixer.monitor),
             name_of(&DECK_THEMES, self.deck_theme),
             b(self.show_meta),
             b(self.mirror_b),
@@ -463,6 +483,9 @@ impl Settings {
                 "mixer_input" => s.mixer.inputs = parse_bool(value).unwrap_or(s.mixer.inputs),
                 "mixer_outer" => {
                     s.mixer.knobs_outside = parse_bool(value).unwrap_or(s.mixer.knobs_outside)
+                }
+                "mixer_monitor" => {
+                    s.mixer.monitor = parse_in(&MONITORS, value).unwrap_or(s.mixer.monitor)
                 }
                 "simple_keys" => s.simple_dj_keys = parse_bool(value).unwrap_or(s.simple_dj_keys),
                 "style" => s.waveform_style = parse_in(&STYLES, value).unwrap_or(s.waveform_style),
@@ -829,6 +852,18 @@ impl LibraryApp {
                 "Knobs outside faders",
                 &mut s.mixer.knobs_outside,
             );
+            let mut i = MONITORS
+                .iter()
+                .position(|(m, _)| *m == s.mixer.monitor)
+                .unwrap_or(0);
+            segmented_row(
+                ui,
+                tokens,
+                "Master and cue controls",
+                &["Top bar", "Above mixer", "Below mixer", "Beside mixer"],
+                &mut i,
+            );
+            s.mixer.monitor = MONITORS[i].0;
             toggle_row(ui, tokens, "Mixer A / B labels", &mut s.mixer.ab_labels);
             toggle_row(ui, tokens, "Mixer input selectors", &mut s.mixer.inputs);
             layout.artwork =
@@ -931,6 +966,7 @@ mod tests {
                 ab_labels: true,
                 inputs: true,
                 knobs_outside: false,
+                monitor: MonitorPlacement::Below,
             },
             deck_theme: DeckTheme::OxiDj,
             show_meta: false,

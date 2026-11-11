@@ -2837,6 +2837,7 @@ fn mixer_controls_drive_the_engine_and_meters_through_the_ui() {
     h.select_and_load("a-120.wav", egui::Key::A);
     h.select_and_load("b-124.wav", egui::Key::B);
     h.app.settings.sections.mixer = true;
+    h.app.settings.mixer.monitor = crate::settings::MonitorPlacement::Beside;
     let out = h.settle();
     let l = h.layout();
     let mixer = l.mixer.expect("mixer shown");
@@ -3072,6 +3073,7 @@ fn mixer_keeps_usable_non_overlapping_controls_at_narrow_windows() {
     let (root, mut h) = fresh("mixnarrow", 10.0);
     h.select_and_load("a-120.wav", egui::Key::A);
     h.app.settings.sections.mixer = true;
+    h.app.settings.mixer.monitor = crate::settings::MonitorPlacement::Beside;
     let sliders = |letter: &str| {
         ["trim", "EQ high", "EQ mid", "EQ low", "filter", "volume"]
             .map(|n| format!("Deck {letter} {n}"))
@@ -3115,8 +3117,11 @@ fn mixer_keeps_usable_non_overlapping_controls_at_narrow_windows() {
             .collect();
         for (n, r) in &rects {
             // Vertical faders (volume, master) have travel in height; horizontal (crossfader) in width.
-            let is_vertical = n.contains("volume") || n == "Master volume";
-            let is_knob = n.contains("trim") || n.contains("EQ") || n.contains("filter");
+            let is_vertical = n.contains("volume");
+            let is_knob = n.contains("trim")
+                || n.contains("EQ")
+                || n.contains("filter")
+                || n == "Master volume";
             if is_knob {
                 // Mixer v2 knobs are small by design (TRIM is a small square).
                 let side = r.width().min(r.height());
@@ -4593,6 +4598,7 @@ fn mixer_v2_knobs_above_share_one_axis_and_do_not_overflow() {
             ab_labels: true,
             inputs: true,
             knobs_outside: false,
+            ..Default::default()
         };
         let size = (1440.0, 900.0);
         let out = mixer_v2_frame(&mut h, size, prefs);
@@ -4710,6 +4716,7 @@ fn layout_b_row_mirror_needle_and_no_overflow_with_every_preference_on() {
         ab_labels: true,
         inputs: true,
         knobs_outside: true,
+        ..Default::default()
     };
     for mirror in [false, true] {
         h.app.settings.mirror_b = mirror;
@@ -5030,6 +5037,7 @@ fn arrangements_a_c_d_relations_no_overflow_and_runtime_switch() {
         ab_labels: true,
         inputs: true,
         knobs_outside: true,
+        ..Default::default()
     };
     h.app.settings.mirror_b = true;
     h.app.decks.decks[0].playing = true;
@@ -5166,5 +5174,91 @@ fn deck_band_fills_the_row_with_square_cover_at_three_sizes() {
             }
         }
     }
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+/// Master / cue controls: each placement puts them where the setting says,
+/// relative to the mixer block, without overlap or clipping, with smaller
+/// knobs than the former 56x54 / 46x40 cells; the preference persists and
+/// the controls keep their AccessKit names; top bar drops labels when narrow.
+#[test]
+fn master_and_cue_controls_follow_their_placement() {
+    use crate::settings::{MonitorPlacement as P, Settings};
+    let (root, mut h) = fresh("monplace", 5.0);
+    h.select_and_load("a-120.wav", egui::Key::A);
+    h.app.settings.sections.mixer = true;
+    assert_eq!(h.app.settings.mixer.monitor, P::TopBar, "default");
+    for size in [(1280.0, 720.0), (1600.0, 900.0)] {
+        h.viewport = egui::vec2(size.0, size.1);
+        let screen = Rect::from_min_size(egui::Pos2::ZERO, h.viewport);
+        for place in [P::TopBar, P::Above, P::Below, P::Beside] {
+            h.app.settings.mixer.monitor = place;
+            let out = h.settle();
+            let l = h.layout();
+            let tag = format!("{place:?} {size:?}");
+            let mixer = l.mixer.expect("mixer");
+            let ctrls = [
+                l.master.unwrap(),
+                l.cue_mix.unwrap(),
+                l.cue_volume.unwrap(),
+                l.meters[2].unwrap(),
+                l.meters[3].unwrap(),
+            ];
+            for r in ctrls {
+                assert!(screen.contains_rect(r), "{tag}: {r:?} on screen");
+                match place {
+                    P::TopBar => assert!(
+                        h.app.shell.toolbar.unwrap().contains_rect(r),
+                        "{tag}: {r:?} inside the top bar"
+                    ),
+                    P::Above => assert!(r.bottom() <= mixer.top(), "{tag}"),
+                    P::Below => assert!(r.top() >= mixer.bottom(), "{tag}"),
+                    P::Beside => {
+                        assert!(r.left() >= mixer.right() || mixer.contains_rect(r), "{tag}")
+                    }
+                }
+            }
+            if place == P::Beside {
+                assert!(ctrls[0].left() >= l.volume[1].unwrap().right(), "{tag}");
+            }
+            for (i, a) in ctrls.iter().enumerate() {
+                for b in &ctrls[i + 1..] {
+                    assert!(
+                        !a.shrink(0.5).intersects(b.shrink(0.5)),
+                        "{tag}: {a:?} {b:?}"
+                    );
+                }
+            }
+            // Knob cells about 60 % of the former 56x54 master and 46x40 cue cells
+            // (the top bar puts the label beside the knob, so compare the short side).
+            let short = |r: Rect| r.width().min(r.height());
+            assert!(short(ctrls[0]) <= 0.7 * 54.0, "{tag}");
+            assert!(
+                short(ctrls[1]) <= 0.7 * 40.0 && short(ctrls[2]) <= 0.7 * 40.0,
+                "{tag}"
+            );
+            for name in ["Master volume", "Cue mix", "Cue volume"] {
+                assert_eq!(node(&out, name).role(), accesskit::Role::Slider, "{tag}");
+            }
+            // Mixer block and fader area unchanged by the placement.
+            assert!(l.volume[0].unwrap().height() > 60.0, "{tag}");
+        }
+    }
+    // Narrow top bar: labels go first.
+    h.app.settings.mixer.monitor = P::TopBar;
+    h.viewport = egui::vec2(700.0, 600.0);
+    h.settle();
+    let l = h.layout();
+    if let Some(m) = l.master {
+        assert!(m.width() <= 22.5, "labels dropped, knob only: {m:?}");
+        assert!(h.app.shell.toolbar.unwrap().contains_rect(m));
+    }
+    // Persisted; an old string without the key keeps the default.
+    for place in [P::TopBar, P::Above, P::Below, P::Beside] {
+        let mut s = Settings::default();
+        s.mixer.monitor = place;
+        assert_eq!(Settings::decode(&s.encode()).mixer.monitor, place);
+    }
+    assert_eq!(Settings::decode("smooth=1").mixer.monitor, P::TopBar);
     std::fs::remove_dir_all(root).unwrap();
 }
