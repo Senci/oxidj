@@ -7,6 +7,7 @@ use std::{
 };
 use zeroize::{Zeroize, Zeroizing};
 
+mod import_destination;
 mod library_import;
 pub mod step_tempo;
 mod tempo;

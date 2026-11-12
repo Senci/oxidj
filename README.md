@@ -36,6 +36,8 @@ M0 is verified complete. The named `local-catalog-alpha-v1` dependency exception
 
 Local, read-only on the stick; counts and files stay on your machine. Order matters (the UI lists tracks from the audio import step):
 
+The UI's **More → Import Rekordbox PDB…** imports into an explicitly named **new** catalog after review/confirmation; it never merges or switches the current catalog. Both UI and CLI require a destination on verified local, non-removable storage, outside the source device. Linux admission uses util-linux `findmnt` and `lsblk` (including backing-device ancestry); USB, removable/hotplug disks, network/FUSE/overlay storage, missing tools, unknown topology and unsupported platforms are refused before staging. Choose an internal disk directory (or local tmpfs); source layout does not determine destination safety. Real removable-filesystem/hardware qualification remains separate.
+
 1. `oxidj-cli catalog import-library --pdb <stick>/PIONEER/rekordbox/export.pdb --catalog new.sqlite` (library tracks, playlists, beat grids, cues, vendor waveforms), then move it to `~/.local/share/oxidj/library.sqlite` (keep the old file).
 2. `oxidj-cli catalog import --dir <copy of the stick's Contents> --db ~/.local/share/oxidj/library.sqlite` (audio files; library paths are device-relative, matched by `/Contents/` suffix).
 3. `oxidj-cli catalog analyze-waveform --db …` then `analyze-tempo --db …` (about 1.5 h for ~1,300 tracks; AIFF, MP3, WAV, FLAC decode in-house). A Rekordbox grid always wins over a computed one.

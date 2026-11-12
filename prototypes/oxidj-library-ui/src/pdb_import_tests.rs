@@ -126,6 +126,61 @@ assert tree(actual) != tree(expected)
     std::fs::remove_dir_all(root).unwrap();
 }
 
+// The child receives synthetic util-linux command outputs through its private
+// PATH. No global environment mutation and no physical/remounted USB is needed.
+#[cfg(target_os = "linux")]
+#[test]
+fn pdb_import_ui_refuses_synthetic_removable_mount() {
+    const CHILD: &str = "OXIDJ_TEST_REMOVABLE_IMPORT_CHILD";
+    if std::env::var_os(CHILD).is_none() {
+        use std::os::unix::fs::PermissionsExt;
+        let (root, _) = catalog_root("pdb-removable-command-fixture");
+        let bin = root.join("bin");
+        std::fs::create_dir(&bin).unwrap();
+        for (name, json) in [
+            ("findmnt", r#"{"filesystems":[{"fstype":"exfat","sources":["/dev/synthetic-usb"]}]}"#),
+            ("lsblk", r#"{"blockdevices":[{"type":"disk","tran":"usb","rm":false,"hotplug":false}]}"#),
+        ] {
+            let path = bin.join(name);
+            std::fs::write(&path, format!("#!/bin/sh\nprintf '%s\\n' '{json}'\n")).unwrap();
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o700)).unwrap();
+        }
+        let result = std::process::Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", "shell_tests::pdb_import_tests::pdb_import_ui_refuses_synthetic_removable_mount", "--nocapture"])
+            .env(CHILD, "1").env("PATH", &bin).output().unwrap();
+        assert!(result.status.success(), "{}\n{}", String::from_utf8_lossy(&result.stdout), String::from_utf8_lossy(&result.stderr));
+        assert!(String::from_utf8_lossy(&result.stdout).contains("1 passed"));
+        std::fs::remove_dir_all(root).unwrap();
+        return;
+    }
+    let (root, db) = catalog_root("pdb-removable-egui");
+    let source_dir = root.join("nonstandard-source-device");
+    let other = root.join("other-removable-device");
+    std::fs::create_dir(&source_dir).unwrap();
+    std::fs::create_dir(&other).unwrap();
+    std::os::unix::fs::symlink(&other, root.join("alias")).unwrap();
+    let pdb = source_dir.join("backup.pdb");
+    let bytes = synthetic_pdb(None);
+    std::fs::write(&pdb, &bytes).unwrap();
+    let mut shell = Shell::new(&db, 1440.0);
+    let active = std::fs::read(&db).unwrap();
+    for dir in [&source_dir, &other, &root.join("alias")] {
+        let before = std::fs::read_dir(dir).unwrap().count();
+        let destination = dir.join("no.sqlite");
+        review(&mut shell, &pdb, &destination);
+        confirm(&mut shell); finish(&mut shell);
+        assert_eq!(shell.app.notice, format!("PDB import failed: destination must be on verified local non-removable storage (not USB); storage classification failed or destination is unsupported. Current catalog unchanged."));
+        assert_eq!(std::fs::read_dir(dir).unwrap().count(), before, "no stage/catalog/sidecars");
+        assert_eq!(std::fs::read(&pdb).unwrap(), bytes);
+        assert_eq!(std::fs::read(&db).unwrap(), active);
+        assert_eq!(shell.app.db_path, db);
+        let out = shell.settle();
+        shell.click(find(&nodes(&out), "Cancel").2.center());
+    }
+    drop(shell);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
 #[test]
 fn pdb_import_ui_surfaces_invalid_source_existing_destinations_and_device_refusals() {
     let (root, db) = catalog_root("pdb-import-errors");

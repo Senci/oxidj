@@ -971,6 +971,7 @@ dependencies = [
  "oxidj-library",
  "oxidj-onelibrary",
  "oxidj-rekordbox",
+ "serde_json",
  "zeroize",
 ]
 

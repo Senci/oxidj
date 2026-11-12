@@ -578,6 +578,17 @@ fn import_library_with(
         &LibraryCounts,
     ) -> Result<Option<OneLibraryCrossCheck>, LibraryWorkflowError>,
 ) -> Result<LibraryImportReport, LibraryWorkflowError> {
+    import_library_checked(pdb, catalog, cross_check, crate::import_destination::verify)
+}
+
+fn import_library_checked(
+    pdb: &Path,
+    catalog: &Path,
+    cross_check: impl FnOnce(
+        &LibraryCounts,
+    ) -> Result<Option<OneLibraryCrossCheck>, LibraryWorkflowError>,
+    local_destination: impl Fn(&Path) -> bool,
+) -> Result<LibraryImportReport, LibraryWorkflowError> {
     let files = catalog_files(catalog);
     if files.iter().any(|f| f.symlink_metadata().is_ok()) {
         return Err(fail("refusing to reuse an existing catalog path"));
@@ -594,6 +605,9 @@ fn import_library_with(
         .map_err(|_| fail("destination directory must already exist"))?;
     if device_root(&source).is_some_and(|root| parent.starts_with(root)) {
         return Err(fail("destination must be outside the source device"));
+    }
+    if !local_destination(&parent) {
+        return Err(fail(crate::import_destination::REFUSAL));
     }
     let before = read_source(pdb)?;
     let mut preview = oxidj_rekordbox::parse_pdb(&before)
@@ -655,6 +669,96 @@ mod import_publication_tests {
         ));
         std::fs::create_dir_all(path.join("device/PIONEER/rekordbox")).unwrap();
         path
+    }
+
+    #[test]
+    fn unclassifiable_destination_is_refused_before_any_write() {
+        let root = scratch();
+        let pdb = root.join("backup.pdb");
+        let bytes = synthetic_pdb(None);
+        std::fs::write(&pdb, &bytes).unwrap();
+        let destination = Path::new("/proc/oxidj-must-not-create.sqlite");
+        let error = import_library_from_pdb(&pdb, destination, None).unwrap_err();
+        assert!(
+            error.0.contains("verified local non-removable storage"),
+            "{error}"
+        );
+        assert!(!destination.exists());
+        assert_eq!(std::fs::read(&pdb).unwrap(), bytes);
+        assert_eq!(root.read_dir().unwrap().count(), 2);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn removable_destinations_and_canonical_aliases_refuse_before_staging() {
+        use serde_json::json;
+        let root = scratch();
+        let source_dir = root.join("nonstandard-device");
+        let other = root.join("different-device");
+        let local = root.join("local");
+        for dir in [&source_dir, &other, &local] {
+            std::fs::create_dir(dir).unwrap();
+        }
+        let pdb = source_dir.join("backup.pdb");
+        let bytes = synthetic_pdb(None);
+        std::fs::write(&pdb, &bytes).unwrap();
+        std::os::unix::fs::symlink(&other, root.join("alias")).unwrap();
+        let classify = |parent: &Path| {
+            crate::import_destination::verify_with(parent, |program, args| {
+                if program == "findmnt" {
+                    assert_eq!(args[2], parent.as_os_str());
+                    assert!(
+                        !parent.ends_with("alias"),
+                        "classify canonical mount, not alias"
+                    );
+                    let source = if parent == local {
+                        "/dev/local"
+                    } else {
+                        "/dev/usb"
+                    };
+                    Some(json!({"filesystems":[{"fstype":"exfat","sources":[source]}]}))
+                } else {
+                    assert_eq!(program, "lsblk");
+                    let usb = args.last().unwrap() == "/dev/usb";
+                    Some(
+                        json!({"blockdevices":[{"type":"disk","tran":if usb { "usb" } else { "nvme" },"rm":false,"hotplug":false}]}),
+                    )
+                }
+            })
+        };
+        for dir in [&source_dir, &other, &root.join("alias")] {
+            let before = std::fs::read_dir(dir).unwrap().count();
+            let destination = dir.join("no.sqlite");
+            let result = import_library_checked(
+                &pdb,
+                &destination,
+                |_| panic!("must refuse before parsing/cross-check/staging"),
+                classify,
+            );
+            assert_eq!(result.unwrap_err().0, crate::import_destination::REFUSAL);
+            assert_eq!(
+                std::fs::read_dir(dir).unwrap().count(),
+                before,
+                "no stage, catalog or sidecars"
+            );
+            assert_eq!(std::fs::read(&pdb).unwrap(), bytes);
+        }
+        let destination = local.join("yes.sqlite");
+        let report = import_library_checked(&pdb, &destination, |_| Ok(None), classify).unwrap();
+        assert_eq!(report.counts.tracks, 3);
+        assert_eq!(std::fs::read_dir(&local).unwrap().count(), 1);
+        assert_eq!(
+            Catalog::open_read_only(&destination)
+                .unwrap()
+                .library_snapshot()
+                .unwrap()
+                .tracks
+                .len(),
+            3
+        );
+        assert_eq!(std::fs::read(&pdb).unwrap(), bytes);
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
