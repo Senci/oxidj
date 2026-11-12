@@ -1616,28 +1616,34 @@ impl LibraryApp {
                 let snapshot = snapshot.clone();
                 self.shell.table = Some(ui.max_rect());
                 let mut load = None;
-                let total = ui.available_width().max(720.0);
-                let widths = [
-                    total * 0.34,
-                    total * 0.23,
-                    total * 0.13,
-                    total * 0.10,
-                    total * 0.10,
-                    total * 0.10,
-                ];
+                let columns = self.settings.playlist_columns;
+                let total = columns.order.iter().filter(|&&i| columns.visible[i as usize])
+                    .map(|&i| f32::from(columns.widths[i as usize])).sum::<f32>();
+                let total = total.max(ui.available_width());
                 ui.spacing_mut().item_spacing = egui::Vec2::ZERO;
                 egui::ScrollArea::horizontal()
                     .id_salt("playlist-columns")
                     .auto_shrink([false, false])
                     .show(ui, |ui| {
-                        let (header, _) = ui.allocate_exact_size(
+                        let (header, header_response) = ui.allocate_exact_size(
                             egui::vec2(total, theme::HEADER_HEIGHT),
-                            egui::Sense::hover(),
+                            egui::Sense::click(),
                         );
+                        header_response.context_menu(|ui| {
+                            for (index, name) in ["Title", "Artist", "Album", "BPM", "Key", "Duration"].into_iter().enumerate() {
+                                let prefs = &mut self.settings.playlist_columns;
+                                let enabled = !prefs.visible[index] || prefs.visible.iter().filter(|v| **v).count() > 1;
+                                ui.add_enabled(enabled, egui::Checkbox::new(&mut prefs.visible[index], name));
+                            }
+                            if ui.button("Reset columns").clicked() {
+                                self.settings.playlist_columns = crate::settings::Settings::default().playlist_columns;
+                                ui.close();
+                            }
+                        });
                         playlist_cells(
                             ui,
                             header,
-                            widths,
+                            columns,
                             ["Title", "Artist", "Album", "BPM", "Key", "Duration"]
                                 .map(str::to_owned),
                             tokens,
@@ -1696,7 +1702,7 @@ impl LibraryApp {
                                     playlist_cells(
                                         ui,
                                         rect,
-                                        widths,
+                                        columns,
                                         [
                                             format!("{} · {}", position + 1, track.title),
                                             track.artist.clone().unwrap_or_else(|| "—".into()),
@@ -1859,12 +1865,16 @@ impl LibraryApp {
 fn playlist_cells(
     ui: &egui::Ui,
     rect: egui::Rect,
-    widths: [f32; 6],
+    columns: crate::settings::TableColumns,
     cells: [String; 6],
     tokens: theme::ColorTokens,
 ) {
     let mut x = rect.left();
-    for (text, width) in cells.into_iter().zip(widths) {
+    for index in columns.order {
+        let index = index as usize;
+        if !columns.visible[index] { continue; }
+        let width = f32::from(columns.widths[index]);
+        let text = &cells[index];
         let galley = egui::WidgetText::from(egui::RichText::new(text).color(tokens.text))
             .into_galley(
                 ui,

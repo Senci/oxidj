@@ -415,7 +415,10 @@ impl Default for Settings {
     fn default() -> Self {
         Self {
             catalog_columns: TableColumns::default(),
-            playlist_columns: TableColumns::default(),
+            playlist_columns: TableColumns {
+                widths: [240, 165, 140, 90, 90, 100],
+                ..TableColumns::default()
+            },
             waveform_style: Style::Mono,
             smooth: true,
             auto_gain: true,
