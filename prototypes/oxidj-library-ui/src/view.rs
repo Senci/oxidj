@@ -802,12 +802,16 @@ impl LibraryApp {
             ui.label("Remove this occurrence from the playlist? The track and audio will not be deleted.");
             ui.horizontal(|ui| {
                 if ui.button("Confirm removal").clicked() {
-                    let (guard, path, index, member) = self.catalog_remove_pending.as_ref().unwrap();
-                    let result = if self.imported_playlist.as_ref() != Some(path) || self.imported_member != Some(*index) || self.selected_imported != Some(*member) {
+                    let (guard, nested, track, path, index, member) = self.catalog_remove_pending.as_ref().unwrap();
+                    let result = if !self.db_path.is_file() || self.imported_playlist.as_ref() != Some(path) || self.imported_member != Some(*index) || self.selected_imported != Some(*member) {
                         Err("selection changed".to_owned())
                     } else {
                         match &mut self.catalog {
-                            Ok(db) => db.remove_guarded_root_playlist_member(guard, *index, *member).map_err(|e| e.to_string()),
+                            Ok(db) => match (guard, nested, track) {
+                                (Some(guard), _, _) => db.remove_guarded_root_playlist_member(guard, *index, *member),
+                                (_, Some(guard), Some(track)) => db.remove_guarded_nested_playlist_member(guard, track, *index),
+                                _ => Err(oxidj_library::CatalogError::InvalidRecord("selection is stale")),
+                            }.map_err(|e| e.to_string()),
                             Err(_) => Err("catalog unavailable".to_owned()),
                         }
                     };
@@ -816,6 +820,7 @@ impl LibraryApp {
                             self.reload();
                             self.imported_member = None;
                             self.selected_imported = None;
+                            self.imported_nested_guard = None;
                             self.imported_root_guard = self.imported_playlist.as_ref().and_then(|path| {
                                 let index = *path.first()?;
                                 let oxidj_library::LibraryNode::Playlist { name, members } = self.imported_navigation.as_ref().ok()?.roots.get(index)? else { return None; };
@@ -1738,19 +1743,20 @@ impl LibraryApp {
                     }
                 }
             }
-            if let (Some(guard), Some(index), Some(member)) = (
-                &self.imported_root_guard,
-                self.imported_member,
-                self.selected_imported,
-            ) {
-                if self
-                    .imported_playlist
-                    .as_ref()
-                    .is_some_and(|path| path.len() == 1)
-                    && ui.button("Remove selected from playlist…").clicked()
+            if let (Some(index), Some(member)) = (self.imported_member, self.selected_imported) {
+                if self.imported_playlist.as_ref().is_some_and(|path| {
+                    if path.len() == 1 {
+                        self.imported_root_guard.is_some()
+                    } else {
+                        self.imported_nested_guard.is_some()
+                            && self.selected_imported_guard.is_some()
+                    }
+                }) && ui.button("Remove selected from playlist…").clicked()
                 {
                     self.catalog_remove_pending = Some((
-                        guard.clone(),
+                        self.imported_root_guard.clone(),
+                        self.imported_nested_guard.clone(),
+                        self.selected_imported_guard.clone(),
                         self.imported_playlist.clone().unwrap(),
                         index,
                         member,

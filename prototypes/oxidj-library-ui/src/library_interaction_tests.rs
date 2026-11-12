@@ -590,6 +590,84 @@ fn nested_playlist_offers_rename_and_root_collision_refuses() {
 }
 
 #[test]
+fn nested_remove_selected_occurrence_is_available() {
+    let (root, db) = catalog_root("nested-remove-available");
+    let fixture = LibrarySnapshot {
+        tracks: vec![LibraryTrack {
+            title: "Nested track".into(),
+            location: "file://localhost/nested.mp3".into(),
+            ..Default::default()
+        }],
+        roots: ["First", "Second"]
+            .into_iter()
+            .map(|name| oxidj_library::LibraryNode::Folder {
+                name: name.into(),
+                children: vec![oxidj_library::LibraryNode::Playlist {
+                    name: "Nested".into(),
+                    members: vec![0, 0],
+                }],
+            })
+            .collect(),
+    };
+    Catalog::open(&db)
+        .unwrap()
+        .import_library(&fixture)
+        .unwrap();
+    let mut shell = Shell::new(&db, 1440.0);
+    let rows: Vec<_> = texts(&shell.settle())
+        .into_iter()
+        .filter(|(s, _)| s == "♫ Nested")
+        .collect();
+    assert_eq!(rows.len(), 2);
+    shell.click(rows[1].1.center());
+    let row = text_rect(&mut shell, "2 · Nested track");
+    shell.click(row.center());
+    let out = shell.settle();
+    let out = shell.click(
+        find(&nodes(&out), "Remove selected from playlist…")
+            .2
+            .center(),
+    );
+    shell.click(find(&nodes(&out), "Cancel").2.center());
+    assert_eq!(
+        Catalog::open_read_only(&db)
+            .unwrap()
+            .library_snapshot()
+            .unwrap(),
+        fixture
+    );
+    let out = shell.settle();
+    let out = shell.click(
+        find(&nodes(&out), "Remove selected from playlist…")
+            .2
+            .center(),
+    );
+    shell.click(find(&nodes(&out), "Confirm removal").2.center());
+    assert!(
+        shell.app.notice.starts_with("Playlist member removed"),
+        "{}",
+        shell.app.notice
+    );
+    let mut expected = fixture;
+    let oxidj_library::LibraryNode::Folder { children, .. } = &mut expected.roots[1] else {
+        panic!("folder")
+    };
+    let oxidj_library::LibraryNode::Playlist { members, .. } = &mut children[0] else {
+        panic!("playlist")
+    };
+    members.remove(1);
+    assert_eq!(
+        Catalog::open_read_only(&db)
+            .unwrap()
+            .library_snapshot()
+            .unwrap(),
+        expected
+    );
+    drop(shell);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn remove_selected_duplicate_requires_confirmation_and_preserves_catalog() {
     let (root, db) = catalog_root("remove-member");
     let (location, _) =
@@ -778,6 +856,151 @@ fn pdb_move_refuses_stale_playlist_track_order_and_missing_catalog() {
         drop(shell);
         std::fs::remove_dir_all(root).unwrap();
     }
+}
+
+#[test]
+fn nested_remove_refuses_stale_identity_and_membership() {
+    for case in ["parent", "playlist", "moved", "membership", "track"] {
+        let (root, _) = catalog_root("nested-remove-stale");
+        let (pdb, _, _) = m7_fixture::write(&root.join("device"));
+        let db = root.join("imported.sqlite");
+        oxidj_application::import_library_from_pdb(&pdb, &db, None).unwrap();
+        let mut shell = Shell::new(&db, 1440.0);
+        shell.screen.max.y = 1800.0;
+        let row = text_rect(&mut shell, "♫ Playlist 19");
+        shell.click(row.center());
+        let row = text_rect(&mut shell, "2 · Track 812");
+        shell.click(row.center());
+        let out = shell.settle();
+        let out = shell.click(
+            find(&nodes(&out), "Remove selected from playlist…")
+                .2
+                .center(),
+        );
+        let script = r#"import sqlite3,sys
+c=sqlite3.connect(sys.argv[1]); case=sys.argv[2]
+p=c.execute("select id from library_nodes where name='Folder A'").fetchone()[0]
+n=c.execute("select id from library_nodes where parent_id=? and name='Playlist 19'",(p,)).fetchone()[0]
+if case in ('parent','playlist'):
+ c.execute('pragma defer_foreign_keys=on'); i=p if case=='parent' else n
+ row=c.execute('select * from library_nodes where id=?',(i,)).fetchone()
+ c.execute('delete from library_nodes where id=?',(i,)); c.execute('insert into library_nodes values(?,?,?,?,?)',row)
+elif case=='moved': c.execute("update library_nodes set parent_id=(select id from library_nodes where name='Folder B'),sibling_order=1 where id=?",(n,))
+elif case=='membership': c.execute('update library_members set track_position=0 where node_id=? and position=1',(n,))
+else: c.execute('update library_track_identity set token=randomblob(16) where track_position=811')
+c.commit()"#;
+        let result = std::process::Command::new("python3")
+            .args(["-c", script])
+            .arg(&db)
+            .arg(case)
+            .output()
+            .unwrap();
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        let before = Catalog::open_read_only(&db)
+            .unwrap()
+            .library_snapshot()
+            .unwrap();
+        shell.click(find(&nodes(&out), "Confirm removal").2.center());
+        let reason = if case == "track" {
+            "selected imported track is stale"
+        } else {
+            "selected nested playlist is stale"
+        };
+        assert!(
+            shell.app.notice.contains(reason),
+            "{case}: {}",
+            shell.app.notice
+        );
+        assert_eq!(
+            Catalog::open_read_only(&db)
+                .unwrap()
+                .library_snapshot()
+                .unwrap(),
+            before
+        );
+        drop(shell);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+}
+
+#[test]
+fn pdb_nested_remove_ui_export_matches_oracle() {
+    let (root, _) = catalog_root("nested-remove-oracle");
+    let (pdb, source, analysis) = m7_fixture::write(&root.join("device"));
+    let db = root.join("imported.sqlite");
+    oxidj_application::import_library_from_pdb(&pdb, &db, None).unwrap();
+    let mut shell = Shell::new(&db, 1440.0);
+    shell.screen.max.y = 1800.0;
+    let row = text_rect(&mut shell, "♫ Playlist 19");
+    shell.click(row.center());
+    let row = text_rect(&mut shell, "2 · Track 812");
+    shell.click(row.center());
+    let out = shell.settle();
+    let out = shell.click(
+        find(&nodes(&out), "Remove selected from playlist…")
+            .2
+            .center(),
+    );
+    shell.click(find(&nodes(&out), "Confirm removal").2.center());
+    assert!(
+        shell.app.notice.starts_with("Playlist member removed"),
+        "{}",
+        shell.app.notice
+    );
+    let output = root.join("nested-removed.xml");
+    let menu = shell.click(shell.app.shell.more.unwrap().center());
+    let out = shell.click(find(&nodes(&menu), "Export catalog XML…").2.center());
+    shell.app.catalog_export_path = output.display().to_string();
+    shell.click(find(&nodes(&out), "Export catalog XML").2.center());
+    assert!(
+        shell.app.notice.starts_with("Catalog exported"),
+        "{}",
+        shell.app.notice
+    );
+    let oracle = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../scripts/verify_m7_export.py");
+    let check = |xml: &Path| {
+        std::process::Command::new("python3")
+            .arg("-B")
+            .arg(&oracle)
+            .arg(&pdb)
+            .arg(xml)
+            .args(["--remove-member", "118", "1", "812"])
+            .output()
+            .unwrap()
+    };
+    let result = check(&output);
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let wrong = root.join("wrong.xml");
+    let mutate = "import sys,xml.etree.ElementTree as E; t=E.parse(sys.argv[1]); n=next(x for x in t.iter('NODE') if x.get('Name')=='Playlist 19'); n.remove(n.find('TRACK')); t.write(sys.argv[2])";
+    assert!(
+        std::process::Command::new("python3")
+            .args(["-c", mutate])
+            .arg(&output)
+            .arg(&wrong)
+            .status()
+            .unwrap()
+            .success()
+    );
+    let rejected = check(&wrong);
+    assert!(!rejected.status.success());
+    assert!(
+        String::from_utf8_lossy(&rejected.stderr)
+            .contains("tree: complete ordered nodes/members differ")
+    );
+    assert_eq!(std::fs::read(&pdb).unwrap(), source);
+    for (path, bytes) in analysis {
+        assert_eq!(std::fs::read(path).unwrap(), bytes);
+    }
+    drop(shell);
+    std::fs::remove_dir_all(root).unwrap();
 }
 
 #[test]

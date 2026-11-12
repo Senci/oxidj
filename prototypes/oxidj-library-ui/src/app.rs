@@ -148,8 +148,14 @@ pub(crate) struct LibraryApp {
     pub(crate) imported_nested_guard: Option<oxidj_library::NestedRenameGuard>,
     pub(crate) catalog_rename_open: bool,
     pub(crate) catalog_rename_name: String,
-    pub(crate) catalog_remove_pending:
-        Option<(oxidj_library::RootPlaylistGuard, Vec<usize>, usize, usize)>,
+    pub(crate) catalog_remove_pending: Option<(
+        Option<oxidj_library::RootPlaylistGuard>,
+        Option<oxidj_library::NestedRenameGuard>,
+        Option<oxidj_library::ImportedTrackGuard>,
+        Vec<usize>,
+        usize,
+        usize,
+    )>,
     pub(crate) selected_imported_guard: Option<oxidj_library::ImportedTrackGuard>,
     pub(crate) catalog_append_pending: Option<(
         usize,
