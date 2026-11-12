@@ -150,6 +150,79 @@ fn nested_playlist_is_not_a_renameable_root_and_collision_refuses() {
 }
 
 #[test]
+fn remove_selected_duplicate_requires_confirmation_and_preserves_catalog() {
+    let (root, db) = catalog_root("remove-member");
+    let (location, _) = oxidj_application::location_uri(root.join("audio/tone-b.wav").to_str().unwrap());
+    let fixture = LibrarySnapshot {
+        tracks: vec![LibraryTrack { title: "Imported title".into(), artist: Some("Synthetic artist".into()), album: Some("Synthetic album".into()), tempo_hundredths_bpm: 12850, key: Some("8A".into()), duration_seconds: 73, location, ..Default::default() }, LibraryTrack { title: "Unrelated".into(), location: "file://localhost/unrelated.mp3".into(), ..Default::default() }],
+        roots: vec![oxidj_library::LibraryNode::Playlist { name: "Browse".into(), members: vec![0, 0] }, oxidj_library::LibraryNode::Playlist { name: "Other".into(), members: vec![1, 0] }],
+    };
+    Catalog::open(&db).unwrap().import_library(&fixture).unwrap();
+    let before = Catalog::open_read_only(&db).unwrap().library_snapshot().unwrap();
+    let mut shell = Shell::new(&db, 1440.0);
+    let row = text_rect(&mut shell, "♫ Browse"); shell.click(row.center());
+    let row = text_rect(&mut shell, "2 · Imported title"); shell.click(row.center());
+    let out = shell.settle();
+    let out = shell.click(find(&nodes(&out), "Remove selected from playlist…").2.center());
+    shell.click(find(&nodes(&out), "Cancel").2.center());
+    assert_eq!(Catalog::open_read_only(&db).unwrap().library_snapshot().unwrap(), before);
+    let out = shell.settle();
+    let out = shell.click(find(&nodes(&out), "Remove selected from playlist…").2.center());
+    shell.click(find(&nodes(&out), "Confirm removal").2.center());
+    let mut expected = before;
+    let oxidj_library::LibraryNode::Playlist { members, .. } = &mut expected.roots[0] else { panic!("fixture") };
+    members.remove(1);
+    assert_eq!(Catalog::open_read_only(&db).unwrap().library_snapshot().unwrap(), expected);
+    assert!(shell.app.notice.starts_with("Playlist member removed"), "{}", shell.app.notice);
+    assert!(texts(&shell.settle()).iter().any(|(s, _)| s == "1 · Imported title"));
+    let output = root.join("removed.xml");
+    let menu = shell.click(shell.app.shell.more.unwrap().center());
+    let out = shell.click(find(&nodes(&menu), "Export catalog XML…").2.center());
+    shell.app.catalog_export_path = output.display().to_string();
+    shell.click(find(&nodes(&out), "Export catalog XML").2.center());
+    assert!(shell.app.notice.starts_with("Catalog exported"), "{}", shell.app.notice);
+    // The same independent ElementTree whole-tree oracle used by the rename test.
+    let oracle = r#"import sys, xml.etree.ElementTree as E
+actual=E.parse(sys.argv[1]).getroot()
+expected=E.fromstring('''<DJ_PLAYLISTS Version="1.0.0"><PRODUCT Name="OxiDJ" Version="0.1.0" Company="OxiDJ"/><COLLECTION Entries="2"><TRACK TrackID="1" Name="Imported title" Artist="Synthetic artist" Album="Synthetic album" TotalTime="73" AverageBpm="128.50" Tonality="8A" Location="PLACEHOLDER"/><TRACK TrackID="2" Name="Unrelated" TotalTime="0" AverageBpm="0.00" Location="file://localhost/unrelated.mp3"/></COLLECTION><PLAYLISTS><NODE Type="0" Name="ROOT" Count="2"><NODE Type="1" Name="Browse" KeyType="0" Entries="1"><TRACK Key="1"/></NODE><NODE Type="1" Name="Other" KeyType="0" Entries="2"><TRACK Key="2"/><TRACK Key="1"/></NODE></NODE></PLAYLISTS></DJ_PLAYLISTS>''')
+expected.find('./COLLECTION/TRACK').set('Location',sys.argv[2])
+def tree(e): return e.tag,dict(e.attrib),[tree(c) for c in e]
+assert tree(actual)==tree(expected), (E.tostring(actual),E.tostring(expected))
+actual.find('./PLAYLISTS/NODE/NODE/TRACK').set('Key','999')
+assert tree(actual)!=tree(expected)
+"#;
+    let location = &expected.tracks[0].location;
+    let check = std::process::Command::new("python3").args(["-c", oracle]).arg(&output).arg(location).output().unwrap();
+    assert!(check.status.success(), "{}", String::from_utf8_lossy(&check.stderr));
+    drop(shell); std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn removal_ui_refuses_stale_order_and_same_name_replacement() {
+    for replacement in [false, true] {
+        let (root, db) = catalog_root(if replacement { "remove-replacement" } else { "remove-stale" });
+        imported(&db, &root);
+        let mut shell = Shell::new(&db, 1440.0);
+        let row = text_rect(&mut shell, "♫ Browse"); shell.click(row.center());
+        let row = text_rect(&mut shell, "2 · Imported title"); shell.click(row.center());
+        let out = shell.settle(); shell.click(find(&nodes(&out), "Remove selected from playlist…").2.center());
+        let sql = if replacement {
+            "DELETE FROM library_members WHERE node_id=1; DELETE FROM library_nodes WHERE id=1; INSERT INTO library_nodes VALUES(1,NULL,0,'Browse',0); INSERT INTO library_members VALUES(1,0,0); INSERT INTO library_members VALUES(1,1,0);"
+        } else {
+            "DELETE FROM library_members WHERE node_id=1 AND position=0;"
+        };
+        let script = "import sqlite3,sys\nc=sqlite3.connect(sys.argv[1]); c.executescript(sys.argv[2]); c.commit()";
+        let result = std::process::Command::new("python3").args(["-c", script]).arg(&db).arg(sql).output().unwrap();
+        assert!(result.status.success(), "{}", String::from_utf8_lossy(&result.stderr));
+        let before = Catalog::open_read_only(&db).unwrap().library_snapshot().unwrap();
+        let out = shell.settle(); shell.click(find(&nodes(&out), "Confirm removal").2.center());
+        assert!(shell.app.notice.contains(if replacement { "selected root playlist is stale" } else { "playlist membership order is stale" }), "{}", shell.app.notice);
+        assert_eq!(Catalog::open_read_only(&db).unwrap().library_snapshot().unwrap(), before);
+        drop(shell); std::fs::remove_dir_all(root).unwrap();
+    }
+}
+
+#[test]
 fn playlist_has_full_columns_selection_details_search_and_return_to_collection() {
     let (root, db) = catalog_root("full-playlist");
     imported(&db, &root);

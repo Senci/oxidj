@@ -137,6 +137,7 @@ impl LibraryApp {
         self.pdb_import_window(ctx);
         self.catalog_export_window(ctx);
         self.catalog_rename_window(ctx);
+        self.catalog_remove_window(ctx);
         let status = egui::TopBottomPanel::bottom("status-bar")
             .frame(status_frame)
             .show(ctx, |ui| self.status_bar(ui, tokens));
@@ -599,6 +600,46 @@ impl LibraryApp {
             if !self.notice.is_empty() { ui.label(&self.notice); }
         });
         self.catalog_export_open = open && !cancel;
+    }
+
+    fn catalog_remove_window(&mut self, ctx: &egui::Context) {
+        if self.catalog_remove_pending.is_none() { return; }
+        let mut open = true;
+        let mut done = false;
+        egui::Window::new("Remove playlist member").open(&mut open).show(ctx, |ui| {
+            ui.label("Remove this occurrence from the playlist? The track and audio will not be deleted.");
+            ui.horizontal(|ui| {
+                if ui.button("Confirm removal").clicked() {
+                    let (guard, path, index, member) = self.catalog_remove_pending.as_ref().unwrap();
+                    let result = if self.imported_playlist.as_ref() != Some(path) || self.imported_member != Some(*index) || self.selected_imported != Some(*member) {
+                        Err("selection changed".to_owned())
+                    } else {
+                        match &mut self.catalog {
+                            Ok(db) => db.remove_guarded_root_playlist_member(guard, *index, *member).map_err(|e| e.to_string()),
+                            Err(_) => Err("catalog unavailable".to_owned()),
+                        }
+                    };
+                    match result {
+                        Ok(()) => {
+                            self.reload();
+                            self.imported_member = None;
+                            self.selected_imported = None;
+                            self.imported_root_guard = self.imported_playlist.as_ref().and_then(|path| {
+                                let index = *path.first()?;
+                                let oxidj_library::LibraryNode::Playlist { name, members } = self.imported_navigation.as_ref().ok()?.roots.get(index)? else { return None; };
+                                self.catalog.as_ref().ok()?.root_playlist_guard(index, name, members).ok()
+                            });
+                            self.notice = "Playlist member removed".into();
+                            done = true;
+                        }
+                        Err(error) => self.notice = format!("Playlist removal refused: {error}"),
+                    }
+                }
+                if ui.button("Cancel").clicked() { done = true; }
+            });
+            if !self.notice.is_empty() { ui.label(&self.notice); }
+        });
+        if !open || done { self.catalog_remove_pending = None; }
     }
 
     fn catalog_rename_window(&mut self, ctx: &egui::Context) {
@@ -1333,6 +1374,11 @@ impl LibraryApp {
                 if let Some(oxidj_library::LibraryNode::Playlist { name, .. }) = self.imported_playlist.as_ref().and_then(|path| snapshot.roots.get(path[0])) {
                     self.catalog_rename_name = name.clone();
                     self.catalog_rename_open = true;
+                }
+            }
+            if let (Some(guard), Some(index), Some(member)) = (&self.imported_root_guard, self.imported_member, self.selected_imported) {
+                if self.imported_playlist.as_ref().is_some_and(|path| path.len() == 1) && ui.button("Remove selected from playlist…").clicked() {
+                    self.catalog_remove_pending = Some((guard.clone(), self.imported_playlist.clone().unwrap(), index, member));
                 }
             }
         } else if let Err(error) = snapshot {

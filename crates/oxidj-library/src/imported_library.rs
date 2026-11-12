@@ -467,6 +467,61 @@ impl Catalog {
         Ok(members.len())
     }
 
+    /// Remove a selected occurrence only while the captured root identity remains valid.
+    pub fn remove_guarded_root_playlist_member(
+        &mut self,
+        guard: &RootPlaylistGuard,
+        index: usize,
+        member: usize,
+    ) -> Result<(), CatalogError> {
+        use rusqlite::OptionalExtension;
+        let tx = self
+            .connection
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let current: Option<(i64, Vec<u8>, String, i64)> = tx.query_row(
+            "SELECT n.id, i.token, n.name, n.is_folder FROM library_nodes n JOIN library_node_identity i ON i.node_id=n.id WHERE n.parent_id IS NULL ORDER BY n.sibling_order, n.id LIMIT 1 OFFSET ?1",
+            [to_i64(guard.index)?], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+        ).optional()?;
+        if current.as_ref() != Some(&(guard.id, guard.token.clone(), guard.name.clone(), 0)) {
+            return Err(CatalogError::InvalidRecord(
+                "selected root playlist is stale",
+            ));
+        }
+        let rows = {
+            let mut stmt = tx.prepare("SELECT position, track_position FROM library_members WHERE node_id=?1 ORDER BY position")?;
+            stmt.query_map([guard.id], |r| {
+                Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?))
+            })?
+            .collect::<Result<Vec<_>, _>>()?
+        };
+        let expected = guard
+            .members
+            .iter()
+            .map(|&v| to_i64(v))
+            .collect::<Result<Vec<_>, _>>()?;
+        if rows.iter().map(|row| row.1).ne(expected.iter().copied()) {
+            return Err(CatalogError::InvalidRecord(
+                "playlist membership order is stale",
+            ));
+        }
+        let Some(&(position, actual)) = rows.get(index) else {
+            return Err(CatalogError::InvalidRecord(
+                "playlist member index out of range",
+            ));
+        };
+        if actual != to_i64(member)? {
+            return Err(CatalogError::InvalidRecord(
+                "playlist member ID does not match",
+            ));
+        }
+        tx.execute(
+            "DELETE FROM library_members WHERE node_id=?1 AND position=?2",
+            rusqlite::params![guard.id, position],
+        )?;
+        tx.commit()?;
+        Ok(())
+    }
+
     /// Remove one occurrence only if the complete old order and selected member still match.
     pub fn remove_library_playlist_member(
         &mut self,
@@ -1608,6 +1663,47 @@ mod tests {
             catalog.rename_library_playlist("Rename", "Other"),
             Err(CatalogError::InvalidRecord("root playlist does not exist"))
         ));
+        assert_eq!(catalog.library_snapshot().unwrap(), expected);
+    }
+
+    #[test]
+    fn guarded_member_removal_refuses_replacement_and_removes_only_selected_duplicate() {
+        let mut catalog = Catalog::open(path()).unwrap();
+        catalog.import_library(&snapshot()).unwrap();
+        catalog
+            .create_library_playlist("Selected", &[2, 0, 2])
+            .unwrap();
+        let before = catalog.library_snapshot().unwrap();
+        let index = before.roots.len() - 1;
+        let guard = catalog
+            .root_playlist_guard(index, "Selected", &[2, 0, 2])
+            .unwrap();
+        catalog.connection.execute("DELETE FROM library_members WHERE node_id = (SELECT id FROM library_nodes WHERE name = 'Selected')", []).unwrap();
+        catalog
+            .connection
+            .execute("DELETE FROM library_nodes WHERE name = 'Selected'", [])
+            .unwrap();
+        catalog
+            .create_library_playlist("Selected", &[2, 0, 2])
+            .unwrap();
+        assert_eq!(catalog.library_snapshot().unwrap(), before);
+        assert!(
+            catalog
+                .remove_guarded_root_playlist_member(&guard, 2, 2)
+                .is_err()
+        );
+        assert_eq!(catalog.library_snapshot().unwrap(), before);
+        let guard = catalog
+            .root_playlist_guard(index, "Selected", &[2, 0, 2])
+            .unwrap();
+        catalog
+            .remove_guarded_root_playlist_member(&guard, 2, 2)
+            .unwrap();
+        let mut expected = before;
+        let Some(LibraryNode::Playlist { members, .. }) = expected.roots.last_mut() else {
+            panic!("playlist")
+        };
+        *members = vec![2, 0];
         assert_eq!(catalog.library_snapshot().unwrap(), expected);
     }
 
