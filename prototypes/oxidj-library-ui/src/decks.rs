@@ -735,6 +735,19 @@ pub(crate) struct DeckLayout {
     pub(crate) artwork: [Option<Rect>; 2],
 }
 
+/// Measured callback statistics, only for an active device with callbacks.
+pub(crate) fn audio_metrics(output: &oxidj_audio::OutputKind, stats: oxidj_audio::StatsSnapshot) -> Option<String> {
+    if !matches!(output, oxidj_audio::OutputKind::Device { .. }) || stats.callbacks == 0 {
+        return None;
+    }
+    let latency = if stats.latency_ns == 0 {
+        "latency unavailable".to_owned()
+    } else {
+        format!("latency {:.1} ms", stats.latency_ns as f64 / 1_000_000.0)
+    };
+    Some(format!("{latency} · peak DSP {:.1}%", f64::from(stats.max_load_permille) / 10.0))
+}
+
 /// The whole deck area's state.
 pub(crate) struct DeckArea {
     pub(crate) decks: [Deck; 2],

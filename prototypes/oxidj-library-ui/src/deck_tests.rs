@@ -17,6 +17,20 @@ use std::path::{Path, PathBuf};
 
 type Frame = egui::FullOutput;
 
+#[test]
+fn audio_metrics_distinguish_missing_measurements_from_zero() {
+    use oxidj_audio::{OutputKind, StatsSnapshot};
+    let device = OutputKind::Device { name: "Synthetic".into(), rate: 48_000, channels: 2 };
+    let mut stats = StatsSnapshot::default();
+    assert_eq!(decks::audio_metrics(&device, stats), None);
+    stats.callbacks = 1;
+    stats.max_load_permille = 123;
+    assert_eq!(decks::audio_metrics(&device, stats).unwrap(), "latency unavailable · peak DSP 12.3%");
+    stats.latency_ns = 2_500_000;
+    assert_eq!(decks::audio_metrics(&device, stats).unwrap(), "latency 2.5 ms · peak DSP 12.3%");
+    assert_eq!(decks::audio_metrics(&OutputKind::Silent, stats), None);
+}
+
 /// 1/60 s at the fake sink's 48 kHz.
 const AUDIO_FRAMES_PER_UI_FRAME: usize = 800;
 
@@ -425,6 +439,10 @@ fn load_by_keys_button_and_context_menu_with_table_badges() {
     assert!(
         texts(&out).iter().any(|(t, _)| t == "AUDIO · manual"),
         "status bar names the output"
+    );
+    assert!(
+        !texts(&out).iter().any(|(t, _)| t.contains("peak DSP")),
+        "manual output must not claim live device measurements"
     );
     assert!(h.deck(0).track.is_none() && h.deck(1).track.is_none());
     // A key loads the selected track to deck A.

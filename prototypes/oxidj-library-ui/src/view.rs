@@ -547,6 +547,10 @@ impl LibraryApp {
             if self.show_decks {
                 let (status, ok) = self.decks.status();
                 let colour = if ok { tokens.muted_text } else { tokens.warning };
+                if let Some(metrics) = crate::decks::audio_metrics(&self.decks.engine.output(), self.decks.engine.stats()) {
+                    ui.label(muted(metrics)).on_hover_text("Latency reported by the output host; peak DSP is the worst callback load since the stream opened.");
+                    ui.separator();
+                }
                 ui.label(egui::RichText::new(status).small().strong().color(colour))
                     .on_hover_text("Deck audio output (D2): both decks mixed at unity; without a device the decks keep running silently");
                 ui.separator();
