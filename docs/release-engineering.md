@@ -1,0 +1,12 @@
+# Release engineering notes
+
+OxiDJ publishes experimental archives, not installers or qualified builds. The library UI is a separate Cargo workspace with its own lockfile; build it with `--manifest-path prototypes/oxidj-library-ui/Cargo.toml --locked` as well as `cargo build -p oxidj-cli --locked`. The repo's `rust-toolchain.toml` controls both. The UI defaults to a catalog in its current directory; the archives document `--db` to avoid accidentally using an unrelated catalog. `import_destination.rs` deliberately rejects destination admission outside Linux, so native builds do not mean feature parity.
+
+## Sources and decisions
+
+- [ripgrep release workflow](https://github.com/BurntSushi/ripgrep/blob/master/.github/workflows/release.yml): target-specific builds and archives, tag/version checks, checksums and provenance. OxiDJ uses native runners, staged workflow artifacts, and a single publication job after all builds; its checksum is integrity-only, not a signature.
+- [bat CI workflow](https://github.com/sharkdp/bat/blob/master/.github/workflows/CICD.yml): matrix builds, locked Cargo dependencies, executable smoke commands and archive artifacts. OxiDJ compiles the separate UI as well as the CLI.
+- [GitHub secure use](https://docs.github.com/en/actions/reference/security/secure-use): minimize token permissions, pin actions to full commit SHA, avoid untrusted interpolation. Build jobs receive read only; the release job gets contents write only. Tag names are passed through an environment variable and validated.
+- [GitHub-hosted runners](https://docs.github.com/en/actions/reference/runners/github-hosted-runners): Linux/Windows x86-64 and macOS arm64 labels; native runner builds avoid unverified cross-linking assumptions.
+
+The alpha-only tag must point to a commit on `master` with a successful exact-head `cargo xtask ci-full` check. The three native builds must succeed before a single draft release is created; publication follows archive upload and checksum generation. Review the exact workflow and changes independently before pushing a tag, and use the protected PR/check path for changes. A failed upload can leave a draft that needs manual recovery; a draft is not advertised by the website. No signing, notarization, vendor compatibility, native UI behavior on Windows/macOS, device behavior, or performance qualification is implied by these builds. Never tag or publish before the independent review and required checks pass.

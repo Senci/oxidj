@@ -1,6 +1,32 @@
 import { getAsylumDenial } from '../logic/asylum';
 import { getLiveObservation } from '../logic/analysis';
 import { initLightbox } from './lightbox';
+import { releaseAssets } from '../logic/downloads';
+
+async function initDownloads(root: HTMLElement): Promise<void> {
+  const status = root.querySelector<HTMLElement>('#downloads-status');
+  const list = root.querySelector<HTMLElement>('#downloads-list');
+  if (!status || !list) return;
+  try {
+    const response = await fetch('https://api.github.com/repos/Senci/oxidj/releases?per_page=10');
+    if (!response.ok) return;
+    const data: unknown = await response.json();
+    if (!Array.isArray(data)) return;
+    const assets = releaseAssets(data);
+    if (!assets.length) return;
+    for (const asset of assets) {
+      const item = document.createElement('li');
+      const link = document.createElement('a');
+      link.href = asset.url;
+      link.textContent = asset.label;
+      item.append(link);
+      list.append(item);
+    }
+    status.textContent = 'Available release archives:';
+  } catch {
+    // Keep the honest unavailable message on network and malformed API errors.
+  }
+}
 
 function initDossier(root: HTMLElement): void {
   const analysis = root.querySelector<HTMLElement>('#analysis-output');
@@ -87,6 +113,7 @@ function initCopy(): void {
 
 export function initApp(root: HTMLElement): void {
   initDossier(root);
+  void initDownloads(root);
   initReveal();
   initGlow();
   initCopy();

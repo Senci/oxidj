@@ -1,0 +1,138 @@
+name: Release archives
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+  actions: read
+  checks: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Validate tag, protected branch ancestry and exact-head gate
+        env:
+          TAG: ${{ github.ref_name }}
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-alpha\.[0-9]+$ ]]
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/master
+          RUN_ID=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?head_sha=$GITHUB_SHA&event=push&per_page=100" | jq -r --arg sha "$GITHUB_SHA" '[.workflow_runs[] | select(.head_sha == $sha and .head_branch == "master" and .status == "completed" and .conclusion == "success")][0].id // empty')
+          test -n "$RUN_ID"
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID/jobs?per_page=100" --jq '[.jobs[] | select(.name == "cargo xtask ci-full" and .status == "completed" and .conclusion == "success")] | length > 0' | grep -qx true
+          if gh release view "$TAG" >/dev/null 2>&1; then echo 'Release already exists' >&2; exit 1; fi
+
+  build:
+    needs: validate
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            platform: linux-x86_64
+          - os: windows-2022
+            platform: windows-x86_64
+          - os: macos-15
+            platform: macos-aarch64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Install Linux native dependencies
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libasound2-dev libjack-jackd2-dev libdbus-1-dev pkg-config xvfb xauth
+      - name: Build CLI and standalone UI with pinned Rust and lockfiles
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustc --version
+          cargo build --release --locked -p oxidj-cli
+          cargo build --release --locked --manifest-path prototypes/oxidj-library-ui/Cargo.toml
+      - name: Smoke CLI on native host
+        shell: bash
+        run: target/release/oxidj-cli --help
+      - name: Test release packager
+        shell: bash
+        run: python -m unittest scripts.test_package_release
+      - name: Package
+        shell: bash
+        env:
+          PLATFORM: ${{ matrix.platform }}
+        run: python scripts/package-release.py "$PLATFORM" dist
+      - name: Extract and smoke packaged CLI
+        shell: bash
+        env:
+          PLATFORM: ${{ matrix.platform }}
+        run: |
+          set -euo pipefail
+          mkdir extracted
+          if [[ "$PLATFORM" == windows-* ]]; then
+            python -m zipfile -e "dist/oxidj-$PLATFORM.zip" extracted
+            ./extracted/oxidj-cli.exe --help
+          else
+            tar -xzf "dist/oxidj-$PLATFORM.tar.gz" -C extracted
+            ./extracted/oxidj-cli --help
+          fi
+      - name: Smoke extracted UI on Linux virtual display
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          set +e
+          timeout 15s xvfb-run -a ./extracted/oxidj-library-ui --db "$RUNNER_TEMP/smoke.sqlite"
+          result=$?
+          set -e
+          test "$result" = 124
+          test -f "$RUNNER_TEMP/smoke.sqlite"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: ${{ matrix.platform }}
+          path: dist/*
+          if-no-files-found: error
+
+  publish:
+    needs: [validate, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          path: artifacts
+          merge-multiple: true
+      - name: Verify exact set and publish complete pre-release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Require a lightweight tag still bound to the exact built commit.
+          gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" | jq -e --arg sha "$GITHUB_SHA" '.object.type == "commit" and .object.sha == $sha' >/dev/null
+          cd artifacts
+          test "$(find . -maxdepth 1 -type f | wc -l)" = 3
+          for name in oxidj-linux-x86_64.tar.gz oxidj-windows-x86_64.zip oxidj-macos-aarch64.tar.gz; do test -s "$name"; done
+          sha256sum oxidj-linux-x86_64.tar.gz oxidj-windows-x86_64.zip oxidj-macos-aarch64.tar.gz > SHA256SUMS
+          gh release create "$TAG" --verify-tag --draft --prerelease --title "OxiDJ $TAG (pre-release)" --notes 'Experimental unsigned builds. macOS is not notarized; Windows and macOS runtime and interoperability are not qualified. See the included README for prerequisites and limitations.' oxidj-linux-x86_64.tar.gz oxidj-windows-x86_64.zip oxidj-macos-aarch64.tar.gz SHA256SUMS
+          mkdir verified-download
+          gh release download "$TAG" --dir verified-download
+          test "$(find verified-download -maxdepth 1 -type f | wc -l)" = 4
+          (cd verified-download && sha256sum -c SHA256SUMS)
+          cmp SHA256SUMS verified-download/SHA256SUMS
+          gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" | jq -e --arg sha "$GITHUB_SHA" '.object.type == "commit" and .object.sha == $sha' >/dev/null
+          gh release edit "$TAG" --draft=false --prerelease
