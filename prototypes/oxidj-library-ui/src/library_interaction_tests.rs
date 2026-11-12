@@ -593,18 +593,25 @@ fn nested_playlist_offers_rename_and_root_collision_refuses() {
 fn nested_remove_selected_occurrence_is_available() {
     let (root, db) = catalog_root("nested-remove-available");
     let fixture = LibrarySnapshot {
-        tracks: vec![LibraryTrack {
-            title: "Nested track".into(),
-            location: "file://localhost/nested.mp3".into(),
-            ..Default::default()
-        }],
+        tracks: vec![
+            LibraryTrack {
+                title: "Nested track".into(),
+                location: "file://localhost/nested.mp3".into(),
+                ..Default::default()
+            },
+            LibraryTrack {
+                title: "Other track".into(),
+                location: "file://localhost/other.mp3".into(),
+                ..Default::default()
+            },
+        ],
         roots: ["First", "Second"]
             .into_iter()
             .map(|name| oxidj_library::LibraryNode::Folder {
                 name: name.into(),
                 children: vec![oxidj_library::LibraryNode::Playlist {
                     name: "Nested".into(),
-                    members: vec![0, 0],
+                    members: vec![0, 0, 1, 0],
                 }],
             })
             .collect(),
@@ -656,6 +663,31 @@ fn nested_remove_selected_occurrence_is_available() {
         panic!("playlist")
     };
     members.remove(1);
+    assert_eq!(
+        Catalog::open_read_only(&db)
+            .unwrap()
+            .library_snapshot()
+            .unwrap(),
+        expected
+    );
+    // The playlist remains selected: remove a second occurrence without reselecting it.
+    let row = text_rect(&mut shell, "3 · Nested track");
+    shell.click(row.center());
+    let out = shell.settle();
+    let out = shell.click(
+        find(&nodes(&out), "Remove selected from playlist…")
+            .2
+            .center(),
+    );
+    shell.click(find(&nodes(&out), "Confirm removal").2.center());
+    let oxidj_library::LibraryNode::Folder { children, .. } = &mut expected.roots[1] else {
+        panic!("folder")
+    };
+    let oxidj_library::LibraryNode::Playlist { members, .. } = &mut children[0] else {
+        panic!("playlist")
+    };
+    members.remove(2);
+    assert_eq!(members, &[0, 1]);
     assert_eq!(
         Catalog::open_read_only(&db)
             .unwrap()

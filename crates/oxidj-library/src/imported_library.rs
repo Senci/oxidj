@@ -247,7 +247,7 @@ impl Catalog {
         guard: &NestedRenameGuard,
         track: &ImportedTrackGuard,
         index: usize,
-    ) -> Result<(), CatalogError> {
+    ) -> Result<NestedRenameGuard, CatalogError> {
         use rusqlite::OptionalExtension;
         let tx = self
             .connection
@@ -292,7 +292,9 @@ impl Catalog {
         }
         tx.execute("DELETE FROM library_members WHERE node_id=?1 AND position=(SELECT position FROM library_members WHERE node_id=?1 ORDER BY position LIMIT 1 OFFSET ?2)", rusqlite::params![id, to_i64(index)?])?;
         tx.commit()?;
-        Ok(())
+        let mut updated = guard.clone();
+        updated.members.remove(index);
+        Ok(updated)
     }
 
     /// Bind a nested visible selection and its ancestors to durable identities.

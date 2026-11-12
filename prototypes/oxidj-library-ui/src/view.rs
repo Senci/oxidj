@@ -808,19 +808,19 @@ impl LibraryApp {
                     } else {
                         match &mut self.catalog {
                             Ok(db) => match (guard, nested, track) {
-                                (Some(guard), _, _) => db.remove_guarded_root_playlist_member(guard, *index, *member),
-                                (_, Some(guard), Some(track)) => db.remove_guarded_nested_playlist_member(guard, track, *index),
+                                (Some(guard), _, _) => db.remove_guarded_root_playlist_member(guard, *index, *member).map(|()| None),
+                                (_, Some(guard), Some(track)) => db.remove_guarded_nested_playlist_member(guard, track, *index).map(Some),
                                 _ => Err(oxidj_library::CatalogError::InvalidRecord("selection is stale")),
                             }.map_err(|e| e.to_string()),
                             Err(_) => Err("catalog unavailable".to_owned()),
                         }
                     };
                     match result {
-                        Ok(()) => {
+                        Ok(nested_guard) => {
                             self.reload();
                             self.imported_member = None;
                             self.selected_imported = None;
-                            self.imported_nested_guard = None;
+                            self.imported_nested_guard = nested_guard;
                             self.imported_root_guard = self.imported_playlist.as_ref().and_then(|path| {
                                 let index = *path.first()?;
                                 let oxidj_library::LibraryNode::Playlist { name, members } = self.imported_navigation.as_ref().ok()?.roots.get(index)? else { return None; };
