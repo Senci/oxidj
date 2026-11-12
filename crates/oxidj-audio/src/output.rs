@@ -149,6 +149,9 @@ pub struct OutputConfig {
     /// by [`list_outputs`] (refused when two devices share it); `None` = the
     /// host's default output.
     pub device: Option<String>,
+    /// Treat `device` strictly as a stable id, never as a name. Persisted UI
+    /// choices set this; legacy callers and environment names keep `false`.
+    pub device_id_only: bool,
     /// Format values derived from a named environment device rather than explicitly set.
     pub implicit_device_rate: bool,
     /// Channel count derived from a named environment device.
@@ -229,6 +232,7 @@ impl OutputConfig {
         Self {
             host: text("OXIDJ_AUDIO_HOST"),
             device,
+            device_id_only: false,
             implicit_device_rate: named && number("OXIDJ_AUDIO_RATE").is_none(),
             implicit_device_channels: named
                 && !split
@@ -268,8 +272,66 @@ pub struct OutputInfo {
     pub buffer_frames: Option<(u32, u32)>,
 }
 
-/// Every output of every compiled-in host. Enumerates devices: call it from
-/// the UI thread when the settings screen opens, never per frame.
+/// Identity-only Settings entry. No stream formats are queried to build it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct OutputChoice {
+    pub host: String,
+    pub device: String,
+    /// Stable id within `host`; persisted choices must set `device_id_only`.
+    pub id: String,
+}
+
+/// Metadata-only discovery boundary: no capability/open operation is supplied.
+fn collect_output_choices<D>(
+    host: &str,
+    devices: Result<impl IntoIterator<Item = D>, String>,
+    mut identity: impl FnMut(&D) -> Result<(String, String), String>,
+) -> Result<Vec<OutputChoice>, String> {
+    devices?
+        .into_iter()
+        .map(|device| {
+            let (id, name) = identity(&device)?;
+            if id.is_empty() {
+                return Err(format!("audio output has no stable id: {host} / {name}"));
+            }
+            Ok(OutputChoice {
+                host: host.into(),
+                device: name,
+                id,
+            })
+        })
+        .collect()
+}
+
+/// Host + stable id + display name only. Candidates may include input-only
+/// devices; output capability is checked only after selection. Does not query supported/default
+/// formats or open any stream. Host enumeration itself can still block, so
+/// callers must run this on a worker, never synchronously in a UI action.
+/// Errors are explicit, not misrepresented as an empty device list.
+pub fn list_output_choices() -> Result<Vec<OutputChoice>, String> {
+    let mut found = Vec::new();
+    for id in cpal::available_hosts() {
+        let host =
+            cpal::host_from_id(id).map_err(|e| format!("audio host {} failed: {e}", id.name()))?;
+        // `output_devices()` may call supported_output_configs() on each
+        // endpoint (the cpal default); never use it for safe discovery.
+        let devices = host
+            .devices()
+            .map_err(|e| format!("cannot enumerate {} audio outputs: {e}", id.name()));
+        found.extend(collect_output_choices(id.name(), devices, |device| {
+            let stable =
+                id_of(device).ok_or_else(|| format!("cannot read {} output id", id.name()))?;
+            let name =
+                name_of(device).ok_or_else(|| format!("cannot read {} output name", id.name()))?;
+            Ok((stable, name))
+        })?);
+    }
+    Ok(found)
+}
+
+/// Every output and its capabilities, for legacy diagnostic callers. This
+/// probes every endpoint and may open hardware; never call from Settings or
+/// the UI thread. Use [`list_output_choices`] for non-invasive discovery.
 pub fn list_outputs() -> Vec<OutputInfo> {
     let mut found = Vec::new();
     for id in cpal::available_hosts() {
@@ -367,6 +429,30 @@ pub(crate) fn select_host(want: &OutputConfig) -> Result<(cpal::Host, bool), Str
     Ok((host, fallback))
 }
 
+/// Resolve metadata only; only the returned endpoint may be probed/opened.
+fn select_device<D>(
+    wanted: &str,
+    id_only: bool,
+    devices: impl IntoIterator<Item = D>,
+    id: impl Fn(&D) -> Option<String>,
+    name: impl Fn(&D) -> Option<String>,
+) -> Result<D, String> {
+    let mut by_name = Vec::new();
+    for device in devices {
+        if id(&device).as_deref() == Some(wanted) {
+            return Ok(device);
+        }
+        if !id_only && name(&device).as_deref() == Some(wanted) {
+            by_name.push(device);
+        }
+    }
+    match by_name.len() {
+        0 => Err(format!("audio output not found: {wanted}")),
+        1 => Ok(by_name.remove(0)),
+        _ => Err(format!("audio output name is ambiguous: {wanted}")),
+    }
+}
+
 /// An output device and the stream configuration chosen for it.
 pub(crate) struct Device {
     device: cpal::Device,
@@ -380,26 +466,14 @@ impl Device {
     pub(crate) fn open_on(want: &OutputConfig, host: &cpal::Host) -> Result<Self, String> {
         // Exact endpoint selection is opt-in and never changes the OS default.
         let device = if let Some(name) = want.device.as_deref() {
-            let mut by_id = None;
-            let mut by_name = Vec::new();
-            for d in host
-                .output_devices()
-                .map_err(|e| format!("cannot enumerate audio outputs: {e}"))?
-            {
-                if id_of(&d).as_deref() == Some(name) {
-                    by_id = Some(d);
-                    break;
-                }
-                if name_of(&d).as_deref() == Some(name) {
-                    by_name.push(d);
-                }
-            }
-            match (by_id, by_name.len()) {
-                (Some(device), _) => device,
-                (None, 0) => return Err(format!("audio output not found: {name}")),
-                (None, 1) => by_name.remove(0),
-                (None, _) => return Err(format!("audio output name is ambiguous: {name}")),
-            }
+            select_device(
+                name,
+                want.device_id_only,
+                host.devices()
+                    .map_err(|e| format!("cannot enumerate audio outputs: {e}"))?,
+                id_of,
+                name_of,
+            )?
         } else {
             host.default_output_device()
                 .ok_or_else(|| "no audio output device".to_owned())?
@@ -578,6 +652,81 @@ fn finish(stats: &Stats, frames: usize, rate: u64, origin: Instant, began: u64, 
 #[cfg(test)]
 mod host_selection_tests {
     use super::select_automatic_host;
+
+    #[test]
+    fn lightweight_choices_need_only_identity_and_preserve_duplicate_names() {
+        let metadata_calls = std::cell::Cell::new(0);
+        let devices = ["id-a", "id-b"];
+        let choices = super::collect_output_choices("host", Ok(devices), |id| {
+            metadata_calls.set(metadata_calls.get() + 1);
+            Ok((id.to_string(), "same name".into()))
+        })
+        .unwrap();
+        assert_eq!(metadata_calls.get(), 2);
+        assert_eq!(
+            choices.iter().map(|o| o.id.as_str()).collect::<Vec<_>>(),
+            ["id-a", "id-b"]
+        );
+        assert!(
+            choices
+                .iter()
+                .all(|o| o.device == "same name" && o.host == "host")
+        );
+    }
+
+    #[test]
+    fn persisted_id_never_resolves_another_endpoints_name() {
+        let devices = [("other-id", "missing-id")];
+        let selected = super::select_device(
+            "missing-id",
+            true,
+            devices,
+            |d| Some(d.0.into()),
+            |d| Some(d.1.into()),
+        );
+        assert_eq!(selected, Err("audio output not found: missing-id".into()));
+    }
+
+    #[test]
+    fn legacy_names_remain_exact_unambiguous_and_ids_take_precedence() {
+        let resolve = |wanted, strict, devices: Vec<(&str, &str)>| {
+            super::select_device(
+                wanted,
+                strict,
+                devices,
+                |d| Some(d.0.into()),
+                |d| Some(d.1.into()),
+            )
+            .map(|d| d.0.to_owned())
+        };
+        assert_eq!(
+            resolve("name", false, vec![("id", "name")]),
+            Ok("id".into())
+        );
+        assert_eq!(
+            resolve("name", false, vec![("a", "name"), ("b", "name")]),
+            Err("audio output name is ambiguous: name".into())
+        );
+        for strict in [false, true] {
+            assert_eq!(
+                resolve(
+                    "id",
+                    strict,
+                    vec![("a", "id"), ("id", "same"), ("b", "same")]
+                ),
+                Ok("id".into())
+            );
+            assert_eq!(
+                resolve("missing", strict, vec![]),
+                Err("audio output not found: missing".into())
+            );
+        }
+        let env = super::OutputConfig::from_lookup(|k| {
+            (k == "OXIDJ_AUDIO_DEVICE").then(|| "name".into())
+        });
+        assert!(!env.device_id_only);
+        assert!(!super::OutputConfig::default().device_id_only);
+    }
 
     #[test]
     fn silent_worker_returns_its_renderer_on_join() {

@@ -13,6 +13,68 @@ use std::path::{Path, PathBuf};
 type Frame = egui::FullOutput;
 
 #[test]
+fn output_discovery_is_nonblocking_and_retry_preserves_saved_choice() {
+    use std::sync::{Arc, Mutex, atomic::{AtomicUsize, Ordering}, mpsc};
+    use std::time::{Duration, Instant};
+    let root = temp_root("discovery-retry");
+    let mut h = Harness::new(root.join("catalog.sqlite"));
+    h.app.settings.audio_device = Some(("host".into(), "saved-id".into()));
+    let calls = Arc::new(AtomicUsize::new(0));
+    let (release, wait) = mpsc::channel();
+    let wait = Mutex::new(wait);
+    let counter = calls.clone();
+    h.app.settings_ui.output_scan.provider = Arc::new(move || {
+        if counter.fetch_add(1, Ordering::SeqCst) == 0 {
+            wait.lock().unwrap().recv().unwrap();
+            Err("synthetic failure".into())
+        } else {
+            Ok(vec![oxidj_audio::OutputChoice { host: "host".into(), id: "saved-id".into(), device: "Synthetic".into() }])
+        }
+    });
+    h.ctrl_comma();
+    let out = h.click(h.layout().tabs.unwrap()[2].center());
+    let out = h.click(text_rect(&out, "Refresh output devices").center());
+    assert!(texts(&out).iter().any(|(s, _)| s.contains("Scanning output devices")));
+    assert!(h.app.settings_ui.output_scan.is_pending());
+    release.send(()).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let out = loop {
+        let out = h.settle();
+        if !h.app.settings_ui.output_scan.is_pending() { break out; }
+        assert!(Instant::now() < deadline, "worker did not complete");
+        std::thread::yield_now();
+    };
+    assert!(texts(&out).iter().any(|(s, _)| s.contains("synthetic failure")));
+    assert_eq!(h.app.settings.audio_device.as_ref().unwrap().1, "saved-id");
+    h.click(text_rect(&out, "Refresh output devices").center());
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let out = loop {
+        let out = h.settle();
+        if !h.app.settings_ui.output_scan.is_pending() { break out; }
+        assert!(Instant::now() < deadline, "retry did not complete");
+        std::thread::yield_now();
+    };
+    assert!(texts(&out).iter().any(|(s, _)| s.contains("Synthetic")));
+    assert_eq!(calls.load(Ordering::SeqCst), 2);
+    let mut storage = MemoryStorage::default();
+    eframe::App::save(&mut h.app, &mut storage);
+    assert!(Settings::load(Some(&storage)).output_config(Default::default()).device_id_only);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn output_discovery_requires_an_explicit_ui_request() {
+    let root = temp_root("discovery-request");
+    let mut h = Harness::new(root.join("catalog.sqlite"));
+    let out = h.ctrl_comma();
+    assert!(!texts(&out).iter().any(|(s, _)| s.contains("Scanning output devices")));
+    let out = h.click(h.layout().tabs.unwrap()[2].center());
+    assert!(texts(&out).iter().any(|(s, _)| s == "Refresh output devices"),
+        "discovery must be explicitly requested, not performed while opening Settings");
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn saved_device_does_not_inherit_other_devices_implicit_format() {
     let settings = Settings { audio_device: Some(("host".into(), "new-id".into())), ..Settings::default() };
     let env = oxidj_audio::OutputConfig::from_lookup(|key| (key == "OXIDJ_AUDIO_DEVICE").then(|| "old-device".into()));
@@ -32,9 +94,8 @@ fn saved_device_does_not_inherit_other_devices_implicit_format() {
 fn output_device_selection_persists_and_combines_with_environment() {
     let root = temp_root("device-settings");
     let mut h = Harness::new(root.join("catalog.sqlite"));
-    h.app.settings_ui.outputs = vec![oxidj_audio::OutputInfo {
+    h.app.settings_ui.outputs = vec![oxidj_audio::OutputChoice {
         host: "Host;=".into(), device: "Synthetic".into(), id: "id;=雪".into(),
-        default: false, max_channels: 2, rates: (44100, 48000), buffer_frames: None,
     }];
     h.ctrl_comma();
     let out = h.click(h.layout().tabs.unwrap()[2].center());
@@ -47,6 +108,7 @@ fn output_device_selection_persists_and_combines_with_environment() {
     let configured = settings.output_config(env.clone());
     assert_eq!(configured.host.as_deref(), Some("Host;="));
     assert_eq!(configured.device.as_deref(), Some("id;=雪"));
+    assert!(configured.device_id_only, "persisted selections must never use name fallback");
     assert_eq!(configured.sample_rate, env.sample_rate);
     assert_eq!(configured.buffer_frames, env.buffer_frames);
     assert_eq!(Settings::default().output_config(env.clone()), env);
@@ -61,7 +123,7 @@ fn output_device_empty_list_keeps_saved_choice_visible() {
     h.ctrl_comma();
     let out = h.click(h.layout().tabs.unwrap()[2].center());
     let labels = texts(&out);
-    assert!(labels.iter().any(|(s, _)| s.contains("No output devices found")));
+    assert!(labels.iter().any(|(s, _)| s.contains("Output devices not yet enumerated")));
     assert!(labels.iter().any(|(s, _)| s.contains("Saved output not found in last enumeration")));
     assert_eq!(h.app.settings.audio_device.as_ref().unwrap().0, "Missing");
     std::fs::remove_dir_all(root).unwrap();

@@ -451,18 +451,86 @@ impl Settings {
             config.implicit_device_channels = false;
             config.host = Some(host.clone());
             config.device = Some(device.clone());
+            config.device_id_only = true;
         }
         if let Some(buffer) = self.audio_buffer { config.buffer_frames = buffer; }
         config
     }
 }
 
+type OutputScanResult = Result<Vec<oxidj_audio::OutputChoice>, String>;
+
+/// One bounded, detached discovery job. Neither polling nor dropping this
+/// state waits for the host; a hung backend must not freeze Settings/close.
+pub(crate) struct OutputScan {
+    pub(crate) provider: std::sync::Arc<dyn Fn() -> OutputScanResult + Send + Sync>,
+    pending: Option<std::sync::mpsc::Receiver<OutputScanResult>>,
+    requested: bool,
+    error: Option<String>,
+}
+
+impl Default for OutputScan {
+    fn default() -> Self {
+        Self {
+            provider: std::sync::Arc::new(oxidj_audio::list_output_choices),
+            pending: None,
+            requested: false,
+            error: None,
+        }
+    }
+}
+
+impl std::fmt::Debug for OutputScan {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("OutputScan")
+            .field("pending", &self.pending.is_some())
+            .field("requested", &self.requested)
+            .field("error", &self.error)
+            .finish_non_exhaustive()
+    }
+}
+
+impl OutputScan {
+    pub(crate) fn is_pending(&self) -> bool { self.pending.is_some() }
+
+    fn request(&mut self, ctx: &egui::Context) {
+        if self.is_pending() { return; }
+        let (send, receive) = std::sync::mpsc::channel();
+        let provider = self.provider.clone();
+        let ctx = ctx.clone();
+        self.requested = true;
+        self.error = None;
+        match std::thread::Builder::new().name("oxidj-output-discovery".into()).spawn(move || {
+            let _ = send.send(provider());
+            ctx.request_repaint();
+        }) {
+            Ok(_) => self.pending = Some(receive),
+            Err(error) => self.error = Some(format!("Cannot start output discovery: {error}")),
+        }
+    }
+
+    fn poll(&mut self, outputs: &mut Vec<oxidj_audio::OutputChoice>) {
+        let Some(receive) = &self.pending else { return; };
+        let result = match receive.try_recv() {
+            Ok(result) => result,
+            Err(std::sync::mpsc::TryRecvError::Empty) => return,
+            Err(std::sync::mpsc::TryRecvError::Disconnected) => Err("Output discovery worker stopped without a result".into()),
+        };
+        self.pending = None;
+        match result {
+            Ok(found) => { *outputs = found; self.error = None; }
+            Err(error) => { outputs.clear(); self.error = Some(error); }
+        }
+    }
+}
+
 /// Window state that is not a setting (focus return, test rects).
-#[derive(Clone, Debug, Default)]
+#[derive(Debug, Default)]
 pub(crate) struct SettingsUi {
     pub(crate) open: bool,
     pub(crate) tab: usize,
-    pub(crate) outputs: Vec<oxidj_audio::OutputInfo>,
+    pub(crate) outputs: Vec<oxidj_audio::OutputChoice>,
+    pub(crate) output_scan: OutputScan,
     /// Widget focused before the window opened; refocused on close.
     return_focus: Option<egui::Id>,
     /// Focus the first control on the frame after opening.
@@ -521,8 +589,7 @@ impl LibraryApp {
         if open && !state.open {
             state.return_focus = ctx.memory(|m| m.focused());
             state.focus_first = true;
-            #[cfg(not(test))]
-            { state.outputs = oxidj_audio::list_outputs(); }
+
         } else if !open && state.open {
             let back = state.return_focus.take();
             ctx.memory_mut(|m| match back {
@@ -544,6 +611,7 @@ impl LibraryApp {
     }
 
     pub(crate) fn settings_window(&mut self, ctx: &egui::Context, tokens: theme::ColorTokens) {
+        self.settings_ui.output_scan.poll(&mut self.settings_ui.outputs);
         self.settings_ui.layout = SettingsLayout::default();
         if !self.settings_ui.open {
             return;
@@ -680,13 +748,25 @@ impl LibraryApp {
             SectionHeading { title: "Deck view" }.show(ui, tokens);
             let s = &mut self.settings;
             layout.limiter = Some(toggle_row(ui, tokens, "Master limiter", &mut s.limiter).rect);
-            ui.label("Output device (takes effect after restart)");
+            ui.label("Output device (takes effect after restart; list may include input-only devices)");
+            let scan = &mut self.settings_ui.output_scan;
+            if ui.add_enabled(!scan.is_pending(), egui::Button::new("Refresh output devices")).clicked() {
+                scan.request(ui.ctx());
+            }
+            if scan.is_pending() {
+                ui.label("Scanning output devices…");
+                ui.ctx().request_repaint_after(std::time::Duration::from_millis(50));
+            } else if let Some(error) = &scan.error {
+                ui.label(format!("Output discovery failed: {error}"));
+            } else if !scan.requested && self.settings_ui.outputs.is_empty() {
+                ui.label("Output devices not yet enumerated. Refresh to list devices.");
+            } else if self.settings_ui.outputs.is_empty() {
+                ui.label("No output devices found.");
+            }
             if ui.selectable_label(s.audio_device.is_none(), "Environment / automatic").clicked() {
                 s.audio_device = None;
             }
-            if self.settings_ui.outputs.is_empty() {
-                ui.label("No output devices found (enumeration may have failed).");
-            }
+
             if let Some((host, id)) = &s.audio_device {
                 if !self.settings_ui.outputs.iter().any(|o| &o.host == host && &o.id == id) {
                     ui.label(format!("Saved output not found in last enumeration (which may have failed): {host} / {id}"));
