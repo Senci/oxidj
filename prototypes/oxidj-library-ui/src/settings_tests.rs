@@ -13,6 +13,21 @@ use std::path::{Path, PathBuf};
 type Frame = egui::FullOutput;
 
 #[test]
+fn buffer_choice_is_selectable_and_persisted_in_production_settings() {
+    let root = temp_root("buffer-settings");
+    let mut h = Harness::new(root.join("catalog.sqlite"));
+    h.ctrl_comma();
+    let out = h.click(h.layout().tabs.unwrap()[2].center());
+    let cell = texts(&out).into_iter().find(|(text, _)| text == "256 frames");
+    assert!(cell.is_some(), "buffer selection is missing");
+    h.click(cell.unwrap().1.center());
+    let mut storage = MemoryStorage::default();
+    eframe::App::save(&mut h.app, &mut storage);
+    assert_eq!(Settings::load(Some(&storage)).audio_buffer, Some(Some(256)));
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn master_limiter_toggle_persists_through_the_settings_ui() {
     let root = temp_root("limiter-settings");
     let mut h = Harness::new(root.join("catalog.sqlite"));

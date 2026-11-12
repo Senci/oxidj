@@ -59,8 +59,12 @@ fn main() -> eframe::Result<()> {
             let (theme, custom_tokens) = ThemeMode::load(cc.storage);
             let mut app = LibraryApp::new(db, theme, custom_tokens);
             app.settings = settings::Settings::load(cc.storage);
-            // D2: the default output device, or the silent fallback.
-            app.decks.attach(oxidj_audio::Engine::start());
+            // Preserve every environment choice except an explicit UI buffer choice.
+            let mut output = oxidj_audio::OutputConfig::from_env();
+            if let Some(buffer) = app.settings.audio_buffer {
+                output.buffer_frames = buffer;
+            }
+            app.decks.attach(oxidj_audio::Engine::start_with(output));
             Ok(Box::new(app))
         }),
     )

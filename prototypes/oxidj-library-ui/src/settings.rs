@@ -131,6 +131,8 @@ pub struct Settings {
     pub mirror_b: bool,
     /// Enable the master peak limiter.
     pub limiter: bool,
+    /// None inherits the environment; Some(None) requests the host default.
+    pub audio_buffer: Option<Option<u32>>,
 }
 
 /// Mixer width as a share of the screen width.
@@ -252,6 +254,7 @@ impl Default for Settings {
             show_meta: true,
             mirror_b: false,
             limiter: true,
+            audio_buffer: None,
         }
     }
 }
@@ -337,6 +340,7 @@ impl Settings {
             b(self.show_meta),
             b(self.mirror_b),
         ) + &sections + &format!(";limiter={}", b(self.limiter))
+            + &self.audio_buffer.map(|buffer| format!(";audio_buffer={}", buffer.map_or_else(|| "host".to_owned(), |n| n.to_string()))).unwrap_or_default()
     }
 
     /// Never fails: unknown names are ignored and an invalid value keeps
@@ -355,6 +359,11 @@ impl Settings {
                 "deck_meta" => s.show_meta = parse_bool(value).unwrap_or(s.show_meta),
                 "mirror_b" => s.mirror_b = parse_bool(value).unwrap_or(s.mirror_b),
                 "limiter" => s.limiter = parse_bool(value).unwrap_or(s.limiter),
+                "audio_buffer" => {
+                    s.audio_buffer = if value == "host" { Some(None) } else {
+                        value.parse::<u32>().ok().filter(|n| (64..=2048).contains(n)).map(Some)
+                    };
+                }
                 "mixer_ab" => s.mixer.ab_labels = parse_bool(value).unwrap_or(s.mixer.ab_labels),
                 "mixer_input" => s.mixer.inputs = parse_bool(value).unwrap_or(s.mixer.inputs),
                 "mixer_outer" => {
@@ -631,6 +640,23 @@ impl LibraryApp {
             SectionHeading { title: "Deck view" }.show(ui, tokens);
             let s = &mut self.settings;
             layout.limiter = Some(toggle_row(ui, tokens, "Master limiter", &mut s.limiter).rect);
+            ui.label("Output buffer (takes effect after restart)");
+            ui.horizontal_wrapped(|ui| {
+                for (label, choice) in [
+                    ("Environment", None),
+                    ("Host default", Some(None)),
+                    ("64 frames", Some(Some(64))),
+                    ("128 frames", Some(Some(128))),
+                    ("256 frames", Some(Some(256))),
+                    ("512 frames", Some(Some(512))),
+                    ("1024 frames", Some(Some(1024))),
+                    ("2048 frames", Some(Some(2048))),
+                ] {
+                    if ui.selectable_label(s.audio_buffer == choice, label).clicked() {
+                        s.audio_buffer = choice;
+                    }
+                }
+            });
             macro_rules! pick {
                 ($label:expr, $cells:expr, $index:expr $(,)?) => {
                     segmented_row(ui, tokens, $label, $cells, $index)
@@ -771,6 +797,15 @@ mod tests {
     }
 
     #[test]
+    fn audio_buffer_choice_round_trips_without_disturbing_old_settings() {
+        for raw in ["audio_buffer=host", "audio_buffer=256", "audio_buffer=2048"] {
+            let saved = Settings::decode(raw).encode();
+            assert!(saved.split(';').any(|entry| entry == raw), "lost {raw}: {saved}");
+        }
+        assert!(!Settings::decode("").encode().contains("audio_buffer="));
+    }
+
+    #[test]
     fn every_field_round_trips_through_storage() {
         let edited = Settings {
             waveform_style: Style::Rgb,
@@ -803,6 +838,7 @@ mod tests {
             show_meta: false,
             mirror_b: true,
             limiter: false,
+            audio_buffer: None,
         };
         let mut storage = MemoryStorage::default();
         edited.save(&mut storage);
