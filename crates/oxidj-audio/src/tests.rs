@@ -8,19 +8,17 @@ const RATE: u32 = 48_000;
 #[cfg(all(target_os = "linux", feature = "jack"))]
 #[test]
 fn automatic_output_retries_failure_but_explicit_never_does() {
-    for stage in ["configuration", "build", "play"] {
-        let mut calls = Vec::new();
-        let result = try_output(&OutputConfig::default(), |preferred| {
-            calls.push(preferred);
-            if preferred {
-                Err(stage.to_owned())
-            } else {
-                Ok("default")
-            }
-        });
-        assert_eq!(result.unwrap(), "default");
-        assert_eq!(calls, [true, false]);
-    }
+    let mut calls = Vec::new();
+    let result = try_output(&OutputConfig::default(), |preferred| {
+        calls.push(preferred);
+        if preferred {
+            Err("preferred failed".to_owned())
+        } else {
+            Ok("default")
+        }
+    });
+    assert_eq!(result.unwrap(), "default");
+    assert_eq!(calls, [true, false]);
     for config in [
         OutputConfig {
             host: Some("JACK".into()),
@@ -374,6 +372,28 @@ fn full_ring_refuses_instead_of_blocking() {
         assert!(e.send(Command::TogglePlay { deck: 0 }));
     }
     assert!(!e.send(Command::TogglePlay { deck: 0 }));
+}
+
+#[test]
+fn full_ring_does_not_change_remembered_state() {
+    let (mut e, _r) = Engine::manual(RATE);
+    let original = ramp(100, RATE);
+    assert!(e.send(Command::Load {
+        deck: 0,
+        id: 1,
+        track: original.clone()
+    }));
+    for _ in 1..COMMAND_CAPACITY {
+        assert!(e.send(Command::TogglePlay { deck: 0 }));
+    }
+    assert!(!e.send(Command::Limiter(false)));
+    assert!(!e.send(Command::Load {
+        deck: 0,
+        id: 2,
+        track: ramp(100, RATE)
+    }));
+    assert!(!e.memory.limiter_off);
+    assert_eq!(e.memory.current[0].as_ref().unwrap().0, 1);
 }
 
 #[test]

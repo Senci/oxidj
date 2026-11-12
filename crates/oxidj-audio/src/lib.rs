@@ -1660,6 +1660,11 @@ impl Engine {
 
     /// Queue `command`; `false` when the ring is full (command dropped).
     pub fn send(&mut self, command: Command) -> bool {
+        // The single producer cannot lose capacity between this check and push;
+        // only the consumer runs concurrently and it can only free slots.
+        if self.tx.is_full() {
+            return false;
+        }
         match &command {
             Command::Mixer(params) => self.memory.mixer = *params,
             Command::Limiter(on) => self.memory.limiter_off = !on,
