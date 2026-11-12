@@ -842,7 +842,7 @@ impl LibraryApp {
         }
         let mut open = true;
         let mut done = false;
-        egui::Window::new("Rename root playlist")
+        egui::Window::new("Rename playlist")
             .open(&mut open)
             .show(ctx, |ui| {
                 ui.horizontal(|ui| {
@@ -851,17 +851,34 @@ impl LibraryApp {
                 });
                 ui.horizontal(|ui| {
                     if ui.button("Confirm rename").clicked() {
-                        let result = match (&mut self.catalog, &self.imported_root_guard) {
-                            (Ok(db), Some(guard)) => db
-                                .rename_guarded_root_playlist(guard, &self.catalog_rename_name)
-                                .map_err(|e| e.to_string()),
-                            _ => Err("selection is no longer available".to_owned()),
+                        let result = if !self.db_path.is_file() {
+                            Err("catalog is no longer available".to_owned())
+                        } else {
+                            match (
+                                &mut self.catalog,
+                                &self.imported_root_guard,
+                                &self.imported_nested_guard,
+                            ) {
+                                (Ok(db), Some(guard), _) => db
+                                    .rename_guarded_root_playlist(guard, &self.catalog_rename_name)
+                                    .map(|guard| (Some(guard), None))
+                                    .map_err(|e| e.to_string()),
+                                (Ok(db), None, Some(guard)) => db
+                                    .rename_guarded_nested_playlist(
+                                        guard,
+                                        &self.catalog_rename_name,
+                                    )
+                                    .map(|guard| (None, Some(guard)))
+                                    .map_err(|e| e.to_string()),
+                                _ => Err("selection is no longer available".to_owned()),
+                            }
                         };
                         match result {
-                            Ok(guard) => {
+                            Ok((root_guard, nested_guard)) => {
                                 self.notice = "Playlist renamed".into();
                                 self.reload();
-                                self.imported_root_guard = Some(guard);
+                                self.imported_root_guard = root_guard;
+                                self.imported_nested_guard = nested_guard;
                                 done = true;
                             }
                             Err(error) => self.notice = format!("Playlist rename refused: {error}"),
@@ -1488,6 +1505,7 @@ impl LibraryApp {
             self.availability_filter = None;
             self.imported_playlist = None;
             self.imported_root_guard = None;
+            self.imported_nested_guard = None;
             self.catalog_rename_open = false;
             self.imported_member = None;
             self.selected_imported = None;
@@ -1517,6 +1535,7 @@ impl LibraryApp {
                 self.availability_filter = Some(filter);
                 self.imported_playlist = None;
                 self.imported_root_guard = None;
+                self.imported_nested_guard = None;
                 self.catalog_rename_open = false;
                 self.imported_member = None;
                 self.selected_imported = None;
@@ -1536,16 +1555,21 @@ impl LibraryApp {
                 ui: &mut egui::Ui,
                 nodes: &[oxidj_library::LibraryNode],
                 path: &mut Vec<usize>,
+                names: &mut Vec<String>,
                 app: &mut LibraryApp,
             ) {
                 for (index, node) in nodes.iter().enumerate() {
                     path.push(index);
+                    names.push(match node {
+                        oxidj_library::LibraryNode::Folder { name, .. }
+                        | oxidj_library::LibraryNode::Playlist { name, .. } => name.clone(),
+                    });
                     match node {
                         oxidj_library::LibraryNode::Folder { name, children } => {
                             egui::CollapsingHeader::new(format!("📁 {name}"))
                                 .default_open(true)
                                 .id_salt(("imported-folder", &*path))
-                                .show(ui, |ui| show_nodes(ui, children, path, app));
+                                .show(ui, |ui| show_nodes(ui, children, path, names, app));
                         }
                         oxidj_library::LibraryNode::Playlist { name, members } => {
                             let label = format!("♫ {name}");
@@ -1557,6 +1581,20 @@ impl LibraryApp {
                                 .clicked()
                             {
                                 app.imported_playlist = Some(path.clone());
+                                app.imported_nested_guard = if path.len() > 1 {
+                                    app.catalog.as_ref().ok().and_then(|db| {
+                                        match db.nested_rename_guard(path, names, members) {
+                                            Ok(guard) => Some(guard),
+                                            Err(error) => {
+                                                app.notice =
+                                                    format!("Playlist selection is stale: {error}");
+                                                None
+                                            }
+                                        }
+                                    })
+                                } else {
+                                    None
+                                };
                                 app.imported_root_guard = if path.len() == 1 {
                                     match &app.catalog {
                                         Ok(db) => {
@@ -1583,9 +1621,10 @@ impl LibraryApp {
                         }
                     }
                     path.pop();
+                    names.pop();
                 }
             }
-            show_nodes(ui, &snapshot.roots, &mut Vec::new(), self);
+            show_nodes(ui, &snapshot.roots, &mut Vec::new(), &mut Vec::new(), self);
             if let (Some(member), Some(guard)) =
                 (self.selected_imported, &self.selected_imported_guard)
             {
@@ -1606,18 +1645,24 @@ impl LibraryApp {
                     self.catalog_create_pending = Some((member, guard.clone()));
                 }
             }
-            if self
-                .imported_playlist
-                .as_ref()
-                .is_some_and(|path| path.len() == 1)
-                && self.imported_root_guard.is_some()
+            if (self.imported_root_guard.is_some() || self.imported_nested_guard.is_some())
                 && ui.button("Rename playlist…").clicked()
             {
-                if let Some(oxidj_library::LibraryNode::Playlist { name, .. }) = self
-                    .imported_playlist
-                    .as_ref()
-                    .and_then(|path| snapshot.roots.get(path[0]))
-                {
+                let selected = self.imported_playlist.as_ref().and_then(|path| {
+                    let mut nodes = snapshot.roots.as_slice();
+                    for (depth, index) in path.iter().enumerate() {
+                        let node = nodes.get(*index)?;
+                        if depth + 1 == path.len() {
+                            return Some(node);
+                        }
+                        let oxidj_library::LibraryNode::Folder { children, .. } = node else {
+                            return None;
+                        };
+                        nodes = children;
+                    }
+                    None
+                });
+                if let Some(oxidj_library::LibraryNode::Playlist { name, .. }) = selected {
                     self.catalog_rename_name = name.clone();
                     self.catalog_rename_open = true;
                 }

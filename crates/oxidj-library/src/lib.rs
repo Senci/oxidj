@@ -32,8 +32,8 @@ mod waveform_store;
 pub use artwork::{Artwork, ArtworkError, ArtworkMemoryCache, DEFAULT_ARTWORK_CACHE_BYTES};
 pub use imported_library::{
     ImportedTrackGuard, LibraryBeat, LibraryCounts, LibraryCue, LibraryNavigation,
-    LibraryNavigationTrack, LibraryNode, LibrarySnapshot, LibraryTrack, RootPlaylistGuard,
-    validate_library_playlist_name,
+    LibraryNavigationTrack, LibraryNode, LibrarySnapshot, LibraryTrack, NestedRenameGuard,
+    RootPlaylistGuard, validate_library_playlist_name,
 };
 pub use oxidj_core::TrackId;
 pub use tempo_store::{LibraryComputedGrid, StoredBeatGrid, TEMPO_GRID_FORMAT_VERSION, TempoBasis};

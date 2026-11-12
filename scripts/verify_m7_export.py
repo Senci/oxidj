@@ -16,7 +16,7 @@ from urllib.parse import quote
 from decode_pdb import build_baseline, parse_pdb
 
 
-def expected(baseline, step, remove_member=None, create_playlist=None, append_member=None, move_member=None):
+def expected(baseline, step, remove_member=None, create_playlist=None, append_member=None, move_member=None, rename_playlist=None):
     tracks = []
     children = []
     for t in baseline["tracks"]:
@@ -77,6 +77,13 @@ def expected(baseline, step, remove_member=None, create_playlist=None, append_me
         assert members[index] == track_id, "move expectation differs from PDB"
         members[index], members[destination] = members[destination], members[index]
 
+    if rename_playlist is not None:
+        assert step == 0 and all(x is None for x in (remove_member, create_playlist, append_member, move_member))
+        playlist_id, old_name, new_name = rename_playlist
+        playlist = by_id[int(playlist_id)]
+        assert playlist["name"] == old_name, "rename expectation differs from PDB"
+        playlist["name"] = new_name
+
     nodes = baseline["folders"] + playlists
 
     def folder(parent, name):
@@ -99,13 +106,13 @@ def expected(baseline, step, remove_member=None, create_playlist=None, append_me
     return tracks, children, (root_attrs, root_children)
 
 
-def verify(pdb, xml, step, remove_member=None, create_playlist=None, append_member=None, move_member=None):
+def verify(pdb, xml, step, remove_member=None, create_playlist=None, append_member=None, move_member=None, rename_playlist=None):
     baseline = build_baseline(parse_pdb(pdb.read_bytes()), with_titles=True)
     assert baseline["counts"]["tracks"] == 1330, "baseline tracks"
     assert baseline["counts"]["playlists"] == 20, "baseline playlists"
     assert baseline["counts"]["memberships"] == 901, "baseline memberships"
     assert baseline["unresolved_fields"] == 0, "baseline unresolved"
-    want_tracks, want_children, want_tree = expected(baseline, step, remove_member, create_playlist, append_member, move_member)
+    want_tracks, want_children, want_tree = expected(baseline, step, remove_member, create_playlist, append_member, move_member, rename_playlist)
     # Only test-generated synthetic CLI exports are parsed; no untrusted XML intake.
     root = ET.parse(xml).getroot()
     collection = root.find("COLLECTION")
@@ -137,10 +144,11 @@ def main():
     parser.add_argument("--create-playlist", nargs=2, metavar=("NAME", "TRACK_ID"))
     parser.add_argument("--append-member", type=int, nargs=2, metavar=("PLAYLIST_ID", "TRACK_ID"))
     parser.add_argument("--move-member", type=int, nargs=4, metavar=("PLAYLIST_ID", "INDEX", "DESTINATION", "TRACK_ID"))
+    parser.add_argument("--rename-playlist", nargs=3, metavar=("PLAYLIST_ID", "OLD_NAME", "NEW_NAME"))
     args = parser.parse_args()
     try:
-        verify(args.pdb, args.xml, args.step, args.remove_member, args.create_playlist, args.append_member, args.move_member)
-    except (AssertionError, ValueError, OSError, ET.ParseError) as error:
+        verify(args.pdb, args.xml, args.step, args.remove_member, args.create_playlist, args.append_member, args.move_member, args.rename_playlist)
+    except (AssertionError, KeyError, ValueError, OSError, ET.ParseError) as error:
         print(f"M7 mismatch: {error}", file=sys.stderr)
         return 1
     return 0

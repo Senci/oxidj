@@ -526,7 +526,7 @@ fn rename_cancel_and_same_name_replacement_fail_closed() {
 }
 
 #[test]
-fn nested_playlist_is_not_a_renameable_root_and_collision_refuses() {
+fn nested_playlist_offers_rename_and_root_collision_refuses() {
     let (root, db) = catalog_root("rename-nested");
     Catalog::open(&db)
         .unwrap()
@@ -561,7 +561,7 @@ fn nested_playlist_is_not_a_renameable_root_and_collision_refuses() {
     assert_eq!(shell.app.imported_playlist, Some(vec![1, 0]));
     assert!(shell.app.imported_root_guard.is_none());
     assert!(
-        !nodes(&shell.settle())
+        nodes(&shell.settle())
             .iter()
             .any(|n| n.1.as_deref() == Some("Rename playlist…"))
     );
@@ -775,6 +775,214 @@ fn pdb_move_refuses_stale_playlist_track_order_and_missing_catalog() {
         if case == "missing" {
             assert!(!db.exists());
         }
+        drop(shell);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+}
+
+#[test]
+fn pdb_nested_rename_ui_export_matches_independent_oracle() {
+    let (root, _) = catalog_root("rename-pdb-oracle");
+    let (pdb, source, analysis) = m7_fixture::write(&root.join("device"));
+    let db = root.join("imported.sqlite");
+    oxidj_application::import_library_from_pdb(&pdb, &db, None).unwrap();
+    let before = Catalog::open_read_only(&db)
+        .unwrap()
+        .library_snapshot()
+        .unwrap();
+    let mut shell = Shell::new(&db, 1440.0);
+    shell.screen.max.y = 1800.0;
+    let row = text_rect(&mut shell, "♫ Playlist 19");
+    shell.click(row.center());
+    let out = shell.settle();
+    let out = shell.click(find(&nodes(&out), "Rename playlist…").2.center());
+    shell.app.catalog_rename_name = "Renamed nested".into();
+    shell.click(find(&nodes(&out), "Cancel").2.center());
+    assert_eq!(
+        Catalog::open_read_only(&db)
+            .unwrap()
+            .library_snapshot()
+            .unwrap(),
+        before
+    );
+    let out = shell.settle();
+    let out = shell.click(find(&nodes(&out), "Rename playlist…").2.center());
+    shell.app.catalog_rename_name = "Renamed nested".into();
+    shell.click(find(&nodes(&out), "Confirm rename").2.center());
+    assert!(
+        shell.app.notice.starts_with("Playlist renamed"),
+        "{}",
+        shell.app.notice
+    );
+    let output = root.join("renamed.xml");
+    let menu = shell.click(shell.app.shell.more.unwrap().center());
+    let out = shell.click(find(&nodes(&menu), "Export catalog XML…").2.center());
+    shell.app.catalog_export_path = output.display().to_string();
+    shell.click(find(&nodes(&out), "Export catalog XML").2.center());
+    assert!(
+        shell.app.notice.starts_with("Catalog exported"),
+        "{}",
+        shell.app.notice
+    );
+    let oracle = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../scripts/verify_m7_export.py");
+    let check = |xml: &Path| {
+        std::process::Command::new("python3")
+            .arg("-B")
+            .arg(&oracle)
+            .arg(&pdb)
+            .arg(xml)
+            .args(["--rename-playlist", "118", "Playlist 19", "Renamed nested"])
+            .output()
+            .unwrap()
+    };
+    let result = check(&output);
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let wrong = root.join("wrong.xml");
+    let mutate = "import sys,xml.etree.ElementTree as E; t=E.parse(sys.argv[1]); n=next(x for x in t.iter('NODE') if x.get('Name')=='Renamed nested'); n.set('Name','Wrong'); t.write(sys.argv[2])";
+    assert!(
+        std::process::Command::new("python3")
+            .args(["-c", mutate])
+            .arg(&output)
+            .arg(&wrong)
+            .status()
+            .unwrap()
+            .success()
+    );
+    let rejected = check(&wrong);
+    assert!(!rejected.status.success());
+    assert!(
+        String::from_utf8_lossy(&rejected.stderr)
+            .contains("tree: complete ordered nodes/members differ")
+    );
+    assert_eq!(std::fs::read(&pdb).unwrap(), source);
+    for (path, bytes) in analysis {
+        assert_eq!(std::fs::read(path).unwrap(), bytes);
+    }
+    drop(shell);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn nested_rename_selects_same_named_playlist_by_parent() {
+    use oxidj_library::LibraryNode;
+    let (root, db) = catalog_root("rename-same-name");
+    let mut expected = LibrarySnapshot {
+        tracks: vec![LibraryTrack {
+            title: "Synthetic".into(),
+            location: "file://localhost/test.wav".into(),
+            ..Default::default()
+        }],
+        roots: vec!["First", "Second"]
+            .into_iter()
+            .map(|name| LibraryNode::Folder {
+                name: name.into(),
+                children: vec![LibraryNode::Playlist {
+                    name: "Same".into(),
+                    members: vec![0, 0],
+                }],
+            })
+            .collect(),
+    };
+    Catalog::open(&db)
+        .unwrap()
+        .import_library(&expected)
+        .unwrap();
+    let mut shell = Shell::new(&db, 1440.0);
+    let rows: Vec<_> = texts(&shell.settle())
+        .into_iter()
+        .filter(|(label, _)| label == "♫ Same")
+        .collect();
+    assert_eq!(rows.len(), 2);
+    shell.click(rows[1].1.center());
+    assert_eq!(shell.app.imported_playlist, Some(vec![1, 0]));
+    let out = shell.settle();
+    let out = shell.click(find(&nodes(&out), "Rename playlist…").2.center());
+    shell.app.catalog_rename_name = "Changed".into();
+    shell.click(find(&nodes(&out), "Confirm rename").2.center());
+    assert!(
+        shell.app.notice.starts_with("Playlist renamed"),
+        "{}",
+        shell.app.notice
+    );
+    if let LibraryNode::Folder { children, .. } = &mut expected.roots[1] {
+        if let LibraryNode::Playlist { name, .. } = &mut children[0] {
+            *name = "Changed".into();
+        }
+    }
+    assert_eq!(
+        Catalog::open_read_only(&db)
+            .unwrap()
+            .library_snapshot()
+            .unwrap(),
+        expected
+    );
+    drop(shell);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn nested_rename_ui_refuses_replacement_membership_and_collision() {
+    for case in ["parent", "playlist", "membership", "collision"] {
+        let (root, _) = catalog_root("rename-ui-stale");
+        let (pdb, _, _) = m7_fixture::write(&root.join("device"));
+        let db = root.join("imported.sqlite");
+        oxidj_application::import_library_from_pdb(&pdb, &db, None).unwrap();
+        let mut shell = Shell::new(&db, 1440.0);
+        shell.screen.max.y = 1800.0;
+        let row = text_rect(&mut shell, "♫ Playlist 19");
+        shell.click(row.center());
+        let out = shell.settle();
+        let out = shell.click(find(&nodes(&out), "Rename playlist…").2.center());
+        shell.app.catalog_rename_name = "Clash".into();
+        let script = r#"import sqlite3,sys
+c=sqlite3.connect(sys.argv[1]); case=sys.argv[2]
+p=c.execute("select id from library_nodes where name='Folder A'").fetchone()[0]
+n=c.execute("select id from library_nodes where parent_id=? and name='Playlist 19'",(p,)).fetchone()[0]
+if case in ('parent','playlist'):
+ c.execute('pragma defer_foreign_keys=on'); i=p if case=='parent' else n
+ row=c.execute('select * from library_nodes where id=?',(i,)).fetchone()
+ c.execute('delete from library_nodes where id=?',(i,)); c.execute('insert into library_nodes values(?,?,?,?,?)',row)
+elif case=='membership': c.execute('update library_members set track_position=0 where node_id=? and position=1',(n,))
+else: c.execute("insert into library_nodes(parent_id,sibling_order,name,is_folder) values (?,1,'Clash',0)",(p,))
+c.commit()"#;
+        let mutation = std::process::Command::new("python3")
+            .args(["-c", script])
+            .arg(&db)
+            .arg(case)
+            .output()
+            .unwrap();
+        assert!(
+            mutation.status.success(),
+            "{}",
+            String::from_utf8_lossy(&mutation.stderr)
+        );
+        let before = Catalog::open_read_only(&db)
+            .unwrap()
+            .library_snapshot()
+            .unwrap();
+        shell.click(find(&nodes(&out), "Confirm rename").2.center());
+        let reason = if case == "collision" {
+            "a sibling node with this name already exists"
+        } else {
+            "selected nested playlist is stale"
+        };
+        assert!(
+            shell.app.notice.contains(reason),
+            "{}: {}",
+            case,
+            shell.app.notice
+        );
+        assert_eq!(
+            Catalog::open_read_only(&db)
+                .unwrap()
+                .library_snapshot()
+                .unwrap(),
+            before
+        );
         drop(shell);
         std::fs::remove_dir_all(root).unwrap();
     }

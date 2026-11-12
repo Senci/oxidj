@@ -145,6 +145,7 @@ pub(crate) struct LibraryApp {
     /// Structural node path (not membership, names, or local audio IDs).
     pub(crate) imported_playlist: Option<Vec<usize>>,
     pub(crate) imported_root_guard: Option<oxidj_library::RootPlaylistGuard>,
+    pub(crate) imported_nested_guard: Option<oxidj_library::NestedRenameGuard>,
     pub(crate) catalog_rename_open: bool,
     pub(crate) catalog_rename_name: String,
     pub(crate) catalog_remove_pending:
@@ -352,6 +353,7 @@ impl LibraryApp {
             imported_playlist: None,
             imported_root_guard: None,
             catalog_rename_open: false,
+            imported_nested_guard: None,
             catalog_rename_name: String::new(),
             catalog_remove_pending: None,
             selected_imported_guard: None,

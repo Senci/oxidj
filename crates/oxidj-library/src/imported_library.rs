@@ -113,6 +113,13 @@ pub struct RootPlaylistGuard {
     members: Vec<usize>,
 }
 
+/// Identity and observed state of a selected nested playlist and its ancestors.
+#[derive(Debug, Clone)]
+pub struct NestedRenameGuard {
+    chain: Vec<NestedIdentity>,
+    members: Vec<usize>,
+}
+
 /// Aggregate counts of a snapshot (folders exclude the implicit root).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct LibraryCounts {
@@ -193,7 +200,110 @@ pub struct ImportedTrackGuard {
     visible: LibraryNavigationTrack,
 }
 
+type NestedIdentity = (i64, Vec<u8>, usize, String);
+
+fn nested_chain(
+    tx: &rusqlite::Transaction<'_>,
+    path: &[usize],
+    names: &[String],
+) -> Result<Vec<NestedIdentity>, CatalogError> {
+    use rusqlite::OptionalExtension;
+    let mut parent = None;
+    let mut chain = Vec::new();
+    for (depth, (&index, name)) in path.iter().zip(names).enumerate() {
+        let row: Option<(i64, Vec<u8>, String, i64)> = tx.query_row(
+            "SELECT n.id,i.token,n.name,n.is_folder FROM library_nodes n JOIN library_node_identity i ON i.node_id=n.id WHERE n.parent_id IS ?1 ORDER BY n.sibling_order,n.id LIMIT 1 OFFSET ?2",
+            rusqlite::params![parent, to_i64(index)?], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?)),
+        ).optional()?;
+        let (id, token, actual, folder) = row.ok_or(CatalogError::InvalidRecord(
+            "selected nested playlist is stale",
+        ))?;
+        if actual != *name || (depth + 1 < path.len()) != (folder != 0) {
+            return Err(CatalogError::InvalidRecord(
+                "selected nested playlist is stale",
+            ));
+        }
+        parent = Some(id);
+        chain.push((id, token, index, actual));
+    }
+    Ok(chain)
+}
+
+fn nested_members(tx: &rusqlite::Transaction<'_>, id: i64) -> Result<Vec<usize>, CatalogError> {
+    let mut stmt = tx
+        .prepare("SELECT track_position FROM library_members WHERE node_id=?1 ORDER BY position")?;
+    let rows = stmt.query_map([id], |r| {
+        r.get::<_, i64>(0).and_then(|v| {
+            usize::try_from(v).map_err(|_| rusqlite::Error::IntegralValueOutOfRange(0, v))
+        })
+    })?;
+    Ok(rows.collect::<Result<_, _>>()?)
+}
+
 impl Catalog {
+    /// Bind a nested visible selection and its ancestors to durable identities.
+    pub fn nested_rename_guard(
+        &self,
+        path: &[usize],
+        names: &[String],
+        members: &[usize],
+    ) -> Result<NestedRenameGuard, CatalogError> {
+        if path.len() < 2 || path.len() != names.len() {
+            return Err(CatalogError::InvalidRecord("invalid nested playlist path"));
+        }
+        let tx = self.connection.unchecked_transaction()?;
+        let chain = nested_chain(&tx, path, names)?;
+        if nested_members(&tx, chain.last().unwrap().0)? != members {
+            return Err(CatalogError::InvalidRecord(
+                "selected nested playlist is stale",
+            ));
+        }
+        tx.commit()?;
+        Ok(NestedRenameGuard {
+            chain,
+            members: members.to_vec(),
+        })
+    }
+
+    /// Revalidate ancestry, membership and sibling names in the write transaction.
+    pub fn rename_guarded_nested_playlist(
+        &mut self,
+        guard: &NestedRenameGuard,
+        new_name: &str,
+    ) -> Result<NestedRenameGuard, CatalogError> {
+        validate_library_playlist_name(new_name)?;
+        let tx = self
+            .connection
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let path: Vec<_> = guard.chain.iter().map(|n| n.2).collect();
+        let names: Vec<_> = guard.chain.iter().map(|n| n.3.clone()).collect();
+        let chain = nested_chain(&tx, &path, &names)?;
+        let id = chain.last().unwrap().0;
+        let parent = chain[chain.len() - 2].0;
+        if chain != guard.chain || nested_members(&tx, id)? != guard.members {
+            return Err(CatalogError::InvalidRecord(
+                "selected nested playlist is stale",
+            ));
+        }
+        let collision: bool = tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM library_nodes WHERE parent_id=?1 AND name=?2)",
+            rusqlite::params![parent, new_name],
+            |r| r.get(0),
+        )?;
+        if collision {
+            return Err(CatalogError::InvalidRecord(
+                "a sibling node with this name already exists",
+            ));
+        }
+        tx.execute(
+            "UPDATE library_nodes SET name=?1 WHERE id=?2",
+            rusqlite::params![new_name, id],
+        )?;
+        tx.commit()?;
+        let mut renamed = guard.clone();
+        renamed.chain.last_mut().unwrap().3 = new_name.to_owned();
+        Ok(renamed)
+    }
     /// Capture the selected visible row and replacement-resistant identity.
     pub fn imported_track_guard(
         &self,
@@ -1546,6 +1656,93 @@ mod tests {
                     ],
                 },
             ],
+        }
+    }
+
+    #[test]
+    fn nested_rename_guards_ancestry_membership_collision_and_duplicate_names() {
+        for case in [
+            "parent-replaced",
+            "playlist-replaced",
+            "moved",
+            "membership",
+            "collision",
+            "success",
+        ] {
+            let mut catalog = Catalog::open(path()).unwrap();
+            let mut original = snapshot();
+            if let LibraryNode::Folder { children, .. } = &mut original.roots[1]
+                && let LibraryNode::Playlist { members, .. } = &mut children[0]
+            {
+                *members = vec![1, 0, 1];
+            }
+            original.roots.push(LibraryNode::Folder {
+                name: "Other".into(),
+                children: vec![LibraryNode::Playlist {
+                    name: "Inner".into(),
+                    members: vec![2],
+                }],
+            });
+            catalog.import_library(&original).unwrap();
+            let guard = catalog
+                .nested_rename_guard(&[1, 0], &["Folder".into(), "Inner".into()], &[1, 0, 1])
+                .unwrap();
+            let parent = guard.chain[0].0;
+            let playlist = guard.chain[1].0;
+            match case {
+                "parent-replaced" | "playlist-replaced" => {
+                    let id = if case == "parent-replaced" {
+                        parent
+                    } else {
+                        playlist
+                    };
+                    let tx = catalog.connection.transaction().unwrap();
+                    tx.execute_batch("PRAGMA defer_foreign_keys=ON; CREATE TEMP TABLE saved_node AS SELECT * FROM library_nodes WHERE 0;").unwrap();
+                    tx.execute(
+                        "INSERT INTO saved_node SELECT * FROM library_nodes WHERE id=?1",
+                        [id],
+                    )
+                    .unwrap();
+                    tx.execute("DELETE FROM library_nodes WHERE id=?1", [id])
+                        .unwrap();
+                    tx.execute("INSERT INTO library_nodes SELECT * FROM saved_node", [])
+                        .unwrap();
+                    tx.execute_batch("DROP TABLE saved_node").unwrap();
+                    tx.commit().unwrap();
+                }
+                "moved" => {
+                    catalog.connection.execute("UPDATE library_nodes SET parent_id=(SELECT id FROM library_nodes WHERE name='Other'), sibling_order=1 WHERE id=?1", [playlist]).unwrap();
+                }
+                "membership" => {
+                    catalog.connection.execute("UPDATE library_members SET track_position=2 WHERE node_id=?1 AND position=1", [playlist]).unwrap();
+                }
+                _ => {}
+            }
+            let before = catalog.library_snapshot().unwrap();
+            let result = catalog.rename_guarded_nested_playlist(
+                &guard,
+                if case == "collision" { "Alpha" } else { "New" },
+            );
+            if case == "success" {
+                result.unwrap();
+                if let LibraryNode::Folder { children, .. } = &mut original.roots[1]
+                    && let LibraryNode::Playlist { name, .. } = &mut children[0]
+                {
+                    *name = "New".into();
+                }
+                assert_eq!(catalog.library_snapshot().unwrap(), original);
+            } else {
+                let expected = if case == "collision" {
+                    "a sibling node with this name already exists"
+                } else {
+                    "selected nested playlist is stale"
+                };
+                assert!(
+                    matches!(result, Err(CatalogError::InvalidRecord(reason)) if reason == expected),
+                    "{case}"
+                );
+                assert_eq!(catalog.library_snapshot().unwrap(), before, "{case}");
+            }
         }
     }
 
