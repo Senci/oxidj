@@ -445,6 +445,10 @@ fn hex_decode(value: &str) -> Option<String> {
 impl Settings {
     pub(crate) fn output_config(&self, mut config: oxidj_audio::OutputConfig) -> oxidj_audio::OutputConfig {
         if let Some((host, device)) = &self.audio_device {
+            if config.implicit_device_rate { config.sample_rate = None; }
+            if config.implicit_device_channels { config.channels = None; }
+            config.implicit_device_rate = false;
+            config.implicit_device_channels = false;
             config.host = Some(host.clone());
             config.device = Some(device.clone());
         }

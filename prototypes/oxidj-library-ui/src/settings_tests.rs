@@ -13,6 +13,22 @@ use std::path::{Path, PathBuf};
 type Frame = egui::FullOutput;
 
 #[test]
+fn saved_device_does_not_inherit_other_devices_implicit_format() {
+    let settings = Settings { audio_device: Some(("host".into(), "new-id".into())), ..Settings::default() };
+    let env = oxidj_audio::OutputConfig::from_lookup(|key| (key == "OXIDJ_AUDIO_DEVICE").then(|| "old-device".into()));
+    let config = settings.output_config(env);
+    assert_eq!((config.sample_rate, config.channels), (None, None));
+    let explicit = oxidj_audio::OutputConfig::from_lookup(|key| match key {
+        "OXIDJ_AUDIO_DEVICE" => Some("old-device".into()),
+        "OXIDJ_AUDIO_RATE" => Some("44100".into()),
+        "OXIDJ_AUDIO_CHANNELS" => Some("2".into()),
+        _ => None,
+    });
+    let config = settings.output_config(explicit);
+    assert_eq!((config.sample_rate, config.channels), (Some(44100), Some(2)));
+}
+
+#[test]
 fn output_device_selection_persists_and_combines_with_environment() {
     let root = temp_root("device-settings");
     let mut h = Harness::new(root.join("catalog.sqlite"));

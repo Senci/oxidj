@@ -149,6 +149,10 @@ pub struct OutputConfig {
     /// by [`list_outputs`] (refused when two devices share it); `None` = the
     /// host's default output.
     pub device: Option<String>,
+    /// Format values derived from a named environment device rather than explicitly set.
+    pub implicit_device_rate: bool,
+    /// Channel count derived from a named environment device.
+    pub implicit_device_channels: bool,
     /// Device sample rate in Hz; `None` = the device default.
     pub sample_rate: Option<u32>,
     /// Requested callback size in frames (latency); `None` = host default.
@@ -205,7 +209,7 @@ impl OutputConfig {
     }
 
     /// [`OutputConfig::from_env`] over any key lookup.
-    pub(crate) fn from_lookup(get: impl Fn(&str) -> Option<String>) -> Self {
+    pub fn from_lookup(get: impl Fn(&str) -> Option<String>) -> Self {
         let text = |k: &str| get(k).filter(|v| !v.trim().is_empty());
         let number = |k: &str| text(k).and_then(|v| v.trim().parse::<u32>().ok());
         let device = text("OXIDJ_AUDIO_DEVICE");
@@ -225,6 +229,12 @@ impl OutputConfig {
         Self {
             host: text("OXIDJ_AUDIO_HOST"),
             device,
+            implicit_device_rate: named && number("OXIDJ_AUDIO_RATE").is_none(),
+            implicit_device_channels: named
+                && !split
+                && number("OXIDJ_AUDIO_CHANNELS")
+                    .and_then(|c| u16::try_from(c).ok())
+                    .is_none(),
             sample_rate: number("OXIDJ_AUDIO_RATE").or(named.then_some(48_000)),
             buffer_frames: number("OXIDJ_AUDIO_BUFFER"),
             channels: number("OXIDJ_AUDIO_CHANNELS")
