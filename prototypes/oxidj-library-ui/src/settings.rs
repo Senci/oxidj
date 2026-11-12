@@ -92,7 +92,7 @@ pub enum TempoRange {
 }
 
 /// Every user-configurable option except the theme (see the module docs).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Settings {
     pub waveform_style: Style,
     /// Anti-aliased waveform edges.
@@ -133,6 +133,8 @@ pub struct Settings {
     pub limiter: bool,
     /// None inherits the environment; Some(None) requests the host default.
     pub audio_buffer: Option<Option<u32>>,
+    /// None inherits the environment; Some selects an exact host and device ID.
+    pub audio_device: Option<(String, String)>,
 }
 
 /// Mixer width as a share of the screen width.
@@ -255,6 +257,7 @@ impl Default for Settings {
             mirror_b: false,
             limiter: true,
             audio_buffer: None,
+            audio_device: None,
         }
     }
 }
@@ -340,6 +343,7 @@ impl Settings {
             b(self.show_meta),
             b(self.mirror_b),
         ) + &sections + &format!(";limiter={}", b(self.limiter))
+            + &self.audio_device.as_ref().map(|(host, id)| format!(";audio_device={}:{}", hex_encode(host), hex_encode(id))).unwrap_or_default()
             + &self.audio_buffer.map(|buffer| format!(";audio_buffer={}", buffer.map_or_else(|| "host".to_owned(), |n| n.to_string()))).unwrap_or_default()
     }
 
@@ -359,6 +363,9 @@ impl Settings {
                 "deck_meta" => s.show_meta = parse_bool(value).unwrap_or(s.show_meta),
                 "mirror_b" => s.mirror_b = parse_bool(value).unwrap_or(s.mirror_b),
                 "limiter" => s.limiter = parse_bool(value).unwrap_or(s.limiter),
+                "audio_device" => {
+                    s.audio_device = value.split_once(':').and_then(|(h, d)| Some((hex_decode(h)?, hex_decode(d)?))).filter(|(h, d)| !h.is_empty() && !d.is_empty());
+                }
                 "audio_buffer" => {
                     s.audio_buffer = if value == "host" { Some(None) } else {
                         value.parse::<u32>().ok().filter(|n| (64..=2048).contains(n)).map(Some)
@@ -420,11 +427,38 @@ impl Settings {
     }
 }
 
+fn hex_encode(value: &str) -> String {
+    use std::fmt::Write;
+    let mut result = String::new();
+    for byte in value.as_bytes() { write!(result, "{byte:02x}").unwrap(); }
+    result
+}
+
+fn hex_decode(value: &str) -> Option<String> {
+    if !value.len().is_multiple_of(2) || !value.is_ascii() { return None; }
+    let bytes = value.as_bytes().chunks_exact(2).map(|pair| {
+        u8::from_str_radix(std::str::from_utf8(pair).ok()?, 16).ok()
+    }).collect::<Option<Vec<_>>>()?;
+    String::from_utf8(bytes).ok()
+}
+
+impl Settings {
+    pub(crate) fn output_config(&self, mut config: oxidj_audio::OutputConfig) -> oxidj_audio::OutputConfig {
+        if let Some((host, device)) = &self.audio_device {
+            config.host = Some(host.clone());
+            config.device = Some(device.clone());
+        }
+        if let Some(buffer) = self.audio_buffer { config.buffer_frames = buffer; }
+        config
+    }
+}
+
 /// Window state that is not a setting (focus return, test rects).
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub(crate) struct SettingsUi {
     pub(crate) open: bool,
     pub(crate) tab: usize,
+    pub(crate) outputs: Vec<oxidj_audio::OutputInfo>,
     /// Widget focused before the window opened; refocused on close.
     return_focus: Option<egui::Id>,
     /// Focus the first control on the frame after opening.
@@ -483,6 +517,8 @@ impl LibraryApp {
         if open && !state.open {
             state.return_focus = ctx.memory(|m| m.focused());
             state.focus_first = true;
+            #[cfg(not(test))]
+            { state.outputs = oxidj_audio::list_outputs(); }
         } else if !open && state.open {
             let back = state.return_focus.take();
             ctx.memory_mut(|m| match back {
@@ -640,6 +676,25 @@ impl LibraryApp {
             SectionHeading { title: "Deck view" }.show(ui, tokens);
             let s = &mut self.settings;
             layout.limiter = Some(toggle_row(ui, tokens, "Master limiter", &mut s.limiter).rect);
+            ui.label("Output device (takes effect after restart)");
+            if ui.selectable_label(s.audio_device.is_none(), "Environment / automatic").clicked() {
+                s.audio_device = None;
+            }
+            if self.settings_ui.outputs.is_empty() {
+                ui.label("No output devices found (enumeration may have failed).");
+            }
+            if let Some((host, id)) = &s.audio_device {
+                if !self.settings_ui.outputs.iter().any(|o| &o.host == host && &o.id == id) {
+                    ui.label(format!("Saved output not found in last enumeration (which may have failed): {host} / {id}"));
+                }
+            }
+            for output in &self.settings_ui.outputs {
+                if output.id.is_empty() { continue; }
+                let selected = s.audio_device.as_ref().is_some_and(|(host, id)| host == &output.host && id == &output.id);
+                if ui.selectable_label(selected, format!("{} — {} ({})", output.host, output.device, output.id)).clicked() {
+                    s.audio_device = Some((output.host.clone(), output.id.clone()));
+                }
+            }
             ui.label("Output buffer (takes effect after restart)");
             ui.horizontal_wrapped(|ui| {
                 for (label, choice) in [
@@ -797,6 +852,12 @@ mod tests {
     }
 
     #[test]
+    fn audio_device_choice_round_trips_arbitrary_strings() {
+        let raw = "audio_device=4a3b3d:69643b3d";
+        assert!(Settings::decode(raw).encode().contains(raw));
+    }
+
+    #[test]
     fn audio_buffer_choice_round_trips_without_disturbing_old_settings() {
         for raw in ["audio_buffer=host", "audio_buffer=256", "audio_buffer=2048"] {
             let saved = Settings::decode(raw).encode();
@@ -839,6 +900,7 @@ mod tests {
             mirror_b: true,
             limiter: false,
             audio_buffer: None,
+            audio_device: None,
         };
         let mut storage = MemoryStorage::default();
         edited.save(&mut storage);

@@ -59,11 +59,7 @@ fn main() -> eframe::Result<()> {
             let (theme, custom_tokens) = ThemeMode::load(cc.storage);
             let mut app = LibraryApp::new(db, theme, custom_tokens);
             app.settings = settings::Settings::load(cc.storage);
-            // Preserve every environment choice except an explicit UI buffer choice.
-            let mut output = oxidj_audio::OutputConfig::from_env();
-            if let Some(buffer) = app.settings.audio_buffer {
-                output.buffer_frames = buffer;
-            }
+            let output = app.settings.output_config(oxidj_audio::OutputConfig::from_env());
             app.decks.attach(oxidj_audio::Engine::start_with(output));
             Ok(Box::new(app))
         }),
