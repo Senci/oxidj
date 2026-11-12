@@ -106,7 +106,75 @@ pub enum TempoRange {
 
 /// Every user-configurable option except the theme (see the module docs).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TableColumns {
+    pub order: [u8; 6],
+    pub visible: [bool; 6],
+    pub widths: [u16; 6],
+}
+
+impl Default for TableColumns {
+    fn default() -> Self {
+        Self {
+            order: [0, 1, 2, 3, 4, 5],
+            visible: [true; 6],
+            widths: [36, 80, 210, 160, 90, 100],
+        }
+    }
+}
+
+impl TableColumns {
+    fn encode(self) -> String {
+        self.order
+            .iter()
+            .map(|&i| {
+                format!(
+                    "{}:{}:{}",
+                    i,
+                    u8::from(self.visible[i as usize]),
+                    self.widths[i as usize]
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(",")
+    }
+
+    fn decode(raw: &str) -> Option<Self> {
+        let mut result = Self::default();
+        let mut seen = [false; 6];
+        let entries: Vec<_> = raw.split(',').collect();
+        if entries.len() != 6 {
+            return None;
+        }
+        for (position, entry) in entries.iter().enumerate() {
+            let values: Vec<_> = entry.split(':').collect();
+            if values.len() != 3 {
+                return None;
+            }
+            let i = values[0].parse::<usize>().ok()?;
+            if i >= 6 || seen[i] {
+                return None;
+            }
+            let visible = parse_bool(values[1])?;
+            let width = values[2].parse::<u16>().ok()?;
+            if !(24..=2000).contains(&width) {
+                return None;
+            }
+            seen[i] = true;
+            result.order[position] = i as u8;
+            result.visible[i] = visible;
+            result.widths[i] = width;
+        }
+        if !result.visible.iter().any(|v| *v) {
+            return None;
+        }
+        Some(result)
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Settings {
+    pub catalog_columns: TableColumns,
+    pub playlist_columns: TableColumns,
     pub waveform_style: Style,
     /// Anti-aliased waveform edges.
     pub smooth: bool,
@@ -346,6 +414,8 @@ impl DeckSections {
 impl Default for Settings {
     fn default() -> Self {
         Self {
+            catalog_columns: TableColumns::default(),
+            playlist_columns: TableColumns::default(),
             waveform_style: Style::Mono,
             smooth: true,
             auto_gain: true,
@@ -459,6 +529,11 @@ impl Settings {
             b(self.mirror_b),
             name_of(&ARRANGEMENTS, self.arrangement),
         ) + &sections
+            + &format!(
+                ";columns_catalog={};columns_playlist={}",
+                self.catalog_columns.encode(),
+                self.playlist_columns.encode()
+            )
     }
 
     /// Never fails: unknown names are ignored and an invalid value keeps
@@ -468,6 +543,12 @@ impl Settings {
         for (key, value) in raw.split(';').filter_map(|pair| pair.split_once('=')) {
             let value = value.trim();
             match key.trim() {
+                "columns_catalog" => {
+                    s.catalog_columns = TableColumns::decode(value).unwrap_or(s.catalog_columns)
+                }
+                "columns_playlist" => {
+                    s.playlist_columns = TableColumns::decode(value).unwrap_or(s.playlist_columns)
+                }
                 "mixer_density" => {
                     s.mixer.density = parse_in(&DENSITIES, value).unwrap_or(s.mixer.density)
                 }
@@ -535,6 +616,22 @@ impl Settings {
 
     pub fn save(&self, storage: &mut dyn eframe::Storage) {
         storage.set_string(SETTINGS_KEY, self.encode());
+    }
+}
+
+#[cfg(test)]
+mod column_persistence_regression {
+    use super::Settings;
+
+    #[test]
+    fn stored_column_layout_survives_settings_roundtrip() {
+        let layout = "2:1:210,0:0:36,1:1:80,3:1:160,4:1:90,5:1:100";
+        let restored = Settings::decode(&format!("columns_catalog={layout}"));
+        assert!(
+            restored
+                .encode()
+                .contains(&format!("columns_catalog={layout}"))
+        );
     }
 }
 
@@ -972,6 +1069,7 @@ mod tests {
             show_meta: false,
             mirror_b: true,
             arrangement: DeckArrangement::C,
+            ..Settings::default()
         };
         let mut storage = MemoryStorage::default();
         edited.save(&mut storage);
