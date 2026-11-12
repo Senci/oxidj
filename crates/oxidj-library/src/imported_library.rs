@@ -657,6 +657,87 @@ impl Catalog {
         Ok(())
     }
 
+    /// Move one selected occurrence while playlist, order and track identity still match.
+    pub fn move_guarded_root_playlist_member(
+        &mut self,
+        guard: &RootPlaylistGuard,
+        track: &ImportedTrackGuard,
+        index: usize,
+        destination: usize,
+    ) -> Result<(), CatalogError> {
+        use rusqlite::OptionalExtension;
+        let tx = self
+            .connection
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let current: Option<(i64, Vec<u8>, String, i64)> = tx.query_row(
+            "SELECT n.id, i.token, n.name, n.is_folder FROM library_nodes n JOIN library_node_identity i ON i.node_id=n.id WHERE n.parent_id IS NULL ORDER BY n.sibling_order, n.id LIMIT 1 OFFSET ?1",
+            [to_i64(guard.index)?], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+        ).optional()?;
+        if current != Some((guard.id, guard.token.clone(), guard.name.clone(), 0)) {
+            return Err(CatalogError::InvalidRecord(
+                "selected root playlist is stale",
+            ));
+        }
+        let rows = {
+            let mut stmt = tx.prepare("SELECT position, track_position FROM library_members WHERE node_id=?1 ORDER BY position")?;
+            stmt.query_map([guard.id], |r| {
+                Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?))
+            })?
+            .collect::<Result<Vec<_>, _>>()?
+        };
+        let expected = guard
+            .members
+            .iter()
+            .map(|&v| to_i64(v))
+            .collect::<Result<Vec<_>, _>>()?;
+        if rows.iter().map(|row| row.1).ne(expected.iter().copied()) {
+            return Err(CatalogError::InvalidRecord(
+                "playlist membership order is stale",
+            ));
+        }
+        if index.abs_diff(destination) != 1 || destination >= rows.len() || index >= rows.len() {
+            return Err(CatalogError::InvalidRecord(
+                "playlist member move is out of range",
+            ));
+        }
+        if rows[index].1 != to_i64(track.position)? {
+            return Err(CatalogError::InvalidRecord(
+                "playlist member ID does not match",
+            ));
+        }
+        let row: Option<ImportedTrackRow> = tx.query_row(
+            "SELECT i.token,t.title,t.location,t.artist,t.album,t.tempo_hundredths_bpm,t.duration_seconds,t.musical_key FROM library_tracks t JOIN library_track_identity i ON i.track_position=t.position WHERE t.position=?1",
+            [to_i64(track.position)?], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?,r.get(5)?,r.get(6)?,r.get(7)?)),
+        ).optional()?;
+        let v = &track.visible;
+        if row
+            != Some((
+                track.token.clone(),
+                v.title.clone(),
+                v.location.clone(),
+                v.artist.clone(),
+                v.album.clone(),
+                i64::from(v.tempo_hundredths_bpm),
+                i64::from(v.duration_seconds),
+                v.key.clone(),
+            ))
+        {
+            return Err(CatalogError::InvalidRecord(
+                "selected imported track is stale",
+            ));
+        }
+        tx.execute(
+            "UPDATE library_members SET track_position=?1 WHERE node_id=?2 AND position=?3",
+            rusqlite::params![rows[destination].1, guard.id, rows[index].0],
+        )?;
+        tx.execute(
+            "UPDATE library_members SET track_position=?1 WHERE node_id=?2 AND position=?3",
+            rusqlite::params![rows[index].1, guard.id, rows[destination].0],
+        )?;
+        tx.commit()?;
+        Ok(())
+    }
+
     /// Remove a selected occurrence only while the captured root identity remains valid.
     pub fn remove_guarded_root_playlist_member(
         &mut self,

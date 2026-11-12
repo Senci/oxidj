@@ -1622,6 +1622,77 @@ impl LibraryApp {
                     self.catalog_rename_open = true;
                 }
             }
+            if let (Some(guard), Some(track), Some(index), Some(member), Some(path)) = (
+                self.imported_root_guard.clone(),
+                self.selected_imported_guard.clone(),
+                self.imported_member,
+                self.selected_imported,
+                self.imported_playlist.clone(),
+            ) {
+                if path.len() == 1 {
+                    if let Some(oxidj_library::LibraryNode::Playlist { members, .. }) =
+                        snapshot.roots.get(path[0])
+                    {
+                        let up = ui
+                            .add_enabled(index > 0, egui::Button::new("Move selected up"))
+                            .clicked();
+                        let down = ui
+                            .add_enabled(
+                                index.checked_add(1).is_some_and(|i| i < members.len()),
+                                egui::Button::new("Move selected down"),
+                            )
+                            .clicked();
+                        let target = if up {
+                            index.checked_sub(1)
+                        } else if down {
+                            index.checked_add(1)
+                        } else {
+                            None
+                        };
+                        if let Some(target) = target {
+                            let result = if !self.db_path.is_file() {
+                                Err("catalog is no longer available".to_owned())
+                            } else {
+                                self.catalog
+                                    .as_mut()
+                                    .map_err(|_| "catalog unavailable".to_owned())
+                                    .and_then(|db| {
+                                        db.move_guarded_root_playlist_member(
+                                            &guard, &track, index, target,
+                                        )
+                                        .map_err(|e| e.to_string())
+                                    })
+                            };
+                            match result {
+                                Ok(()) => {
+                                    self.reload();
+                                    self.imported_member = Some(target);
+                                    self.selected_imported = Some(member);
+                                    self.imported_root_guard =
+                                        self.imported_navigation.as_ref().ok().and_then(|nav| {
+                                            let oxidj_library::LibraryNode::Playlist {
+                                                name,
+                                                members,
+                                            } = nav.roots.get(path[0])?
+                                            else {
+                                                return None;
+                                            };
+                                            self.catalog
+                                                .as_ref()
+                                                .ok()?
+                                                .root_playlist_guard(path[0], name, members)
+                                                .ok()
+                                        });
+                                    self.notice = "Playlist member moved".into();
+                                }
+                                Err(error) => {
+                                    self.notice = format!("Playlist move refused: {error}")
+                                }
+                            }
+                        }
+                    }
+                }
+            }
             if let (Some(guard), Some(index), Some(member)) = (
                 &self.imported_root_guard,
                 self.imported_member,

@@ -103,6 +103,68 @@ fn imported(db: &Path, root: &Path) {
 }
 
 #[test]
+fn selected_root_playlist_occurrence_can_move_down() {
+    let (root, db) = catalog_root("move-root");
+    imported(&db, &root);
+    let mut shell = Shell::new(&db, 1440.0);
+    let row = text_rect(&mut shell, "♫ Browse");
+    shell.click(row.center());
+    let row = text_rect(&mut shell, "1 · Imported title");
+    shell.click(row.center());
+    let out = shell.settle();
+    shell.click(find(&nodes(&out), "Move selected up").2.center());
+    assert_eq!(shell.app.imported_member, Some(0));
+    let out = shell.settle();
+    shell.click(find(&nodes(&out), "Move selected down").2.center());
+    assert_eq!(shell.app.imported_member, Some(1));
+    let out = shell.settle();
+    shell.click(find(&nodes(&out), "Move selected down").2.center());
+    assert_eq!(shell.app.imported_member, Some(1));
+    drop(shell);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn move_second_duplicate_preserves_other_occurrences() {
+    let (root, _) = catalog_root("move-duplicate");
+    let (pdb, _, _) = m7_fixture::write(&root.join("device"));
+    let db = root.join("imported.sqlite");
+    oxidj_application::import_library_from_pdb(&pdb, &db, None).unwrap();
+    Catalog::open(&db)
+        .unwrap()
+        .create_library_playlist("Browse", &[0, 1, 0])
+        .unwrap();
+    let before = Catalog::open_read_only(&db)
+        .unwrap()
+        .library_snapshot()
+        .unwrap();
+    let mut shell = Shell::new(&db, 1440.0);
+    shell.screen.max.y = 1800.0;
+    let row = text_rect(&mut shell, "♫ Browse");
+    shell.click(row.center());
+    let row = text_rect(&mut shell, "3 · Track 1");
+    shell.click(row.center());
+    let out = shell.settle();
+    shell.click(find(&nodes(&out), "Move selected up").2.center());
+    assert_eq!(shell.app.imported_member, Some(1));
+    let mut expected = before;
+    let oxidj_library::LibraryNode::Playlist { members, .. } = expected.roots.last_mut().unwrap()
+    else {
+        panic!("fixture")
+    };
+    members.swap(1, 2);
+    assert_eq!(
+        Catalog::open_read_only(&db)
+            .unwrap()
+            .library_snapshot()
+            .unwrap(),
+        expected
+    );
+    drop(shell);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn selected_imported_track_can_append_to_selected_root_playlist() {
     let (root, db) = catalog_root("append-root");
     imported(&db, &root);
@@ -651,6 +713,169 @@ mod m7_fixture {
 }
 
 #[test]
+fn pdb_move_refuses_stale_playlist_track_order_and_missing_catalog() {
+    for case in ["track", "playlist", "order", "missing"] {
+        let (root, _) = catalog_root(&format!("move-stale-{case}"));
+        let (pdb, _, _) = m7_fixture::write(&root.join("device"));
+        let db = root.join("imported.sqlite");
+        oxidj_application::import_library_from_pdb(&pdb, &db, None).unwrap();
+        let mut shell = Shell::new(&db, 1440.0);
+        shell.screen.max.y = 1800.0;
+        let row = text_rect(&mut shell, "♫ Playlist 1");
+        shell.click(row.center());
+        let row = text_rect(&mut shell, "2 · Track 2");
+        shell.click(row.center());
+        let moved = root.join("moved.sqlite");
+        if case == "missing" {
+            std::fs::rename(&db, &moved).unwrap();
+        } else {
+            let sql = match case {
+                "track" => {
+                    "CREATE TEMP TABLE saved AS SELECT * FROM library_tracks WHERE position=1; DELETE FROM library_tracks WHERE position=1; INSERT INTO library_tracks SELECT * FROM saved;"
+                }
+                "playlist" => {
+                    "CREATE TEMP TABLE saved AS SELECT * FROM library_nodes WHERE id=(SELECT id FROM library_nodes WHERE parent_id IS NULL ORDER BY sibling_order,id LIMIT 1); DELETE FROM library_nodes WHERE id=(SELECT id FROM saved); INSERT INTO library_nodes SELECT * FROM saved;"
+                }
+                _ => {
+                    "CREATE TEMP TABLE saved AS SELECT position,track_position FROM library_members WHERE node_id=(SELECT id FROM library_nodes WHERE parent_id IS NULL ORDER BY sibling_order,id LIMIT 1) AND position IN (0,1); UPDATE library_members SET track_position=(SELECT track_position FROM saved WHERE saved.position=1-library_members.position) WHERE node_id=(SELECT id FROM library_nodes WHERE parent_id IS NULL ORDER BY sibling_order,id LIMIT 1) AND position IN (0,1);"
+                }
+            };
+            let result = std::process::Command::new("python3").args(["-c", "import sqlite3,sys; c=sqlite3.connect(sys.argv[1]); c.executescript(sys.argv[2]); c.commit()"]).arg(&db).arg(sql).output().unwrap();
+            assert!(
+                result.status.success(),
+                "{}",
+                String::from_utf8_lossy(&result.stderr)
+            );
+        }
+        let path = if case == "missing" { &moved } else { &db };
+        let before = Catalog::open_read_only(path)
+            .unwrap()
+            .library_snapshot()
+            .unwrap();
+        let out = shell.settle();
+        shell.click(find(&nodes(&out), "Move selected up").2.center());
+        let reason = match case {
+            "track" => "selected imported track is stale",
+            "playlist" => "selected root playlist is stale",
+            "order" => "playlist membership order is stale",
+            _ => "catalog is no longer available",
+        };
+        assert!(
+            shell.app.notice.contains(reason),
+            "{case}: {}",
+            shell.app.notice
+        );
+        assert_eq!(
+            Catalog::open_read_only(path)
+                .unwrap()
+                .library_snapshot()
+                .unwrap(),
+            before
+        );
+        if case == "missing" {
+            assert!(!db.exists());
+        }
+        drop(shell);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+}
+
+#[test]
+fn pdb_move_ui_exports_exact_order_against_independent_oracle() {
+    let (root, _) = catalog_root("move-pdb-oracle");
+    let (pdb, source, analysis) = m7_fixture::write(&root.join("device"));
+    let db = root.join("imported.sqlite");
+    oxidj_application::import_library_from_pdb(&pdb, &db, None).unwrap();
+    let before = Catalog::open_read_only(&db)
+        .unwrap()
+        .library_snapshot()
+        .unwrap();
+    let mut shell = Shell::new(&db, 1440.0);
+    shell.screen.max.y = 1800.0;
+    let row = text_rect(&mut shell, "♫ Playlist 1");
+    shell.click(row.center());
+    let row = text_rect(&mut shell, "2 · Track 2");
+    shell.click(row.center());
+    let out = shell.settle();
+    shell.click(find(&nodes(&out), "Move selected up").2.center());
+    assert_eq!(shell.app.imported_member, Some(0));
+    let out = shell.settle();
+    shell.click(find(&nodes(&out), "Move selected down").2.center());
+    assert_eq!(shell.app.imported_member, Some(1));
+    assert_eq!(
+        Catalog::open_read_only(&db)
+            .unwrap()
+            .library_snapshot()
+            .unwrap(),
+        before
+    );
+    let out = shell.settle();
+    shell.click(find(&nodes(&out), "Move selected up").2.center());
+    let mut expected = before;
+    let oxidj_library::LibraryNode::Playlist { members, .. } = &mut expected.roots[0] else {
+        panic!("fixture")
+    };
+    members.swap(0, 1);
+    assert_eq!(
+        Catalog::open_read_only(&db)
+            .unwrap()
+            .library_snapshot()
+            .unwrap(),
+        expected
+    );
+    let output = root.join("moved.xml");
+    let menu = shell.click(shell.app.shell.more.unwrap().center());
+    let out = shell.click(find(&nodes(&menu), "Export catalog XML…").2.center());
+    shell.app.catalog_export_path = output.display().to_string();
+    shell.click(find(&nodes(&out), "Export catalog XML").2.center());
+    assert!(
+        shell.app.notice.starts_with("Catalog exported"),
+        "{}",
+        shell.app.notice
+    );
+    let oracle = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../scripts/verify_m7_export.py");
+    let check = |xml: &Path| {
+        std::process::Command::new("python3")
+            .arg("-B")
+            .arg(&oracle)
+            .arg(&pdb)
+            .arg(xml)
+            .args(["--move-member", "100", "1", "0", "2"])
+            .output()
+            .unwrap()
+    };
+    let result = check(&output);
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let wrong = root.join("wrong.xml");
+    let mutate = "import sys,xml.etree.ElementTree as E; t=E.parse(sys.argv[1]); n=t.find('./PLAYLISTS/NODE/NODE'); a=n[0].get('Key'); n[0].set('Key',n[1].get('Key')); n[1].set('Key',a); t.write(sys.argv[2])";
+    assert!(
+        std::process::Command::new("python3")
+            .args(["-c", mutate])
+            .arg(&output)
+            .arg(&wrong)
+            .status()
+            .unwrap()
+            .success()
+    );
+    let rejected = check(&wrong);
+    assert!(!rejected.status.success());
+    assert!(
+        String::from_utf8_lossy(&rejected.stderr)
+            .contains("tree: complete ordered nodes/members differ")
+    );
+    assert_eq!(std::fs::read(&pdb).unwrap(), source);
+    for (path, bytes) in analysis {
+        assert_eq!(std::fs::read(path).unwrap(), bytes);
+    }
+    drop(shell);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn pdb_append_allows_selecting_a_different_root_target() {
     let (root, _) = catalog_root("append-other-target");
     let (pdb, _, _) = m7_fixture::write(&root.join("device"));
@@ -672,7 +897,13 @@ fn pdb_append_allows_selecting_a_different_root_target() {
     let out = shell.settle();
     shell.click(find(&nodes(&out), "Confirm addition").2.center());
     assert!(shell.app.notice.contains("choose a root playlist"));
-    assert_eq!(Catalog::open_read_only(&db).unwrap().library_snapshot().unwrap(), before);
+    assert_eq!(
+        Catalog::open_read_only(&db)
+            .unwrap()
+            .library_snapshot()
+            .unwrap(),
+        before
+    );
     let out = shell.settle();
     let out = shell.click(find(&nodes(&out), "Target: Playlist 2").2.center());
     shell.click(find(&nodes(&out), "Confirm addition").2.center());
