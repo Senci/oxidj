@@ -3,6 +3,140 @@
 
 use super::*;
 
+#[test]
+fn loop_wrap_declicks_both_keylock_paths() {
+    for key in [false, true] {
+        let (mut engine, mut renderer) = Engine::manual(RATE);
+        renderer.set_declick_ms(DECLICK_MS);
+        let samples = (0..96_000)
+            .flat_map(|i| {
+                let v = if i < 16_000 {
+                    0.8
+                } else if i < 20_000 {
+                    0.8 - 1.6 * (i - 16_000) as f32 / 4_000.0
+                } else {
+                    -0.8
+                };
+                [v, v]
+            })
+            .collect();
+        engine.send(Command::Load {
+            deck: 0,
+            id: 1,
+            track: Arc::new(TrackPcm::new(RATE, samples).unwrap()),
+        });
+        engine.send(Command::Seek {
+            deck: 0,
+            frame: 12_000.0,
+        });
+        engine.send(Command::LoopIn { deck: 0 });
+        engine.send(Command::Seek {
+            deck: 0,
+            frame: 24_000.0,
+        });
+        engine.send(Command::LoopOut { deck: 0 });
+        engine.send(Command::Seek {
+            deck: 0,
+            frame: 12_000.0,
+        });
+        engine.send(Command::KeyLock { deck: 0, on: key });
+        engine.send(Command::Speed {
+            deck: 0,
+            speed: 1.08,
+        });
+        engine.send(Command::TogglePlay { deck: 0 });
+        let out = render(&mut renderer, 60_000);
+        let max_step = out
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|f| f[0])
+            .collect::<Vec<_>>()
+            .windows(2)
+            .skip(10_000)
+            .map(|w| (w[1] - w[0]).abs())
+            .fold(0.0_f32, f32::max);
+        assert!(max_step < 0.05, "keylock={key}: {max_step}");
+    }
+}
+
+#[test]
+fn short_loop_declick_survives_tempo_changes_and_keeps_stereo_position() {
+    for key in [false, true] {
+        let (mut engine, mut renderer) = Engine::manual(RATE);
+        renderer.set_declick_ms(DECLICK_MS);
+        let samples = (0..30_000)
+            .flat_map(|i| {
+                let v = if i < 8_000 {
+                    0.6
+                } else if i < 8_480 {
+                    0.6 - 1.2 * (i - 8_000) as f32 / 480.0
+                } else {
+                    -0.6
+                };
+                [v, -v]
+            })
+            .collect();
+        engine.send(Command::Load {
+            deck: 0,
+            id: 1,
+            track: Arc::new(TrackPcm::new(RATE, samples).unwrap()),
+        });
+        engine.send(Command::Seek {
+            deck: 0,
+            frame: 8_000.0,
+        });
+        engine.send(Command::LoopIn { deck: 0 });
+        engine.send(Command::Seek {
+            deck: 0,
+            frame: 8_480.0,
+        });
+        engine.send(Command::LoopOut { deck: 0 });
+        engine.send(Command::Seek {
+            deck: 0,
+            frame: 8_000.0,
+        });
+        engine.send(Command::KeyLock { deck: 0, on: key });
+        engine.send(Command::TogglePlay { deck: 0 });
+        let mut previous: Option<f32> = None;
+        for speed in [1.08, 0.87, 1.15] {
+            engine.send(Command::Speed { deck: 0, speed });
+            let out = render(&mut renderer, 12_000);
+            let pos = engine.deck(0).frame;
+            assert!(
+                (8_000.0..8_480.0).contains(&pos),
+                "key={key} speed={speed} pos={pos}"
+            );
+            assert_eq!(engine.deck(0).loop_range, Some((8_000.0, 8_480.0)));
+            let stereo_error = out
+                .as_chunks::<2>()
+                .0
+                .iter()
+                .skip(4_000)
+                .map(|f| (f[0] + f[1]).abs())
+                .fold(0.0_f32, f32::max);
+            assert!(
+                stereo_error < 0.05,
+                "key={key} speed={speed} stereo={stereo_error}"
+            );
+            let left: Vec<_> = out.as_chunks::<2>().0.iter().map(|f| f[0]).collect();
+            if let Some(last) = previous {
+                assert!(
+                    (left[0] - last).abs() < 0.05,
+                    "tempo boundary key={key} speed={speed}"
+                );
+            }
+            previous = left.last().copied();
+            let step = left
+                .windows(2)
+                .skip(if speed == 1.08 { 4_000 } else { 0 })
+                .map(|w| (w[1] - w[0]).abs())
+                .fold(0.0_f32, f32::max);
+            assert!(step < 0.05, "key={key} speed={speed} step={step}");
+        }
+    }
+}
+
 const RATE: u32 = 48_000;
 
 #[test]

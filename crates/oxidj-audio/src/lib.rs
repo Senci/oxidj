@@ -678,6 +678,25 @@ impl DeckState {
         let lag = (in_lat as f64 + out_lat as f64 * speed) * step;
         let capacity = input.len() / 2;
         let wrap = self.loop_wrap();
+        // Smooth the source seam before it enters the stretcher. Its output
+        // latency and overlap windows mean the audible seam is not at the
+        // callback's reported loop position. Do not restart either engine.
+        let range = self.loop_range.filter(|(start, end)| end > start);
+        let fade = (f64::from(self.declick) * speed * step * 2.0).max(0.0);
+        let sample = |x: f64| {
+            let x = wrap(x);
+            let (l, r) = track.at(x, resampler, table);
+            if let Some((start, end)) = range {
+                let length = fade.min((end - start) / 2.0);
+                let offset = x - start;
+                if length > 0.0 && offset >= 0.0 && offset < length {
+                    let (old_l, old_r) = track.at(end + offset, resampler, table);
+                    let g = (offset / length) as f32;
+                    return (old_l * (1.0 - g) + l * g, old_r * (1.0 - g) + r * g);
+                }
+            }
+            (l, r)
+        };
         if !self.primed {
             // Start the engine `lag` ahead (along the loop, if any) so what
             // is heard starts at `pos`.
@@ -705,7 +724,7 @@ impl DeckState {
                 .iter_mut()
                 .enumerate()
             {
-                let (l, r) = track.at(wrap(start + i as f64 * step), resampler, table);
+                let (l, r) = sample(start + i as f64 * step);
                 *f = [l, r];
             }
             stretch.preroll(&input[..pre * 2], speed);
@@ -720,7 +739,7 @@ impl DeckState {
                 .min(left_in)
                 .min(capacity);
                 for f in input[..n * 2].as_chunks_mut::<2>().0 {
-                    let (l, r) = track.at(wrap(at), resampler, table);
+                    let (l, r) = sample(at);
                     *f = [l, r];
                     at += step;
                 }
@@ -747,7 +766,7 @@ impl DeckState {
         let n_in = (want as usize).min(capacity);
         self.carry = (want - n_in as f64).min(1.0);
         for f in input[..n_in * 2].as_chunks_mut::<2>().0 {
-            let (l, r) = track.at(self.read, resampler, table);
+            let (l, r) = sample(self.read);
             *f = [l, r];
             self.read = wrap(self.read + step);
         }
