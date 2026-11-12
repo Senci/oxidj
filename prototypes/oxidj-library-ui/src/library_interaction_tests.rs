@@ -181,19 +181,78 @@ fn remove_selected_duplicate_requires_confirmation_and_preserves_catalog() {
     shell.app.catalog_export_path = output.display().to_string();
     shell.click(find(&nodes(&out), "Export catalog XML").2.center());
     assert!(shell.app.notice.starts_with("Catalog exported"), "{}", shell.app.notice);
-    // The same independent ElementTree whole-tree oracle used by the rename test.
-    let oracle = r#"import sys, xml.etree.ElementTree as E
-actual=E.parse(sys.argv[1]).getroot()
-expected=E.fromstring('''<DJ_PLAYLISTS Version="1.0.0"><PRODUCT Name="OxiDJ" Version="0.1.0" Company="OxiDJ"/><COLLECTION Entries="2"><TRACK TrackID="1" Name="Imported title" Artist="Synthetic artist" Album="Synthetic album" TotalTime="73" AverageBpm="128.50" Tonality="8A" Location="PLACEHOLDER"/><TRACK TrackID="2" Name="Unrelated" TotalTime="0" AverageBpm="0.00" Location="file://localhost/unrelated.mp3"/></COLLECTION><PLAYLISTS><NODE Type="0" Name="ROOT" Count="2"><NODE Type="1" Name="Browse" KeyType="0" Entries="1"><TRACK Key="1"/></NODE><NODE Type="1" Name="Other" KeyType="0" Entries="2"><TRACK Key="2"/><TRACK Key="1"/></NODE></NODE></PLAYLISTS></DJ_PLAYLISTS>''')
-expected.find('./COLLECTION/TRACK').set('Location',sys.argv[2])
-def tree(e): return e.tag,dict(e.attrib),[tree(c) for c in e]
-assert tree(actual)==tree(expected), (E.tostring(actual),E.tostring(expected))
-actual.find('./PLAYLISTS/NODE/NODE/TRACK').set('Key','999')
-assert tree(actual)!=tree(expected)
-"#;
-    let location = &expected.tracks[0].location;
-    let check = std::process::Command::new("python3").args(["-c", oracle]).arg(&output).arg(location).output().unwrap();
-    assert!(check.status.success(), "{}", String::from_utf8_lossy(&check.stderr));
+    drop(shell); std::fs::remove_dir_all(root).unwrap();
+}
+
+// Share the existing CLI proof's synthetic DeviceSQL/ANLZ generator verbatim.
+#[allow(dead_code)]
+mod m7_fixture {
+    use std::path::{Path, PathBuf};
+    const ANLZ_A: &str = "/PIONEER/USBANLZ/P001/0000002A/ANLZ0000.DAT";
+    const ANLZ_B: &str = "/PIONEER/USBANLZ/P001/00000007/ANLZ0000.DAT";
+    include!("../../../crates/oxidj-cli/tests/support/library_pdb_fixture.rs");
+    include!("../../../crates/oxidj-cli/tests/support/library_anlz_fixture.rs");
+    include!("../../../crates/oxidj-cli/tests/support/library_m7_fixture.rs");
+
+    pub fn write(device: &Path) -> (PathBuf, Vec<u8>, Vec<(PathBuf, Vec<u8>)>) {
+        let pdb = device.join("PIONEER/rekordbox/export.pdb");
+        std::fs::create_dir_all(pdb.parent().unwrap()).unwrap();
+        let source = synthetic_pdb_m7();
+        std::fs::write(&pdb, &source).unwrap();
+        (pdb, source, write_analysis_m7(device))
+    }
+}
+
+#[test]
+fn pdb_member_removal_ui_export_passes_existing_independent_oracle() {
+    let (root, _) = catalog_root("remove-pdb-oracle");
+    let (pdb, source, analysis) = m7_fixture::write(&root.join("device"));
+    let db = root.join("imported.sqlite");
+    oxidj_application::import_library_from_pdb(&pdb, &db, None).unwrap();
+    let before = Catalog::open_read_only(&db).unwrap().library_snapshot().unwrap();
+    let mut shell = Shell::new(&db, 1440.0);
+    // Keep the full 20-playlist fixture and its action buttons visible.
+    shell.screen.max.y = 1800.0;
+    shell.settle();
+    let row = text_rect(&mut shell, "♫ Playlist 1"); shell.click(row.center());
+    let row = text_rect(&mut shell, "2 · Track 2"); shell.click(row.center());
+    let out = shell.settle();
+    let out = shell.click(find(&nodes(&out), "Remove selected from playlist…").2.center());
+    shell.click(find(&nodes(&out), "Cancel").2.center());
+    assert_eq!(Catalog::open_read_only(&db).unwrap().library_snapshot().unwrap(), before);
+    let out = shell.settle();
+    let out = shell.click(find(&nodes(&out), "Remove selected from playlist…").2.center());
+    shell.click(find(&nodes(&out), "Confirm removal").2.center());
+    assert!(shell.app.notice.starts_with("Playlist member removed"), "{}", shell.app.notice);
+    let mut expected = before;
+    let oxidj_library::LibraryNode::Playlist { members, .. } = &mut expected.roots[0] else { panic!("fixture") };
+    assert_eq!(members.remove(1), 1); // PDB TrackID 2, zero-based snapshot identity 1.
+    assert_eq!(Catalog::open_read_only(&db).unwrap().library_snapshot().unwrap(), expected);
+    assert!(texts(&shell.settle()).iter().any(|(s, _)| s == "2 · Track 3"));
+
+    let output = root.join("removed-pdb.xml");
+    let menu = shell.click(shell.app.shell.more.unwrap().center());
+    let out = shell.click(find(&nodes(&menu), "Export catalog XML…").2.center());
+    shell.app.catalog_export_path = output.display().to_string();
+    shell.click(find(&nodes(&out), "Export catalog XML").2.center());
+    assert!(shell.app.notice.starts_with("Catalog exported"), "{}", shell.app.notice);
+    let oracle = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../scripts/verify_m7_export.py");
+    let check = |xml: &Path| std::process::Command::new("python3")
+        .arg("-B").arg(&oracle).arg(&pdb).arg(xml)
+        // Independent expectation: PDB playlist 100, index 1, TrackID 2 only.
+        .args(["--remove-member", "100", "1", "2"]).output().unwrap();
+    let result = check(&output);
+    assert!(result.status.success(), "{}", String::from_utf8_lossy(&result.stderr));
+    // Mutate those exact UI bytes to emulate deleting the wrong occurrence,
+    // retaining the membership count and every collection/cue/grid field.
+    let wrong = root.join("wrong-occurrence.xml");
+    let mutate = "import sys,xml.etree.ElementTree as E; t=E.parse(sys.argv[1]); t.find('./PLAYLISTS/NODE/NODE/TRACK').set('Key','2'); t.write(sys.argv[2])";
+    assert!(std::process::Command::new("python3").args(["-c", mutate]).arg(&output).arg(&wrong).status().unwrap().success());
+    let rejected = check(&wrong);
+    assert!(!rejected.status.success());
+    assert!(String::from_utf8_lossy(&rejected.stderr).contains("tree: complete ordered nodes/members differ"));
+    assert_eq!(std::fs::read(&pdb).unwrap(), source);
+    for (path, bytes) in analysis { assert_eq!(std::fs::read(path).unwrap(), bytes); }
     drop(shell); std::fs::remove_dir_all(root).unwrap();
 }
 
