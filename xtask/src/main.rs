@@ -668,15 +668,21 @@ fn cmd_test() -> i32 {
 /// run its acceptance tests explicitly so they are part of the full gate.
 fn cmd_ui_test() -> i32 {
     const UI: &str = "prototypes/oxidj-library-ui/Cargo.toml";
-    let build = run_cargo_step(
-        "ui-build",
-        &["build", "--manifest-path", UI, "--locked"],
-        &[],
-    );
+    // Match the Linux local installer; other platforms retain their default backend.
+    let features: &[&str] = if cfg!(target_os = "linux") {
+        &["--features", "jack"]
+    } else {
+        &[]
+    };
+    let mut build_args = vec!["build", "--manifest-path", UI, "--locked"];
+    build_args.extend_from_slice(features);
+    let build = run_cargo_step("ui-build", &build_args, &[]);
     if build != 0 {
         return build;
     }
-    run_cargo_step("ui-test", &["test", "--manifest-path", UI, "--locked"], &[])
+    let mut test_args = vec!["test", "--manifest-path", UI, "--locked"];
+    test_args.extend_from_slice(features);
+    run_cargo_step("ui-test", &test_args, &[])
 }
 
 fn cmd_deny() -> i32 {

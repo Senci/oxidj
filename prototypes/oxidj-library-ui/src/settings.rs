@@ -144,6 +144,8 @@ pub struct Settings {
     pub mirror_b: bool,
     /// Deck area arrangement (B default).
     pub arrangement: DeckArrangement,
+    /// Enable the master peak limiter.
+    pub limiter: bool,
 }
 
 /// Persisted Settings window rectangle (whole points).
@@ -366,6 +368,7 @@ impl Default for Settings {
             show_meta: true,
             mirror_b: false,
             arrangement: DeckArrangement::B,
+            limiter: true,
         }
     }
 }
@@ -458,7 +461,7 @@ impl Settings {
             b(self.show_meta),
             b(self.mirror_b),
             name_of(&ARRANGEMENTS, self.arrangement),
-        ) + &sections
+        ) + &sections + &format!(";limiter={}", b(self.limiter))
     }
 
     /// Never fails: unknown names are ignored and an invalid value keeps
@@ -479,6 +482,7 @@ impl Settings {
                     s.arrangement = parse_in(&ARRANGEMENTS, value).unwrap_or(s.arrangement)
                 }
                 "mirror_b" => s.mirror_b = parse_bool(value).unwrap_or(s.mirror_b),
+                "limiter" => s.limiter = parse_bool(value).unwrap_or(s.limiter),
                 "mixer_ab" => s.mixer.ab_labels = parse_bool(value).unwrap_or(s.mixer.ab_labels),
                 "mixer_input" => s.mixer.inputs = parse_bool(value).unwrap_or(s.mixer.inputs),
                 "mixer_outer" => {
@@ -557,6 +561,7 @@ pub(crate) struct SettingsUi {
 pub(crate) struct SettingsLayout {
     pub(crate) window: Option<egui::Rect>,
     pub(crate) tabs: Option<[egui::Rect; 4]>,
+    pub(crate) limiter: Option<egui::Rect>,
     /// Theme cells in ThemeMode::ALL order.
     pub(crate) theme: Option<[egui::Rect; 12]>,
     pub(crate) style: Option<[egui::Rect; 3]>,
@@ -781,6 +786,7 @@ impl LibraryApp {
         if self.settings_ui.tab == 1 {
             SectionHeading { title: "Layout" }.show(ui, tokens);
             let s = &mut self.settings;
+            layout.limiter = Some(toggle_row(ui, tokens, "Master limiter", &mut s.limiter).rect);
             macro_rules! pick {
                 ($label:expr, $cells:expr, $index:expr $(,)?) => {
                     segmented_row(ui, tokens, $label, $cells, $index)
@@ -972,6 +978,7 @@ mod tests {
             show_meta: false,
             mirror_b: true,
             arrangement: DeckArrangement::C,
+            limiter: false,
         };
         let mut storage = MemoryStorage::default();
         edited.save(&mut storage);

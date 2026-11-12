@@ -28,7 +28,7 @@ jobs:
       # oxidj-audio uses CPAL, whose ALSA backend needs the ALSA development
       # headers and pkg-config at build time (no audio device is opened in CI).
       - name: Install ALSA development headers (CPAL build dependency)
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libasound2-dev pkg-config
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libasound2-dev libjack-jackd2-dev libdbus-1-dev pkg-config
 
       - name: Cache build + cargo registry
         uses: Swatinem/rust-cache@v2

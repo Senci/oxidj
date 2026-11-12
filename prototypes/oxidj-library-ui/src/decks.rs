@@ -744,6 +744,19 @@ pub(crate) struct DeckLayout {
     pub(crate) artwork: [Option<Rect>; 2],
 }
 
+/// Measured callback statistics, only for an active device with callbacks.
+pub(crate) fn audio_metrics(output: &oxidj_audio::OutputKind, stats: oxidj_audio::StatsSnapshot) -> Option<String> {
+    if !matches!(output, oxidj_audio::OutputKind::Device { .. }) || stats.callbacks == 0 {
+        return None;
+    }
+    let latency = if stats.latency_ns == 0 {
+        "latency unavailable".to_owned()
+    } else {
+        format!("latency {:.1} ms", stats.latency_ns as f64 / 1_000_000.0)
+    };
+    Some(format!("{latency} · peak DSP {:.1}%", f64::from(stats.max_load_permille) / 10.0))
+}
+
 /// The whole deck area's state.
 pub(crate) struct DeckArea {
     pub(crate) decks: [Deck; 2],
@@ -774,6 +787,7 @@ pub(crate) struct DeckArea {
     pub(crate) cue_volume: f32,
     /// Last mixer state the engine accepted (`Some(None)` = bypass).
     sent_mixer: Option<Option<MixerParams>>,
+    sent_limiter: Option<bool>,
     /// Meters A, B, master, cue as drawn.
     pub(crate) meters: [MeterLevel; METERS],
 }
@@ -802,6 +816,7 @@ impl Default for DeckArea {
             cue_mix: 0.5,
             cue_volume: 1.0,
             sent_mixer: None,
+            sent_limiter: None,
             meters: Default::default(),
         }
     }
@@ -813,6 +828,7 @@ impl DeckArea {
         self.engine = engine;
         self.manual = None;
         self.sent_mixer = None;
+        self.sent_limiter = None;
         for deck in &mut self.decks {
             (deck.sent_gain, deck.sent_speed, deck.sent_keylock) = (None, None, None);
         }
@@ -1030,6 +1046,13 @@ impl DeckArea {
             if deck.unload && self.engine.send(Command::Unload { deck: d }) {
                 deck.unload = false;
             }
+        }
+    }
+
+    /// Send changes once; retry on a full command queue.
+    pub(crate) fn set_limiter(&mut self, on: bool) {
+        if self.sent_limiter != Some(on) && self.engine.send(Command::Limiter(on)) {
+            self.sent_limiter = Some(on);
         }
     }
 
