@@ -9,7 +9,7 @@ const RATE: u32 = 48_000;
 #[test]
 fn automatic_output_retries_failure_but_explicit_never_does() {
     let mut calls = Vec::new();
-    let result = try_output(&OutputConfig::default(), |preferred| {
+    let result = try_output(&OutputConfig::default(), true, |preferred| {
         calls.push(preferred);
         if preferred {
             Err("preferred failed".to_owned())
@@ -30,7 +30,7 @@ fn automatic_output_retries_failure_but_explicit_never_does() {
         },
     ] {
         let mut calls = 0;
-        let result: Result<(), _> = try_output(&config, |_| {
+        let result: Result<(), _> = try_output(&config, true, |_| {
             calls += 1;
             Err("refused".into())
         });
@@ -43,7 +43,7 @@ fn automatic_output_retries_failure_but_explicit_never_does() {
 #[test]
 fn automatic_output_preserves_both_errors_and_never_retries_success() {
     let mut calls = Vec::new();
-    let result: Result<(), _> = try_output(&OutputConfig::default(), |preferred| {
+    let result: Result<(), _> = try_output(&OutputConfig::default(), true, |preferred| {
         calls.push(preferred);
         Err(if preferred {
             "jack failed"
@@ -59,12 +59,20 @@ fn automatic_output_preserves_both_errors_and_never_retries_success() {
     );
 
     let mut calls = 0;
-    let result = try_output(&OutputConfig::default(), |_| {
+    let result = try_output(&OutputConfig::default(), true, |_| {
         calls += 1;
         Ok("jack")
     });
     assert_eq!(result.unwrap(), "jack");
     assert_eq!(calls, 1);
+
+    let mut calls = 0;
+    let result: Result<(), _> = try_output(&OutputConfig::default(), false, |_| {
+        calls += 1;
+        Err("default failed".into())
+    });
+    assert_eq!(result.unwrap_err(), "default failed");
+    assert_eq!(calls, 1, "a selected default is not retried as a fallback");
 }
 
 /// A track whose left sample at frame `i` is `i` (scaled) and right is `-i`,

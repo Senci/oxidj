@@ -1481,11 +1481,13 @@ const RETRY: Duration = Duration::from_secs(2);
 
 fn try_output<T>(
     config: &OutputConfig,
+    selected_jack: bool,
     mut attempt: impl FnMut(bool) -> Result<T, String>,
 ) -> Result<T, String> {
     match attempt(true) {
         Err(first)
             if cfg!(all(target_os = "linux", feature = "jack"))
+                && selected_jack
                 && config.host.is_none()
                 && config.device.is_none() =>
         {
@@ -1552,19 +1554,24 @@ impl Engine {
         // and a fallback renderer continues from the same deck state.
         let attempt = match silent {
             Some(reason) => Err(reason),
-            None => try_output(&config, |prefer_jack| {
-                let device = if prefer_jack {
-                    output::Device::open(&config)
-                } else {
-                    output::Device::open_default(&config)
-                }?;
-                let rate = device.rate;
-                let (mut renderer, tx, shared) =
-                    channel(decks.clone(), rate, memory.mixer, true, !memory.limiter_off);
-                renderer.set_routing(config.routing);
-                device
-                    .play(renderer, shared.clone())
-                    .map(|output| (output, tx, shared, rate))
+            None => output::select_host(&config).and_then(|(host, fallback)| {
+                try_output(&config, fallback, |preferred| {
+                    let default;
+                    let host = if preferred {
+                        &host
+                    } else {
+                        default = cpal::default_host();
+                        &default
+                    };
+                    let device = output::Device::open_on(&config, host)?;
+                    let rate = device.rate;
+                    let (mut renderer, tx, shared) =
+                        channel(decks.clone(), rate, memory.mixer, true, !memory.limiter_off);
+                    renderer.set_routing(config.routing);
+                    device
+                        .play(renderer, shared.clone())
+                        .map(|output| (output, tx, shared, rate))
+                })
             }),
         };
         let (output, tx, shared, device_rate, error) = match attempt {
@@ -1798,12 +1805,17 @@ impl Engine {
             self.retry_at = was_device.then(|| Instant::now() + RETRY);
         } else if self.retry_at.is_some_and(|at| Instant::now() >= at) {
             // Probe first so a still-missing device costs no deck handover.
-            match try_output(&self.config, |prefer_jack| {
-                if prefer_jack {
-                    output::Device::open(&self.config)
-                } else {
-                    output::Device::open_default(&self.config)
-                }
+            match output::select_host(&self.config).and_then(|(host, fallback)| {
+                try_output(&self.config, fallback, |preferred| {
+                    let default;
+                    let host = if preferred {
+                        &host
+                    } else {
+                        default = cpal::default_host();
+                        &default
+                    };
+                    output::Device::open_on(&self.config, host)
+                })
             }) {
                 Ok(_) => self.rebuild(None),
                 Err(_) => self.retry_at = Some(Instant::now() + RETRY),

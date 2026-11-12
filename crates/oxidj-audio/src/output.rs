@@ -336,6 +336,22 @@ fn preferred_host(automatic_device: bool) -> cpal::Host {
     select_automatic_host(automatic_device, jack, cpal::default_host)
 }
 
+pub(crate) fn select_host(want: &OutputConfig) -> Result<(cpal::Host, bool), String> {
+    if let Some(name) = want.host.as_deref() {
+        let id = cpal::available_hosts()
+            .into_iter()
+            .find(|id| id.name().eq_ignore_ascii_case(name))
+            .ok_or_else(|| format!("audio host not available: {name}"))?;
+        let host = cpal::host_from_id(id).map_err(|e| format!("audio host {name} failed: {e}"))?;
+        return Ok((host, false));
+    }
+    let host = preferred_host(want.device.is_none());
+    let fallback = want.device.is_none()
+        && host.id().name().eq_ignore_ascii_case("jack")
+        && host.id() != cpal::default_host().id();
+    Ok((host, fallback))
+}
+
 /// An output device and the stream configuration chosen for it.
 pub(crate) struct Device {
     device: cpal::Device,
@@ -346,25 +362,7 @@ pub(crate) struct Device {
 }
 
 impl Device {
-    pub(crate) fn open(want: &OutputConfig) -> Result<Self, String> {
-        Self::open_with(want, true)
-    }
-
-    pub(crate) fn open_default(want: &OutputConfig) -> Result<Self, String> {
-        Self::open_with(want, false)
-    }
-
-    fn open_with(want: &OutputConfig, prefer_jack: bool) -> Result<Self, String> {
-        let host = match want.host.as_deref() {
-            None => preferred_host(prefer_jack && want.device.is_none()),
-            Some(name) => {
-                let id = cpal::available_hosts()
-                    .into_iter()
-                    .find(|id| id.name().eq_ignore_ascii_case(name))
-                    .ok_or_else(|| format!("audio host not available: {name}"))?;
-                cpal::host_from_id(id).map_err(|e| format!("audio host {name} failed: {e}"))?
-            }
-        };
+    pub(crate) fn open_on(want: &OutputConfig, host: &cpal::Host) -> Result<Self, String> {
         // Exact endpoint selection is opt-in and never changes the OS default.
         let device = if let Some(name) = want.device.as_deref() {
             let mut by_id = None;
