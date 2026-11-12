@@ -29,14 +29,15 @@ export interface ProjectUpdate {
 const repo = 'https://github.com/Senci/oxidj';
 const closeout = `${repo}/blob/master/plan/MVP.md#bounded-local-m1m3-acceptance-closeout-2026-10-26`;
 export const roadmapSnapshot = {
-  verifiedAt: '2026-11-11',
-  currentFocus: 'M8 imported playlists and two-deck playback; M4/M7 exchange remains in progress',
+  verifiedAt: '2026-11-12',
+  currentFocus:
+    'Audio output improvements and safe imported-playlist editing; exchange remains in progress',
   currentSummary:
-    'The library window now browses imported nested playlists, shows their stored-order members and loads a selected member explicitly onto deck A or B from its exact imported location. Selection does not load, loading does not autoplay, missing locations are refused, and imported data is not edited. The screen capture is synthetic-only. The window also has two playable decks: one merged 3-band waveform with deck A above and deck B below, an audio engine, hot cues and loops, tempo with key lock, SYNC and an optional mixer. The owner listened to the installed build and reports that it works (no measurements); DJ hardware checks are still open. On the exchange side, synthetic Rekordbox XML fixtures support read-only preview, bounded export of a supported subset to a new file, and exact-value guarded edits. On one real library, playlists, track details, beat grids and cues went into a catalog and a new XML file, and the owner confirmed in Rekordbox on Windows that the export and an edited re-export load with tracks, BPM, key, cues, beat grids, playlists and the edits intact.',
+    'The library window now browses imported nested playlists, shows their stored-order members and loads a selected member explicitly onto deck A or B from its exact imported location. Selection does not load, loading does not autoplay, missing locations are refused, and loading does not edit imported data. The screen capture is synthetic-only. The window also has two playable decks: one merged 3-band waveform with deck A above and deck B below, an audio engine, hot cues and loops, tempo with key lock, SYNC and an optional mixer. The owner listened to the installed build and reports that it works (no measurements); DJ hardware checks are still open. On the exchange side, synthetic Rekordbox XML fixtures support read-only preview, bounded export of a supported subset to a new file, and exact-value guarded edits. On one real library, playlists, track details, beat grids and cues went into a catalog and a new XML file, and the owner confirmed in Rekordbox on Windows that the export and an edited re-export load with tracks, BPM, key, cues, beat grids, playlists and the edits intact.',
   working:
     'A persistent local catalog, reference-only WAV/FLAC/MP3/AIFF import and a provisional viewer with search, sort and track details work today. The library window browses imported nested playlists and their stored-order members; an explicit Load A or Load B action loads the selected member only from its exact imported location. Selection does not load or autoplay; a missing location is refused without changing the deck, and the imported snapshot stays unchanged. This UI is provisionally exercised with synthetic data only. The window has a full-width track list with side panels you can show or hide, and draws a smooth vector waveform (mono, 3-band or RGB) for the selected track with bar and beat lines from an imported beat grid, or from its own computed BPM and beat grid when none was imported. Tracks load onto two decks shown in one merged waveform (deck A warm, above; deck B cool, below) with a separate overview per deck; both draw low, mid and high bands in the deck colours, and the overviews scale quiet tracks up and mark cues, loops and every 16 bars. Every deck section can be collapsed, and Settings (Ctrl+,) keeps the choices. A CPAL audio engine plays both decks with cue, play, eight hot cues and loops; the tempo fader has key lock, SYNC matches tempo and beat phase, and an optional mixer adds trim, 3-band EQ, filter, faders, a crossfader and meters. scripts/install-local.sh builds release binaries and adds a launcher, desktop menu entry and icon for the current user on Linux. From the command line, a Rekordbox USB export can be read into a new catalog and written back out as a checked XML file, with Windows drive letters via --drive and, opt-in, computed beat grids for tracks that have no Rekordbox grid.',
   unfinished:
-    'Beyond one owner-run round trip through Rekordbox on Windows, compatibility with real Rekordbox or OneLibrary libraries and DJ hardware (CDJ/XDJ) has not been demonstrated. Computed BPM is a suggestion, not Rekordbox parity, and a computed grid has one constant tempo (no tempo-change maps); Rekordbox has not yet been checked with the exported computed grids. The decks have only had an informal owner listening check, have not been used with club gear, controllers or CDJ/XDJ players, and make no latency guarantee: one 600 s run through PipeWire had 1 audio dropout (xrun), and moving the tempo fader with key lock on can shift the next beat by up to 5 ms. Production desktop, accessibility and platform testing is still pending, as is performance testing at 500,000 tracks and 60 frames per second.',
+    'Beyond one owner-run round trip through Rekordbox on Windows, compatibility with real Rekordbox or OneLibrary libraries and DJ hardware (CDJ/XDJ) has not been demonstrated. Computed BPM is a suggestion, not Rekordbox parity, and a computed grid has one constant tempo (no tempo-change maps); Rekordbox has not yet been checked with the exported computed grids. The decks have only had an informal owner listening check, have not been used with club gear, controllers or CDJ/XDJ players, and make no latency guarantee: one 600 s run through PipeWire had 1 audio dropout (xrun), and moving the tempo fader with key lock on can shift the next beat by up to 5 ms. Physical USB reconnect and four-channel cue, Windows ASIO and macOS audio remain untested. Production desktop, accessibility and platform testing is still pending, as is performance testing at 500,000 tracks and 60 frames per second.',
   repo,
 } as const;
 export const milestones: readonly Milestone[] = [
@@ -128,6 +129,13 @@ export const milestones: readonly Milestone[] = [
   },
 ];
 export const projectUpdates: readonly ProjectUpdate[] = [
+  {
+    date: '2026-11-12',
+    title: 'Audio output and safer playlist editing.',
+    detail:
+      'Output device, buffer and limiter settings, measured output status, JACK support, recovery and smoother key-locked loop transitions are integrated. A muted synthetic JACK run at 48 kHz and 256 frames lasted 600.1 seconds with zero reported xruns or errors; it is not physical hardware validation. Imported root playlist members can be moved safely, preserving duplicates.',
+    source: { label: 'Audio status', href: `${repo}/commit/30cd026` },
+  },
   {
     date: '2026-11-10',
     title: 'Deck and mixer layout v2.',
@@ -417,13 +425,5 @@ export const screenshots = {
     alt: 'Actual OxiDJ library window: the synthetic imported playlist tree has Folder expanded and Inner First selected; its stored-order member 1 · Song C is selected, with explicit Load A and Load B buttons below.',
     caption:
       'Synthetic imported playlist: select a member, then explicitly load it to A or B. No autoplay.',
-  },
-  ownerLibraryRecord: {
-    id: 'senci-owner-library-record',
-    width: 838,
-    height: 74,
-    alt: 'Cropped OxiDJ library table showing one selected imported-library record for a track by Senči; no other records, IDs or path details are visible.',
-    caption:
-      'One owner-library record, shown as metadata only; it was not loaded or played. Other examples use synthetic data.',
   },
 } as const satisfies Record<string, Screenshot>;

@@ -82,19 +82,14 @@ describe('screenshots', () => {
     expect(html).toContain('Load A and Load B');
     expect(html).not.toContain('srcset');
   });
-  it('pins the metadata-only owner-library crop and disclosure', () => {
-    const html = renderShot(screenshots.ownerLibraryRecord, '92vw');
-    expect(html).toContain('href="./images/senci-owner-library-record.webp" data-lightbox');
-    expect(html).toContain('data-width="838" data-height="74"');
-    expect(html).toContain(`alt="${screenshots.ownerLibraryRecord.alt}"`);
-    expect(html).toContain('was not loaded or played');
-  });
+
   it('places the stage, gallery and waveform art on the home page only', () => {
     const home = renderSite(
       renderRoadmap(readFileSync(new URL('../../index.html', import.meta.url), 'utf8')),
       'index.html',
     );
-    expect(home.match(/data-lightbox/g)).toHaveLength(18);
+    expect(home.match(/data-lightbox/g)).toHaveLength(17);
+    expect(home).not.toContain('senci-owner-library-record');
     expect(home).toContain('class="wave"');
     expect(home.match(/class="rail-stop /g)).toHaveLength(9);
     for (const shot of Object.values(screenshots)) {
