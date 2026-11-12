@@ -32,7 +32,12 @@ pub(crate) struct LibraryApp {
     pub(crate) pdb_source_path: String,
     pub(crate) pdb_destination_path: String,
     pub(crate) pdb_pending: Option<(PathBuf, PathBuf)>,
-    pub(crate) pdb_job: Option<std::sync::mpsc::Receiver<(PathBuf, Result<oxidj_application::LibraryImportReport, String>)>>,
+    pub(crate) pdb_job: Option<
+        std::sync::mpsc::Receiver<(
+            PathBuf,
+            Result<oxidj_application::LibraryImportReport, String>,
+        )>,
+    >,
     #[cfg(test)]
     pub(crate) pdb_gate: Option<std::sync::Arc<std::sync::Barrier>>,
     pub(crate) catalog_export_open: bool,
@@ -142,7 +147,11 @@ pub(crate) struct LibraryApp {
     pub(crate) imported_root_guard: Option<oxidj_library::RootPlaylistGuard>,
     pub(crate) catalog_rename_open: bool,
     pub(crate) catalog_rename_name: String,
-    pub(crate) catalog_remove_pending: Option<(oxidj_library::RootPlaylistGuard, Vec<usize>, usize, usize)>,
+    pub(crate) catalog_remove_pending:
+        Option<(oxidj_library::RootPlaylistGuard, Vec<usize>, usize, usize)>,
+    pub(crate) selected_imported_guard: Option<oxidj_library::ImportedTrackGuard>,
+    pub(crate) catalog_create_pending: Option<(usize, oxidj_library::ImportedTrackGuard)>,
+    pub(crate) catalog_create_name: String,
     pub(crate) imported_member: Option<usize>,
     pub(crate) selected_imported: Option<usize>,
     pub(crate) dragging_track: Option<TrackSource>,
@@ -340,6 +349,9 @@ impl LibraryApp {
             catalog_rename_open: false,
             catalog_rename_name: String::new(),
             catalog_remove_pending: None,
+            selected_imported_guard: None,
+            catalog_create_pending: None,
+            catalog_create_name: String::new(),
             imported_member: None,
             selected_imported: None,
             dragging_track: None,

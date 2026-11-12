@@ -174,7 +174,120 @@ pub fn validate_library_playlist_name(name: &str) -> Result<(), CatalogError> {
     Ok(())
 }
 
+type ImportedTrackRow = (
+    Vec<u8>,
+    String,
+    String,
+    Option<String>,
+    Option<String>,
+    i64,
+    i64,
+    Option<String>,
+);
+
+/// A selected imported row, including its durable replacement-resistant identity.
+#[derive(Debug, Clone)]
+pub struct ImportedTrackGuard {
+    position: usize,
+    token: Vec<u8>,
+    visible: LibraryNavigationTrack,
+}
+
 impl Catalog {
+    /// Capture the selected visible row and replacement-resistant identity.
+    pub fn imported_track_guard(
+        &self,
+        position: usize,
+        visible: &LibraryNavigationTrack,
+    ) -> Result<ImportedTrackGuard, CatalogError> {
+        use rusqlite::OptionalExtension;
+        let row: Option<ImportedTrackRow> = self.connection.query_row(
+            "SELECT i.token,t.title,t.location,t.artist,t.album,t.tempo_hundredths_bpm,t.duration_seconds,t.musical_key FROM library_tracks t JOIN library_track_identity i ON i.track_position=t.position WHERE t.position=?1",
+            [to_i64(position)?], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?,r.get(5)?,r.get(6)?,r.get(7)?)),
+        ).optional()?;
+        let Some((token, title, location, artist, album, tempo, duration, key)) = row else {
+            return Err(CatalogError::InvalidRecord(
+                "selected imported track is stale",
+            ));
+        };
+        if title != visible.title
+            || location != visible.location
+            || artist != visible.artist
+            || album != visible.album
+            || tempo != i64::from(visible.tempo_hundredths_bpm)
+            || duration != i64::from(visible.duration_seconds)
+            || key != visible.key
+        {
+            return Err(CatalogError::InvalidRecord(
+                "selected imported track is stale",
+            ));
+        }
+        Ok(ImportedTrackGuard {
+            position,
+            token,
+            visible: visible.clone(),
+        })
+    }
+
+    /// Create one root playlist under the same write lock as identity checks.
+    pub fn create_guarded_root_playlist(
+        &mut self,
+        name: &str,
+        guard: &ImportedTrackGuard,
+    ) -> Result<(), CatalogError> {
+        use rusqlite::OptionalExtension;
+        validate_library_playlist_name(name)?;
+        let tx = self
+            .connection
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let row: Option<ImportedTrackRow> = tx.query_row(
+            "SELECT i.token,t.title,t.location,t.artist,t.album,t.tempo_hundredths_bpm,t.duration_seconds,t.musical_key FROM library_tracks t JOIN library_track_identity i ON i.track_position=t.position WHERE t.position=?1",
+            [to_i64(guard.position)?], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?,r.get(5)?,r.get(6)?,r.get(7)?)),
+        ).optional()?;
+        let v = &guard.visible;
+        if row
+            != Some((
+                guard.token.clone(),
+                v.title.clone(),
+                v.location.clone(),
+                v.artist.clone(),
+                v.album.clone(),
+                i64::from(v.tempo_hundredths_bpm),
+                i64::from(v.duration_seconds),
+                v.key.clone(),
+            ))
+        {
+            return Err(CatalogError::InvalidRecord(
+                "selected imported track is stale",
+            ));
+        }
+        let duplicate: bool = tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM library_nodes WHERE parent_id IS NULL AND name=?1)",
+            [name],
+            |r| r.get(0),
+        )?;
+        if duplicate {
+            return Err(CatalogError::InvalidRecord(
+                "a root node with this name already exists",
+            ));
+        }
+        let id: i64 = tx.query_row("SELECT COALESCE(MAX(id),0)+1 FROM library_nodes", [], |r| {
+            r.get(0)
+        })?;
+        let order: i64 = tx.query_row(
+            "SELECT COALESCE(MAX(sibling_order),-1)+1 FROM library_nodes WHERE parent_id IS NULL",
+            [],
+            |r| r.get(0),
+        )?;
+        tx.execute("INSERT INTO library_nodes(id,parent_id,sibling_order,name,is_folder) VALUES(?1,NULL,?2,?3,0)", rusqlite::params![id, order, name])?;
+        tx.execute(
+            "INSERT INTO library_members(node_id,position,track_position) VALUES(?1,0,?2)",
+            rusqlite::params![id, to_i64(guard.position)?],
+        )?;
+        tx.commit()?;
+        Ok(())
+    }
+
     /// Bind a visible root row to its durable identity under a read transaction.
     pub fn root_playlist_guard(
         &self,
