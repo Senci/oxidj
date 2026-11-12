@@ -71,13 +71,13 @@ Status: `todo`, `doing`, `done <sha>`, `parked`.
 |---|---|---|
 | A1 | Output selection: `OutputConfig` (host, device, rate, buffer, channels), `list_outputs()`, `Engine::start_with`, `Engine::reopen` with deck state carried, automatic reconnect after device loss | done c879e38 |
 | A2 | Stats: render time, DSP load, output latency, actual buffer; `examples/qualify` takes the config and prints them | done c879e38 |
-| A3 | Declick: short fades on play, pause, seek, cue jump, loop wrap | done d569041 |
+| A3 | Declick: short fades on play, pause, seek, cue jump, loop wrap | done `d569041`; key-lock and ordinary EOF loop-wrap follow-ups independently reviewed and installed through `b80a1db` |
 | A4 | Windowed-sinc resampler in-crate replacing linear interpolation (exact copy kept at ratio 1) | done d569041 |
 | A5 | Master limiter replacing the bare clamp (clamp stays as last safety) | done (third commit) |
 | A6 | Cargo features `asio`, `jack`, `realtime`, `realtime-dbus` forwarding to cpal; host selection by name; build notes in `docs/audio-output.md` | done (third commit) |
 | A7 | ADR-008 addendum with decisions and measurements; this file updated | done (third commit) |
 | A8 | Independent review of the branch (Anthropic model, Kanban card `t_7bcd47dd`) | done: CHANGES REQUESTED, 0 blockers; findings handled in the fifth commit (see progress log) |
-| A9 | WASAPI exclusive mode: needs cpal support or a patch; decide later | parked |
+| A9 | WASAPI exclusive mode: cpal 0.18.2 uses shared-mode probing and initialization. A mode-aware backend, exclusive format/period negotiation, a Windows build and an exclusive-capable endpoint are needed. | parked; Windows implementation and endpoint validation not run |
 | A10 | Streaming or i16 track storage to cut RAM | parked |
 | A11 | UI wiring: Settings for output device, buffer, limiter; status line with latency and load | reviewed and integrated `e2b9b28`; hardware validation remains A15 |
 | A12 | Two decks' bursts are staggered; splitting one deck's burst remains experimental. A scratch split/15 ms hop candidate passed the strict timing test, but increased synthetic mean key-lock load from 2.9% to 5.2% while barely improving the 256-frame p99.9 (7.4% to 7.2%). Retain the existing default; reconsider a split implementation for a concrete small-buffer requirement or measured renderer-compute deadline failure. Listening, other rates and real-time qualification remain unverified. | staggering done; split deferred |
