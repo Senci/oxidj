@@ -2,6 +2,29 @@
 
 Condensed 2026-11-02. Full prior text (per-increment evidence, M0-09 verification, decisions, risks, F-09 oracle notes): [docs/history/status-2026-11-02.md](../docs/history/status-2026-11-02.md). Milestone contract: [plan/MVP.md](MVP.md). Live work: Kanban; this file records stages and gates only.
 
+## Current snapshot — 2026-11-12
+
+Reviewed local master includes audio output selection, restart-only device and buffer preferences, limiter and status, JACK support, recovery and loop-seam fixes through `b80a1db`. Muted synthetic JACK at 48 kHz/256 frames ran 600.1 s with 0 reported xruns/errors; the virtual four-channel cue check is not physical hardware evidence. USB reconnect and physical four-channel cue, Windows ASIO and macOS audio remain NOT RUN; see [audio handoff](AUDIO.md). Imported root-playlist occurrence moves were reviewed at `b4916d8`; synthetic UI/export evidence is not native hardware qualification. The older pending-review sections below are historical snapshots and do not override later card approvals.
+
+## M7 in-app PDB import — implemented, pending independent review
+
+`t_169085d9` adds More → Import Rekordbox PDB: explicit source and new
+catalog path, review/confirm/cancel, background import and completion/error
+reporting. The active catalog is neither merged nor switched. The result gives
+counts, metadata limitations and the new path; open it in a new UI launch with
+`oxidj-library-ui --db <path>`. Audio is not copied. Choose a local filesystem
+outside the source device; standard `PIONEER/rekordbox` source-device destinations
+(including directory aliases) are refused. Existing catalog/sidecar paths are
+refused; SQLite work and verification happen in a private staging directory,
+then a no-clobber hard link publishes the closed database. Failure cleanup only
+removes that owned stage, never a competing destination or its sidecars.
+Synthetic actual-egui tests cover cancel, confirm, held-worker browsing,
+completion, invalid PDB and destination refusals; a fresh UI reopens the artifact
+and exports XML checked by an independent complete-tree oracle with a mutation
+control. Required gate evidence is on the card and commit. Independent approval
+and installation remain pending; no private library data was used. Real
+Rekordbox, removable-filesystem and hardware qualification remain separate.
+
 ## M8 deck and mixer layout v2 — implemented, reviewed and installed (2026-11-10)
 
 The owner approved the direction in a static web mockup

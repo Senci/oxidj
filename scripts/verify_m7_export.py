@@ -16,7 +16,7 @@ from urllib.parse import quote
 from decode_pdb import build_baseline, parse_pdb
 
 
-def expected(baseline, step):
+def expected(baseline, step, remove_member=None, create_playlist=None, append_member=None, move_member=None):
     tracks = []
     children = []
     for t in baseline["tracks"]:
@@ -56,6 +56,27 @@ def expected(baseline, step):
         by_id[118]["parent_id"] = 201
         by_id[118]["sort_order"] = 1
 
+    if remove_member is not None:
+        assert step == 0, "selected removal must use the unedited PDB baseline"
+        playlist_id, index, track_id = remove_member
+        members = by_id[playlist_id]["member_track_ids"]
+        assert index >= 0 and members[index] == track_id, "removal expectation differs from PDB"
+        del members[index]
+
+    if append_member is not None:
+        assert step == 0 and remove_member is None and create_playlist is None
+        playlist_id, track_id = append_member
+        assert int(track_id) in {t["id"] for t in baseline["tracks"]}
+        by_id[playlist_id]["member_track_ids"].append(int(track_id))
+
+    if move_member is not None:
+        assert step == 0 and remove_member is None and create_playlist is None and append_member is None
+        playlist_id, index, destination, track_id = move_member
+        members = by_id[playlist_id]["member_track_ids"]
+        assert 0 <= index < len(members) and 0 <= destination < len(members) and abs(index - destination) == 1
+        assert members[index] == track_id, "move expectation differs from PDB"
+        members[index], members[destination] = members[destination], members[index]
+
     nodes = baseline["folders"] + playlists
 
     def folder(parent, name):
@@ -68,16 +89,23 @@ def expected(baseline, step):
                 result.append(folder(n["id"], n["name"]))
         return ({"Name": name, "Type": "0", "Count": str(len(result))}, result)
 
-    return tracks, children, folder(0, "ROOT")
+    root_attrs, root_children = folder(0, "ROOT")
+    if create_playlist is not None:
+        name, track_id = create_playlist
+        assert step == 0 and remove_member is None
+        assert int(track_id) in {t["id"] for t in baseline["tracks"]}
+        root_children.append(({"Name": name, "Type": "1", "KeyType": "0", "Entries": "1"}, [track_id]))
+        root_attrs["Count"] = str(len(root_children))
+    return tracks, children, (root_attrs, root_children)
 
 
-def verify(pdb, xml, step):
+def verify(pdb, xml, step, remove_member=None, create_playlist=None, append_member=None, move_member=None):
     baseline = build_baseline(parse_pdb(pdb.read_bytes()), with_titles=True)
     assert baseline["counts"]["tracks"] == 1330, "baseline tracks"
     assert baseline["counts"]["playlists"] == 20, "baseline playlists"
     assert baseline["counts"]["memberships"] == 901, "baseline memberships"
     assert baseline["unresolved_fields"] == 0, "baseline unresolved"
-    want_tracks, want_children, want_tree = expected(baseline, step)
+    want_tracks, want_children, want_tree = expected(baseline, step, remove_member, create_playlist, append_member, move_member)
     # Only test-generated synthetic CLI exports are parsed; no untrusted XML intake.
     root = ET.parse(xml).getroot()
     collection = root.find("COLLECTION")
@@ -103,9 +131,15 @@ def main():
     parser.add_argument("pdb", type=Path)
     parser.add_argument("xml", type=Path)
     parser.add_argument("--step", type=int, choices=range(7), default=0)
+    parser.add_argument("--remove-member", type=int, nargs=3,
+                        metavar=("PLAYLIST_ID", "INDEX", "TRACK_ID"),
+                        help="one independently specified occurrence removed from the PDB baseline")
+    parser.add_argument("--create-playlist", nargs=2, metavar=("NAME", "TRACK_ID"))
+    parser.add_argument("--append-member", type=int, nargs=2, metavar=("PLAYLIST_ID", "TRACK_ID"))
+    parser.add_argument("--move-member", type=int, nargs=4, metavar=("PLAYLIST_ID", "INDEX", "DESTINATION", "TRACK_ID"))
     args = parser.parse_args()
     try:
-        verify(args.pdb, args.xml, args.step)
+        verify(args.pdb, args.xml, args.step, args.remove_member, args.create_playlist, args.append_member, args.move_member)
     except (AssertionError, ValueError, OSError, ET.ParseError) as error:
         print(f"M7 mismatch: {error}", file=sys.stderr)
         return 1

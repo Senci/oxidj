@@ -31,14 +31,15 @@ mod tempo_store;
 mod waveform_store;
 pub use artwork::{Artwork, ArtworkError, ArtworkMemoryCache, DEFAULT_ARTWORK_CACHE_BYTES};
 pub use imported_library::{
-    LibraryBeat, LibraryCounts, LibraryCue, LibraryNavigation, LibraryNavigationTrack, LibraryNode,
-    LibrarySnapshot, LibraryTrack, validate_library_playlist_name,
+    ImportedTrackGuard, LibraryBeat, LibraryCounts, LibraryCue, LibraryNavigation,
+    LibraryNavigationTrack, LibraryNode, LibrarySnapshot, LibraryTrack, RootPlaylistGuard,
+    validate_library_playlist_name,
 };
 pub use oxidj_core::TrackId;
 pub use tempo_store::{LibraryComputedGrid, StoredBeatGrid, TEMPO_GRID_FORMAT_VERSION, TempoBasis};
 pub use waveform_store::{StoredWaveform, VendorWaveform, WAVEFORM_FORMAT_VERSION};
 
-const SCHEMA_VERSION: i64 = 8;
+const SCHEMA_VERSION: i64 = 10;
 const MIGRATION_LIST: &[M<'static>] = &[
     M::up(
         "CREATE TABLE tracks (\
@@ -180,6 +181,19 @@ const MIGRATION_LIST: &[M<'static>] = &[
             source_sha256 BLOB NOT NULL CHECK (length(source_sha256) = 32),\
             last_used INTEGER NOT NULL CHECK (last_used >= 0)\
         );",
+    ),
+    // A node's identity must not be reused when its integer key is reused.
+    M::up(
+        "CREATE TABLE library_node_identity (node_id INTEGER PRIMARY KEY, token BLOB NOT NULL UNIQUE CHECK(length(token) = 16));\
+         INSERT INTO library_node_identity SELECT id, randomblob(16) FROM library_nodes;\
+         CREATE TRIGGER library_node_identity_insert AFTER INSERT ON library_nodes BEGIN INSERT INTO library_node_identity VALUES (NEW.id, randomblob(16)); END;\
+         CREATE TRIGGER library_node_identity_delete AFTER DELETE ON library_nodes BEGIN DELETE FROM library_node_identity WHERE node_id = OLD.id; END;",
+    ),
+    M::up(
+        "CREATE TABLE library_track_identity (track_position INTEGER PRIMARY KEY, token BLOB NOT NULL UNIQUE CHECK(length(token) = 16));\
+         INSERT INTO library_track_identity SELECT position, randomblob(16) FROM library_tracks;\
+         CREATE TRIGGER library_track_identity_insert AFTER INSERT ON library_tracks BEGIN INSERT INTO library_track_identity VALUES (NEW.position, randomblob(16)); END;\
+         CREATE TRIGGER library_track_identity_delete AFTER DELETE ON library_tracks BEGIN DELETE FROM library_track_identity WHERE track_position = OLD.position; END;",
     ),
 ];
 const MIGRATIONS: Migrations<'static> = Migrations::from_slice(MIGRATION_LIST);

@@ -61,6 +61,7 @@ impl LibraryApp {
         self.sync_artwork_settings();
         self.decks.pump_artwork(ctx);
         self.pump_waveform_job(ctx);
+        self.pump_pdb_import(ctx);
         self.theme.apply(self.custom_tokens, ctx);
         let tokens = self.active_tokens();
         self.shell = ShellLayout::default();
@@ -133,6 +134,12 @@ impl LibraryApp {
         self.show_control_gallery_window(ctx, tokens);
         self.show_waveform_demo_window(ctx);
         self.xml_preview_window(ctx, tokens);
+        self.pdb_import_window(ctx);
+        self.catalog_export_window(ctx);
+        self.catalog_rename_window(ctx);
+        self.catalog_remove_window(ctx);
+        self.catalog_append_window(ctx);
+        self.catalog_create_window(ctx);
         let status = egui::TopBottomPanel::bottom("status-bar")
             .frame(status_frame)
             .show(ctx, |ui| self.status_bar(ui, tokens));
@@ -189,6 +196,7 @@ impl LibraryApp {
         self.decks.range = crate::decks::tempo_range(self.settings.tempo_range);
         self.decks.crossfader_on = self.settings.crossfader;
         self.decks.curve = self.settings.xfader_curve;
+        self.decks.set_limiter(self.settings.limiter);
         self.decks
             .flush(self.show_decks && self.settings.sections.mixer);
     }
@@ -467,6 +475,14 @@ impl LibraryApp {
                 ui.end_row();
             });
         ui.separator();
+        if ui.button("Import Rekordbox PDB…").clicked() {
+            self.pdb_import_open = true;
+            close = true;
+        }
+        if ui.button("Export catalog XML…").clicked() {
+            self.catalog_export_open = true;
+            close = true;
+        }
         ui.horizontal(|ui| {
             if ui.button("Settings… (Ctrl+,)").clicked() {
                 self.set_settings_open(ui.ctx(), true);
@@ -478,6 +494,388 @@ impl LibraryApp {
         if close {
             egui::Popup::close_all(ui.ctx());
         }
+    }
+
+    fn pdb_import_window(&mut self, ctx: &egui::Context) {
+        if !self.pdb_import_open {
+            return;
+        }
+        let mut open = true;
+        let mut cancel = false;
+        egui::Window::new("Import Rekordbox PDB").default_width(560.0).open(&mut open).show(ctx, |ui| {
+            ui.label("Import into a new catalog; the current catalog stays open.");
+            ui.label("Choose a local destination outside the source USB/device. No audio is copied.");
+            if self.pdb_job.is_some() {
+                ui.spinner();
+                ui.label("Import in progress… You can keep browsing. Closing this window does not cancel a running import.");
+            } else if let Some((source, destination)) = self.pdb_pending.clone() {
+                ui.label(format!("Read PDB: {}", source.display()));
+                ui.label(format!("Create NEW catalog: {}", destination.display()));
+                ui.label("Confirm creation? Existing files and the active catalog will not be reused or merged.");
+                if ui.button("Confirm import").clicked() {
+                    self.start_pdb_import(ctx, source, destination);
+                    self.pdb_pending = None;
+                }
+            } else {
+                ui.horizontal(|ui| { ui.label("PDB source"); ui.text_edit_singleline(&mut self.pdb_source_path); });
+                ui.horizontal(|ui| { ui.label("New catalog destination"); ui.text_edit_singleline(&mut self.pdb_destination_path); });
+                if ui.button("Review import…").clicked() {
+                    if self.pdb_source_path.trim().is_empty() || self.pdb_destination_path.trim().is_empty() {
+                        self.notice = "Import refused: choose a PDB source and explicitly name a new catalog file".into();
+                    } else {
+                        self.pdb_pending = Some((PathBuf::from(&self.pdb_source_path), PathBuf::from(&self.pdb_destination_path)));
+                    }
+                }
+            }
+            if ui.button(if self.pdb_job.is_some() { "Close" } else { "Cancel" }).clicked() { cancel = true; }
+            if !self.notice.is_empty() { ui.label(&self.notice); }
+        });
+        self.pdb_import_open = open && !cancel;
+        if !self.pdb_import_open {
+            self.pdb_pending = None;
+        }
+    }
+
+    fn start_pdb_import(&mut self, ctx: &egui::Context, source: PathBuf, destination: PathBuf) {
+        if self.pdb_job.is_some() {
+            return;
+        }
+        let (tx, rx) = std::sync::mpsc::channel();
+        let repaint = ctx.clone();
+        #[cfg(test)]
+        let gate = self.pdb_gate.take();
+        match std::thread::Builder::new()
+            .name("oxidj-pdb-import".into())
+            .spawn(move || {
+                #[cfg(test)]
+                if let Some(gate) = gate {
+                    gate.wait();
+                }
+                let result =
+                    oxidj_application::import_library_from_pdb(&source, &destination, None)
+                        .map_err(|e| e.to_string());
+                let _ = tx.send((destination, result));
+                repaint.request_repaint();
+            }) {
+            Ok(_) => {
+                self.pdb_job = Some(rx);
+                self.notice = "PDB import started; the active catalog remains open".into();
+            }
+            Err(_) => self.notice = "Import failed: could not start background worker".into(),
+        }
+    }
+
+    fn pump_pdb_import(&mut self, ctx: &egui::Context) {
+        let Some(rx) = &self.pdb_job else {
+            return;
+        };
+        match rx.try_recv() {
+            Ok((destination, result)) => {
+                self.pdb_job = None;
+                self.notice = match result {
+                    Ok(r) => format!(
+                        "Created catalog {}: {} tracks, {} folders, {} playlists, {} entries. {} unresolved field values. XML cannot carry every vendor field. No audio copied. Current catalog unchanged. To open the new catalog, launch oxidj-library-ui with --db and this path: {}",
+                        destination.display(),
+                        r.counts.tracks,
+                        r.counts.folders,
+                        r.counts.playlists,
+                        r.counts.memberships,
+                        r.unresolved.iter().map(|(_, n)| n).sum::<usize>(),
+                        destination.display()
+                    ),
+                    Err(e) => format!("PDB import failed: {e}. Current catalog unchanged."),
+                };
+            }
+            Err(std::sync::mpsc::TryRecvError::Empty) => {
+                ctx.request_repaint_after(std::time::Duration::from_millis(100))
+            }
+            Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                self.pdb_job = None;
+                self.notice = "PDB import failed: background worker stopped unexpectedly. Current catalog unchanged.".into();
+            }
+        }
+    }
+
+    fn catalog_export_window(&mut self, ctx: &egui::Context) {
+        if !self.catalog_export_open {
+            return;
+        }
+        let mut open = self.catalog_export_open;
+        let mut cancel = false;
+        egui::Window::new("Export imported catalog").open(&mut open).show(ctx, |ui| {
+            ui.label("Export to a new Rekordbox XML file; existing files are never overwritten.");
+            ui.horizontal(|ui| { ui.label("New XML destination"); ui.text_edit_singleline(&mut self.catalog_export_path); });
+            ui.horizontal(|ui| { ui.label("Windows drive letter (optional)"); ui.text_edit_singleline(&mut self.catalog_export_drive); });
+            ui.label("Computed grids are not included.");
+            ui.horizontal(|ui| {
+                if ui.button("Export catalog XML").clicked() {
+                    let drive = self.catalog_export_drive.trim();
+                    let drive = if drive.is_empty() { Some(None) } else { oxidj_application::DriveLetter::parse(drive).map(Some) };
+                    if self.catalog_export_path.trim().is_empty() {
+                        self.notice = "Catalog export refused: choose a new XML destination".into();
+                    } else if let Some(drive) = drive {
+                        match oxidj_application::export_library_xml(&self.db_path, &self.catalog_export_path, drive, false) {
+                            Ok(report) => self.notice = format!("Catalog exported to {}: {} tracks, {} folders, {} playlists, {} entries. Some metadata cannot be carried in XML.", self.catalog_export_path, report.counts.tracks, report.counts.folders, report.counts.playlists, report.counts.memberships),
+                            Err(error) => self.notice = format!("Catalog export failed: {error}"),
+                        }
+                    } else {
+                        self.notice = "Catalog export refused: drive must be one letter A–Z".into();
+                    }
+                }
+                if ui.button("Cancel").clicked() { cancel = true; }
+            });
+            if !self.notice.is_empty() { ui.label(&self.notice); }
+        });
+        self.catalog_export_open = open && !cancel;
+    }
+
+    fn catalog_append_window(&mut self, ctx: &egui::Context) {
+        if self.catalog_append_pending.is_none() {
+            return;
+        }
+        let mut open = true;
+        let mut done = false;
+        egui::Window::new("Add track to root playlist")
+            .open(&mut open)
+            .show(ctx, |ui| {
+                ui.label("Choose an existing root playlist. Duplicate entries are kept.");
+                egui::ScrollArea::vertical()
+                    .max_height(240.0)
+                    .show(ui, |ui| {
+                        if let Ok(nav) = &self.imported_navigation {
+                            for (index, node) in nav.roots.iter().enumerate() {
+                                if let oxidj_library::LibraryNode::Playlist { name, members } = node
+                                {
+                                    let selected = self
+                                        .catalog_append_pending
+                                        .as_ref()
+                                        .and_then(|p| p.2.as_ref())
+                                        .is_some_and(|p| p.0 == index);
+                                    if ui
+                                        .selectable_label(selected, format!("Target: {name}"))
+                                        .clicked()
+                                    {
+                                        match self
+                                            .catalog
+                                            .as_ref()
+                                            .map_err(|_| "catalog unavailable".to_string())
+                                            .and_then(|db| {
+                                                db.root_playlist_guard(index, name, members)
+                                                    .map_err(|e| e.to_string())
+                                            }) {
+                                            Ok(guard) => {
+                                                self.catalog_append_pending.as_mut().unwrap().2 =
+                                                    Some((index, guard))
+                                            }
+                                            Err(error) => {
+                                                self.catalog_append_pending.as_mut().unwrap().2 =
+                                                    None;
+                                                self.notice =
+                                                    format!("Playlist selection refused: {error}");
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    });
+                ui.horizontal(|ui| {
+                    if ui.button("Confirm addition").clicked() {
+                        let (member, track, target) = self.catalog_append_pending.as_ref().unwrap();
+                        let result =
+                            if self.selected_imported != Some(*member) || !self.db_path.is_file() {
+                                Err("selection or catalog is no longer available".to_owned())
+                            } else if let Some((_, guard)) = target {
+                                match &mut self.catalog {
+                                    Ok(db) => db
+                                        .append_guarded_root_playlist_member(guard, track)
+                                        .map_err(|e| e.to_string()),
+                                    Err(_) => Err("catalog unavailable".to_owned()),
+                                }
+                            } else {
+                                Err("choose a root playlist".to_owned())
+                            };
+                        match result {
+                            Ok(()) => {
+                                self.reload();
+                                self.imported_root_guard = self
+                                    .imported_playlist
+                                    .as_ref()
+                                    .filter(|path| path.len() == 1)
+                                    .and_then(|path| {
+                                        let index = path[0];
+                                        let oxidj_library::LibraryNode::Playlist { name, members } =
+                                            self.imported_navigation
+                                                .as_ref()
+                                                .ok()?
+                                                .roots
+                                                .get(index)?
+                                        else {
+                                            return None;
+                                        };
+                                        self.catalog
+                                            .as_ref()
+                                            .ok()?
+                                            .root_playlist_guard(index, name, members)
+                                            .ok()
+                                    });
+                                self.notice = "Track added to playlist".into();
+                                done = true;
+                            }
+                            Err(error) => {
+                                self.notice = format!("Playlist addition refused: {error}")
+                            }
+                        }
+                    }
+                    if ui.button("Cancel").clicked() {
+                        done = true;
+                    }
+                });
+                if !self.notice.is_empty() {
+                    ui.label(&self.notice);
+                }
+            });
+        if !open || done {
+            self.catalog_append_pending = None;
+        }
+    }
+
+    fn catalog_create_window(&mut self, ctx: &egui::Context) {
+        if self.catalog_create_pending.is_none() {
+            return;
+        }
+        let mut open = true;
+        let mut done = false;
+        egui::Window::new("Create root playlist")
+            .open(&mut open)
+            .show(ctx, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label("Playlist name");
+                    ui.text_edit_singleline(&mut self.catalog_create_name);
+                });
+                ui.horizontal(|ui| {
+                    if ui.button("Confirm creation").clicked() {
+                        let (member, guard) = self.catalog_create_pending.as_ref().unwrap();
+                        let result = if self.selected_imported != Some(*member)
+                            || !self.db_path.is_file()
+                        {
+                            Err("selection or catalog is no longer available".to_owned())
+                        } else {
+                            match &mut self.catalog {
+                                Ok(db) => db
+                                    .create_guarded_root_playlist(&self.catalog_create_name, guard)
+                                    .map_err(|e| e.to_string()),
+                                Err(_) => Err("catalog unavailable".to_owned()),
+                            }
+                        };
+                        match result {
+                            Ok(()) => {
+                                self.reload();
+                                self.notice = "Playlist created".into();
+                                done = true;
+                            }
+                            Err(error) => {
+                                self.notice = format!("Playlist creation refused: {error}")
+                            }
+                        }
+                    }
+                    if ui.button("Cancel").clicked() {
+                        done = true;
+                    }
+                });
+                if !self.notice.is_empty() {
+                    ui.label(&self.notice);
+                }
+            });
+        if !open || done {
+            self.catalog_create_pending = None;
+        }
+    }
+
+    fn catalog_remove_window(&mut self, ctx: &egui::Context) {
+        if self.catalog_remove_pending.is_none() {
+            return;
+        }
+        let mut open = true;
+        let mut done = false;
+        egui::Window::new("Remove playlist member").open(&mut open).show(ctx, |ui| {
+            ui.label("Remove this occurrence from the playlist? The track and audio will not be deleted.");
+            ui.horizontal(|ui| {
+                if ui.button("Confirm removal").clicked() {
+                    let (guard, path, index, member) = self.catalog_remove_pending.as_ref().unwrap();
+                    let result = if self.imported_playlist.as_ref() != Some(path) || self.imported_member != Some(*index) || self.selected_imported != Some(*member) {
+                        Err("selection changed".to_owned())
+                    } else {
+                        match &mut self.catalog {
+                            Ok(db) => db.remove_guarded_root_playlist_member(guard, *index, *member).map_err(|e| e.to_string()),
+                            Err(_) => Err("catalog unavailable".to_owned()),
+                        }
+                    };
+                    match result {
+                        Ok(()) => {
+                            self.reload();
+                            self.imported_member = None;
+                            self.selected_imported = None;
+                            self.imported_root_guard = self.imported_playlist.as_ref().and_then(|path| {
+                                let index = *path.first()?;
+                                let oxidj_library::LibraryNode::Playlist { name, members } = self.imported_navigation.as_ref().ok()?.roots.get(index)? else { return None; };
+                                self.catalog.as_ref().ok()?.root_playlist_guard(index, name, members).ok()
+                            });
+                            self.notice = "Playlist member removed".into();
+                            done = true;
+                        }
+                        Err(error) => self.notice = format!("Playlist removal refused: {error}"),
+                    }
+                }
+                if ui.button("Cancel").clicked() { done = true; }
+            });
+            if !self.notice.is_empty() { ui.label(&self.notice); }
+        });
+        if !open || done {
+            self.catalog_remove_pending = None;
+        }
+    }
+
+    fn catalog_rename_window(&mut self, ctx: &egui::Context) {
+        if !self.catalog_rename_open {
+            return;
+        }
+        let mut open = true;
+        let mut done = false;
+        egui::Window::new("Rename root playlist")
+            .open(&mut open)
+            .show(ctx, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label("New name");
+                    ui.text_edit_singleline(&mut self.catalog_rename_name);
+                });
+                ui.horizontal(|ui| {
+                    if ui.button("Confirm rename").clicked() {
+                        let result = match (&mut self.catalog, &self.imported_root_guard) {
+                            (Ok(db), Some(guard)) => db
+                                .rename_guarded_root_playlist(guard, &self.catalog_rename_name)
+                                .map_err(|e| e.to_string()),
+                            _ => Err("selection is no longer available".to_owned()),
+                        };
+                        match result {
+                            Ok(guard) => {
+                                self.notice = "Playlist renamed".into();
+                                self.reload();
+                                self.imported_root_guard = Some(guard);
+                                done = true;
+                            }
+                            Err(error) => self.notice = format!("Playlist rename refused: {error}"),
+                        }
+                    }
+                    if ui.button("Cancel").clicked() {
+                        done = true;
+                    }
+                });
+                if !self.notice.is_empty() {
+                    ui.label(&self.notice);
+                }
+            });
+        self.catalog_rename_open = open && !done;
     }
 
     /// W11 search: one framed control holding a painted magnifier, the
@@ -578,6 +976,10 @@ impl LibraryApp {
             if self.show_decks {
                 let (status, ok) = self.decks.status();
                 let colour = if ok { tokens.muted_text } else { tokens.warning };
+                if let Some(metrics) = crate::decks::audio_metrics(&self.decks.engine.output(), self.decks.engine.stats()) {
+                    ui.label(muted(metrics)).on_hover_text("Latency reported by the output host; peak DSP is the worst callback load since the stream opened.");
+                    ui.separator();
+                }
                 ui.label(egui::RichText::new(status).small().strong().color(colour))
                     .on_hover_text("Deck audio output (D2): both decks mixed at unity; without a device the decks keep running silently");
                 ui.separator();
@@ -1085,6 +1487,8 @@ impl LibraryApp {
         if all.clicked() {
             self.availability_filter = None;
             self.imported_playlist = None;
+            self.imported_root_guard = None;
+            self.catalog_rename_open = false;
             self.imported_member = None;
             self.selected_imported = None;
         }
@@ -1112,6 +1516,8 @@ impl LibraryApp {
             {
                 self.availability_filter = Some(filter);
                 self.imported_playlist = None;
+                self.imported_root_guard = None;
+                self.catalog_rename_open = false;
                 self.imported_member = None;
                 self.selected_imported = None;
             }
@@ -1141,7 +1547,7 @@ impl LibraryApp {
                                 .id_salt(("imported-folder", &*path))
                                 .show(ui, |ui| show_nodes(ui, children, path, app));
                         }
-                        oxidj_library::LibraryNode::Playlist { name, .. } => {
+                        oxidj_library::LibraryNode::Playlist { name, members } => {
                             let label = format!("♫ {name}");
                             if ui
                                 .selectable_label(
@@ -1151,6 +1557,25 @@ impl LibraryApp {
                                 .clicked()
                             {
                                 app.imported_playlist = Some(path.clone());
+                                app.imported_root_guard = if path.len() == 1 {
+                                    match &app.catalog {
+                                        Ok(db) => {
+                                            match db.root_playlist_guard(index, name, members) {
+                                                Ok(guard) => Some(guard),
+                                                Err(error) => {
+                                                    app.notice = format!(
+                                                        "Playlist selection is stale: {error}"
+                                                    );
+                                                    None
+                                                }
+                                            }
+                                        }
+                                        Err(_) => None,
+                                    }
+                                } else {
+                                    None
+                                };
+                                app.catalog_rename_open = false;
                                 app.imported_member = None;
                                 app.selected_imported = None;
                                 app.selected = None;
@@ -1161,6 +1586,132 @@ impl LibraryApp {
                 }
             }
             show_nodes(ui, &snapshot.roots, &mut Vec::new(), self);
+            if let (Some(member), Some(guard)) =
+                (self.selected_imported, &self.selected_imported_guard)
+            {
+                if ui.button("Add selected to playlist…").clicked() {
+                    let target = self
+                        .imported_playlist
+                        .as_ref()
+                        .filter(|path| path.len() == 1)
+                        .and_then(|path| {
+                            self.imported_root_guard
+                                .clone()
+                                .map(|guard| (path[0], guard))
+                        });
+                    self.catalog_append_pending = Some((member, guard.clone(), target));
+                }
+                if ui.button("Create playlist from selected…").clicked() {
+                    self.catalog_create_name.clear();
+                    self.catalog_create_pending = Some((member, guard.clone()));
+                }
+            }
+            if self
+                .imported_playlist
+                .as_ref()
+                .is_some_and(|path| path.len() == 1)
+                && self.imported_root_guard.is_some()
+                && ui.button("Rename playlist…").clicked()
+            {
+                if let Some(oxidj_library::LibraryNode::Playlist { name, .. }) = self
+                    .imported_playlist
+                    .as_ref()
+                    .and_then(|path| snapshot.roots.get(path[0]))
+                {
+                    self.catalog_rename_name = name.clone();
+                    self.catalog_rename_open = true;
+                }
+            }
+            if let (Some(guard), Some(track), Some(index), Some(member), Some(path)) = (
+                self.imported_root_guard.clone(),
+                self.selected_imported_guard.clone(),
+                self.imported_member,
+                self.selected_imported,
+                self.imported_playlist.clone(),
+            ) {
+                if path.len() == 1 {
+                    if let Some(oxidj_library::LibraryNode::Playlist { members, .. }) =
+                        snapshot.roots.get(path[0])
+                    {
+                        let up = ui
+                            .add_enabled(index > 0, egui::Button::new("Move selected up"))
+                            .clicked();
+                        let down = ui
+                            .add_enabled(
+                                index.checked_add(1).is_some_and(|i| i < members.len()),
+                                egui::Button::new("Move selected down"),
+                            )
+                            .clicked();
+                        let target = if up {
+                            index.checked_sub(1)
+                        } else if down {
+                            index.checked_add(1)
+                        } else {
+                            None
+                        };
+                        if let Some(target) = target {
+                            let result = if !self.db_path.is_file() {
+                                Err("catalog is no longer available".to_owned())
+                            } else {
+                                self.catalog
+                                    .as_mut()
+                                    .map_err(|_| "catalog unavailable".to_owned())
+                                    .and_then(|db| {
+                                        db.move_guarded_root_playlist_member(
+                                            &guard, &track, index, target,
+                                        )
+                                        .map_err(|e| e.to_string())
+                                    })
+                            };
+                            match result {
+                                Ok(()) => {
+                                    self.reload();
+                                    self.imported_member = Some(target);
+                                    self.selected_imported = Some(member);
+                                    self.imported_root_guard =
+                                        self.imported_navigation.as_ref().ok().and_then(|nav| {
+                                            let oxidj_library::LibraryNode::Playlist {
+                                                name,
+                                                members,
+                                            } = nav.roots.get(path[0])?
+                                            else {
+                                                return None;
+                                            };
+                                            self.catalog
+                                                .as_ref()
+                                                .ok()?
+                                                .root_playlist_guard(path[0], name, members)
+                                                .ok()
+                                        });
+                                    self.notice = "Playlist member moved".into();
+                                }
+                                Err(error) => {
+                                    self.notice = format!("Playlist move refused: {error}")
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            if let (Some(guard), Some(index), Some(member)) = (
+                &self.imported_root_guard,
+                self.imported_member,
+                self.selected_imported,
+            ) {
+                if self
+                    .imported_playlist
+                    .as_ref()
+                    .is_some_and(|path| path.len() == 1)
+                    && ui.button("Remove selected from playlist…").clicked()
+                {
+                    self.catalog_remove_pending = Some((
+                        guard.clone(),
+                        self.imported_playlist.clone().unwrap(),
+                        index,
+                        member,
+                    ));
+                }
+            }
         } else if let Err(error) = snapshot {
             ui.label(format!("Imported playlists unavailable: {error}"));
         }
@@ -1548,6 +2099,10 @@ impl LibraryApp {
                                     if response.clicked() || response.drag_started() {
                                         self.imported_member = Some(position);
                                         self.selected_imported = Some(member);
+                                        self.selected_imported_guard =
+                                            self.catalog.as_ref().ok().and_then(|db| {
+                                                db.imported_track_guard(member, track).ok()
+                                            });
                                         self.selected = None;
                                     }
                                     if response.drag_started() {

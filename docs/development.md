@@ -32,6 +32,8 @@ Stable is a moving channel, not reproducible by itself. The tested host toolchai
 
 On Linux, `oxidj-audio` (CPAL, M8) also needs the ALSA development headers and `pkg-config` at build time (`libasound2-dev` on Debian/Ubuntu, `alsa-lib` on Arch); no audio device is opened by tests or CI. The CI workflow installs them before `cargo xtask ci-full`; a runner without them fails in `ci-full` with exit 101 while building `alsa-sys`.
 
+The Linux local installer additionally builds with JACK support. Install the JACK development files (`libjack-jackd2-dev` on Debian/Ubuntu or `jack2` on Arch) and ensure `pkg-config --exists jack` succeeds before running it. A JACK-compatible runtime and server are needed to use JACK output; the build prerequisite alone does not provide a running server.
+
 A native linker/C build toolchain is also needed; `cc --version` succeeded on this host. Platform-specific linker/SDK setup must be verified when adding Windows/macOS CI; this Linux smoke test is not cross-platform validation. No sudo, shell-profile changes, additional targets, nightly or global Cargo helpers were needed here.
 
 The smoke script creates and removes a dependency-free crate under `$TMPDIR` (fallback: `$HOME/.cache/oxidj`), isolates its target directory, and needs no crate registry access. Intentional compiler, formatter, lint and regression failures precede the final PASS. It is a toolchain probe, not a product test suite. An existing rustup toolchain override in `RUSTUP_TOOLCHAIN` is respected; default is stable. The installer path is documented, but reinstalling rustup on a pristine host was not exercised in this audit.

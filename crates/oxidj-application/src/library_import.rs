@@ -483,12 +483,57 @@ pub fn unresolved_counts(preview: &PdbPreview) -> Vec<(&'static str, usize)> {
         .collect()
 }
 
-fn catalog_files(catalog: &Path) -> [std::path::PathBuf; 3] {
-    let mut wal = catalog.as_os_str().to_owned();
-    wal.push("-wal");
-    let mut shm = catalog.as_os_str().to_owned();
-    shm.push("-shm");
-    [catalog.to_path_buf(), wal.into(), shm.into()]
+fn catalog_files(catalog: &Path) -> Vec<std::path::PathBuf> {
+    ["", "-wal", "-shm", "-journal"]
+        .into_iter()
+        .map(|suffix| {
+            let mut path = catalog.as_os_str().to_owned();
+            path.push(suffix);
+            path.into()
+        })
+        .collect()
+}
+
+/// SQLite and its sidecars live only in an exclusively owned staging directory.
+/// Publication is a no-clobber hard link of the closed, checkpointed database;
+/// failures never remove or open a destination created by somebody else.
+struct ImportStage(std::path::PathBuf);
+impl ImportStage {
+    fn new(parent: &Path) -> Result<Self, LibraryWorkflowError> {
+        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        for _ in 0..100 {
+            let serial = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            let path = parent.join(format!(".oxidj-import-{}-{serial}", std::process::id()));
+            let mut builder = std::fs::DirBuilder::new();
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::DirBuilderExt;
+                builder.mode(0o700);
+            }
+            match builder.create(&path) {
+                Ok(()) => return Ok(Self(path)),
+                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                Err(_) => return Err(fail("could not create a private import staging directory")),
+            }
+        }
+        Err(fail("could not reserve an import staging directory"))
+    }
+    fn publish(&self, catalog: &Path) -> Result<(), LibraryWorkflowError> {
+        if catalog_files(catalog)
+            .iter()
+            .any(|f| f.symlink_metadata().is_ok())
+        {
+            return Err(fail("refusing to reuse an existing catalog path"));
+        }
+        std::fs::hard_link(self.0.join("catalog.sqlite"), catalog).map_err(|_| {
+            fail("could not publish new catalog without overwriting; destination must be unused")
+        })
+    }
+}
+impl Drop for ImportStage {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
 }
 
 /// The device root of a `<root>/PIONEER/rekordbox/export.pdb` layout, where ANLZ
@@ -533,9 +578,36 @@ fn import_library_with(
         &LibraryCounts,
     ) -> Result<Option<OneLibraryCrossCheck>, LibraryWorkflowError>,
 ) -> Result<LibraryImportReport, LibraryWorkflowError> {
+    import_library_checked(pdb, catalog, cross_check, crate::import_destination::verify)
+}
+
+fn import_library_checked(
+    pdb: &Path,
+    catalog: &Path,
+    cross_check: impl FnOnce(
+        &LibraryCounts,
+    ) -> Result<Option<OneLibraryCrossCheck>, LibraryWorkflowError>,
+    local_destination: impl Fn(&Path) -> bool,
+) -> Result<LibraryImportReport, LibraryWorkflowError> {
     let files = catalog_files(catalog);
     if files.iter().any(|f| f.symlink_metadata().is_ok()) {
         return Err(fail("refusing to reuse an existing catalog path"));
+    }
+    let source = pdb
+        .canonicalize()
+        .map_err(|_| fail("source could not be read"))?;
+    let parent = catalog
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or(Path::new("."));
+    let parent = parent
+        .canonicalize()
+        .map_err(|_| fail("destination directory must already exist"))?;
+    if device_root(&source).is_some_and(|root| parent.starts_with(root)) {
+        return Err(fail("destination must be outside the source device"));
+    }
+    if !local_destination(&parent) {
+        return Err(fail(crate::import_destination::REFUSAL));
     }
     let before = read_source(pdb)?;
     let mut preview = oxidj_rekordbox::parse_pdb(&before)
@@ -545,14 +617,17 @@ fn import_library_with(
     let unresolved = unresolved_counts(&preview);
     let counts = snapshot.counts();
     let onelibrary = cross_check(&counts)?;
+    let stage = ImportStage::new(&parent)?;
+    let staged_catalog = stage.0.join("catalog.sqlite");
     let result = (|| {
         let mut created =
-            Catalog::open(catalog).map_err(|e| LibraryWorkflowError(e.to_string()))?;
+            Catalog::open(&staged_catalog).map_err(|e| LibraryWorkflowError(e.to_string()))?;
         created
             .import_library(&snapshot)
             .map_err(|e| LibraryWorkflowError(e.to_string()))?;
         drop(created);
-        let reopened = Catalog::open(catalog).map_err(|e| LibraryWorkflowError(e.to_string()))?;
+        let reopened = Catalog::open_read_only(&staged_catalog)
+            .map_err(|e| LibraryWorkflowError(e.to_string()))?;
         let catalog_matches_source = reopened
             .library_snapshot()
             .map_err(|e| LibraryWorkflowError(e.to_string()))?
@@ -571,12 +646,204 @@ fn import_library_with(
             onelibrary,
         })
     })();
-    if result.is_err() {
-        for file in &files {
-            let _ = std::fs::remove_file(file);
+    let report = result?;
+    stage.publish(catalog)?;
+    Ok(report)
+}
+
+#[cfg(test)]
+mod import_publication_tests {
+    use super::*;
+    const ANLZ_A: &str = "/PIONEER/USBANLZ/P001/0000002A/ANLZ0000.DAT";
+    const ANLZ_B: &str = "/PIONEER/USBANLZ/P001/00000007/ANLZ0000.DAT";
+    include!("../../oxidj-cli/tests/support/library_pdb_fixture.rs");
+
+    fn scratch() -> std::path::PathBuf {
+        let path = std::env::temp_dir().join(format!(
+            "oxidj-import-publication-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(path.join("device/PIONEER/rekordbox")).unwrap();
+        path
+    }
+
+    #[test]
+    fn unclassifiable_destination_is_refused_before_any_write() {
+        let root = scratch();
+        let pdb = root.join("backup.pdb");
+        let bytes = synthetic_pdb(None);
+        std::fs::write(&pdb, &bytes).unwrap();
+        let destination = Path::new("/proc/oxidj-must-not-create.sqlite");
+        let error = import_library_from_pdb(&pdb, destination, None).unwrap_err();
+        assert!(
+            error.0.contains("verified local non-removable storage"),
+            "{error}"
+        );
+        assert!(!destination.exists());
+        assert_eq!(std::fs::read(&pdb).unwrap(), bytes);
+        assert_eq!(root.read_dir().unwrap().count(), 2);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn removable_destinations_and_canonical_aliases_refuse_before_staging() {
+        use serde_json::json;
+        let root = scratch();
+        let source_dir = root.join("nonstandard-device");
+        let other = root.join("different-device");
+        let local = root.join("local");
+        for dir in [&source_dir, &other, &local] {
+            std::fs::create_dir(dir).unwrap();
+        }
+        let pdb = source_dir.join("backup.pdb");
+        let bytes = synthetic_pdb(None);
+        std::fs::write(&pdb, &bytes).unwrap();
+        std::os::unix::fs::symlink(&other, root.join("alias")).unwrap();
+        let classify = |parent: &Path| {
+            crate::import_destination::verify_with(parent, |program, args| {
+                if program == "findmnt" {
+                    assert_eq!(args[2], parent.as_os_str());
+                    assert!(
+                        !parent.ends_with("alias"),
+                        "classify canonical mount, not alias"
+                    );
+                    let source = if parent == local {
+                        "/dev/local"
+                    } else {
+                        "/dev/usb"
+                    };
+                    Some(json!({"filesystems":[{"fstype":"exfat","sources":[source]}]}))
+                } else {
+                    assert_eq!(program, "lsblk");
+                    let usb = args.last().unwrap() == "/dev/usb";
+                    Some(
+                        json!({"blockdevices":[{"type":"disk","tran":if usb { "usb" } else { "nvme" },"rm":false,"hotplug":false}]}),
+                    )
+                }
+            })
+        };
+        for dir in [&source_dir, &other, &root.join("alias")] {
+            let before = std::fs::read_dir(dir).unwrap().count();
+            let destination = dir.join("no.sqlite");
+            let result = import_library_checked(
+                &pdb,
+                &destination,
+                |_| panic!("must refuse before parsing/cross-check/staging"),
+                classify,
+            );
+            assert_eq!(result.unwrap_err().0, crate::import_destination::REFUSAL);
+            assert_eq!(
+                std::fs::read_dir(dir).unwrap().count(),
+                before,
+                "no stage, catalog or sidecars"
+            );
+            assert_eq!(std::fs::read(&pdb).unwrap(), bytes);
+        }
+        let destination = local.join("yes.sqlite");
+        let report = import_library_checked(&pdb, &destination, |_| Ok(None), classify).unwrap();
+        assert_eq!(report.counts.tracks, 3);
+        assert_eq!(std::fs::read_dir(&local).unwrap().count(), 1);
+        assert_eq!(
+            Catalog::open_read_only(&destination)
+                .unwrap()
+                .library_snapshot()
+                .unwrap()
+                .tracks
+                .len(),
+            3
+        );
+        assert_eq!(std::fs::read(&pdb).unwrap(), bytes);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn competing_creator_and_its_sidecars_are_never_opened_or_cleaned_up() {
+        for suffix in ["", "-wal", "-shm", "-journal"] {
+            let root = scratch();
+            let pdb = root.join("device/PIONEER/rekordbox/export.pdb");
+            let source = synthetic_pdb(None);
+            std::fs::write(&pdb, &source).unwrap();
+            let destination = root.join("new.sqlite");
+            let competing = root.join(format!("new.sqlite{suffix}"));
+            // Runs after preflight but before publication. A foreign creator wins.
+            let result = import_library_with(&pdb, &destination, |_| {
+                std::fs::write(&competing, b"foreign sentinel").unwrap();
+                Ok(None)
+            });
+            assert_eq!(
+                result.unwrap_err().0,
+                "refusing to reuse an existing catalog path"
+            );
+            assert_eq!(std::fs::read(&competing).unwrap(), b"foreign sentinel");
+            assert_eq!(std::fs::read(&pdb).unwrap(), source);
+            if !suffix.is_empty() {
+                assert!(!destination.exists());
+            }
+            assert!(!root.read_dir().unwrap().any(|e| {
+                e.unwrap()
+                    .file_name()
+                    .to_string_lossy()
+                    .starts_with(".oxidj-import-")
+            }));
+            std::fs::remove_dir_all(root).unwrap();
         }
     }
-    result
+
+    #[test]
+    fn failed_verification_cleans_only_its_private_stage() {
+        let root = scratch();
+        let pdb = root.join("device/PIONEER/rekordbox/export.pdb");
+        std::fs::write(&pdb, synthetic_pdb(None)).unwrap();
+        let destination = root.join("new.sqlite");
+        let result = import_library_with(&pdb, &destination, |_| {
+            std::fs::write(&pdb, b"external source change").unwrap();
+            std::fs::write(&destination, b"foreign destination").unwrap();
+            std::fs::write(root.join("new.sqlite-wal"), b"foreign WAL").unwrap();
+            Ok(None)
+        });
+        assert_eq!(result.unwrap_err().0, "import verification failed");
+        assert_eq!(std::fs::read(&destination).unwrap(), b"foreign destination");
+        assert_eq!(
+            std::fs::read(root.join("new.sqlite-wal")).unwrap(),
+            b"foreign WAL"
+        );
+        assert_eq!(root.read_dir().unwrap().count(), 3);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn publication_is_exclusive_even_when_a_database_already_exists() {
+        let root = scratch();
+        let stage = ImportStage::new(&root).unwrap();
+        std::fs::write(stage.0.join("catalog.sqlite"), b"new catalog").unwrap();
+        let destination = root.join("new.sqlite");
+        stage.publish(&destination).unwrap();
+        assert!(stage.publish(&destination).is_err());
+        drop(stage);
+        assert_eq!(std::fs::read(&destination).unwrap(), b"new catalog");
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn destination_alias_into_source_device_is_refused_without_writes() {
+        let root = scratch();
+        let pdb = root.join("device/PIONEER/rekordbox/export.pdb");
+        std::fs::write(&pdb, synthetic_pdb(None)).unwrap();
+        std::os::unix::fs::symlink(root.join("device"), root.join("alias")).unwrap();
+        let result = import_library_from_pdb(&pdb, root.join("alias/no.sqlite"), None);
+        assert_eq!(
+            result.unwrap_err().0,
+            "destination must be outside the source device"
+        );
+        assert!(!root.join("device/no.sqlite").exists());
+        std::fs::remove_dir_all(root).unwrap();
+    }
 }
 
 fn xml_library(
@@ -870,6 +1137,82 @@ pub fn append_library_playlist_members(
         .map_err(|e| LibraryWorkflowError(e.to_string()))
 }
 
+/// Rename a uniquely named imported root playlist after a read-only preflight.
+pub fn rename_library_playlist(
+    catalog: impl AsRef<Path>,
+    old: &str,
+    new: &str,
+) -> Result<(), LibraryWorkflowError> {
+    oxidj_library::validate_library_playlist_name(old)
+        .map_err(|e| LibraryWorkflowError(e.to_string()))?;
+    oxidj_library::validate_library_playlist_name(new)
+        .map_err(|e| LibraryWorkflowError(e.to_string()))?;
+    if !catalog.as_ref().is_file() {
+        return Err(fail("catalog does not exist"));
+    }
+    {
+        let read_only = Catalog::open_read_only(catalog.as_ref())
+            .map_err(|e| LibraryWorkflowError(e.to_string()))?;
+        if read_only
+            .library_snapshot()
+            .map_err(|e| LibraryWorkflowError(e.to_string()))?
+            .tracks
+            .is_empty()
+        {
+            return Err(fail("catalog holds no imported tracks"));
+        }
+    }
+    Catalog::open(catalog)
+        .map_err(|e| LibraryWorkflowError(e.to_string()))?
+        .rename_library_playlist(old, new)
+        .map_err(|e| LibraryWorkflowError(e.to_string()))
+}
+
+/// Remove a guarded occurrence using exported TrackIDs and a zero-based index.
+pub fn remove_library_playlist_member(
+    catalog: impl AsRef<Path>,
+    name: &str,
+    ids: &str,
+    index: usize,
+    id: &str,
+) -> Result<(), LibraryWorkflowError> {
+    oxidj_library::validate_library_playlist_name(name)
+        .map_err(|e| LibraryWorkflowError(e.to_string()))?;
+    let parse_id = |id: &str| -> Result<usize, LibraryWorkflowError> {
+        if id.is_empty() || !id.bytes().all(|c| c.is_ascii_digit()) {
+            return Err(fail("track IDs must be positive integers"));
+        }
+        id.parse::<usize>()
+            .ok()
+            .and_then(|n| n.checked_sub(1))
+            .ok_or_else(|| fail("track IDs must be positive integers within range"))
+    };
+    let expected = ids
+        .split(',')
+        .map(parse_id)
+        .collect::<Result<Vec<_>, _>>()?;
+    let member = parse_id(id)?;
+    if !catalog.as_ref().is_file() {
+        return Err(fail("catalog does not exist"));
+    }
+    {
+        let read_only = Catalog::open_read_only(catalog.as_ref())
+            .map_err(|e| LibraryWorkflowError(e.to_string()))?;
+        if read_only
+            .library_snapshot()
+            .map_err(|e| LibraryWorkflowError(e.to_string()))?
+            .tracks
+            .is_empty()
+        {
+            return Err(fail("catalog holds no imported tracks"));
+        }
+    }
+    Catalog::open(catalog)
+        .map_err(|e| LibraryWorkflowError(e.to_string()))?
+        .remove_library_playlist_member(name, &expected, index, member)
+        .map_err(|e| LibraryWorkflowError(e.to_string()))
+}
+
 /// Reorder a root playlist using the complete desired sequence of XML TrackIDs.
 pub fn reorder_library_playlist_members(
     catalog: impl AsRef<Path>,
@@ -955,7 +1298,8 @@ pub fn export_library_xml(
     if output.as_ref().symlink_metadata().is_ok() {
         return Err(fail("refusing to overwrite existing output"));
     }
-    let opened = Catalog::open(catalog).map_err(|e| LibraryWorkflowError(e.to_string()))?;
+    let opened =
+        Catalog::open_read_only(catalog).map_err(|e| LibraryWorkflowError(e.to_string()))?;
     let mut snapshot = opened
         .library_snapshot()
         .map_err(|e| LibraryWorkflowError(e.to_string()))?;

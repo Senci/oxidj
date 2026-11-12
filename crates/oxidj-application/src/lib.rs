@@ -7,6 +7,7 @@ use std::{
 };
 use zeroize::{Zeroize, Zeroizing};
 
+mod import_destination;
 mod library_import;
 pub mod step_tempo;
 mod tempo;
@@ -16,7 +17,8 @@ pub use library_import::{
     LibraryImportReport, LibraryWorkflowError, NotCarried, OneLibraryCrossCheck,
     append_library_playlist_members, create_library_playlist, drive_qualified_location,
     export_library_xml, import_library_from_pdb, library_from_pdb_preview, list_library_tracks,
-    location_uri, onelibrary_cross_check, reorder_library_playlist_members,
+    location_uri, onelibrary_cross_check, remove_library_playlist_member, rename_library_playlist,
+    reorder_library_playlist_members,
 };
 /// The neutral peak model, re-exported so UI adapters need no direct core edge.
 pub use oxidj_core::waveform::{Band as WaveformBand, Peak as WaveformPeak, WaveformPeaks};

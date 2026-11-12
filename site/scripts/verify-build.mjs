@@ -56,7 +56,11 @@ assert.doesNotMatch(home, /on(?:click|load|mouseover)=|javascript:/i);
 assert.ok(home.includes('<details>'));
 assert.ok(home.includes('class="wave"') && home.includes('class="band band-low"'));
 const lightboxLinks = [...home.matchAll(/<a class="shot-link" href="([^"]+)" data-lightbox/g)];
-assert.equal(lightboxLinks.length, 18, 'home has eighteen zoomable screenshots');
+assert.equal(lightboxLinks.length, 17, 'home has seventeen zoomable screenshots');
+assert.ok(
+  !existsSync(new URL('images/senci-owner-library-record.webp', root)),
+  'private library crop must not be published',
+);
 assert.match(
   home,
   /href="\.\/images\/imported-playlist-load-controls\.webp" data-lightbox data-width="175" data-height="252"/,
@@ -73,5 +77,5 @@ const social = readFileSync(new URL('images/social.png', root));
 assert.equal(social.readUInt32BE(16), 1200);
 assert.equal(social.readUInt32BE(20), 630);
 console.log(
-  `Pages build verified: ${entries.length} entries, ${checked} local references under /oxidj/, sized images with alt, eighteen lightbox links, nine milestone anchors, self-hosted WOFF2 fonts, 1200x630 social image, no private paths.`,
+  `Pages build verified: ${entries.length} entries, ${checked} local references under /oxidj/, sized images with alt, seventeen lightbox links, nine milestone anchors, self-hosted WOFF2 fonts, 1200x630 social image, no private paths.`,
 );

@@ -18,5 +18,20 @@ rtrb = { version = "=0.4.1", default-features = false }
 # Stretch C++ library; builds with `cc` (C++14) and `bindgen` (libclang).
 signalsmith-stretch = { version = "=0.1.3", default-features = false }
 
+# Optional hosts and scheduling, all forwarded to cpal (no new direct
+# dependency; plan/AUDIO.md A6). Off by default: each needs system pieces.
+[features]
+# Windows: Steinberg ASIO SDK (downloaded by cpal's build, or CPAL_ASIO_DIR)
+# and LLVM/Clang (LIBCLANG_PATH). Select with OXIDJ_AUDIO_HOST=ASIO.
+asio = ["cpal/asio"]
+# Linux/macOS/Windows: a JACK server (PipeWire's JACK layer counts) and the
+# JACK client library at build time. Select with OXIDJ_AUDIO_HOST=JACK.
+jack = ["cpal/jack"]
+# Ask the OS for realtime scheduling of the audio thread (ALSA, WASAPI).
+realtime = ["cpal/realtime"]
+# The same through RealtimeKit on Linux desktops, where a normal user has no
+# realtime limit of their own (`ulimit -r` is 0). Needs libdbus at build time.
+realtime-dbus = ["cpal/realtime-dbus"]
+
 [lints]
 workspace = true

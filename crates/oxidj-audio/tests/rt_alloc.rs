@@ -122,6 +122,9 @@ fn mixer(step: u32) -> MixerParams {
 #[test]
 fn render_never_allocates_with_key_lock_sync_transport_and_mixer() {
     let (mut engine, mut renderer) = Engine::manual(48_000);
+    // Real outputs declick: tails clone and drop track references.
+    renderer.set_declick_ms(oxidj_audio::DECLICK_MS);
+    renderer.set_limiter_lookahead_ms(oxidj_audio::LIMITER_LOOKAHEAD_MS);
     let tracks = [
         track(44_100, 30.0, 440.0),
         track(48_000, 30.0, 660.0),

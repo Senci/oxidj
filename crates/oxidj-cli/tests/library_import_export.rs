@@ -9,6 +9,34 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 
 #[test]
+fn export_refuses_unrelated_sqlite_without_modifying_it() {
+    let dir = scratch();
+    let catalog = dir.join("unrelated.sqlite");
+    let script = "import sqlite3,sys; c=sqlite3.connect(sys.argv[1]); c.execute('create table sentinel(value text)'); c.execute(\"insert into sentinel values ('keep')\"); c.execute('pragma user_version=7'); c.commit()";
+    assert!(
+        Command::new("python3")
+            .args(["-c", script])
+            .arg(&catalog)
+            .status()
+            .unwrap()
+            .success()
+    );
+    let before = std::fs::read(&catalog).unwrap();
+    let output = dir.join("out.xml");
+    let result = cli(&[
+        s("catalog"),
+        s("export-library-xml"),
+        s("--catalog"),
+        catalog.as_os_str(),
+        s("--output"),
+        output.as_os_str(),
+    ]);
+    assert_ne!(result.status.code(), Some(0));
+    assert!(!output.exists());
+    assert_eq!(std::fs::read(&catalog).unwrap(), before);
+}
+
+#[test]
 fn step_inspection_is_explicit_and_leaves_catalog_sources_and_exports_unchanged() {
     let dir = scratch();
     let audio = dir.join("a.wav");
@@ -257,243 +285,7 @@ fn s(value: &str) -> &std::ffi::OsStr {
     std::ffi::OsStr::new(value)
 }
 
-// --- synthetic DeviceSQL builder (one page per table, up to 16 rows per page) ---
-
-fn encoded_string(value: &str) -> Vec<u8> {
-    assert!(value.is_ascii() && value.len() < 127);
-    let mut encoded = vec![((value.len() + 1) * 2 + 1) as u8];
-    encoded.extend_from_slice(value.as_bytes());
-    encoded
-}
-
-fn add_table(bytes: &mut [u8], table_index: usize, table_type: u32, rows: &[Vec<u8>]) {
-    assert!(rows.len() <= 16);
-    let page_index = table_index + 1;
-    let dir = 0x1c + table_index * 16;
-    bytes[dir..dir + 4].copy_from_slice(&table_type.to_le_bytes());
-    bytes[dir + 8..dir + 12].copy_from_slice(&(page_index as u32).to_le_bytes());
-    bytes[dir + 12..dir + 16].copy_from_slice(&(page_index as u32).to_le_bytes());
-    let page = page_index * 4096;
-    bytes[page + 0x18] = rows.len() as u8;
-    let mut heap = 0usize;
-    for (i, row) in rows.iter().enumerate() {
-        bytes[page + 0x28 + heap..page + 0x28 + heap + row.len()].copy_from_slice(row);
-        let slot = page + 4096 - 6 - 2 * i;
-        bytes[slot..slot + 2].copy_from_slice(&(heap as u16).to_le_bytes());
-        heap += (row.len() + 3) & !3;
-    }
-    let present = ((1u32 << rows.len()) - 1) as u16;
-    bytes[page + 4092..page + 4094].copy_from_slice(&present.to_le_bytes());
-}
-
-/// Optional track-row metadata (DeviceSQL track row offsets per the pinned format
-/// reference; zero / empty = no value).
-#[derive(Default)]
-struct Meta {
-    sample_rate: u32,
-    file_size: u32,
-    key_id: u32,
-    label_id: u32,
-    bit_rate: u32,
-    track_number: u32,
-    genre_id: u32,
-    disc_number: u16,
-    year: u16,
-    rating: u8,
-    date_added: &'static str,
-    comment: &'static str,
-    analyze_path: &'static str,
-}
-
-fn track_row_with(
-    id: u32,
-    artist_id: u32,
-    tempo: u32,
-    duration: u16,
-    title: &str,
-    path: &str,
-    meta: &Meta,
-) -> Vec<u8> {
-    let mut row = vec![0u8; 0x88];
-    for (at, value) in [
-        (0x08, meta.sample_rate),
-        (0x10, meta.file_size),
-        (0x20, meta.key_id),
-        (0x28, meta.label_id),
-        (0x30, meta.bit_rate),
-        (0x34, meta.track_number),
-        (0x3c, meta.genre_id),
-    ] {
-        row[at..at + 4].copy_from_slice(&value.to_le_bytes());
-    }
-    row[0x4c..0x4e].copy_from_slice(&meta.disc_number.to_le_bytes());
-    row[0x50..0x52].copy_from_slice(&meta.year.to_le_bytes());
-    row[0x59] = meta.rating;
-    row[0x48..0x4c].copy_from_slice(&id.to_le_bytes());
-    row[0x44..0x48].copy_from_slice(&artist_id.to_le_bytes());
-    row[0x38..0x3c].copy_from_slice(&tempo.to_le_bytes());
-    row[0x54..0x56].copy_from_slice(&duration.to_le_bytes());
-    let mut strings = vec![String::new(); 21];
-    strings[10] = meta.date_added.into();
-    strings[14] = meta.analyze_path.into();
-    strings[16] = meta.comment.into();
-    strings[17] = title.into();
-    strings[20] = path.into();
-    let mut offset = 0x88u16;
-    let mut data = Vec::new();
-    for (index, value) in strings.iter().enumerate() {
-        row[0x5e + index * 2..0x60 + index * 2].copy_from_slice(&offset.to_le_bytes());
-        let encoded = encoded_string(value);
-        offset += encoded.len() as u16;
-        data.extend_from_slice(&encoded);
-    }
-    row.extend(data);
-    row
-}
-
-/// Genre and label rows: id at 0, name at 4. Key rows: id at 0, name at 8.
-fn id_name_row(id: u32, name_at: usize, name: &str) -> Vec<u8> {
-    let mut row = vec![0u8; name_at];
-    row[0..4].copy_from_slice(&id.to_le_bytes());
-    row.extend(encoded_string(name));
-    row
-}
-
-fn artist_row(id: u32, name: &str) -> Vec<u8> {
-    let mut row = vec![0u8; 10];
-    row[0..2].copy_from_slice(&0x60u16.to_le_bytes());
-    row[4..8].copy_from_slice(&id.to_le_bytes());
-    row[9] = 10;
-    row.extend(encoded_string(name));
-    row
-}
-
-fn node_row(parent: u32, id: u32, sort: u32, is_folder: bool, name: &str) -> Vec<u8> {
-    let mut row = vec![0u8; 20];
-    row[0..4].copy_from_slice(&parent.to_le_bytes());
-    row[8..12].copy_from_slice(&sort.to_le_bytes());
-    row[12..16].copy_from_slice(&id.to_le_bytes());
-    row[16..20].copy_from_slice(&u32::from(is_folder).to_le_bytes());
-    row.extend(encoded_string(name));
-    row
-}
-
-fn entry_row(index: u32, track_id: u32, playlist_id: u32) -> Vec<u8> {
-    let mut row = vec![0u8; 12];
-    row[0..4].copy_from_slice(&index.to_le_bytes());
-    row[4..8].copy_from_slice(&track_id.to_le_bytes());
-    row[8..12].copy_from_slice(&playlist_id.to_le_bytes());
-    row
-}
-
-/// 3 tracks / 2 folders / 4 playlists / 6 memberships. Sibling order comes from the
-/// sort keys (not ids or row order); member order from entry_index (rows shuffled).
-/// Track metadata: "Song A" carries every bounded field; "Song <B>" has an unknown
-/// genre id, an unknown key id, a malformed date and an out-of-range rating (all
-/// unresolved, none written); "Song C" has no values and a label id naming an empty
-/// label (absent, not an empty attribute).
-fn synthetic_pdb(extra_entry: Option<Vec<u8>>) -> Vec<u8> {
-    synthetic_pdb_with(extra_entry, "/Contents/C.flac")
-}
-
-/// `synthetic_pdb` with "Song C" (no beat grid) located at `c_path`.
-fn synthetic_pdb_with(extra_entry: Option<Vec<u8>>, c_path: &str) -> Vec<u8> {
-    let mut bytes = vec![0u8; 8 * 4096];
-    bytes[4..8].copy_from_slice(&4096u32.to_le_bytes());
-    bytes[8..12].copy_from_slice(&7u32.to_le_bytes());
-    add_table(
-        &mut bytes,
-        0,
-        0,
-        &[
-            track_row_with(
-                42,
-                1,
-                12_800,
-                180,
-                "Song A",
-                "/Contents/Song A.mp3",
-                &Meta {
-                    sample_rate: 48_000,
-                    file_size: 7_340_032,
-                    key_id: 3,
-                    label_id: 4,
-                    bit_rate: 320,
-                    track_number: 7,
-                    genre_id: 2,
-                    disc_number: 1,
-                    year: 2019,
-                    rating: 5,
-                    date_added: "2025-12-31",
-                    comment: "Synth <c> & \"d\"",
-                    analyze_path: ANLZ_A,
-                },
-            ),
-            track_row_with(
-                7,
-                0,
-                9_050,
-                61,
-                "Song <B> & \"Q\"",
-                "file://localhost/b.wav",
-                &Meta {
-                    genre_id: 77,
-                    key_id: 78,
-                    rating: 9,
-                    date_added: "yesterday",
-                    bit_rate: 128,
-                    analyze_path: ANLZ_B,
-                    ..Meta::default()
-                },
-            ),
-            track_row_with(
-                9,
-                1,
-                0,
-                0,
-                "Song C",
-                c_path,
-                &Meta {
-                    label_id: 5,
-                    ..Meta::default()
-                },
-            ),
-        ],
-    );
-    add_table(&mut bytes, 4, 1, &[id_name_row(2, 4, "Synth Genre")]);
-    add_table(
-        &mut bytes,
-        5,
-        4,
-        &[id_name_row(4, 4, "Synth Label"), id_name_row(5, 4, "")],
-    );
-    add_table(&mut bytes, 6, 5, &[id_name_row(3, 8, "11B")]);
-    add_table(&mut bytes, 1, 2, &[artist_row(1, "Synthetic Artist")]);
-    add_table(
-        &mut bytes,
-        2,
-        7,
-        &[
-            node_row(0, 10, 2, true, "Folder"),
-            node_row(10, 11, 1, false, "Inner Second"),
-            node_row(10, 12, 0, false, "Inner First"),
-            node_row(0, 13, 1, false, "Top"),
-            node_row(10, 14, 2, true, "Empty Folder"),
-            node_row(0, 15, 3, false, "Empty Playlist"),
-        ],
-    );
-    let mut entries = vec![
-        entry_row(2, 42, 13),
-        entry_row(0, 7, 13),
-        entry_row(1, 42, 13),
-        entry_row(0, 9, 12),
-        entry_row(1, 7, 11),
-        entry_row(0, 42, 11),
-    ];
-    entries.extend(extra_entry);
-    add_table(&mut bytes, 3, 8, &entries);
-    bytes
-}
+include!("support/library_pdb_fixture.rs");
 
 // --- synthetic ANLZ builder (big-endian tagged sections per the public format
 // reference; independent of the production decoder) ---
@@ -501,86 +293,7 @@ fn synthetic_pdb_with(extra_entry: Option<Vec<u8>>, c_path: &str) -> Vec<u8> {
 const ANLZ_A: &str = "/PIONEER/USBANLZ/P001/0000002A/ANLZ0000.DAT";
 const ANLZ_B: &str = "/PIONEER/USBANLZ/P001/00000007/ANLZ0000.DAT";
 
-fn be(v: u32) -> [u8; 4] {
-    v.to_be_bytes()
-}
-
-fn anlz_section(tag: &[u8; 4], header_rest: &[u8], body: &[u8]) -> Vec<u8> {
-    let header = 12 + header_rest.len() as u32;
-    [
-        &tag[..],
-        &be(header),
-        &be(header + body.len() as u32),
-        header_rest,
-        body,
-    ]
-    .concat()
-}
-
-fn anlz_file(sections: &[Vec<u8>]) -> Vec<u8> {
-    let body = sections.concat();
-    [
-        &b"PMAI"[..],
-        &be(28),
-        &be(28 + body.len() as u32),
-        &[0; 16],
-        &body,
-    ]
-    .concat()
-}
-
-fn utf16(text: &str) -> Vec<u8> {
-    text.encode_utf16()
-        .chain([0])
-        .flat_map(u16::to_be_bytes)
-        .collect()
-}
-
-fn anlz_path(path: &str) -> Vec<u8> {
-    let body = utf16(path);
-    anlz_section(b"PPTH", &be(body.len() as u32), &body)
-}
-
-/// (beat 1..=4, BPM×100, time ms).
-fn anlz_grid(beats: &[(u16, u16, u32)]) -> Vec<u8> {
-    let rest = [be(0), be(0x0008_0000), be(beats.len() as u32)].concat();
-    let body: Vec<u8> = beats
-        .iter()
-        .flat_map(|(b, t, ms)| [&b.to_be_bytes()[..], &t.to_be_bytes(), &be(*ms)].concat())
-        .collect();
-    anlz_section(b"PQTZ", &rest, &body)
-}
-
-/// PCOB list of PCPT entries (hot, type 1 point / 2 loop, time ms, loop end ms).
-fn anlz_cues(list: u32, cues: &[(u32, u8, u32, u32)]) -> Vec<u8> {
-    let entries: Vec<u8> = cues
-        .iter()
-        .flat_map(|&(hot, kind, ms, end)| {
-            let mut e = [
-                &b"PCPT"[..],
-                &be(28),
-                &be(56),
-                &be(hot),
-                &be(0),
-                &be(0x10000),
-            ]
-            .concat();
-            e.extend([0xff, 0xff, 0xff, 0xff, kind, 0, 0x03, 0xe8]);
-            e.extend(be(ms));
-            e.extend(be(end));
-            e.resize(56, 0);
-            e
-        })
-        .collect();
-    let rest = [
-        &be(list)[..],
-        &0u16.to_be_bytes(),
-        &(cues.len() as u16).to_be_bytes(),
-        &be(u32::MAX),
-    ]
-    .concat();
-    anlz_section(b"PCOB", &rest, &entries)
-}
+include!("support/library_anlz_fixture.rs");
 
 /// PCO2 list of PCP2 entries (hot, type, time ms, loop end ms, comment, rgb).
 /// (hot, type, time ms, loop end ms, comment, rgb).
@@ -977,7 +690,8 @@ fn pdb_imported_library_audio_is_analyzed_and_grid_persisted() {
     wav.extend(pcm);
     std::fs::write(&audio, wav).unwrap();
 
-    let pdb_dir = dir.join("PIONEER/rekordbox");
+    // Source device and output catalog are deliberately separate namespaces.
+    let pdb_dir = dir.join("device/PIONEER/rekordbox");
     std::fs::create_dir_all(&pdb_dir).unwrap();
     let pdb = pdb_dir.join("export.pdb");
     let location = format!("file://localhost{}", audio.display());
@@ -1463,6 +1177,192 @@ fn catalog_playlist_creation_persists_order_and_preserves_the_exported_library()
 }
 
 #[test]
+fn catalog_playlist_rename_preserves_complete_baseline() {
+    let dir = scratch();
+    let device = dir.join("device");
+    std::fs::create_dir_all(device.join("PIONEER/rekordbox")).unwrap();
+    let pdb = device.join("PIONEER/rekordbox/export.pdb");
+    let source = synthetic_pdb(None);
+    std::fs::write(&pdb, &source).unwrap();
+    let analysis = write_analysis(&device);
+    let catalog = dir.join("catalog.sqlite");
+    stdout(&cli(&[
+        s("catalog"),
+        s("import-library"),
+        s("--pdb"),
+        pdb.as_os_str(),
+        s("--catalog"),
+        catalog.as_os_str(),
+    ]));
+    let before = dir.join("before.xml");
+    stdout(&cli(&[
+        s("catalog"),
+        s("export-library-xml"),
+        s("--catalog"),
+        catalog.as_os_str(),
+        s("--output"),
+        before.as_os_str(),
+    ]));
+    let mut expected = expected();
+    assert_eq!(decode(&std::fs::read(before).unwrap()), expected);
+    let rename = |old: &str, new: &str| {
+        cli(&[
+            s("catalog"),
+            s("rename-library-playlist"),
+            s("--catalog"),
+            catalog.as_os_str(),
+            s("--playlist-name"),
+            s(old),
+            s("--new-name"),
+            s(new),
+        ])
+    };
+    for (old, new) in [("missing", "New"), ("Top", ""), ("Top", "bad\u{1}")] {
+        assert!(!rename(old, new).status.success());
+    }
+    let result = rename("Top", "Renamed & Café");
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let Node::Folder(_, roots) = &mut expected.root else {
+        panic!("fixture root")
+    };
+    let Node::Playlist(name, _) = roots
+        .iter_mut()
+        .find(|n| matches!(n, Node::Playlist(name, _) if name == "Top"))
+        .unwrap()
+    else {
+        panic!("playlist")
+    };
+    *name = "Renamed & Café".into();
+    let after = dir.join("after.xml");
+    stdout(&cli(&[
+        s("catalog"),
+        s("export-library-xml"),
+        s("--catalog"),
+        catalog.as_os_str(),
+        s("--output"),
+        after.as_os_str(),
+    ]));
+    assert_eq!(decode(&std::fs::read(after).unwrap()), expected);
+    assert_eq!(std::fs::read(&pdb).unwrap(), source);
+    for (path, bytes) in analysis {
+        assert_eq!(std::fs::read(path).unwrap(), bytes);
+    }
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn catalog_playlist_remove_one_occurrence_preserves_baseline() {
+    let dir = scratch();
+    let device = dir.join("device");
+    std::fs::create_dir_all(device.join("PIONEER/rekordbox")).unwrap();
+    let pdb = device.join("PIONEER/rekordbox/export.pdb");
+    let source = synthetic_pdb(None);
+    std::fs::write(&pdb, &source).unwrap();
+    let analysis = write_analysis(&device);
+    let catalog = dir.join("catalog.sqlite");
+    stdout(&cli(&[
+        s("catalog"),
+        s("import-library"),
+        s("--pdb"),
+        pdb.as_os_str(),
+        s("--catalog"),
+        catalog.as_os_str(),
+    ]));
+    let before = dir.join("before.xml");
+    stdout(&cli(&[
+        s("catalog"),
+        s("export-library-xml"),
+        s("--catalog"),
+        catalog.as_os_str(),
+        s("--output"),
+        before.as_os_str(),
+    ]));
+    let mut expected = expected();
+    assert_eq!(decode(&std::fs::read(before).unwrap()), expected);
+    for (ids, index, id, reason) in [
+        ("1,2,1", "0", "2", "playlist membership order is stale"),
+        ("2,1,1", "3", "1", "playlist member index out of range"),
+        ("2,1,1", "1", "2", "playlist member ID does not match"),
+    ] {
+        let refused = cli(&[
+            s("catalog"),
+            s("remove-library-playlist-member"),
+            s("--catalog"),
+            catalog.as_os_str(),
+            s("--playlist-name"),
+            s("Top"),
+            s("--expected-track-ids"),
+            s(ids),
+            s("--index"),
+            s(index),
+            s("--expected-track-id"),
+            s(id),
+        ]);
+        assert_eq!(refused.status.code(), Some(1));
+        assert!(String::from_utf8_lossy(&refused.stderr).contains(reason));
+        let check = dir.join(format!("refusal-{index}-{id}.xml"));
+        stdout(&cli(&[
+            s("catalog"),
+            s("export-library-xml"),
+            s("--catalog"),
+            catalog.as_os_str(),
+            s("--output"),
+            check.as_os_str(),
+        ]));
+        assert_eq!(decode(&std::fs::read(check).unwrap()), expected);
+    }
+    let result = cli(&[
+        s("catalog"),
+        s("remove-library-playlist-member"),
+        s("--catalog"),
+        catalog.as_os_str(),
+        s("--playlist-name"),
+        s("Top"),
+        s("--expected-track-ids"),
+        s("2,1,1"),
+        s("--index"),
+        s("1"),
+        s("--expected-track-id"),
+        s("1"),
+    ]);
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let Node::Folder(_, roots) = &mut expected.root else {
+        panic!("fixture root")
+    };
+    let Node::Playlist(_, members) = roots
+        .iter_mut()
+        .find(|node| matches!(node, Node::Playlist(name, _) if name == "Top"))
+        .unwrap()
+    else {
+        panic!("playlist")
+    };
+    *members = vec!["2".into(), "1".into()];
+    let after = dir.join("after.xml");
+    stdout(&cli(&[
+        s("catalog"),
+        s("export-library-xml"),
+        s("--catalog"),
+        catalog.as_os_str(),
+        s("--output"),
+        after.as_os_str(),
+    ]));
+    assert_eq!(decode(&std::fs::read(after).unwrap()), expected);
+    assert_eq!(std::fs::read(&pdb).unwrap(), source);
+    for (path, bytes) in analysis {
+        assert_eq!(std::fs::read(path).unwrap(), bytes);
+    }
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
 fn catalog_playlist_reorder_preserves_everything_but_member_order() {
     let dir = scratch();
     let device = dir.join("device");
@@ -1756,6 +1656,48 @@ fn catalog_playlist_append_refuses_non_imported_sqlite_without_mutation() {
             "CREATE TABLE IF NOT EXISTS sentinel(value TEXT); DELETE FROM sentinel; \
              INSERT INTO sentinel VALUES ('synthetic sentinel'); PRAGMA user_version={version};"
         ));
+        let refused = cli(&[
+            s("catalog"),
+            s("remove-library-playlist-member"),
+            s("--catalog"),
+            catalog.as_os_str(),
+            s("--playlist-name"),
+            s("Top"),
+            s("--expected-track-ids"),
+            s("1"),
+            s("--index"),
+            s("0"),
+            s("--expected-track-id"),
+            s("1"),
+        ]);
+        assert_eq!(refused.status.code(), Some(1));
+        let error = String::from_utf8_lossy(&refused.stderr);
+        assert!(
+            if version == 0 {
+                error.contains("catalog schema version 0 is newer than supported")
+            } else {
+                error.contains("no such table: library_tracks")
+            },
+            "{error}"
+        );
+        assert_eq!(sql(""), before, "schema/version/data changed on refusal");
+        let refused = cli(&[
+            s("catalog"),
+            s("rename-library-playlist"),
+            s("--catalog"),
+            catalog.as_os_str(),
+            s("--playlist-name"),
+            s("Top"),
+            s("--new-name"),
+            s("New"),
+        ]);
+        assert_eq!(refused.status.code(), Some(1));
+        assert!(refused.stdout.is_empty());
+        assert_eq!(
+            sql(""),
+            before,
+            "rename changed schema/version/data on refusal"
+        );
         for action in [
             "append-library-playlist-members",
             "reorder-library-playlist-members",
@@ -2208,265 +2150,7 @@ fn export_with(catalog: &Path, xml: &Path, extra: &[&str]) -> Output {
 // 901 memberships) exercised through the real import → manage → export path.
 // ---------------------------------------------------------------------------
 
-const M7_TRACKS: usize = 1_330;
-const M7_PLAYLISTS: usize = 20;
-const M7_MEMBERSHIPS: usize = 901;
-/// Tracks whose ANLZ analysis files exist; the rest have no analysis path.
-const M7_ANLZ_TRACKS: usize = 100;
-
-/// Split `rows` into DeviceSQL pages of at most 16 rows that also fit the page:
-/// 0x28 header + row bytes + one 0x24 row-offset group (the format stores offsets
-/// from the end of the page, so oversized rows must start a new page).
-fn pack_rows(rows: &[Vec<u8>]) -> Vec<(usize, usize)> {
-    let mut pages = Vec::new();
-    let mut index = 0usize;
-    while index < rows.len() {
-        let start = index;
-        let mut count = 0usize;
-        let mut used = 0x28usize;
-        while index < rows.len() && count < 16 {
-            let padded = (rows[index].len() + 3) & !3;
-            if used + padded + 0x24 > 4096 {
-                break;
-            }
-            used += padded;
-            count += 1;
-            index += 1;
-        }
-        pages.push((start, index));
-    }
-    pages
-}
-
-fn table_page_count(rows: &[Vec<u8>]) -> usize {
-    pack_rows(rows).len()
-}
-
-/// Multi-page DeviceSQL table writer. `page_offset` is the next free page index
-/// (page 0 is the file header) and advances by the number of pages written.
-fn add_table_pages(
-    bytes: &mut [u8],
-    table_index: usize,
-    table_type: u32,
-    rows: &[Vec<u8>],
-    page_offset: &mut usize,
-) {
-    let pages = pack_rows(rows);
-    if pages.is_empty() {
-        return;
-    }
-    let first_page = *page_offset;
-    let last_page = *page_offset + pages.len() - 1;
-    let dir = 0x1c + table_index * 16;
-    bytes[dir..dir + 4].copy_from_slice(&table_type.to_le_bytes());
-    bytes[dir + 8..dir + 12].copy_from_slice(&(first_page as u32).to_le_bytes());
-    bytes[dir + 12..dir + 16].copy_from_slice(&(last_page as u32).to_le_bytes());
-    for (page_index, (start, end)) in pages.iter().enumerate() {
-        let page = (first_page + page_index) * 4096;
-        let page_rows = &rows[*start..*end];
-        bytes[page + 0x04..page + 0x08]
-            .copy_from_slice(&((first_page + page_index) as u32).to_le_bytes());
-        bytes[page + 0x08..page + 0x0c].copy_from_slice(&table_type.to_le_bytes());
-        let next_page = if page_index + 1 < pages.len() {
-            first_page + page_index + 1
-        } else {
-            0
-        };
-        bytes[page + 0x0c..page + 0x10].copy_from_slice(&(next_page as u32).to_le_bytes());
-        bytes[page + 0x18] = page_rows.len() as u8;
-        let mut heap = 0usize;
-        for (i, row) in page_rows.iter().enumerate() {
-            bytes[page + 0x28 + heap..page + 0x28 + heap + row.len()].copy_from_slice(row);
-            let slot = page + 4096 - 6 - 2 * i;
-            bytes[slot..slot + 2].copy_from_slice(&(heap as u16).to_le_bytes());
-            heap += (row.len() + 3) & !3;
-        }
-        let present = ((1u32 << page_rows.len()) - 1) as u16;
-        bytes[page + 4092..page + 4094].copy_from_slice(&present.to_le_bytes());
-    }
-    *page_offset += pages.len();
-}
-
-/// Track row with dynamic strings (the small `track_row_with` uses `&'static str`).
-#[allow(clippy::too_many_arguments)]
-fn m7_track_row(
-    id: u32,
-    artist_id: u32,
-    tempo: u32,
-    duration: u16,
-    title: &str,
-    path: &str,
-    sample_rate: u32,
-    file_size: u32,
-    key_id: u32,
-    label_id: u32,
-    bit_rate: u32,
-    track_number: u32,
-    genre_id: u32,
-    disc_number: u16,
-    year: u16,
-    rating: u8,
-    date_added: &str,
-    comment: &str,
-    analyze_path: &str,
-) -> Vec<u8> {
-    let mut row = vec![0u8; 0x88];
-    for (at, value) in [
-        (0x08, sample_rate),
-        (0x10, file_size),
-        (0x20, key_id),
-        (0x28, label_id),
-        (0x30, bit_rate),
-        (0x34, track_number),
-        (0x3c, genre_id),
-    ] {
-        row[at..at + 4].copy_from_slice(&value.to_le_bytes());
-    }
-    row[0x4c..0x4e].copy_from_slice(&disc_number.to_le_bytes());
-    row[0x50..0x52].copy_from_slice(&year.to_le_bytes());
-    row[0x59] = rating;
-    row[0x48..0x4c].copy_from_slice(&id.to_le_bytes());
-    row[0x44..0x48].copy_from_slice(&artist_id.to_le_bytes());
-    row[0x38..0x3c].copy_from_slice(&tempo.to_le_bytes());
-    row[0x54..0x56].copy_from_slice(&duration.to_le_bytes());
-    let mut strings = vec![String::new(); 21];
-    strings[10] = date_added.to_string();
-    strings[14] = analyze_path.to_string();
-    strings[16] = comment.to_string();
-    strings[17] = title.to_string();
-    strings[20] = path.to_string();
-    let mut offset = 0x88u16;
-    let mut data = Vec::new();
-    for (index, value) in strings.iter().enumerate() {
-        row[0x5e + index * 2..0x60 + index * 2].copy_from_slice(&offset.to_le_bytes());
-        let encoded = encoded_string(value);
-        offset += encoded.len() as u16;
-        data.extend_from_slice(&encoded);
-    }
-    row.extend(data);
-    row
-}
-
-/// Deterministic large library: 1,330 tracks, 20 playlists (18 at ROOT, one in
-/// each of two folders), 901 ordered memberships. Every audited field resolves;
-/// the first 100 tracks carry ANLZ analysis, the rest have no analysis path.
-fn synthetic_pdb_m7() -> Vec<u8> {
-    let tracks: Vec<Vec<u8>> = (0..M7_TRACKS)
-        .map(|i| {
-            let id = (i + 1) as u32;
-            let analyze_path = if i < M7_ANLZ_TRACKS {
-                format!("/PIONEER/USBANLZ/P001/{id:08X}/ANLZ0000.DAT")
-            } else {
-                String::new()
-            };
-            m7_track_row(
-                id,
-                ((i % 10) + 1) as u32,
-                12_000 + ((i % 100) * 100) as u32,
-                (180 + i % 60) as u16,
-                &format!("Track {id}"),
-                &format!("/Contents/Track {id}.mp3"),
-                44_100,
-                5_000_000 + id,
-                ((i % 8) + 1) as u32,
-                ((i % 4) + 1) as u32,
-                320,
-                ((i % 12) + 1) as u32,
-                ((i % 3) + 1) as u32,
-                1,
-                (2000 + i % 25) as u16,
-                ((i % 5) + 1) as u8,
-                "2025-01-01",
-                &format!("Comment {id}"),
-                &analyze_path,
-            )
-        })
-        .collect();
-
-    let artists: Vec<Vec<u8>> = (1..=10)
-        .map(|id| artist_row(id, &format!("Artist {id}")))
-        .collect();
-
-    let genres: Vec<Vec<u8>> = (1..=3)
-        .map(|id| id_name_row(id, 4, &format!("Genre {id}")))
-        .collect();
-
-    let labels: Vec<Vec<u8>> = (1..=4)
-        .map(|id| id_name_row(id, 4, &format!("Label {id}")))
-        .collect();
-
-    let keys: Vec<Vec<u8>> = (1..=8)
-        .map(|id| id_name_row(id, 8, &format!("Key {id}")))
-        .collect();
-
-    let mut nodes_rows = Vec::new();
-    for j in 0..18 {
-        nodes_rows.push(node_row(
-            0,
-            (100 + j) as u32,
-            j as u32,
-            false,
-            &format!("Playlist {}", j + 1),
-        ));
-    }
-    nodes_rows.push(node_row(0, 200, 18, true, "Folder A"));
-    nodes_rows.push(node_row(0, 201, 19, true, "Folder B"));
-    nodes_rows.push(node_row(200, 118, 0, false, "Playlist 19"));
-    nodes_rows.push(node_row(201, 119, 0, false, "Playlist 20"));
-
-    let mut entries = Vec::new();
-    for j in 0..18u32 {
-        for k in 0..45u32 {
-            entries.push(entry_row(k, j * 45 + k + 1, 100 + j));
-        }
-    }
-    for k in 0..46u32 {
-        entries.push(entry_row(k, 811 + k, 118));
-    }
-    for k in 0..45u32 {
-        entries.push(entry_row(k, 857 + k, 119));
-    }
-
-    let total_pages = 1
-        + table_page_count(&tracks)
-        + table_page_count(&artists)
-        + table_page_count(&genres)
-        + table_page_count(&labels)
-        + table_page_count(&keys)
-        + table_page_count(&nodes_rows)
-        + table_page_count(&entries);
-    let mut bytes = vec![0u8; total_pages * 4096];
-    bytes[4..8].copy_from_slice(&4096u32.to_le_bytes());
-    bytes[8..12].copy_from_slice(&7u32.to_le_bytes());
-    let mut page_offset = 1usize;
-    add_table_pages(&mut bytes, 0, 0, &tracks, &mut page_offset);
-    add_table_pages(&mut bytes, 1, 2, &artists, &mut page_offset);
-    add_table_pages(&mut bytes, 2, 1, &genres, &mut page_offset);
-    add_table_pages(&mut bytes, 3, 4, &labels, &mut page_offset);
-    add_table_pages(&mut bytes, 4, 5, &keys, &mut page_offset);
-    add_table_pages(&mut bytes, 5, 7, &nodes_rows, &mut page_offset);
-    add_table_pages(&mut bytes, 6, 8, &entries, &mut page_offset);
-    bytes
-}
-
-/// ANLZ `.DAT` files for the first [`M7_ANLZ_TRACKS`] tracks (grid + one hot cue).
-fn write_analysis_m7(root: &Path) -> Vec<(PathBuf, Vec<u8>)> {
-    (0..M7_ANLZ_TRACKS)
-        .map(|i| {
-            let id = (i + 1) as u32;
-            let rel = format!("/PIONEER/USBANLZ/P001/{id:08X}/ANLZ0000.DAT");
-            let path = root.join(rel.trim_start_matches('/'));
-            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-            let bytes = anlz_file(&[
-                anlz_path(&format!("/Contents/Track {id}.mp3")),
-                anlz_grid(&[(1, 12_000, 0), (2, 12_000, 500)]),
-                anlz_cues(1, &[(1, 1, 1_500, u32::MAX)]),
-            ]);
-            std::fs::write(&path, &bytes).unwrap();
-            (path, bytes)
-        })
-        .collect()
-}
+include!("support/library_m7_fixture.rs");
 
 fn m7_python(pdb: &Path, xml: &Path, step: usize) -> Output {
     Command::new("python3")

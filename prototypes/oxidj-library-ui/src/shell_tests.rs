@@ -63,6 +63,8 @@ type Node = (Role, Option<String>, Rect);
 
 #[path = "library_interaction_tests.rs"]
 mod library_interaction_tests;
+#[path = "pdb_import_tests.rs"]
+mod pdb_import_tests;
 
 struct Shell {
     ctx: egui::Context,
@@ -461,6 +463,217 @@ fn selecting_a_row_does_not_open_details_and_headers_sort() {
     let out = shell.click(header.center());
     assert!(shell.app.descending);
     assert_eq!(top(&out), "tone-c.wav", "longest first");
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn more_menu_offers_catalog_xml_export() {
+    let (root, db) = catalog_root("catalog-export-menu");
+    let mut shell = Shell::new(&db, 1440.0);
+    let out = shell.click(shell.app.shell.more.unwrap().center());
+    assert!(
+        nodes(&out)
+            .iter()
+            .any(|n| n.1.as_deref() == Some("Export catalog XML…"))
+    );
+    drop(shell);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn catalog_export_ui_action_writes_imported_library() {
+    let (root, db) = catalog_root("catalog-export-success");
+    let snapshot = LibrarySnapshot {
+        tracks: vec![
+            LibraryTrack {
+                title: "Song".into(),
+                artist: Some("Artist".into()),
+                location: "file://localhost/Contents/a.mp3".into(),
+                cues: vec![LibraryCue {
+                    hot_cue: Some(1),
+                    start_ms: 1500,
+                    end_ms: None,
+                    name: "Cue".into(),
+                    colour: None,
+                }],
+                ..Default::default()
+            },
+            LibraryTrack {
+                title: "Second".into(),
+                location: "file://localhost/Contents/b.mp3".into(),
+                ..Default::default()
+            },
+        ],
+        roots: vec![oxidj_library::LibraryNode::Folder {
+            name: "Folder".into(),
+            children: vec![oxidj_library::LibraryNode::Playlist {
+                name: "Set".into(),
+                members: vec![0, 1, 0],
+            }],
+        }],
+    };
+    Catalog::open(&db)
+        .unwrap()
+        .import_library(&snapshot)
+        .unwrap();
+    let mut shell = Shell::new(&db, 1440.0);
+    let before = std::fs::read(&db).unwrap();
+    let output = root.join("new.xml");
+    let menu = shell.click(shell.app.shell.more.unwrap().center());
+    let out = shell.click(find(&nodes(&menu), "Export catalog XML…").2.center());
+    shell.app.catalog_export_path = output.display().to_string();
+    shell.click(find(&nodes(&out), "Export catalog XML").2.center());
+    assert!(
+        shell.app.notice.starts_with("Catalog exported"),
+        "{}",
+        shell.app.notice
+    );
+    assert_eq!(std::fs::read(&db).unwrap(), before);
+    assert_eq!(
+        Catalog::open_read_only(&db)
+            .unwrap()
+            .library_snapshot()
+            .unwrap(),
+        snapshot
+    );
+    // Independent whole-tree decoder: compare every element, attribute and ordered child.
+    let oracle = r#"import sys, xml.etree.ElementTree as E
+expected = '''<DJ_PLAYLISTS Version="1.0.0"><PRODUCT Name="OxiDJ" Version="0.1.0" Company="OxiDJ"/><COLLECTION Entries="2"><TRACK TrackID="1" Name="Song" Artist="Artist" TotalTime="0" AverageBpm="0.00" Location="file://localhost/Contents/a.mp3"><POSITION_MARK Name="Cue" Type="0" Start="1.500" Num="0"/></TRACK><TRACK TrackID="2" Name="Second" TotalTime="0" AverageBpm="0.00" Location="file://localhost/Contents/b.mp3"/></COLLECTION><PLAYLISTS><NODE Type="0" Name="ROOT" Count="1"><NODE Type="0" Name="Folder" Count="1"><NODE Type="1" Name="Set" KeyType="0" Entries="3"><TRACK Key="1"/><TRACK Key="2"/><TRACK Key="1"/></NODE></NODE></NODE></PLAYLISTS></DJ_PLAYLISTS>'''
+def tree(e): return (e.tag, dict(e.attrib), [tree(c) for c in e])
+actual = E.parse(sys.argv[1]).getroot()
+want = tree(E.fromstring(expected))
+assert tree(actual) == want
+playlist = actual.find('./PLAYLISTS/NODE/NODE/NODE')
+playlist.remove(playlist[-1])
+assert tree(actual) != want
+actual = E.parse(sys.argv[1]).getroot()
+playlist = actual.find('./PLAYLISTS/NODE/NODE/NODE')
+playlist[0], playlist[1] = playlist[1], playlist[0]
+assert tree(actual) != want
+"#;
+    let check = std::process::Command::new("python3")
+        .args(["-c", oracle])
+        .arg(&output)
+        .output()
+        .unwrap();
+    assert!(
+        check.status.success(),
+        "{}",
+        String::from_utf8_lossy(&check.stderr)
+    );
+    let drive_output = root.join("drive.xml");
+    shell.app.catalog_export_path = drive_output.display().to_string();
+    shell.app.catalog_export_drive = "d".into();
+    let frame = shell.settle();
+    shell.click(find(&nodes(&frame), "Export catalog XML").2.center());
+    assert!(
+        shell.app.notice.starts_with("Catalog exported"),
+        "{}",
+        shell.app.notice
+    );
+    let drive_oracle = r#"import sys, xml.etree.ElementTree as E
+def tree(e): return (e.tag, dict(e.attrib), [tree(c) for c in e])
+plain, drive = [E.parse(p).getroot() for p in sys.argv[1:]]
+for track in plain.find('COLLECTION'):
+    loc = track.attrib['Location']
+    track.attrib['Location'] = loc.replace('file://localhost/Contents/', 'file://localhost/D:/Contents/', 1)
+assert tree(plain) == tree(drive)
+"#;
+    let check = std::process::Command::new("python3")
+        .args(["-c", drive_oracle])
+        .arg(&output)
+        .arg(&drive_output)
+        .output()
+        .unwrap();
+    assert!(
+        check.status.success(),
+        "{}",
+        String::from_utf8_lossy(&check.stderr)
+    );
+    assert_eq!(std::fs::read(&db).unwrap(), before);
+    drop(shell);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn catalog_export_ui_action_refuses_existing_output_and_cancel_writes_nothing() {
+    let (root, db) = catalog_root("catalog-export-refusal");
+    Catalog::open(&db)
+        .unwrap()
+        .import_library(&LibrarySnapshot {
+            tracks: vec![LibraryTrack {
+                title: "Synthetic".into(),
+                location: "file://localhost/Contents/test.mp3".into(),
+                ..Default::default()
+            }],
+            roots: vec![oxidj_library::LibraryNode::Playlist {
+                name: "Set".into(),
+                members: vec![0, 0],
+            }],
+        })
+        .unwrap();
+    let output = root.join("existing.xml");
+    std::fs::write(&output, b"sentinel").unwrap();
+    let mut shell = Shell::new(&db, 1440.0);
+    let before = std::fs::read(&db).unwrap();
+    let menu = shell.click(shell.app.shell.more.unwrap().center());
+    let out = shell.click(find(&nodes(&menu), "Export catalog XML…").2.center());
+    assert!(shell.app.catalog_export_open);
+    shell.app.catalog_export_path = output.display().to_string();
+    let button = find(&nodes(&out), "Export catalog XML").2;
+    let out = shell.click(button.center());
+    assert!(
+        shell
+            .app
+            .notice
+            .contains("refusing to overwrite existing output"),
+        "{}",
+        shell.app.notice
+    );
+    assert_eq!(std::fs::read(&output).unwrap(), b"sentinel");
+    assert_eq!(std::fs::read(&db).unwrap(), before);
+    let cancel = find(&nodes(&out), "Cancel").2;
+    shell.click(cancel.center());
+    assert!(!shell.app.catalog_export_open);
+    assert_eq!(std::fs::read(&output).unwrap(), b"sentinel");
+    drop(shell);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn catalog_export_ui_refuses_bad_catalogs_and_invalid_drive() {
+    let (root, db) = catalog_root("catalog-export-bad-input");
+    let mut shell = Shell::new(&db, 1440.0);
+    let menu = shell.click(shell.app.shell.more.unwrap().center());
+    let out = shell.click(find(&nodes(&menu), "Export catalog XML…").2.center());
+    let button = find(&nodes(&out), "Export catalog XML").2.center();
+    let output = root.join("never.xml");
+    shell.app.catalog_export_path = output.display().to_string();
+    shell.app.catalog_export_drive = "C:".into();
+    shell.click(button);
+    assert!(shell.app.notice.contains("drive must be one letter"));
+    assert!(!output.exists());
+    shell.app.catalog_export_drive.clear();
+    let malformed = root.join("malformed.sqlite");
+    let empty = root.join("empty.sqlite");
+    let unrelated = root.join("unrelated.sqlite");
+    std::fs::write(&malformed, b"not sqlite").unwrap();
+    std::fs::write(&empty, b"").unwrap();
+    assert!(std::process::Command::new("python3").args(["-c", "import sqlite3,sys; c=sqlite3.connect(sys.argv[1]); c.execute('create table sentinel(value text)'); c.execute(\"insert into sentinel values ('keep')\"); c.commit()"]).arg(&unrelated).status().unwrap().success());
+    for source in [&malformed, &empty, &unrelated] {
+        let before = std::fs::read(source).unwrap();
+        shell.app.db_path = source.clone();
+        let out = shell.settle();
+        shell.click(find(&nodes(&out), "Export catalog XML").2.center());
+        assert!(
+            shell.app.notice.starts_with("Catalog export failed:"),
+            "{}",
+            shell.app.notice
+        );
+        assert_eq!(std::fs::read(source).unwrap(), before);
+        assert!(!output.exists());
+    }
+    drop(shell);
     std::fs::remove_dir_all(root).unwrap();
 }
 

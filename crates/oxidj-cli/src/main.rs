@@ -1681,6 +1681,12 @@ fn run_catalog(args: &[String]) -> i32 {
     if action == "create-library-playlist" {
         return run_create_library_playlist(&args[1..]);
     }
+    if action == "rename-library-playlist" {
+        return run_rename_library_playlist(&args[1..]);
+    }
+    if action == "remove-library-playlist-member" {
+        return run_remove_library_playlist_member(&args[1..]);
+    }
     if action == "reorder-library-playlist-members" {
         return run_reorder_library_playlist_members(&args[1..]);
     }
@@ -2117,6 +2123,96 @@ fn escape_track_field(value: &str) -> String {
         .replace('\r', "\\r")
 }
 
+fn run_rename_library_playlist(args: &[String]) -> i32 {
+    const EXPECTED: &str = "error: expected catalog rename-library-playlist --catalog DB --playlist-name NAME --new-name NAME";
+    let (mut catalog, mut old, mut new) = (None, None, None);
+    let mut rest = args.iter();
+    while let Some(flag) = rest.next() {
+        let Some(value) = rest.next() else {
+            eprintln!("{EXPECTED}");
+            return USAGE;
+        };
+        let slot = match flag.as_str() {
+            "--catalog" => &mut catalog,
+            "--playlist-name" => &mut old,
+            "--new-name" => &mut new,
+            _ => {
+                eprintln!("{EXPECTED}");
+                return USAGE;
+            }
+        };
+        if slot.replace(value).is_some() {
+            eprintln!("{EXPECTED}");
+            return USAGE;
+        }
+    }
+    let (Some(catalog), Some(old), Some(new)) = (catalog, old, new) else {
+        eprintln!("{EXPECTED}");
+        return USAGE;
+    };
+    match oxidj_application::rename_library_playlist(catalog, old, new) {
+        Ok(()) => {
+            println!("RenamedPlaylists: 1");
+            OK
+        }
+        Err(error) => {
+            eprintln!("error: rename-library-playlist refused: {error}");
+            DOMAIN
+        }
+    }
+}
+
+fn run_remove_library_playlist_member(args: &[String]) -> i32 {
+    const EXPECTED: &str = "error: expected catalog remove-library-playlist-member --catalog DB --playlist-name NAME --expected-track-ids IDS --index ZERO_BASED --expected-track-id ID";
+    let (mut catalog, mut name, mut ids, mut index, mut id) = (None, None, None, None, None);
+    let mut rest = args.iter();
+    while let Some(flag) = rest.next() {
+        let Some(value) = rest.next() else {
+            eprintln!("{EXPECTED}");
+            return USAGE;
+        };
+        let slot = match flag.as_str() {
+            "--catalog" => &mut catalog,
+            "--playlist-name" => &mut name,
+            "--expected-track-ids" => &mut ids,
+            "--index" => &mut index,
+            "--expected-track-id" => &mut id,
+            _ => {
+                eprintln!("{EXPECTED}");
+                return USAGE;
+            }
+        };
+        if slot.replace(value).is_some() {
+            eprintln!("{EXPECTED}");
+            return USAGE;
+        }
+    }
+    let (Some(catalog), Some(name), Some(ids), Some(index), Some(id)) =
+        (catalog, name, ids, index, id)
+    else {
+        eprintln!("{EXPECTED}");
+        return USAGE;
+    };
+    if index.is_empty() || !index.bytes().all(|b| b.is_ascii_digit()) {
+        eprintln!("{EXPECTED}");
+        return USAGE;
+    }
+    let Ok(index) = index.parse::<usize>() else {
+        eprintln!("{EXPECTED}");
+        return USAGE;
+    };
+    match oxidj_application::remove_library_playlist_member(catalog, name, ids, index, id) {
+        Ok(()) => {
+            println!("RemovedMemberships: 1");
+            OK
+        }
+        Err(error) => {
+            eprintln!("error: remove-library-playlist-member refused: {error}");
+            DOMAIN
+        }
+    }
+}
+
 fn run_reorder_library_playlist_members(args: &[String]) -> i32 {
     const EXPECTED: &str = "error: expected catalog reorder-library-playlist-members --catalog DB --playlist-name NAME --track-ids 3,1,3 (exported XML TrackIDs)";
     let (mut catalog, mut name, mut ids) = (None, None, None);
@@ -2312,6 +2408,8 @@ fn print_usage(to_stdout: bool) {
   catalog list-library-tracks --catalog <db>   List exported XML TrackIDs, titles and artists as escaped TSV (PERSONAL METADATA: do not log or transmit)
   catalog create-library-playlist --catalog <db> --name <name> --track-ids <3,1,3>   Append an ordered root playlist in the catalog; IDs are exported XML TrackIDs, not audio/vendor IDs
   catalog append-library-playlist-members --catalog <db> --playlist-name <name> --track-ids <3,1>   Append ordered members to an exact root playlist
+  catalog remove-library-playlist-member --catalog <db> --playlist-name <name> --expected-track-ids <3,1,3> --index <0> --expected-track-id <3>   Remove one guarded occurrence (zero-based index)
+  catalog rename-library-playlist --catalog <db> --playlist-name <old> --new-name <new>   Rename an exact unique imported root playlist
   catalog reorder-library-playlist-members --catalog <db> --playlist-name <name> --track-ids <3,1,3>   Reorder all members of an exact root playlist
   catalog export-library-xml --catalog <db> --output <new> [--drive <X>] [--computed-grids]   Export the imported library as new Rekordbox XML (no edits); --drive prefixes device-relative locations with X: for Windows Rekordbox; --computed-grids adds one TEMPO from OxiDJ's computed grid (confidence >= 0.5) to tracks without a Rekordbox grid",
     );

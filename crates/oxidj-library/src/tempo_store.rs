@@ -586,7 +586,7 @@ mod tests {
             (version, journal.to_ascii_lowercase().as_str()),
             (crate::SCHEMA_VERSION, "wal")
         );
-        assert_eq!(crate::SCHEMA_VERSION, 8);
+        assert_eq!(crate::SCHEMA_VERSION, 10);
         let id = catalog.list_tracks().unwrap()[0].id;
         let kept: Vec<u8> = catalog
             .connection

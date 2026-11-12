@@ -103,6 +103,16 @@ pub struct LibraryNavigation {
     pub roots: Vec<LibraryNode>,
 }
 
+/// Opaque identity and visible state captured when a root playlist is selected.
+#[derive(Debug, Clone)]
+pub struct RootPlaylistGuard {
+    id: i64,
+    token: Vec<u8>,
+    index: usize,
+    name: String,
+    members: Vec<usize>,
+}
+
 /// Aggregate counts of a snapshot (folders exclude the implicit root).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct LibraryCounts {
@@ -164,7 +174,261 @@ pub fn validate_library_playlist_name(name: &str) -> Result<(), CatalogError> {
     Ok(())
 }
 
+type ImportedTrackRow = (
+    Vec<u8>,
+    String,
+    String,
+    Option<String>,
+    Option<String>,
+    i64,
+    i64,
+    Option<String>,
+);
+
+/// A selected imported row, including its durable replacement-resistant identity.
+#[derive(Debug, Clone)]
+pub struct ImportedTrackGuard {
+    position: usize,
+    token: Vec<u8>,
+    visible: LibraryNavigationTrack,
+}
+
 impl Catalog {
+    /// Capture the selected visible row and replacement-resistant identity.
+    pub fn imported_track_guard(
+        &self,
+        position: usize,
+        visible: &LibraryNavigationTrack,
+    ) -> Result<ImportedTrackGuard, CatalogError> {
+        use rusqlite::OptionalExtension;
+        let row: Option<ImportedTrackRow> = self.connection.query_row(
+            "SELECT i.token,t.title,t.location,t.artist,t.album,t.tempo_hundredths_bpm,t.duration_seconds,t.musical_key FROM library_tracks t JOIN library_track_identity i ON i.track_position=t.position WHERE t.position=?1",
+            [to_i64(position)?], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?,r.get(5)?,r.get(6)?,r.get(7)?)),
+        ).optional()?;
+        let Some((token, title, location, artist, album, tempo, duration, key)) = row else {
+            return Err(CatalogError::InvalidRecord(
+                "selected imported track is stale",
+            ));
+        };
+        if title != visible.title
+            || location != visible.location
+            || artist != visible.artist
+            || album != visible.album
+            || tempo != i64::from(visible.tempo_hundredths_bpm)
+            || duration != i64::from(visible.duration_seconds)
+            || key != visible.key
+        {
+            return Err(CatalogError::InvalidRecord(
+                "selected imported track is stale",
+            ));
+        }
+        Ok(ImportedTrackGuard {
+            position,
+            token,
+            visible: visible.clone(),
+        })
+    }
+
+    /// Create one root playlist under the same write lock as identity checks.
+    pub fn create_guarded_root_playlist(
+        &mut self,
+        name: &str,
+        guard: &ImportedTrackGuard,
+    ) -> Result<(), CatalogError> {
+        use rusqlite::OptionalExtension;
+        validate_library_playlist_name(name)?;
+        let tx = self
+            .connection
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let row: Option<ImportedTrackRow> = tx.query_row(
+            "SELECT i.token,t.title,t.location,t.artist,t.album,t.tempo_hundredths_bpm,t.duration_seconds,t.musical_key FROM library_tracks t JOIN library_track_identity i ON i.track_position=t.position WHERE t.position=?1",
+            [to_i64(guard.position)?], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?,r.get(5)?,r.get(6)?,r.get(7)?)),
+        ).optional()?;
+        let v = &guard.visible;
+        if row
+            != Some((
+                guard.token.clone(),
+                v.title.clone(),
+                v.location.clone(),
+                v.artist.clone(),
+                v.album.clone(),
+                i64::from(v.tempo_hundredths_bpm),
+                i64::from(v.duration_seconds),
+                v.key.clone(),
+            ))
+        {
+            return Err(CatalogError::InvalidRecord(
+                "selected imported track is stale",
+            ));
+        }
+        let duplicate: bool = tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM library_nodes WHERE parent_id IS NULL AND name=?1)",
+            [name],
+            |r| r.get(0),
+        )?;
+        if duplicate {
+            return Err(CatalogError::InvalidRecord(
+                "a root node with this name already exists",
+            ));
+        }
+        let id: i64 = tx.query_row("SELECT COALESCE(MAX(id),0)+1 FROM library_nodes", [], |r| {
+            r.get(0)
+        })?;
+        let order: i64 = tx.query_row(
+            "SELECT COALESCE(MAX(sibling_order),-1)+1 FROM library_nodes WHERE parent_id IS NULL",
+            [],
+            |r| r.get(0),
+        )?;
+        tx.execute("INSERT INTO library_nodes(id,parent_id,sibling_order,name,is_folder) VALUES(?1,NULL,?2,?3,0)", rusqlite::params![id, order, name])?;
+        tx.execute(
+            "INSERT INTO library_members(node_id,position,track_position) VALUES(?1,0,?2)",
+            rusqlite::params![id, to_i64(guard.position)?],
+        )?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// Bind a visible root row to its durable identity under a read transaction.
+    pub fn root_playlist_guard(
+        &self,
+        index: usize,
+        name: &str,
+        members: &[usize],
+    ) -> Result<RootPlaylistGuard, CatalogError> {
+        let tx = self.connection.unchecked_transaction()?;
+        use rusqlite::OptionalExtension;
+        let (id, token, actual_name, folder): (i64, Vec<u8>, String, i64) = tx.query_row(
+            "SELECT n.id, i.token, n.name, n.is_folder FROM library_nodes n JOIN library_node_identity i ON i.node_id=n.id WHERE n.parent_id IS NULL ORDER BY n.sibling_order, n.id LIMIT 1 OFFSET ?1",
+            [to_i64(index)?], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+        ).optional()?.ok_or(CatalogError::InvalidRecord("selected root playlist is stale"))?;
+        let actual_members: Vec<usize> = {
+            let mut stmt = tx.prepare(
+                "SELECT track_position FROM library_members WHERE node_id=?1 ORDER BY position",
+            )?;
+            let values = stmt.query_map([id], |r| {
+                r.get::<_, i64>(0).and_then(|v| {
+                    usize::try_from(v).map_err(|_| rusqlite::Error::IntegralValueOutOfRange(0, v))
+                })
+            })?;
+            values.collect::<Result<_, _>>()?
+        };
+        if folder != 0 || actual_name != name || actual_members != members {
+            return Err(CatalogError::InvalidRecord(
+                "selected root playlist is stale",
+            ));
+        }
+        tx.commit()?;
+        Ok(RootPlaylistGuard {
+            id,
+            token,
+            index,
+            name: name.to_owned(),
+            members: members.to_vec(),
+        })
+    }
+
+    /// Validate identity, visible state and collision under the write lock.
+    pub fn rename_guarded_root_playlist(
+        &mut self,
+        guard: &RootPlaylistGuard,
+        new: &str,
+    ) -> Result<RootPlaylistGuard, CatalogError> {
+        validate_library_playlist_name(new)?;
+        let tx = self
+            .connection
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let current: Option<(i64, Vec<u8>, String, i64)> = {
+            use rusqlite::OptionalExtension;
+            tx.query_row("SELECT n.id, i.token, n.name, n.is_folder FROM library_nodes n JOIN library_node_identity i ON i.node_id=n.id WHERE n.parent_id IS NULL ORDER BY n.sibling_order, n.id LIMIT 1 OFFSET ?1", [to_i64(guard.index)?], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))).optional()?
+        };
+        if current.as_ref() != Some(&(guard.id, guard.token.clone(), guard.name.clone(), 0)) {
+            return Err(CatalogError::InvalidRecord(
+                "selected root playlist is stale",
+            ));
+        }
+        let members: Vec<usize> = {
+            let mut stmt = tx.prepare(
+                "SELECT track_position FROM library_members WHERE node_id=?1 ORDER BY position",
+            )?;
+            let values = stmt.query_map([guard.id], |r| {
+                r.get::<_, i64>(0).and_then(|v| {
+                    usize::try_from(v).map_err(|_| rusqlite::Error::IntegralValueOutOfRange(0, v))
+                })
+            })?;
+            values.collect::<Result<_, _>>()?
+        };
+        if members != guard.members {
+            return Err(CatalogError::InvalidRecord(
+                "selected root playlist is stale",
+            ));
+        }
+        let collision: bool = tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM library_nodes WHERE parent_id IS NULL AND name=?1)",
+            [new],
+            |r| r.get(0),
+        )?;
+        if collision {
+            return Err(CatalogError::InvalidRecord(
+                "a root node with this name already exists",
+            ));
+        }
+        tx.execute(
+            "UPDATE library_nodes SET name=?1 WHERE id=?2",
+            rusqlite::params![new, guard.id],
+        )?;
+        tx.commit()?;
+        let mut renamed = guard.clone();
+        renamed.name = new.to_owned();
+        Ok(renamed)
+    }
+
+    /// Rename a unique root playlist under the same lock as collision validation.
+    pub fn rename_library_playlist(&mut self, old: &str, new: &str) -> Result<(), CatalogError> {
+        validate_library_playlist_name(old)?;
+        validate_library_playlist_name(new)?;
+        let tx = self
+            .connection
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let mut stmt = tx.prepare(
+            "SELECT id, is_folder FROM library_nodes WHERE parent_id IS NULL AND name = ?1",
+        )?;
+        let mut rows = stmt.query([old])?;
+        let target = rows
+            .next()?
+            .map(|r| Ok::<_, rusqlite::Error>((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?)))
+            .transpose()?;
+        if rows.next()?.is_some() {
+            return Err(CatalogError::InvalidRecord(
+                "root playlist name is ambiguous",
+            ));
+        }
+        drop(rows);
+        drop(stmt);
+        let Some((id, folder)) = target else {
+            return Err(CatalogError::InvalidRecord("root playlist does not exist"));
+        };
+        if folder != 0 {
+            return Err(CatalogError::InvalidRecord(
+                "root name refers to a folder, not a playlist",
+            ));
+        }
+        let collision: bool = tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM library_nodes WHERE parent_id IS NULL AND name = ?1)",
+            [new],
+            |r| r.get(0),
+        )?;
+        if collision {
+            return Err(CatalogError::InvalidRecord(
+                "a root node with this name already exists",
+            ));
+        }
+        tx.execute(
+            "UPDATE library_nodes SET name = ?1 WHERE id = ?2",
+            rusqlite::params![new, id],
+        )?;
+        tx.commit()?;
+        Ok(())
+    }
     /// Append one root playlist atomically. Members are zero-based imported-library
     /// positions, NOT local audio IDs. Order and duplicates are retained; existing
     /// records are never changed. Return the member count only after commit.
@@ -314,6 +578,286 @@ impl Catalog {
         }
         tx.commit()?;
         Ok(members.len())
+    }
+
+    /// Append a selected imported track only if both captured identities and membership remain valid.
+    pub fn append_guarded_root_playlist_member(
+        &mut self,
+        playlist: &RootPlaylistGuard,
+        track: &ImportedTrackGuard,
+    ) -> Result<(), CatalogError> {
+        use rusqlite::OptionalExtension;
+        let tx = self
+            .connection
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let current: Option<(i64, Vec<u8>, String, i64)> = tx.query_row(
+            "SELECT n.id, i.token, n.name, n.is_folder FROM library_nodes n JOIN library_node_identity i ON i.node_id=n.id WHERE n.parent_id IS NULL ORDER BY n.sibling_order, n.id LIMIT 1 OFFSET ?1",
+            [to_i64(playlist.index)?], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+        ).optional()?;
+        if current
+            != Some((
+                playlist.id,
+                playlist.token.clone(),
+                playlist.name.clone(),
+                0,
+            ))
+        {
+            return Err(CatalogError::InvalidRecord(
+                "selected root playlist is stale",
+            ));
+        }
+        let rows = {
+            let mut stmt = tx.prepare("SELECT position, track_position FROM library_members WHERE node_id=?1 ORDER BY position")?;
+            stmt.query_map([playlist.id], |r| {
+                Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?))
+            })?
+            .collect::<Result<Vec<_>, _>>()?
+        };
+        let expected = playlist
+            .members
+            .iter()
+            .map(|&v| to_i64(v))
+            .collect::<Result<Vec<_>, _>>()?;
+        if rows.iter().map(|row| row.1).ne(expected.iter().copied()) {
+            return Err(CatalogError::InvalidRecord(
+                "playlist membership order is stale",
+            ));
+        }
+        let row: Option<ImportedTrackRow> = tx.query_row(
+            "SELECT i.token,t.title,t.location,t.artist,t.album,t.tempo_hundredths_bpm,t.duration_seconds,t.musical_key FROM library_tracks t JOIN library_track_identity i ON i.track_position=t.position WHERE t.position=?1",
+            [to_i64(track.position)?], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?,r.get(5)?,r.get(6)?,r.get(7)?)),
+        ).optional()?;
+        let v = &track.visible;
+        if row
+            != Some((
+                track.token.clone(),
+                v.title.clone(),
+                v.location.clone(),
+                v.artist.clone(),
+                v.album.clone(),
+                i64::from(v.tempo_hundredths_bpm),
+                i64::from(v.duration_seconds),
+                v.key.clone(),
+            ))
+        {
+            return Err(CatalogError::InvalidRecord(
+                "selected imported track is stale",
+            ));
+        }
+        let position = rows.last().map_or(Ok(0), |row| {
+            row.0.checked_add(1).ok_or(CatalogError::InvalidRecord(
+                "playlist membership position exceeds range",
+            ))
+        })?;
+        tx.execute(
+            "INSERT INTO library_members(node_id,position,track_position) VALUES(?1,?2,?3)",
+            rusqlite::params![playlist.id, position, to_i64(track.position)?],
+        )?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// Move one selected occurrence while playlist, order and track identity still match.
+    pub fn move_guarded_root_playlist_member(
+        &mut self,
+        guard: &RootPlaylistGuard,
+        track: &ImportedTrackGuard,
+        index: usize,
+        destination: usize,
+    ) -> Result<(), CatalogError> {
+        use rusqlite::OptionalExtension;
+        let tx = self
+            .connection
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let current: Option<(i64, Vec<u8>, String, i64)> = tx.query_row(
+            "SELECT n.id, i.token, n.name, n.is_folder FROM library_nodes n JOIN library_node_identity i ON i.node_id=n.id WHERE n.parent_id IS NULL ORDER BY n.sibling_order, n.id LIMIT 1 OFFSET ?1",
+            [to_i64(guard.index)?], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+        ).optional()?;
+        if current != Some((guard.id, guard.token.clone(), guard.name.clone(), 0)) {
+            return Err(CatalogError::InvalidRecord(
+                "selected root playlist is stale",
+            ));
+        }
+        let rows = {
+            let mut stmt = tx.prepare("SELECT position, track_position FROM library_members WHERE node_id=?1 ORDER BY position")?;
+            stmt.query_map([guard.id], |r| {
+                Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?))
+            })?
+            .collect::<Result<Vec<_>, _>>()?
+        };
+        let expected = guard
+            .members
+            .iter()
+            .map(|&v| to_i64(v))
+            .collect::<Result<Vec<_>, _>>()?;
+        if rows.iter().map(|row| row.1).ne(expected.iter().copied()) {
+            return Err(CatalogError::InvalidRecord(
+                "playlist membership order is stale",
+            ));
+        }
+        if index.abs_diff(destination) != 1 || destination >= rows.len() || index >= rows.len() {
+            return Err(CatalogError::InvalidRecord(
+                "playlist member move is out of range",
+            ));
+        }
+        if rows[index].1 != to_i64(track.position)? {
+            return Err(CatalogError::InvalidRecord(
+                "playlist member ID does not match",
+            ));
+        }
+        let row: Option<ImportedTrackRow> = tx.query_row(
+            "SELECT i.token,t.title,t.location,t.artist,t.album,t.tempo_hundredths_bpm,t.duration_seconds,t.musical_key FROM library_tracks t JOIN library_track_identity i ON i.track_position=t.position WHERE t.position=?1",
+            [to_i64(track.position)?], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?,r.get(5)?,r.get(6)?,r.get(7)?)),
+        ).optional()?;
+        let v = &track.visible;
+        if row
+            != Some((
+                track.token.clone(),
+                v.title.clone(),
+                v.location.clone(),
+                v.artist.clone(),
+                v.album.clone(),
+                i64::from(v.tempo_hundredths_bpm),
+                i64::from(v.duration_seconds),
+                v.key.clone(),
+            ))
+        {
+            return Err(CatalogError::InvalidRecord(
+                "selected imported track is stale",
+            ));
+        }
+        tx.execute(
+            "UPDATE library_members SET track_position=?1 WHERE node_id=?2 AND position=?3",
+            rusqlite::params![rows[destination].1, guard.id, rows[index].0],
+        )?;
+        tx.execute(
+            "UPDATE library_members SET track_position=?1 WHERE node_id=?2 AND position=?3",
+            rusqlite::params![rows[index].1, guard.id, rows[destination].0],
+        )?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// Remove a selected occurrence only while the captured root identity remains valid.
+    pub fn remove_guarded_root_playlist_member(
+        &mut self,
+        guard: &RootPlaylistGuard,
+        index: usize,
+        member: usize,
+    ) -> Result<(), CatalogError> {
+        use rusqlite::OptionalExtension;
+        let tx = self
+            .connection
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let current: Option<(i64, Vec<u8>, String, i64)> = tx.query_row(
+            "SELECT n.id, i.token, n.name, n.is_folder FROM library_nodes n JOIN library_node_identity i ON i.node_id=n.id WHERE n.parent_id IS NULL ORDER BY n.sibling_order, n.id LIMIT 1 OFFSET ?1",
+            [to_i64(guard.index)?], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+        ).optional()?;
+        if current.as_ref() != Some(&(guard.id, guard.token.clone(), guard.name.clone(), 0)) {
+            return Err(CatalogError::InvalidRecord(
+                "selected root playlist is stale",
+            ));
+        }
+        let rows = {
+            let mut stmt = tx.prepare("SELECT position, track_position FROM library_members WHERE node_id=?1 ORDER BY position")?;
+            stmt.query_map([guard.id], |r| {
+                Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?))
+            })?
+            .collect::<Result<Vec<_>, _>>()?
+        };
+        let expected = guard
+            .members
+            .iter()
+            .map(|&v| to_i64(v))
+            .collect::<Result<Vec<_>, _>>()?;
+        if rows.iter().map(|row| row.1).ne(expected.iter().copied()) {
+            return Err(CatalogError::InvalidRecord(
+                "playlist membership order is stale",
+            ));
+        }
+        let Some(&(position, actual)) = rows.get(index) else {
+            return Err(CatalogError::InvalidRecord(
+                "playlist member index out of range",
+            ));
+        };
+        if actual != to_i64(member)? {
+            return Err(CatalogError::InvalidRecord(
+                "playlist member ID does not match",
+            ));
+        }
+        tx.execute(
+            "DELETE FROM library_members WHERE node_id=?1 AND position=?2",
+            rusqlite::params![guard.id, position],
+        )?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// Remove one occurrence only if the complete old order and selected member still match.
+    pub fn remove_library_playlist_member(
+        &mut self,
+        name: &str,
+        expected: &[usize],
+        index: usize,
+        member: usize,
+    ) -> Result<(), CatalogError> {
+        validate_library_playlist_name(name)?;
+        let tx = self
+            .connection
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let mut stmt = tx.prepare(
+            "SELECT id, is_folder FROM library_nodes WHERE parent_id IS NULL AND name = ?1",
+        )?;
+        let mut rows = stmt.query([name])?;
+        let target = rows
+            .next()?
+            .map(|r| Ok::<_, rusqlite::Error>((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?)))
+            .transpose()?;
+        if rows.next()?.is_some() {
+            return Err(CatalogError::InvalidRecord(
+                "root playlist name is ambiguous",
+            ));
+        }
+        drop(rows);
+        drop(stmt);
+        let Some((id, folder)) = target else {
+            return Err(CatalogError::InvalidRecord("root playlist does not exist"));
+        };
+        if folder != 0 {
+            return Err(CatalogError::InvalidRecord(
+                "root name refers to a folder, not a playlist",
+            ));
+        }
+        let mut stmt = tx.prepare("SELECT position, track_position FROM library_members WHERE node_id = ?1 ORDER BY position")?;
+        let rows = stmt
+            .query_map([id], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?)))?
+            .collect::<Result<Vec<_>, _>>()?;
+        drop(stmt);
+        let expected = expected
+            .iter()
+            .map(|&v| to_i64(v))
+            .collect::<Result<Vec<_>, _>>()?;
+        if rows.iter().map(|row| row.1).ne(expected.iter().copied()) {
+            return Err(CatalogError::InvalidRecord(
+                "playlist membership order is stale",
+            ));
+        }
+        let Some(&(position, actual)) = rows.get(index) else {
+            return Err(CatalogError::InvalidRecord(
+                "playlist member index out of range",
+            ));
+        };
+        if actual != to_i64(member)? {
+            return Err(CatalogError::InvalidRecord(
+                "playlist member ID does not match",
+            ));
+        }
+        tx.execute(
+            "DELETE FROM library_members WHERE node_id = ?1 AND position = ?2",
+            rusqlite::params![id, position],
+        )?;
+        tx.commit()?;
+        Ok(())
     }
 
     /// Reorder exactly the existing membership of one unique root playlist.
@@ -1264,6 +1808,258 @@ mod tests {
             catalog.append_library_playlist_members("Zeta", &[1, 2]),
             Err(CatalogError::Sqlite(_))
         ));
+        assert_eq!(catalog.library_snapshot().unwrap(), expected);
+    }
+
+    #[test]
+    fn v8_imported_nodes_receive_stable_nonreused_identities() {
+        let path = path();
+        {
+            let mut connection = rusqlite::Connection::open(&path).unwrap();
+            rusqlite_migration::Migrations::from_slice(&crate::MIGRATION_LIST[..8])
+                .to_latest(&mut connection)
+                .unwrap();
+            connection.execute_batch("INSERT INTO library_tracks(position,title,tempo_hundredths_bpm,duration_seconds,location) VALUES(0,'Track',0,0,'file://localhost/a'); INSERT INTO library_nodes VALUES(1,NULL,0,'Existing',0); INSERT INTO library_members VALUES(1,0,0);").unwrap();
+        }
+        let mut catalog = Catalog::open(&path).unwrap();
+        let before = catalog.library_snapshot().unwrap();
+        let guard = catalog.root_playlist_guard(0, "Existing", &[0]).unwrap();
+        assert_eq!(catalog.library_snapshot().unwrap(), before);
+        catalog.connection.execute_batch("DELETE FROM library_members; DELETE FROM library_nodes; INSERT INTO library_nodes VALUES(1,NULL,0,'Existing',0); INSERT INTO library_members VALUES(1,0,0);").unwrap();
+        assert!(matches!(
+            catalog.rename_guarded_root_playlist(&guard, "Changed"),
+            Err(CatalogError::InvalidRecord(
+                "selected root playlist is stale"
+            ))
+        ));
+        assert_eq!(catalog.library_snapshot().unwrap(), before);
+    }
+
+    #[test]
+    fn rename_rejects_same_name_replacement_after_selection() {
+        let path = path();
+        let mut catalog = Catalog::open(&path).unwrap();
+        catalog.import_library(&snapshot()).unwrap();
+        catalog.create_library_playlist("Selected", &[0]).unwrap();
+        let selected = catalog.library_snapshot().unwrap();
+        let guard = catalog
+            .root_playlist_guard(selected.roots.len() - 1, "Selected", &[0])
+            .unwrap();
+        catalog.connection.execute("DELETE FROM library_members WHERE node_id = (SELECT id FROM library_nodes WHERE name = 'Selected')", []).unwrap();
+        catalog
+            .connection
+            .execute("DELETE FROM library_nodes WHERE name = 'Selected'", [])
+            .unwrap();
+        catalog.create_library_playlist("Selected", &[0]).unwrap();
+        let replacement = catalog.library_snapshot().unwrap();
+        assert_eq!(selected, replacement);
+        assert!(
+            catalog
+                .rename_guarded_root_playlist(&guard, "Renamed")
+                .is_err(),
+            "a same-name replacement must not be renamed"
+        );
+        assert_eq!(catalog.library_snapshot().unwrap(), replacement);
+    }
+
+    #[test]
+    fn rename_refuses_invalid_targets_and_rolls_back() {
+        let path = path();
+        let mut catalog = Catalog::open(&path).unwrap();
+        catalog.import_library(&snapshot()).unwrap();
+        catalog
+            .create_library_playlist("Rename", &[2, 0, 2])
+            .unwrap();
+        let before = catalog.library_snapshot().unwrap();
+        for (old, new, reason) in [
+            ("missing", "New", "root playlist does not exist"),
+            (
+                "Folder",
+                "New",
+                "root name refers to a folder, not a playlist",
+            ),
+            (
+                "Rename",
+                "Folder",
+                "a root node with this name already exists",
+            ),
+            (
+                "Rename",
+                "Rename",
+                "a root node with this name already exists",
+            ),
+            ("Rename", "", "playlist name must not be blank"),
+            (
+                "Rename",
+                "bad\u{1}",
+                "playlist name contains invalid XML 1.0 text",
+            ),
+        ] {
+            assert!(
+                matches!(catalog.rename_library_playlist(old, new), Err(CatalogError::InvalidRecord(actual)) if actual == reason)
+            );
+            assert_eq!(catalog.library_snapshot().unwrap(), before);
+        }
+        catalog.connection.execute("INSERT INTO library_nodes(id,parent_id,sibling_order,name,is_folder) VALUES(999,NULL,999,'Rename',0)", []).unwrap();
+        let ambiguous = catalog.library_snapshot().unwrap();
+        assert!(matches!(
+            catalog.rename_library_playlist("Rename", "New"),
+            Err(CatalogError::InvalidRecord(
+                "root playlist name is ambiguous"
+            ))
+        ));
+        assert_eq!(catalog.library_snapshot().unwrap(), ambiguous);
+        catalog
+            .connection
+            .execute("DELETE FROM library_nodes WHERE id = 999", [])
+            .unwrap();
+        catalog.connection.execute_batch("CREATE TEMP TRIGGER fail_rename AFTER UPDATE ON library_nodes BEGIN SELECT RAISE(ABORT, 'injected failure'); END;").unwrap();
+        assert!(matches!(
+            catalog.rename_library_playlist("Rename", "New"),
+            Err(CatalogError::Sqlite(_))
+        ));
+        assert_eq!(catalog.library_snapshot().unwrap(), before);
+        catalog
+            .connection
+            .execute_batch("DROP TRIGGER fail_rename")
+            .unwrap();
+        catalog.rename_library_playlist("Rename", "New").unwrap();
+        let mut expected = before;
+        let Some(LibraryNode::Playlist { name, .. }) = expected.roots.last_mut() else {
+            panic!("playlist")
+        };
+        *name = "New".into();
+        assert_eq!(catalog.library_snapshot().unwrap(), expected);
+        assert!(matches!(
+            catalog.rename_library_playlist("Rename", "Other"),
+            Err(CatalogError::InvalidRecord("root playlist does not exist"))
+        ));
+        assert_eq!(catalog.library_snapshot().unwrap(), expected);
+    }
+
+    #[test]
+    fn guarded_member_removal_refuses_replacement_and_removes_only_selected_duplicate() {
+        let mut catalog = Catalog::open(path()).unwrap();
+        catalog.import_library(&snapshot()).unwrap();
+        catalog
+            .create_library_playlist("Selected", &[2, 0, 2])
+            .unwrap();
+        let before = catalog.library_snapshot().unwrap();
+        let index = before.roots.len() - 1;
+        let guard = catalog
+            .root_playlist_guard(index, "Selected", &[2, 0, 2])
+            .unwrap();
+        catalog.connection.execute("DELETE FROM library_members WHERE node_id = (SELECT id FROM library_nodes WHERE name = 'Selected')", []).unwrap();
+        catalog
+            .connection
+            .execute("DELETE FROM library_nodes WHERE name = 'Selected'", [])
+            .unwrap();
+        catalog
+            .create_library_playlist("Selected", &[2, 0, 2])
+            .unwrap();
+        assert_eq!(catalog.library_snapshot().unwrap(), before);
+        assert!(
+            catalog
+                .remove_guarded_root_playlist_member(&guard, 2, 2)
+                .is_err()
+        );
+        assert_eq!(catalog.library_snapshot().unwrap(), before);
+        let guard = catalog
+            .root_playlist_guard(index, "Selected", &[2, 0, 2])
+            .unwrap();
+        catalog
+            .remove_guarded_root_playlist_member(&guard, 2, 2)
+            .unwrap();
+        let mut expected = before;
+        let Some(LibraryNode::Playlist { members, .. }) = expected.roots.last_mut() else {
+            panic!("playlist")
+        };
+        *members = vec![2, 0];
+        assert_eq!(catalog.library_snapshot().unwrap(), expected);
+    }
+
+    #[test]
+    fn remove_member_refuses_stale_and_rolls_back() {
+        let path = path();
+        let mut catalog = Catalog::open(&path).unwrap();
+        catalog.import_library(&snapshot()).unwrap();
+        catalog
+            .create_library_playlist("Remove", &[2, 0, 2])
+            .unwrap();
+        let before = catalog.library_snapshot().unwrap();
+        for (name, expected, index, member, reason) in [
+            (
+                "Remove",
+                vec![2, 2, 0],
+                0,
+                2,
+                "playlist membership order is stale",
+            ),
+            (
+                "Remove",
+                vec![2, 0, 2],
+                3,
+                2,
+                "playlist member index out of range",
+            ),
+            (
+                "Remove",
+                vec![2, 0, 2],
+                1,
+                2,
+                "playlist member ID does not match",
+            ),
+            (
+                "missing",
+                vec![2, 0, 2],
+                0,
+                2,
+                "root playlist does not exist",
+            ),
+            (
+                "Folder",
+                vec![2, 0, 2],
+                0,
+                2,
+                "root name refers to a folder, not a playlist",
+            ),
+        ] {
+            assert!(
+                matches!(catalog.remove_library_playlist_member(name, &expected, index, member), Err(CatalogError::InvalidRecord(actual)) if actual == reason)
+            );
+            assert_eq!(catalog.library_snapshot().unwrap(), before);
+        }
+        catalog.connection.execute("INSERT INTO library_nodes(id,parent_id,sibling_order,name,is_folder) VALUES(999,NULL,999,'Remove',0)", []).unwrap();
+        let ambiguous = catalog.library_snapshot().unwrap();
+        assert!(matches!(
+            catalog.remove_library_playlist_member("Remove", &[2, 0, 2], 0, 2),
+            Err(CatalogError::InvalidRecord(
+                "root playlist name is ambiguous"
+            ))
+        ));
+        assert_eq!(catalog.library_snapshot().unwrap(), ambiguous);
+        catalog
+            .connection
+            .execute("DELETE FROM library_nodes WHERE id = 999", [])
+            .unwrap();
+        catalog.connection.execute_batch("CREATE TEMP TRIGGER fail_remove AFTER DELETE ON library_members BEGIN SELECT RAISE(ABORT, 'injected failure'); END;").unwrap();
+        assert!(matches!(
+            catalog.remove_library_playlist_member("Remove", &[2, 0, 2], 0, 2),
+            Err(CatalogError::Sqlite(_))
+        ));
+        assert_eq!(catalog.library_snapshot().unwrap(), before);
+        catalog
+            .connection
+            .execute_batch("DROP TRIGGER fail_remove")
+            .unwrap();
+        catalog
+            .remove_library_playlist_member("Remove", &[2, 0, 2], 0, 2)
+            .unwrap();
+        let mut expected = before;
+        let Some(LibraryNode::Playlist { members, .. }) = expected.roots.last_mut() else {
+            panic!("playlist")
+        };
+        *members = vec![0, 2];
         assert_eq!(catalog.library_snapshot().unwrap(), expected);
     }
 

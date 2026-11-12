@@ -11,7 +11,11 @@ PREFIX="${PREFIX:-$HOME/.local}"
 BIN="$PREFIX/bin"; APPS="$PREFIX/share/applications"; ICONS="$PREFIX/share/icons/hicolor/scalable/apps"
 
 cargo build --release --locked -p oxidj-cli
-cargo build --release --locked --manifest-path prototypes/oxidj-library-ui/Cargo.toml
+ui_features=()
+if [[ "$(uname -s)" == Linux ]]; then
+    ui_features=(--features jack)
+fi
+cargo build --release --locked --manifest-path prototypes/oxidj-library-ui/Cargo.toml "${ui_features[@]}"
 
 mkdir -p "$BIN" "$APPS" "$ICONS"
 install -m 0755 target/release/oxidj-cli "$BIN/oxidj-cli"
