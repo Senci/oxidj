@@ -304,7 +304,7 @@ fn defaults_one_row_toolbar_status_bar_and_full_width_table() {
             if width >= 1200.0 {
                 assert!(
                     close(row.left(), table.left()) && close(row.right(), table.right()),
-                    "{width}: {row:?}"
+                    "{width}: row {row:?} table {table:?}"
                 );
             }
         }

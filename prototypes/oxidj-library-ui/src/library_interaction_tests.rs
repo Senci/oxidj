@@ -1,6 +1,9 @@
 //! Actual production multi-frame browsing, drop, and keyboard interactions.
 use super::*;
 
+#[path = "column_tests.rs"]
+mod column_tests;
+
 fn key_event(key: egui::Key, pressed: bool) -> egui::Event {
     egui::Event::Key { key, physical_key: None, pressed, repeat: false, modifiers: Default::default() }
 }
@@ -158,7 +161,7 @@ fn playlist_header_menu_toggles_a_column() {
     shell.click(playlist.center());
     let header = text_rect(&mut shell, "Title");
     let out = shell.right_click(header.center());
-    let album = find(&nodes(&out), "Album").2.center();
+    let album = nodes(&out).into_iter().find(|n| n.0 == Role::CheckBox && n.1.as_deref() == Some("Album")).unwrap().2.center();
     shell.click(album);
     assert!(!shell.app.settings.playlist_columns.visible[2]);
     assert!(!texts(&shell.settle()).iter().any(|(s, _)| s == "Synthetic album"));

@@ -20,13 +20,8 @@ impl eframe::App for LibraryApp {
     }
 }
 
-/// Fixed track-table columns (W11): availability dot, ID, Duration, Format.
-const STATUS_COLUMN: f32 = 24.0;
-const ID_COLUMN: f32 = 52.0;
-const DURATION_COLUMN: f32 = 72.0;
-const FORMAT_COLUMN: f32 = 172.0;
-/// Filename and folder share the rest; below this the table scrolls sideways.
-const MIN_FLEX_COLUMNS: f32 = 2.0 * 130.0;
+const CATALOG_LABELS: [&str; 6] = ["Availability", "ID", "Filename", "Folder", "Duration", "Format"];
+const PLAYLIST_LABELS: [&str; 6] = ["Title", "Artist", "Album", "BPM", "Key", "Duration"];
 /// Track-table columns, left to right.
 const COLUMNS: usize = 6;
 /// Columns whose cells and header are right-aligned (numbers).
@@ -1614,40 +1609,21 @@ impl LibraryApp {
             }
             if let Some(members) = playlist {
                 let snapshot = snapshot.clone();
-                self.shell.table = Some(ui.max_rect());
                 let mut load = None;
+                let fit = |ui: &egui::Ui| fit_column_values(ui, PLAYLIST_LABELS, snapshot.tracks.iter().map(imported_values));
+                self.shell.table = Some(ui.available_rect_before_wrap());
                 let columns = self.settings.playlist_columns;
                 let total = columns.order.iter().filter(|&&i| columns.visible[i as usize])
                     .map(|&i| f32::from(columns.widths[i as usize])).sum::<f32>();
-                let total = total.max(ui.available_width());
+                let total = (total + 100.0).max(ui.available_width());
                 ui.spacing_mut().item_spacing = egui::Vec2::ZERO;
                 egui::ScrollArea::horizontal()
                     .id_salt("playlist-columns")
                     .auto_shrink([false, false])
                     .show(ui, |ui| {
-                        let (header, header_response) = ui.allocate_exact_size(
-                            egui::vec2(total, theme::HEADER_HEIGHT),
-                            egui::Sense::click(),
-                        );
-                        header_response.context_menu(|ui| {
-                            for (index, name) in ["Title", "Artist", "Album", "BPM", "Key", "Duration"].into_iter().enumerate() {
-                                let prefs = &mut self.settings.playlist_columns;
-                                let enabled = !prefs.visible[index] || prefs.visible.iter().filter(|v| **v).count() > 1;
-                                ui.add_enabled(enabled, egui::Checkbox::new(&mut prefs.visible[index], name));
-                            }
-                            if ui.button("Reset columns").clicked() {
-                                self.settings.playlist_columns = crate::settings::Settings::default().playlist_columns;
-                                ui.close();
-                            }
-                        });
-                        playlist_cells(
-                            ui,
-                            header,
-                            columns,
-                            ["Title", "Artist", "Album", "BPM", "Key", "Duration"]
-                                .map(str::to_owned),
-                            tokens,
-                        );
+                        let (header, _) = ui.allocate_exact_size(egui::vec2(total, theme::HEADER_HEIGHT), egui::Sense::hover());
+                        column_header(ui, header, &mut self.settings.playlist_columns, PLAYLIST_LABELS, crate::settings::Settings::default().playlist_columns, tokens, None, &fit);
+                        let columns = self.settings.playlist_columns;
                         if members.is_empty() {
                             ui.label("This playlist is empty.");
                         }
@@ -1703,21 +1679,7 @@ impl LibraryApp {
                                         ui,
                                         rect,
                                         columns,
-                                        [
-                                            format!("{} · {}", position + 1, track.title),
-                                            track.artist.clone().unwrap_or_else(|| "—".into()),
-                                            track.album.clone().unwrap_or_else(|| "—".into()),
-                                            if track.tempo_hundredths_bpm == 0 {
-                                                "—".into()
-                                            } else {
-                                                format!(
-                                                    "{:.2}",
-                                                    track.tempo_hundredths_bpm as f64 / 100.0
-                                                )
-                                            },
-                                            track.key.clone().unwrap_or_else(|| "—".into()),
-                                            format_duration(track.duration_seconds as f64),
-                                        ],
+                                        { let mut values = imported_values(track); values[0] = format!("{} · {}", position + 1, track.title); values },
                                         tokens,
                                     );
                                     if response.clicked() || response.drag_started() {
@@ -1742,6 +1704,7 @@ impl LibraryApp {
                                 }
                             });
                     });
+                column_dropdown(ui, &mut self.settings.playlist_columns, PLAYLIST_LABELS, crate::settings::Settings::default().playlist_columns, &fit, self.shell.table.unwrap());
                 if let Some((member, deck)) = load {
                     self.load_imported_member(member, deck);
                 }
@@ -1781,19 +1744,12 @@ impl LibraryApp {
                 order
             }
         });
-        let fixed = STATUS_COLUMN + ID_COLUMN + DURATION_COLUMN + FORMAT_COLUMN;
-        let total = ui.available_width().max(fixed + MIN_FLEX_COLUMNS);
-        let name = ((total - fixed) * 0.6).floor();
-        let widths = [
-            STATUS_COLUMN,
-            ID_COLUMN,
-            name,
-            total - fixed - name,
-            DURATION_COLUMN,
-            FORMAT_COLUMN,
-        ];
+        let fit = |ui: &egui::Ui| fit_column_values(ui, CATALOG_LABELS, self.tracks.iter().map(catalog_values));
+        let columns = self.settings.catalog_columns;
+        let total = columns.order.iter().filter(|&&i| columns.visible[i as usize]).map(|&i| f32::from(columns.widths[i as usize])).sum::<f32>() + 100.0;
+        let total = total.max(ui.available_width());
         // The visible table viewport (wider content scrolls inside it).
-        self.shell.table = Some(ui.max_rect());
+        self.shell.table = Some(ui.available_rect_before_wrap());
         ui.spacing_mut().item_spacing = egui::vec2(0.0, 0.0);
         // D1: a "Load to deck" choice from a row's context menu.
         let mut load = None;
@@ -1802,7 +1758,13 @@ impl LibraryApp {
             .auto_shrink([false, false])
             .show(ui, |ui| {
                 let (header, _) = ui.allocate_exact_size(egui::vec2(total, theme::HEADER_HEIGHT), egui::Sense::hover());
-                table_header(ui, header, widths, tokens, &mut self.sort, &mut self.descending);
+                if let Some(index) = column_header(ui, header, &mut self.settings.catalog_columns, CATALOG_LABELS, crate::settings::TableColumns::default(), tokens, Some((match self.sort { Sort::Id => 1, Sort::Filename => 2, Sort::Duration => 4 }, self.descending)), &fit) {
+                    let sort = match index { 1 => Some(Sort::Id), 2 => Some(Sort::Filename), 4 => Some(Sort::Duration), _ => None };
+                    if let Some(sort) = sort {
+                        if self.sort == sort { self.descending = !self.descending; } else { self.sort = sort; self.descending = false; }
+                    }
+                }
+                let columns = self.settings.catalog_columns;
                 if visible.is_empty() {
                     ui.add_space(24.0);
                     ui.vertical_centered(|ui| {
@@ -1836,7 +1798,7 @@ impl LibraryApp {
                             let item = visible[index];
                             let id = item.track.id.as_u64();
                             let on = crate::decks::badges(loaded, id);
-                            let response = track_row(ui, item, self.selected, index, total, widths, tokens, on, badge_colours);
+                            let response = track_row(ui, item, self.selected, index, total, columns, tokens, on, badge_colours);
                             if response.clicked() || response.drag_started() {
                                 self.selected = Some(id);
                                 self.selected_imported = None;
@@ -1853,6 +1815,7 @@ impl LibraryApp {
                         }
                     });
             });
+        column_dropdown(ui, &mut self.settings.catalog_columns, CATALOG_LABELS, crate::settings::TableColumns::default(), &fit, self.shell.table.unwrap());
         if let Some((deck, id)) = load {
             self.selected = Some(id);
             self.load_deck(deck, id);
@@ -1893,125 +1856,16 @@ fn playlist_cells(
     }
 }
 
-/// Column labels; ID, Filename and Duration sort on click (or Enter).
-fn table_header(
-    ui: &mut egui::Ui,
-    rect: egui::Rect,
-    widths: [f32; COLUMNS],
-    tokens: theme::ColorTokens,
-    current: &mut Sort,
-    descending: &mut bool,
-) {
-    let painter = ui.painter();
-    painter.rect_filled(rect, 0.0, tokens.surface);
-    painter.hline(
-        rect.x_range(),
-        rect.bottom() - 0.5,
-        egui::Stroke::new(1.0_f32, theme::hairline(tokens)),
-    );
-    // W11: the availability column is a dot only (state on row hover);
-    // "Folder" replaces "Path", which repeated the filename.
-    let columns: [(&str, Option<Sort>); COLUMNS] = [
-        ("", None),
-        ("ID", Some(Sort::Id)),
-        ("Filename", Some(Sort::Filename)),
-        ("Folder", None),
-        ("Duration", Some(Sort::Duration)),
-        ("Format", None),
-    ];
-    let mut x = rect.left();
-    for (column, ((title, sort), width)) in columns.into_iter().zip(widths).enumerate() {
-        let right = RIGHT_ALIGNED[column];
-        let cell =
-            egui::Rect::from_min_size(egui::pos2(x, rect.top()), egui::vec2(width, rect.height()));
-        x += width;
-        let active = sort == Some(*current);
-        // The default fonts lack ▲/▼, so the sort arrow is painted.
-        let name = if active {
-            format!(
-                "{title}, sorted {}",
-                if *descending {
-                    "descending"
-                } else {
-                    "ascending"
-                }
-            )
-        } else {
-            title.to_owned()
-        };
-        let text = title;
-        let color = if active {
-            tokens.text
-        } else {
-            tokens.muted_text
-        };
-        let galley =
-            egui::WidgetText::from(egui::RichText::new(text).small().strong().color(color))
-                .into_galley(
-                    ui,
-                    Some(egui::TextWrapMode::Truncate),
-                    width - 2.0 * CELL_INSET,
-                    egui::TextStyle::Small,
-                );
-        let tx = if right {
-            cell.right() - CELL_INSET - galley.size().x
-        } else {
-            cell.left() + CELL_INSET
-        };
-        let pos = egui::pos2(tx, cell.center().y - galley.size().y / 2.0);
-        if let Some(sort) = sort {
-            let response = ui.interact(
-                cell,
-                ui.id().with(("sort-header", title)),
-                egui::Sense::click(),
-            );
-            response.widget_info(|| {
-                egui::WidgetInfo::selected(egui::WidgetType::Button, true, active, &name)
-            });
-            if response.hovered() || response.has_focus() {
-                let stroke: f32 = if response.has_focus() { 2.0 } else { 1.0 };
-                ui.painter().rect_stroke(
-                    cell.shrink(1.0),
-                    2.0,
-                    egui::Stroke::new(stroke, tokens.focus),
-                    egui::StrokeKind::Inside,
-                );
-            }
-            if response.on_hover_text(format!("Sort by {title}")).clicked() {
-                if active {
-                    *descending = !*descending;
-                } else {
-                    *current = sort;
-                    *descending = false;
-                }
-            }
-        }
-        if active {
-            let size = galley.size();
-            // Right-aligned titles carry the arrow on their left.
-            let ax = if right {
-                pos.x - 8.0
-            } else {
-                pos.x + size.x + 8.0
-            };
-            let c = egui::pos2(ax, cell.center().y);
-            let (tip, base) = if *descending {
-                (3.0, -3.0)
-            } else {
-                (-3.0, 3.0)
-            };
-            ui.painter().add(egui::Shape::convex_polygon(
-                vec![
-                    egui::pos2(c.x, c.y + tip),
-                    egui::pos2(c.x + 4.0, c.y + base),
-                    egui::pos2(c.x - 4.0, c.y + base),
-                ],
-                color,
-                egui::Stroke::NONE,
-            ));
-        }
-        ui.painter().galley(pos, galley, color);
-    }
+#[path = "table_columns.rs"]
+mod table_columns;
+use table_columns::{column_dropdown, column_header, fit_column_values};
+
+fn catalog_values(item: &TrackDetails) -> [String; 6] {
+    [availability_status(item.availability).0.into(), item.track.id.as_u64().to_string(), file_name(&item.track.path), folder_name(&item.track.path), item.duration_seconds.map(format_duration).unwrap_or_else(|| "—".into()), format_facts(item.sample_rate, item.channels, item.bit_depth)]
+}
+
+fn imported_values(track: &oxidj_library::LibraryNavigationTrack) -> [String; 6] {
+    [track.title.clone(), track.artist.clone().unwrap_or_else(|| "—".into()), track.album.clone().unwrap_or_else(|| "—".into()), if track.tempo_hundredths_bpm == 0 { "—".into() } else { format!("{:.2}", track.tempo_hundredths_bpm as f64 / 100.0) }, track.key.clone().unwrap_or_else(|| "—".into()), if track.duration_seconds == 0 { "—".into() } else { format_duration(track.duration_seconds as f64) }]
 }
 
 /// One full-width selectable row (true when clicked), W11 states:
@@ -2026,7 +1880,7 @@ fn track_row(
     selected: Option<u64>,
     index: usize,
     total: f32,
-    widths: [f32; COLUMNS],
+    columns: crate::settings::TableColumns,
     tokens: theme::ColorTokens,
     on_decks: [bool; 2],
     deck_colours: [crate::decks::DeckColours; 2],
@@ -2086,58 +1940,36 @@ fn track_row(
             false,
         ),
     ];
-    let dot = egui::pos2(rect.left() + STATUS_COLUMN / 2.0 + 1.0, rect.center().y);
-    ui.painter()
-        .circle_filled(dot, 3.5, kind_color(kind, tokens));
-    // D1 deck badges at the right end of the Filename cell.
-    let badge_w = 18.0;
-    let badges = on_decks.iter().filter(|b| **b).count() as f32;
     let mut x = rect.left();
-    for (column, ((text, color, strong), width)) in cells.into_iter().zip(widths).enumerate() {
-        let width = if column == 2 {
-            width - badges * (badge_w + 2.0)
-        } else {
-            width
-        };
-        if column == 3 {
-            let mut bx = x;
+    for column in columns.order.map(usize::from) {
+        if !columns.visible[column] { continue; }
+        let width = f32::from(columns.widths[column]);
+        let cell = egui::Rect::from_min_size(egui::pos2(x, rect.top()), egui::vec2(width, rect.height()));
+        x += width;
+        let painter = ui.painter().with_clip_rect(cell.intersect(ui.clip_rect()));
+        if column == 0 {
+            painter.circle_filled(egui::pos2(cell.left() + 12.0, cell.center().y), 3.5, kind_color(kind, tokens));
+            continue;
+        }
+        let (text, color, strong) = &cells[column];
+        let badge_count = if column == 2 { on_decks.iter().filter(|on| **on).count() } else { 0 };
+        let text_width = (width - 2.0 * CELL_INSET - badge_count as f32 * 20.0).max(0.0);
+        let rich = egui::RichText::new(text).color(*color);
+        let galley = egui::WidgetText::from(if *strong { rich.strong() } else { rich }).into_galley(ui, Some(egui::TextWrapMode::Truncate), text_width, egui::TextStyle::Body);
+        let left = if RIGHT_ALIGNED[column] { cell.right() - CELL_INSET - galley.size().x } else { cell.left() + CELL_INSET };
+        painter.galley(egui::pos2(left, cell.center().y - galley.size().y / 2.0), galley, *color);
+        if column == 2 {
+            let mut bx = cell.right() - CELL_INSET - badge_count as f32 * 20.0;
             for (d, on) in on_decks.into_iter().enumerate() {
                 if on {
-                    let r = egui::Rect::from_min_size(
-                        egui::pos2(bx, rect.center().y - 8.0),
-                        egui::vec2(badge_w, 16.0),
-                    );
-                    ui.painter().rect_filled(r, 3.0, deck_colours[d].outer);
-                    let g = ui.painter().layout_no_wrap(
-                        crate::decks::DECKS[d].into(),
-                        egui::FontId::proportional(11.0),
-                        deck_colours[d].chip_text,
-                    );
-                    ui.painter()
-                        .galley(r.center() - g.size() / 2.0, g, deck_colours[d].chip_text);
-                    bx += badge_w + 2.0;
+                    let r = egui::Rect::from_min_size(egui::pos2(bx, cell.center().y - 8.0), egui::vec2(18.0, 16.0));
+                    painter.rect_filled(r, 3.0, deck_colours[d].outer);
+                    let g = painter.layout_no_wrap(crate::decks::DECKS[d].into(), egui::FontId::proportional(11.0), deck_colours[d].chip_text);
+                    painter.galley(r.center() - g.size() / 2.0, g, deck_colours[d].chip_text);
+                    bx += 20.0;
                 }
             }
-            x += badges * (badge_w + 2.0);
         }
-        if !text.is_empty() {
-            let rich = egui::RichText::new(text).color(color);
-            let galley = egui::WidgetText::from(if strong { rich.strong() } else { rich })
-                .into_galley(
-                    ui,
-                    Some(egui::TextWrapMode::Truncate),
-                    width - 2.0 * CELL_INSET,
-                    egui::TextStyle::Body,
-                );
-            let left = if RIGHT_ALIGNED[column] {
-                x + width - CELL_INSET - galley.size().x
-            } else {
-                x + CELL_INSET
-            };
-            let pos = egui::pos2(left, rect.center().y - galley.size().y / 2.0);
-            ui.painter().galley(pos, galley, color);
-        }
-        x += width;
     }
     let decks: Vec<&str> = on_decks
         .iter()

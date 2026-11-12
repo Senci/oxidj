@@ -104,7 +104,8 @@ pub enum TempoRange {
     Sixteen,
 }
 
-/// Every user-configurable option except the theme (see the module docs).
+/// Stable column IDs, visibility and widths in logical points, independently
+/// persisted for scanned catalog and imported-playlist tables.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct TableColumns {
     pub order: [u8; 6],
@@ -117,7 +118,7 @@ impl Default for TableColumns {
         Self {
             order: [0, 1, 2, 3, 4, 5],
             visible: [true; 6],
-            widths: [36, 80, 210, 160, 90, 100],
+            widths: [90, 52, 220, 160, 90, 172],
         }
     }
 }
