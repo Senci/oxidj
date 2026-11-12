@@ -13,6 +13,48 @@ use std::path::{Path, PathBuf};
 type Frame = egui::FullOutput;
 
 #[test]
+fn master_limiter_toggle_persists_through_the_settings_ui() {
+    let root = temp_root("limiter-settings");
+    let mut h = Harness::new(root.join("catalog.sqlite"));
+    assert!(h.app.settings.limiter);
+    h.ctrl_comma();
+    h.click(h.layout().tabs.unwrap()[2].center());
+    h.click(h.layout().limiter.unwrap().center());
+    assert!(!h.app.settings.limiter);
+    let mut storage = MemoryStorage::default();
+    eframe::App::save(&mut h.app, &mut storage);
+    assert!(!Settings::load(Some(&storage)).limiter);
+    assert!(Settings::decode("").limiter);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn master_limiter_toggle_changes_rendered_audio() {
+    use oxidj_audio::{Command, TrackPcm};
+    use std::sync::Arc;
+    let root = temp_root("limiter-audio");
+    let mut h = Harness::new(root.join("catalog.sqlite"));
+    let samples = (0..96_000).flat_map(|i| {
+        let v = (i as f32 * 1_000.0 * std::f32::consts::TAU / 48_000.0).sin() * 0.8;
+        [v, v]
+    }).collect();
+    let track = Arc::new(TrackPcm::new(48_000, samples).unwrap());
+    for deck in 0..2 {
+        assert!(h.app.decks.engine.send(Command::Load { deck, id: deck as u64, track: track.clone() }));
+        assert!(h.app.decks.engine.send(Command::TogglePlay { deck }));
+    }
+    h.ctrl_comma();
+    h.click(h.layout().tabs.unwrap()[2].center());
+    h.click(h.layout().limiter.unwrap().center());
+    let off = h.app.decks.render(9_600);
+    h.click(h.layout().limiter.unwrap().center());
+    let on = h.app.decks.render(9_600);
+    let flat = |samples: &[f32]| samples[9_600..].iter().filter(|v| v.abs() >= 0.9999).count();
+    assert!(flat(&off) > flat(&on) * 2, "off={} on={}", flat(&off), flat(&on));
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn settings_tabs_show_only_the_selected_group() {
     let root = temp_root("tabs");
     let mut h = Harness::new(root.join("catalog.sqlite"));

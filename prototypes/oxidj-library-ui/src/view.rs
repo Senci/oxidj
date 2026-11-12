@@ -176,6 +176,7 @@ impl LibraryApp {
         self.decks.range = crate::decks::tempo_range(self.settings.tempo_range);
         self.decks.crossfader_on = self.settings.crossfader;
         self.decks.curve = self.settings.xfader_curve;
+        self.decks.set_limiter(self.settings.limiter);
         self.decks
             .flush(self.show_decks && self.settings.sections.mixer);
     }
