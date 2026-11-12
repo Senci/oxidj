@@ -150,6 +150,11 @@ pub(crate) struct LibraryApp {
     pub(crate) catalog_remove_pending:
         Option<(oxidj_library::RootPlaylistGuard, Vec<usize>, usize, usize)>,
     pub(crate) selected_imported_guard: Option<oxidj_library::ImportedTrackGuard>,
+    pub(crate) catalog_append_pending: Option<(
+        usize,
+        oxidj_library::ImportedTrackGuard,
+        Option<(usize, oxidj_library::RootPlaylistGuard)>,
+    )>,
     pub(crate) catalog_create_pending: Option<(usize, oxidj_library::ImportedTrackGuard)>,
     pub(crate) catalog_create_name: String,
     pub(crate) imported_member: Option<usize>,
@@ -350,6 +355,7 @@ impl LibraryApp {
             catalog_rename_name: String::new(),
             catalog_remove_pending: None,
             selected_imported_guard: None,
+            catalog_append_pending: None,
             catalog_create_pending: None,
             catalog_create_name: String::new(),
             imported_member: None,

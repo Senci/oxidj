@@ -16,7 +16,7 @@ from urllib.parse import quote
 from decode_pdb import build_baseline, parse_pdb
 
 
-def expected(baseline, step, remove_member=None, create_playlist=None):
+def expected(baseline, step, remove_member=None, create_playlist=None, append_member=None):
     tracks = []
     children = []
     for t in baseline["tracks"]:
@@ -63,6 +63,12 @@ def expected(baseline, step, remove_member=None, create_playlist=None):
         assert index >= 0 and members[index] == track_id, "removal expectation differs from PDB"
         del members[index]
 
+    if append_member is not None:
+        assert step == 0 and remove_member is None and create_playlist is None
+        playlist_id, track_id = append_member
+        assert int(track_id) in {t["id"] for t in baseline["tracks"]}
+        by_id[playlist_id]["member_track_ids"].append(int(track_id))
+
     nodes = baseline["folders"] + playlists
 
     def folder(parent, name):
@@ -85,13 +91,13 @@ def expected(baseline, step, remove_member=None, create_playlist=None):
     return tracks, children, (root_attrs, root_children)
 
 
-def verify(pdb, xml, step, remove_member=None, create_playlist=None):
+def verify(pdb, xml, step, remove_member=None, create_playlist=None, append_member=None):
     baseline = build_baseline(parse_pdb(pdb.read_bytes()), with_titles=True)
     assert baseline["counts"]["tracks"] == 1330, "baseline tracks"
     assert baseline["counts"]["playlists"] == 20, "baseline playlists"
     assert baseline["counts"]["memberships"] == 901, "baseline memberships"
     assert baseline["unresolved_fields"] == 0, "baseline unresolved"
-    want_tracks, want_children, want_tree = expected(baseline, step, remove_member, create_playlist)
+    want_tracks, want_children, want_tree = expected(baseline, step, remove_member, create_playlist, append_member)
     # Only test-generated synthetic CLI exports are parsed; no untrusted XML intake.
     root = ET.parse(xml).getroot()
     collection = root.find("COLLECTION")
@@ -121,9 +127,10 @@ def main():
                         metavar=("PLAYLIST_ID", "INDEX", "TRACK_ID"),
                         help="one independently specified occurrence removed from the PDB baseline")
     parser.add_argument("--create-playlist", nargs=2, metavar=("NAME", "TRACK_ID"))
+    parser.add_argument("--append-member", type=int, nargs=2, metavar=("PLAYLIST_ID", "TRACK_ID"))
     args = parser.parse_args()
     try:
-        verify(args.pdb, args.xml, args.step, args.remove_member, args.create_playlist)
+        verify(args.pdb, args.xml, args.step, args.remove_member, args.create_playlist, args.append_member)
     except (AssertionError, ValueError, OSError, ET.ParseError) as error:
         print(f"M7 mismatch: {error}", file=sys.stderr)
         return 1
