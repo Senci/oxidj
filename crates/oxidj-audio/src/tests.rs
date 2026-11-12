@@ -41,6 +41,34 @@ fn automatic_output_retries_failure_but_explicit_never_does() {
     }
 }
 
+#[cfg(all(target_os = "linux", feature = "jack"))]
+#[test]
+fn automatic_output_preserves_both_errors_and_never_retries_success() {
+    let mut calls = Vec::new();
+    let result: Result<(), _> = try_output(&OutputConfig::default(), |preferred| {
+        calls.push(preferred);
+        Err(if preferred {
+            "jack failed"
+        } else {
+            "default failed"
+        }
+        .into())
+    });
+    assert_eq!(calls, [true, false]);
+    assert_eq!(
+        result.unwrap_err(),
+        "jack failed; default output also failed: default failed"
+    );
+
+    let mut calls = 0;
+    let result = try_output(&OutputConfig::default(), |_| {
+        calls += 1;
+        Ok("jack")
+    });
+    assert_eq!(result.unwrap(), "jack");
+    assert_eq!(calls, 1);
+}
+
 /// A track whose left sample at frame `i` is `i` (scaled) and right is `-i`,
 /// so every output sample names the source frame it came from.
 fn ramp(frames: usize, rate: u32) -> Arc<TrackPcm> {
