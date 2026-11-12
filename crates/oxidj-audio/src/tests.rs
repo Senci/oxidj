@@ -5,6 +5,32 @@ use super::*;
 
 const RATE: u32 = 48_000;
 
+#[test]
+fn failed_reopen_from_silent_preserves_renderer_and_queued_commands() {
+    let mut engine = Engine::silent("test");
+    let shared = engine.shared.clone();
+    assert!(engine.send(Command::Load {
+        deck: 0,
+        id: 91,
+        track: ramp(100_000, RATE),
+    }));
+    assert!(engine.send(Command::Seek {
+        deck: 0,
+        frame: 1234.0
+    }));
+    let sent = engine.sent;
+    engine.reopen(OutputConfig {
+        host: Some("A13 deliberately unavailable host".into()),
+        ..Default::default()
+    });
+    assert!(
+        Arc::ptr_eq(&engine.shared, &shared),
+        "failed open replaced Shared and its renderer/command ring"
+    );
+    assert_eq!(engine.sent, sent);
+    assert_eq!(engine.output(), OutputKind::Silent);
+}
+
 #[cfg(all(target_os = "linux", feature = "jack"))]
 #[test]
 fn automatic_output_retries_failure_but_explicit_never_does() {

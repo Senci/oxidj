@@ -49,7 +49,8 @@ impl fmt::Display for OutputKind {
 
 pub(crate) enum Output {
     Device {
-        _stream: cpal::Stream,
+        stream: Option<Box<dyn DeviceStream>>,
+        returned: rtrb::Consumer<Renderer>,
         kind: OutputKind,
     },
     Silent {
@@ -67,6 +68,19 @@ impl Output {
         };
         stop.store(true, Ordering::Release);
         thread.take()?.join().ok()
+    }
+
+    /// Close first, then reclaim. In particular, the callback destructor
+    /// returns even a renderer that has not seen its first device callback.
+    pub(crate) fn reclaim(&mut self) -> Option<Renderer> {
+        if let Self::Device {
+            stream, returned, ..
+        } = self
+        {
+            drop(stream.take());
+            return returned.pop().ok();
+        }
+        self.stop_silent()
     }
 
     pub(crate) fn kind(&self) -> OutputKind {
@@ -106,7 +120,195 @@ impl Output {
 
 impl Drop for Output {
     fn drop(&mut self) {
-        drop(self.stop_silent());
+        drop(self.reclaim());
+    }
+}
+
+/// Only the control thread calls this interface. Tests inject stream startup
+/// failures here, below the real candidate/renderer handover implementation.
+pub(crate) trait DeviceStream {
+    fn play(&self) -> Result<(), String>;
+}
+
+impl DeviceStream for cpal::Stream {
+    fn play(&self) -> Result<(), String> {
+        StreamTrait::play(self).map_err(|e| format!("audio output did not start: {e}"))
+    }
+}
+
+#[derive(Default)]
+struct CallbackState {
+    armed: AtomicBool,
+    failed: AtomicBool,
+}
+
+/// A built AND started stream with no renderer yet. A host may invoke data or
+/// error callbacks from build/play; these cannot touch decks, queues or stats.
+pub(crate) struct Candidate {
+    stream: Box<dyn DeviceStream>,
+    incoming: rtrb::Producer<Renderer>,
+    returned: rtrb::Consumer<Renderer>,
+    state: Arc<CallbackState>,
+    shared: Arc<Shared>,
+    kind: OutputKind,
+}
+
+impl Candidate {
+    pub(crate) fn start(
+        kind: OutputKind,
+        shared: Arc<Shared>,
+        build: impl FnOnce(Callback, ErrorCallback) -> Result<Box<dyn DeviceStream>, String>,
+    ) -> Result<Self, String> {
+        let OutputKind::Device { rate, channels, .. } = kind else {
+            unreachable!("only device streams are candidates");
+        };
+        let (incoming, receive) = rtrb::RingBuffer::new(1);
+        let (send_back, returned) = rtrb::RingBuffer::new(1);
+        let state = Arc::new(CallbackState::default());
+        let channels = usize::from(channels).max(1);
+        let step = (SCRATCH / channels).max(1) * channels;
+        let callback = Callback {
+            renderer: None,
+            incoming: receive,
+            returned: send_back,
+            state: state.clone(),
+            shared: shared.clone(),
+            channels,
+            scratch: vec![0.0; step],
+            rate: u64::from(rate.max(1)),
+            origin: Instant::now(),
+        };
+        let error = ErrorCallback {
+            state: state.clone(),
+            shared: shared.clone(),
+        };
+        let stream = build(callback, error)?;
+        stream.play()?;
+        if state.failed.load(Ordering::Acquire) {
+            return Err("audio output failed during startup".into());
+        }
+        Ok(Self {
+            stream,
+            incoming,
+            returned,
+            state,
+            shared,
+            kind,
+        })
+    }
+
+    pub(crate) fn rate(&self) -> u32 {
+        match self.kind {
+            OutputKind::Device { rate, .. } => rate,
+            _ => unreachable!(),
+        }
+    }
+
+    /// Infallible commit: all backend operations already succeeded, the old
+    /// worker has joined, and the rate-dependent DSP was prepared off-thread.
+    pub(crate) fn arm(mut self, renderer: Renderer) -> Output {
+        self.incoming
+            .push(renderer)
+            .unwrap_or_else(|_| unreachable!("one renderer per candidate"));
+        self.state.armed.store(true, Ordering::Release);
+        // Catch a fatal error racing the final startup check, without allowing
+        // speculative candidate callbacks to mark the silent renderer dead.
+        if self.state.failed.load(Ordering::Acquire) {
+            self.shared.stats.dead.store(true, Ordering::Release);
+        }
+        Output::Device {
+            stream: Some(self.stream),
+            returned: self.returned,
+            kind: self.kind,
+        }
+    }
+}
+
+pub(crate) struct Callback {
+    renderer: Option<Renderer>,
+    incoming: rtrb::Consumer<Renderer>,
+    returned: rtrb::Producer<Renderer>,
+    state: Arc<CallbackState>,
+    shared: Arc<Shared>,
+    channels: usize,
+    scratch: Vec<f32>,
+    rate: u64,
+    origin: Instant,
+}
+
+impl Callback {
+    pub(crate) fn render<T: cpal::SizedSample + cpal::FromSample<f32>>(
+        &mut self,
+        out: &mut [T],
+        latency: Duration,
+    ) {
+        if self.state.armed.load(Ordering::Acquire) && self.renderer.is_none() {
+            self.renderer = self.incoming.pop().ok();
+        }
+        let Some(renderer) = self.renderer.as_mut() else {
+            out.fill(T::from_sample_(0.0));
+            return;
+        };
+        let frames = out.len() / self.channels;
+        let began = record(&self.shared.stats, frames, self.origin);
+        for chunk in out.chunks_mut(self.scratch.len()) {
+            let buffer = &mut self.scratch[..chunk.len()];
+            renderer.render(buffer, self.channels);
+            for (o, s) in chunk.iter_mut().zip(buffer.iter()) {
+                *o = T::from_sample_(*s);
+            }
+        }
+        finish(
+            &self.shared.stats,
+            frames,
+            self.rate,
+            self.origin,
+            began,
+            latency,
+        );
+    }
+}
+
+impl Drop for Callback {
+    fn drop(&mut self) {
+        // No allocation or lock, including when destruction precedes the very
+        // first callback. The control side outlives stream destruction.
+        if let Some(renderer) = self.renderer.take().or_else(|| self.incoming.pop().ok()) {
+            self.returned
+                .push(renderer)
+                .unwrap_or_else(|_| unreachable!("return slot is empty"));
+        }
+    }
+}
+
+pub(crate) struct ErrorCallback {
+    state: Arc<CallbackState>,
+    shared: Arc<Shared>,
+}
+
+impl ErrorCallback {
+    pub(crate) fn report(&self, kind: cpal::ErrorKind) {
+        let fatal = matches!(
+            kind,
+            cpal::ErrorKind::DeviceNotAvailable
+                | cpal::ErrorKind::HostUnavailable
+                | cpal::ErrorKind::StreamInvalidated
+        );
+        if fatal {
+            self.state.failed.store(true, Ordering::Release);
+        }
+        if !self.state.armed.load(Ordering::Acquire) {
+            return;
+        }
+        let stats = &self.shared.stats;
+        if kind == cpal::ErrorKind::Xrun {
+            stats.xruns.fetch_add(1, Ordering::Relaxed);
+        } else {
+            stats.errors.fetch_add(1, Ordering::Relaxed);
+            if fatal {
+                stats.dead.store(true, Ordering::Release);
+            }
+        }
     }
 }
 
@@ -448,29 +650,34 @@ impl Device {
     }
 
     pub(crate) fn play(self, renderer: Renderer, shared: Arc<Shared>) -> Result<Output, String> {
+        self.prepare(shared)
+            .map(|candidate| candidate.arm(renderer))
+    }
+
+    pub(crate) fn prepare(self, shared: Arc<Shared>) -> Result<Candidate, String> {
         use cpal::SampleFormat as F;
-        let stream = match self.config.sample_format() {
-            F::F32 => self.build::<f32>(renderer, shared),
-            F::F64 => self.build::<f64>(renderer, shared),
-            F::I16 => self.build::<i16>(renderer, shared),
-            F::I32 => self.build::<i32>(renderer, shared),
-            F::U16 => self.build::<u16>(renderer, shared),
-            other => Err(format!("unsupported audio sample format {other}")),
-        }?;
-        stream
-            .play()
-            .map_err(|e| format!("audio output did not start: {e}"))?;
-        Ok(Output::Device {
-            _stream: stream,
-            kind: OutputKind::Device {
-                name: self.name,
-                rate: self.rate,
-                channels: self.config.channels(),
-            },
+        let kind = OutputKind::Device {
+            name: self.name.clone(),
+            rate: self.rate,
+            channels: self.config.channels(),
+        };
+        Candidate::start(kind, shared, |callback, error| {
+            match self.config.sample_format() {
+                F::F32 => self.build::<f32>(callback, error),
+                F::F64 => self.build::<f64>(callback, error),
+                F::I16 => self.build::<i16>(callback, error),
+                F::I32 => self.build::<i32>(callback, error),
+                F::U16 => self.build::<u16>(callback, error),
+                other => Err(format!("unsupported audio sample format {other}")),
+            }
         })
     }
 
-    fn build<T>(&self, mut renderer: Renderer, shared: Arc<Shared>) -> Result<cpal::Stream, String>
+    fn build<T>(
+        &self,
+        mut callback: Callback,
+        error: ErrorCallback,
+    ) -> Result<Box<dyn DeviceStream>, String>
     where
         T: cpal::SizedSample + cpal::FromSample<f32>,
     {
@@ -478,48 +685,13 @@ impl Device {
         if let Some(n) = self.buffer_frames {
             config.buffer_size = cpal::BufferSize::Fixed(n);
         }
-        let channels = usize::from(config.channels).max(1);
-        let step = (SCRATCH / channels).max(1) * channels;
-        // Allocated here, before the stream exists; the callback only reuses it.
-        let mut scratch = vec![0.0_f32; step];
-        let origin = Instant::now();
-        let rate = u64::from(self.rate.max(1));
-        let stats = shared.clone();
         let data = move |out: &mut [T], info: &cpal::OutputCallbackInfo| {
-            let frames = out.len() / channels;
-            let began = record(&stats.stats, frames, origin);
-            for chunk in out.chunks_mut(step) {
-                let Some(buffer) = scratch.get_mut(..chunk.len()) else {
-                    return;
-                };
-                renderer.render(buffer, channels);
-                for (o, s) in chunk.iter_mut().zip(buffer.iter()) {
-                    *o = T::from_sample_(*s);
-                }
-            }
             let stamp = info.timestamp();
-            let latency = stamp.playback.duration_since(stamp.callback);
-            finish(&stats.stats, frames, rate, origin, began, latency);
-        };
-        let error = move |err: cpal::Error| {
-            let stats = &shared.stats;
-            match err.kind() {
-                cpal::ErrorKind::Xrun => {
-                    stats.xruns.fetch_add(1, Ordering::Relaxed);
-                }
-                cpal::ErrorKind::DeviceNotAvailable
-                | cpal::ErrorKind::HostUnavailable
-                | cpal::ErrorKind::StreamInvalidated => {
-                    stats.errors.fetch_add(1, Ordering::Relaxed);
-                    stats.dead.store(true, Ordering::Release);
-                }
-                _ => {
-                    stats.errors.fetch_add(1, Ordering::Relaxed);
-                }
-            }
+            callback.render(out, stamp.playback.duration_since(stamp.callback));
         };
         self.device
-            .build_output_stream::<T, _, _>(config, data, error, None)
+            .build_output_stream::<T, _, _>(config, data, move |err| error.report(err.kind()), None)
+            .map(|stream| Box::new(stream) as Box<dyn DeviceStream>)
             .map_err(|e| format!("audio output could not open: {e}"))
     }
 }

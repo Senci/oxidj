@@ -1149,6 +1149,43 @@ impl Limiter {
 }
 
 impl Renderer {
+    /// Rebuild only rate-dependent DSP on the control thread. Decks (including
+    /// preview/loop/cue state), the command consumer and Shared remain owned by
+    /// this renderer. At the same rate even DSP history is left untouched.
+    fn retarget(&mut self, rate: u32) {
+        if self.device_rate() == rate {
+            return;
+        }
+        let old_rate = self.device_rate;
+        let engines = || -> [Box<dyn TimeStretch>; DECKS] {
+            std::array::from_fn(|_| Box::new(Signalsmith::new(rate)) as Box<dyn TimeStretch>)
+        };
+        self.stretch = engines();
+        self.spare = engines();
+        let input_frames = self
+            .stretch
+            .iter()
+            .map(|s| s.preroll_frames())
+            .max()
+            .unwrap_or(0)
+            .max(CHUNK * MAX_KEYLOCK_SPEED as usize + 1);
+        self.input.resize(input_frames * 2, 0.0);
+        self.mixer = mixer::Mixer::new(rate, self.mixer.params);
+        let lookahead_ms = self.limiter.delay.len() as f64 / 2.0 / old_rate * 1000.0;
+        self.limiter = Limiter::new(f64::from(rate), self.limiter.on, lookahead_ms);
+        self.device_rate = f64::from(rate);
+        for deck in &mut self.decks {
+            // Reprime new stretch engines at the audible source position, not
+            // at the old engine's read-ahead (which used the previous rate).
+            deck.primed = false;
+            deck.swap = false;
+            deck.key_tail = None;
+            deck.tail = None;
+            deck.declick = (f64::from(deck.declick) / old_rate * f64::from(rate)) as u32;
+            deck.fade_in = if deck.playing { deck.declick } else { 0 };
+        }
+    }
+
     /// Render `out` (interleaved, `channels` per frame) at the device rate:
     /// drain queued commands, mix both decks at their gains (unity = 1.0)
     /// and publish the deck snapshots. Channels 1–2 are main L/R, 3–4 are
@@ -1498,6 +1535,21 @@ fn try_output<T>(
     }
 }
 
+fn open_candidate(config: &OutputConfig, shared: Arc<Shared>) -> Result<output::Candidate, String> {
+    output::select_host(config).and_then(|(host, fallback)| {
+        try_output(config, fallback, |preferred| {
+            let default;
+            let host = if preferred {
+                &host
+            } else {
+                default = cpal::default_host();
+                &default
+            };
+            output::Device::open_on(config, host)?.prepare(shared.clone())
+        })
+    })
+}
+
 impl Engine {
     /// Open the output chosen by the environment ([`OutputConfig::from_env`];
     /// nothing set = the default device); fall back to the silent output
@@ -1626,6 +1678,44 @@ impl Engine {
     /// closed first: exclusive hosts (ASIO, ALSA `hw:`) refuse a second
     /// stream on the same device.
     fn rebuild(&mut self, silent: Option<String>) {
+        self.rebuild_with(silent, open_candidate);
+    }
+
+    fn rebuild_with(
+        &mut self,
+        silent: Option<String>,
+        mut open: impl FnMut(&OutputConfig, Arc<Shared>) -> Result<output::Candidate, String>,
+    ) {
+        // Explicit reopen closes first (exclusive hardware requires it).
+        // Device loss also reuses the actual renderer, not a stale snapshot.
+        if let Some(mut renderer) = self.output.reclaim() {
+            self.output = output::Output::Manual;
+            self.shared.stats.dead.store(false, Ordering::Release);
+            self.shared.stats.last_ns.store(0, Ordering::Relaxed);
+            let wanted = silent.is_none();
+            let attempt = match silent {
+                Some(reason) => Err(reason),
+                None => open(&self.config, self.shared.clone()),
+            };
+            match attempt {
+                Ok(candidate) => {
+                    self.device_rate = candidate.rate();
+                    renderer.retarget(self.device_rate);
+                    renderer.set_routing(self.config.routing);
+                    self.output = candidate.arm(renderer);
+                    self.error = None;
+                    self.retry_at = None;
+                }
+                Err(reason) => {
+                    renderer.retarget(output::SILENT_RATE);
+                    self.device_rate = output::SILENT_RATE;
+                    self.output = output::Output::silent(renderer);
+                    self.error = Some(reason);
+                    self.retry_at = wanted.then(|| Instant::now() + RETRY);
+                }
+            }
+            return;
+        }
         let memory = self.memory.clone();
         let decks: [DeckState; DECKS] = std::array::from_fn(|d| {
             let snap = self.deck(d);
@@ -1795,30 +1885,43 @@ impl Engine {
     /// and while a wanted device is missing, try it again every two seconds
     /// and move the decks back onto it when it opens.
     pub fn poll(&mut self) {
+        self.poll_with(open_candidate);
+    }
+
+    fn poll_with(
+        &mut self,
+        mut open: impl FnMut(&OutputConfig, Arc<Shared>) -> Result<output::Candidate, String>,
+    ) {
         self.retired.retain(|t| Arc::strong_count(t) > 1);
         if self.shared.stats.dead.load(Ordering::Acquire) {
             let was_device = matches!(self.output, output::Output::Device { .. });
             let reason = format!("audio device lost ({}); continuing silently", self.output());
-            self.rebuild(Some(reason));
+            self.rebuild_with(Some(reason), &mut open);
             // `rebuild(Some)` never schedules a retry; a lost real device
             // does (an engine that never had one stays silent).
             self.retry_at = was_device.then(|| Instant::now() + RETRY);
         } else if self.retry_at.is_some_and(|at| Instant::now() >= at) {
-            // Probe first so a still-missing device costs no deck handover.
-            match output::select_host(&self.config).and_then(|(host, fallback)| {
-                try_output(&self.config, fallback, |preferred| {
-                    let default;
-                    let host = if preferred {
-                        &host
+            // Build and start ONE unarmed stream while silent rendering keeps
+            // running. Config/build/play failure cannot disturb its ownership.
+            match open(&self.config, self.shared.clone()) {
+                Ok(candidate) => {
+                    if let Some(mut renderer) = self.output.reclaim() {
+                        self.device_rate = candidate.rate();
+                        renderer.retarget(self.device_rate);
+                        renderer.set_routing(self.config.routing);
+                        self.shared.stats.last_ns.store(0, Ordering::Relaxed);
+                        self.output = candidate.arm(renderer);
+                        self.error = None;
+                        self.retry_at = None;
                     } else {
-                        default = cpal::default_host();
-                        &default
-                    };
-                    output::Device::open_on(&self.config, host)
-                })
-            }) {
-                Ok(_) => self.rebuild(None),
-                Err(_) => self.retry_at = Some(Instant::now() + RETRY),
+                        self.error = Some("audio renderer could not be reclaimed".into());
+                        self.retry_at = Some(Instant::now() + RETRY);
+                    }
+                }
+                Err(reason) => {
+                    self.error = Some(reason);
+                    self.retry_at = Some(Instant::now() + RETRY);
+                }
             }
         }
     }
@@ -1829,3 +1932,6 @@ mod tests;
 
 #[cfg(test)]
 mod keylock_tests;
+
+#[cfg(test)]
+mod recovery_tests;
