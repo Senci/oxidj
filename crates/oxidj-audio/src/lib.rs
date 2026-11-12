@@ -230,6 +230,7 @@ struct Tail {
     track: Arc<TrackPcm>,
     pos: f64,
     speed: f64,
+    hold_end: bool,
     /// Output frames still to play.
     left: u32,
 }
@@ -359,6 +360,7 @@ impl DeckState {
         raw: bool,
         key: Option<KeyTail>,
         switched: bool,
+        hold_end: bool,
     ) {
         if self.declick == 0 {
             return;
@@ -381,6 +383,7 @@ impl DeckState {
                 track,
                 pos,
                 speed: self.speed,
+                hold_end,
                 left: left.max(1),
             });
         } else if !early {
@@ -485,7 +488,12 @@ impl DeckState {
         };
         let g = tail.left as f32 / (self.declick as f32 + 1.0) * self.gain;
         let step = f64::from(tail.track.sample_rate) / device_rate * tail.speed;
-        let (l, r) = tail.track.at(tail.pos, resampler, Resampler::table(step));
+        let (l, r) = resampler.at_with_end_hold(
+            &tail.track.samples,
+            tail.pos,
+            Resampler::table(step),
+            tail.hold_end,
+        );
         tail.pos += step;
         tail.left = tail.left.saturating_sub(1);
         if tail.left == 0 {
@@ -514,7 +522,7 @@ impl DeckState {
         let (raw, key) = (!self.keylock, self.key_source());
         self.apply_command(command);
         self.declick = declick;
-        self.declick_after(before, old, raw, key, switched);
+        self.declick_after(before, old, raw, key, switched, false);
     }
 
     fn apply_command(&mut self, command: Command) {
@@ -850,7 +858,12 @@ impl DeckState {
             return (tl, tr);
         };
         let step = f64::from(track.sample_rate) / device_rate * self.speed;
-        let (l, r) = track.at(self.pos, resampler, Resampler::table(step));
+        let hold_end = self.declick > 0
+            && self
+                .loop_range
+                .is_some_and(|(start, end)| end > start && end == track.frames() as f64);
+        let (l, r) =
+            resampler.at_with_end_hold(&track.samples, self.pos, Resampler::table(step), hold_end);
         let frames = track.frames() as f64;
         let before = self.pos;
         self.pos += step;
@@ -871,7 +884,7 @@ impl DeckState {
         if wrapped && self.declick > 0 {
             // Crossfade the loop seam: what followed the loop end fades out
             // under the loop start fading in.
-            self.declick_after(Some(before + step), None, true, None, false);
+            self.declick_after(Some(before + step), None, true, None, false, hold_end);
         }
         (l * g + tl, r * g + tr)
     }
@@ -1262,7 +1275,7 @@ impl Renderer {
                     let (before, raw) = (state.sounding(), !state.keylock);
                     let key = state.key_source();
                     state.sync(speed, beat, anchor, phase);
-                    state.declick_after(before, None, raw, key, false);
+                    state.declick_after(before, None, raw, key, false, false);
                 }
             }
             let state = &mut self.decks[deck];

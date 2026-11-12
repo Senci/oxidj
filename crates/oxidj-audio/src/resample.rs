@@ -111,6 +111,11 @@ impl Resampler {
         if frac == 0.0 && table == 0 {
             // Full bandwidth on a stored frame: the frame itself, bit for bit.
             let at = i.saturating_mul(2);
+            let at = if hold && !samples.is_empty() {
+                at.min(samples.len().saturating_sub(2))
+            } else {
+                at
+            };
             return match (samples.get(at), samples.get(at.saturating_add(1))) {
                 (Some(l), Some(r)) => (*l, *r),
                 _ => (0.0, 0.0),
