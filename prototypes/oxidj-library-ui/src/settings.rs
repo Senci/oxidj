@@ -105,7 +105,7 @@ pub enum TempoRange {
 }
 
 /// Every user-configurable option except the theme (see the module docs).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Settings {
     pub waveform_style: Style,
     /// Anti-aliased waveform edges.
@@ -146,6 +146,10 @@ pub struct Settings {
     pub arrangement: DeckArrangement,
     /// Enable the master peak limiter.
     pub limiter: bool,
+    /// None inherits the environment; Some(None) requests the host default.
+    pub audio_buffer: Option<Option<u32>>,
+    /// None inherits the environment; Some selects an exact host and device ID.
+    pub audio_device: Option<(String, String)>,
 }
 
 /// Persisted Settings window rectangle (whole points).
@@ -369,6 +373,8 @@ impl Default for Settings {
             mirror_b: false,
             arrangement: DeckArrangement::B,
             limiter: true,
+            audio_buffer: None,
+            audio_device: None,
         }
     }
 }
@@ -462,6 +468,8 @@ impl Settings {
             b(self.mirror_b),
             name_of(&ARRANGEMENTS, self.arrangement),
         ) + &sections + &format!(";limiter={}", b(self.limiter))
+            + &self.audio_device.as_ref().map(|(host, id)| format!(";audio_device={}:{}", hex_encode(host), hex_encode(id))).unwrap_or_default()
+            + &self.audio_buffer.map(|buffer| format!(";audio_buffer={}", buffer.map_or_else(|| "host".to_owned(), |n| n.to_string()))).unwrap_or_default()
     }
 
     /// Never fails: unknown names are ignored and an invalid value keeps
@@ -483,6 +491,14 @@ impl Settings {
                 }
                 "mirror_b" => s.mirror_b = parse_bool(value).unwrap_or(s.mirror_b),
                 "limiter" => s.limiter = parse_bool(value).unwrap_or(s.limiter),
+                "audio_device" => {
+                    s.audio_device = value.split_once(':').and_then(|(h, d)| Some((hex_decode(h)?, hex_decode(d)?))).filter(|(h, d)| !h.is_empty() && !d.is_empty());
+                }
+                "audio_buffer" => {
+                    s.audio_buffer = if value == "host" { Some(None) } else {
+                        value.parse::<u32>().ok().filter(|n| (64..=2048).contains(n)).map(Some)
+                    };
+                }
                 "mixer_ab" => s.mixer.ab_labels = parse_bool(value).unwrap_or(s.mixer.ab_labels),
                 "mixer_input" => s.mixer.inputs = parse_bool(value).unwrap_or(s.mixer.inputs),
                 "mixer_outer" => {
@@ -542,13 +558,112 @@ impl Settings {
     }
 }
 
+fn hex_encode(value: &str) -> String {
+    use std::fmt::Write;
+    let mut result = String::new();
+    for byte in value.as_bytes() { write!(result, "{byte:02x}").unwrap(); }
+    result
+}
+
+fn hex_decode(value: &str) -> Option<String> {
+    if !value.len().is_multiple_of(2) || !value.is_ascii() { return None; }
+    let bytes = value.as_bytes().chunks_exact(2).map(|pair| {
+        u8::from_str_radix(std::str::from_utf8(pair).ok()?, 16).ok()
+    }).collect::<Option<Vec<_>>>()?;
+    String::from_utf8(bytes).ok()
+}
+
+impl Settings {
+    pub(crate) fn output_config(&self, mut config: oxidj_audio::OutputConfig) -> oxidj_audio::OutputConfig {
+        if let Some((host, device)) = &self.audio_device {
+            if config.implicit_device_rate { config.sample_rate = None; }
+            if config.implicit_device_channels { config.channels = None; }
+            config.implicit_device_rate = false;
+            config.implicit_device_channels = false;
+            config.host = Some(host.clone());
+            config.device = Some(device.clone());
+            config.device_id_only = true;
+        }
+        if let Some(buffer) = self.audio_buffer { config.buffer_frames = buffer; }
+        config
+    }
+}
+
+type OutputScanResult = Result<Vec<oxidj_audio::OutputChoice>, String>;
+
+/// One bounded, detached discovery job. Neither polling nor dropping this
+/// state waits for the host; a hung backend must not freeze Settings/close.
+pub(crate) struct OutputScan {
+    pub(crate) provider: std::sync::Arc<dyn Fn() -> OutputScanResult + Send + Sync>,
+    pending: Option<std::sync::mpsc::Receiver<OutputScanResult>>,
+    requested: bool,
+    error: Option<String>,
+}
+
+impl Default for OutputScan {
+    fn default() -> Self {
+        Self {
+            provider: std::sync::Arc::new(oxidj_audio::list_output_choices),
+            pending: None,
+            requested: false,
+            error: None,
+        }
+    }
+}
+
+impl std::fmt::Debug for OutputScan {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("OutputScan")
+            .field("pending", &self.pending.is_some())
+            .field("requested", &self.requested)
+            .field("error", &self.error)
+            .finish_non_exhaustive()
+    }
+}
+
+impl OutputScan {
+    pub(crate) fn is_pending(&self) -> bool { self.pending.is_some() }
+
+    fn request(&mut self, ctx: &egui::Context) {
+        if self.is_pending() { return; }
+        let (send, receive) = std::sync::mpsc::channel();
+        let provider = self.provider.clone();
+        let ctx = ctx.clone();
+        self.requested = true;
+        self.error = None;
+        match std::thread::Builder::new().name("oxidj-output-discovery".into()).spawn(move || {
+            let _ = send.send(provider());
+            ctx.request_repaint();
+        }) {
+            Ok(_) => self.pending = Some(receive),
+            Err(error) => self.error = Some(format!("Cannot start output discovery: {error}")),
+        }
+    }
+
+    fn poll(&mut self, outputs: &mut Vec<oxidj_audio::OutputChoice>) {
+        let Some(receive) = &self.pending else { return; };
+        let result = match receive.try_recv() {
+            Ok(result) => result,
+            Err(std::sync::mpsc::TryRecvError::Empty) => return,
+            Err(std::sync::mpsc::TryRecvError::Disconnected) => Err("Output discovery worker stopped without a result".into()),
+        };
+        self.pending = None;
+        match result {
+            Ok(found) => { *outputs = found; self.error = None; }
+            Err(error) => { outputs.clear(); self.error = Some(error); }
+        }
+    }
+}
+
 /// Window state that is not a setting (focus return, test rects).
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Debug, Default)]
 pub(crate) struct SettingsUi {
     pub(crate) open: bool,
     pub(crate) tab: usize,
     /// Last Settings window rectangle (persisted separately from Settings).
     pub(crate) geom: Option<WindowGeom>,
+    pub(crate) outputs: Vec<oxidj_audio::OutputChoice>,
+    pub(crate) output_scan: OutputScan,
     /// Widget focused before the window opened; refocused on close.
     return_focus: Option<egui::Id>,
     /// Focus the first control on the frame after opening.
@@ -560,7 +675,7 @@ pub(crate) struct SettingsUi {
 #[derive(Clone, Debug, Default, Copy)]
 pub(crate) struct SettingsLayout {
     pub(crate) window: Option<egui::Rect>,
-    pub(crate) tabs: Option<[egui::Rect; 4]>,
+    pub(crate) tabs: Option<[egui::Rect; 5]>,
     pub(crate) limiter: Option<egui::Rect>,
     /// Theme cells in ThemeMode::ALL order.
     pub(crate) theme: Option<[egui::Rect; 12]>,
@@ -607,6 +722,7 @@ impl LibraryApp {
         if open && !state.open {
             state.return_focus = ctx.memory(|m| m.focused());
             state.focus_first = true;
+
         } else if !open && state.open {
             let back = state.return_focus.take();
             ctx.memory_mut(|m| match back {
@@ -628,6 +744,7 @@ impl LibraryApp {
     }
 
     pub(crate) fn settings_window(&mut self, ctx: &egui::Context, tokens: theme::ColorTokens) {
+        self.settings_ui.output_scan.poll(&mut self.settings_ui.outputs);
         self.settings_ui.layout = SettingsLayout::default();
         if !self.settings_ui.open {
             return;
@@ -702,9 +819,9 @@ impl LibraryApp {
         tokens: theme::ColorTokens,
         layout: &mut SettingsLayout,
     ) {
-        let mut tabs = [egui::Rect::NOTHING; 4];
+        let mut tabs = [egui::Rect::NOTHING; 5];
         ui.horizontal_wrapped(|ui| {
-            for (i, name) in ["Appearance", "Layout", "Waveform", "Keyboard"]
+            for (i, name) in ["Appearance", "Layout", "Waveform", "Keyboard", "Audio"]
                 .iter()
                 .enumerate()
             {
@@ -781,6 +898,59 @@ impl LibraryApp {
             let responses = segmented_row(ui, tokens, "Default zoom", &labels, &mut index);
             s.zoom_bars = ZOOM_BARS[index];
             layout.zoom = Some(rects(&responses));
+        }
+
+        if self.settings_ui.tab == 4 {
+            SectionHeading { title: "Audio" }.show(ui, tokens);
+            let s = &mut self.settings;
+            ui.label("Output device (takes effect after restart; list may include input-only devices)");
+            let scan = &mut self.settings_ui.output_scan;
+            if ui.add_enabled(!scan.is_pending(), egui::Button::new("Refresh output devices")).clicked() {
+                scan.request(ui.ctx());
+            }
+            if scan.is_pending() {
+                ui.label("Scanning output devices…");
+                ui.ctx().request_repaint_after(std::time::Duration::from_millis(50));
+            } else if let Some(error) = &scan.error {
+                ui.label(format!("Output discovery failed: {error}"));
+            } else if !scan.requested && self.settings_ui.outputs.is_empty() {
+                ui.label("Output devices not yet enumerated. Refresh to list devices.");
+            } else if self.settings_ui.outputs.is_empty() {
+                ui.label("No output devices found.");
+            }
+            if ui.selectable_label(s.audio_device.is_none(), "Environment / automatic").clicked() {
+                s.audio_device = None;
+            }
+
+            if let Some((host, id)) = &s.audio_device {
+                if !self.settings_ui.outputs.iter().any(|o| &o.host == host && &o.id == id) {
+                    ui.label(format!("Saved output not found in last enumeration (which may have failed): {host} / {id}"));
+                }
+            }
+            for output in &self.settings_ui.outputs {
+                if output.id.is_empty() { continue; }
+                let selected = s.audio_device.as_ref().is_some_and(|(host, id)| host == &output.host && id == &output.id);
+                if ui.selectable_label(selected, format!("{} — {} ({})", output.host, output.device, output.id)).clicked() {
+                    s.audio_device = Some((output.host.clone(), output.id.clone()));
+                }
+            }
+            ui.label("Output buffer (takes effect after restart)");
+            ui.horizontal_wrapped(|ui| {
+                for (label, choice) in [
+                    ("Environment", None),
+                    ("Host default", Some(None)),
+                    ("64 frames", Some(Some(64))),
+                    ("128 frames", Some(Some(128))),
+                    ("256 frames", Some(Some(256))),
+                    ("512 frames", Some(Some(512))),
+                    ("1024 frames", Some(Some(1024))),
+                    ("2048 frames", Some(Some(2048))),
+                ] {
+                    if ui.selectable_label(s.audio_buffer == choice, label).clicked() {
+                        s.audio_buffer = choice;
+                    }
+                }
+            });
         }
 
         if self.settings_ui.tab == 1 {
@@ -945,6 +1115,21 @@ mod tests {
     }
 
     #[test]
+    fn audio_device_choice_round_trips_arbitrary_strings() {
+        let raw = "audio_device=4a3b3d:69643b3d";
+        assert!(Settings::decode(raw).encode().contains(raw));
+    }
+
+    #[test]
+    fn audio_buffer_choice_round_trips_without_disturbing_old_settings() {
+        for raw in ["audio_buffer=host", "audio_buffer=256", "audio_buffer=2048"] {
+            let saved = Settings::decode(raw).encode();
+            assert!(saved.split(';').any(|entry| entry == raw), "lost {raw}: {saved}");
+        }
+        assert!(!Settings::decode("").encode().contains("audio_buffer="));
+    }
+
+    #[test]
     fn every_field_round_trips_through_storage() {
         let edited = Settings {
             waveform_style: Style::Rgb,
@@ -979,6 +1164,8 @@ mod tests {
             mirror_b: true,
             arrangement: DeckArrangement::C,
             limiter: false,
+            audio_buffer: None,
+            audio_device: None,
         };
         let mut storage = MemoryStorage::default();
         edited.save(&mut storage);

@@ -582,6 +582,7 @@ fn output_config_reads_the_environment_keys() {
             buffer_frames: Some(128),
             channels: Some(2),
             routing: Routing::default(),
+            ..OutputConfig::default()
         }
     );
     // A named device alone keeps the cue contract: 4 channels at 48 kHz.

@@ -53,7 +53,9 @@ pub use mixer::{
     Assign, ChannelParams, Curve, EQ_KILL_DB, EQ_MAX_DB, FILTER_DEADZONE, LOW_MID_HZ, MID_HIGH_HZ,
     MixerParams, TRIM_DB, crossfader_gains, db_to_gain, eq_gain, trim_gain,
 };
-pub use output::{OutputConfig, OutputInfo, OutputKind, Routing, list_outputs};
+pub use output::{
+    OutputChoice, OutputConfig, OutputInfo, OutputKind, Routing, list_output_choices, list_outputs,
+};
 use resample::Resampler;
 pub use stretch::{Signalsmith, TimeStretch};
 
