@@ -8,7 +8,7 @@ use cpal::SupportedBufferSize;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use std::fmt;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
@@ -50,7 +50,9 @@ impl fmt::Display for OutputKind {
 pub(crate) enum Output {
     Device {
         stream: Option<Box<dyn DeviceStream>>,
-        returned: rtrb::Consumer<Renderer>,
+        returned: rtrb::Consumer<CallbackResources>,
+        // Keep callback metadata alive until stream destruction on this thread.
+        _state: Arc<CallbackState>,
         kind: OutputKind,
     },
     Silent {
@@ -78,7 +80,11 @@ impl Output {
         } = self
         {
             drop(stream.take());
-            return returned.pop().ok();
+            let mut resources = returned.pop().ok()?;
+            return resources
+                .renderer
+                .take()
+                .or_else(|| resources.incoming.pop().ok());
         }
         self.stop_silent()
     }
@@ -136,10 +142,25 @@ impl DeviceStream for cpal::Stream {
     }
 }
 
+const ARMED: u8 = 1;
+const CLOSED: u8 = 2;
+
 #[derive(Default)]
-struct CallbackState {
-    armed: AtomicBool,
+pub(crate) struct CallbackState {
+    // A single RMW orders arm against independent callback destruction. The
+    // second participant observes the first and marks the live output dead.
+    lifecycle: AtomicU8,
     failed: AtomicBool,
+}
+
+/// Returned as a unit, including the receiving endpoint: teardown may happen
+/// BEFORE control publishes the renderer. Keeping that endpoint alive in the
+/// return ring lets control receive its own later publication when reclaiming.
+/// Scratch follows it so callback destruction never frees its allocation.
+pub(crate) struct CallbackResources {
+    renderer: Option<Renderer>,
+    incoming: rtrb::Consumer<Renderer>,
+    scratch: Vec<f32>,
 }
 
 /// A built AND started stream with no renderer yet. A host may invoke data or
@@ -147,10 +168,16 @@ struct CallbackState {
 pub(crate) struct Candidate {
     stream: Box<dyn DeviceStream>,
     incoming: rtrb::Producer<Renderer>,
-    returned: rtrb::Consumer<Renderer>,
+    returned: rtrb::Consumer<CallbackResources>,
     state: Arc<CallbackState>,
     shared: Arc<Shared>,
     kind: OutputKind,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum ArmPhase {
+    Published,
+    Armed,
 }
 
 impl Candidate {
@@ -168,13 +195,15 @@ impl Candidate {
         let channels = usize::from(channels).max(1);
         let step = (SCRATCH / channels).max(1) * channels;
         let callback = Callback {
-            renderer: None,
-            incoming: receive,
+            resources: Some(CallbackResources {
+                renderer: None,
+                incoming: receive,
+                scratch: vec![0.0; step],
+            }),
             returned: send_back,
             state: state.clone(),
             shared: shared.clone(),
             channels,
-            scratch: vec![0.0; step],
             rate: u64::from(rate.max(1)),
             origin: Instant::now(),
         };
@@ -206,32 +235,43 @@ impl Candidate {
 
     /// Infallible commit: all backend operations already succeeded, the old
     /// worker has joined, and the rate-dependent DSP was prepared off-thread.
-    pub(crate) fn arm(mut self, renderer: Renderer) -> Output {
+    pub(crate) fn arm(self, renderer: Renderer) -> Output {
+        self.arm_with(renderer, |_| {})
+    }
+
+    // The hook permits deterministic tests to destroy the backend callback
+    // on either side of the atomic arm/close handshake, during publication.
+    pub(super) fn arm_with(
+        mut self,
+        renderer: Renderer,
+        mut interleave: impl FnMut(ArmPhase),
+    ) -> Output {
         self.incoming
             .push(renderer)
             .unwrap_or_else(|_| unreachable!("one renderer per candidate"));
-        self.state.armed.store(true, Ordering::Release);
+        interleave(ArmPhase::Published);
+        let previous = self.state.lifecycle.fetch_or(ARMED, Ordering::AcqRel);
+        interleave(ArmPhase::Armed);
         // Catch a fatal error racing the final startup check, without allowing
         // speculative candidate callbacks to mark the silent renderer dead.
-        if self.state.failed.load(Ordering::Acquire) {
+        if previous & CLOSED != 0 || self.state.failed.load(Ordering::Acquire) {
             self.shared.stats.dead.store(true, Ordering::Release);
         }
         Output::Device {
             stream: Some(self.stream),
             returned: self.returned,
+            _state: self.state,
             kind: self.kind,
         }
     }
 }
 
 pub(crate) struct Callback {
-    renderer: Option<Renderer>,
-    incoming: rtrb::Consumer<Renderer>,
-    returned: rtrb::Producer<Renderer>,
+    resources: Option<CallbackResources>,
+    returned: rtrb::Producer<CallbackResources>,
     state: Arc<CallbackState>,
     shared: Arc<Shared>,
     channels: usize,
-    scratch: Vec<f32>,
     rate: u64,
     origin: Instant,
 }
@@ -242,17 +282,19 @@ impl Callback {
         out: &mut [T],
         latency: Duration,
     ) {
-        if self.state.armed.load(Ordering::Acquire) && self.renderer.is_none() {
-            self.renderer = self.incoming.pop().ok();
+        let resources = self.resources.as_mut().expect("callback is alive");
+        if self.state.lifecycle.load(Ordering::Acquire) & ARMED != 0 && resources.renderer.is_none()
+        {
+            resources.renderer = resources.incoming.pop().ok();
         }
-        let Some(renderer) = self.renderer.as_mut() else {
+        let Some(renderer) = resources.renderer.as_mut() else {
             out.fill(T::from_sample_(0.0));
             return;
         };
         let frames = out.len() / self.channels;
         let began = record(&self.shared.stats, frames, self.origin);
-        for chunk in out.chunks_mut(self.scratch.len()) {
-            let buffer = &mut self.scratch[..chunk.len()];
+        for chunk in out.chunks_mut(resources.scratch.len()) {
+            let buffer = &mut resources.scratch[..chunk.len()];
             renderer.render(buffer, self.channels);
             for (o, s) in chunk.iter_mut().zip(buffer.iter()) {
                 *o = T::from_sample_(*s);
@@ -271,12 +313,13 @@ impl Callback {
 
 impl Drop for Callback {
     fn drop(&mut self) {
-        // No allocation or lock, including when destruction precedes the very
-        // first callback. The control side outlives stream destruction.
-        if let Some(renderer) = self.renderer.take().or_else(|| self.incoming.pop().ok()) {
-            self.returned
-                .push(renderer)
-                .unwrap_or_else(|_| unreachable!("return slot is empty"));
+        // No allocation/free, lock or wait, even if arm is currently publishing.
+        // Return the receiver rather than trying to drain a possibly empty ring.
+        self.returned
+            .push(self.resources.take().expect("callback is alive"))
+            .unwrap_or_else(|_| unreachable!("return slot is empty"));
+        if self.state.lifecycle.fetch_or(CLOSED, Ordering::AcqRel) & ARMED != 0 {
+            self.shared.stats.dead.store(true, Ordering::Release);
         }
     }
 }
@@ -297,7 +340,7 @@ impl ErrorCallback {
         if fatal {
             self.state.failed.store(true, Ordering::Release);
         }
-        if !self.state.armed.load(Ordering::Acquire) {
+        if self.state.lifecycle.load(Ordering::Acquire) & ARMED == 0 {
             return;
         }
         let stats = &self.shared.stats;

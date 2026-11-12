@@ -228,6 +228,22 @@ fn enqueue_transport(engine: &mut Engine) {
     }
 }
 
+fn drop_callback_without_allocating(callback: Callback) {
+    EVENTS.with(|n| n.set(0));
+    ARMED.with(|a| a.set(true));
+    drop(callback);
+    ARMED.with(|a| a.set(false));
+    assert_eq!(
+        EVENTS.with(Cell::get),
+        0,
+        "allocation/free in callback teardown"
+    );
+}
+
+fn engine_dead(shared: &Shared) -> bool {
+    shared.stats.dead.load(Ordering::Acquire)
+}
+
 #[test]
 fn recovery_config_build_play_and_startup_error_keep_silent_worker_and_queue() {
     for stage in [
@@ -288,6 +304,174 @@ fn recovery_config_build_play_and_startup_error_keep_silent_worker_and_queue() {
         );
         assert!(state.playing && !state.previewing);
         assert_eq!((state.gain, state.speed), (0.5, 1.25));
+    }
+}
+
+#[test]
+fn recovery_callback_teardown_before_arm_preserves_renderer_and_pending_transport() {
+    let (mut engine, _) = parked();
+    let driver = Rc::new(Driver::default());
+    let shared = engine.shared.clone();
+    let before = engine.deck(0);
+    enqueue_transport(&mut engine);
+    let sent = engine.sent;
+    shared.stats.errors.store(7, Ordering::Relaxed);
+    shared.stats.xruns.store(3, Ordering::Relaxed);
+    engine.poll_with(|_, shared| {
+        let candidate = driver.open(Stage::Success, 48_000, shared.clone())?;
+        // ALSA can independently destroy its data callback after play succeeds.
+        drop_callback_without_allocating(driver.callback.borrow_mut().take().unwrap());
+        assert!(
+            !engine_dead(&shared),
+            "unarmed teardown affected live output"
+        );
+        Ok(candidate)
+    });
+    assert!(Arc::ptr_eq(&engine.shared, &shared));
+    assert_eq!(engine.sent, sent);
+    assert!(engine.pending(0));
+    assert_eq!((engine.stats().errors, engine.stats().xruns), (7, 3));
+    let mut renderer = engine
+        .output
+        .reclaim()
+        .expect("independent callback teardown must not strand the renderer");
+    assert!(Arc::ptr_eq(&renderer.shared, &shared));
+    assert_eq!(renderer.decks[0].pos, before.frame);
+    assert!(renderer.decks[0].previewing);
+    assert_eq!(renderer.decks[0].loop_range, before.loop_range);
+    renderer.render(&mut [], 2);
+    assert!(!engine.pending(0));
+    assert_eq!(
+        (
+            renderer.decks[0].pos,
+            renderer.decks[0].cue,
+            renderer.decks[0].loop_range
+        ),
+        (2000.0, 1000.0, Some((2000.0, 4000.0)))
+    );
+    assert!(renderer.decks[0].playing && !renderer.decks[0].previewing);
+}
+
+#[test]
+fn recovery_callback_teardown_concurrent_with_arm_preserves_ordered_transport() {
+    use output::ArmPhase;
+    use std::sync::Barrier;
+
+    // Force both atomic orderings on a separate backend thread while arm is
+    // suspended during publication. No sleeps or scheduling luck.
+    for teardown_at in [ArmPhase::Published, ArmPhase::Armed] {
+        let (mut engine, _) = parked();
+        let driver = Rc::new(Driver::default());
+        let shared = engine.shared.clone();
+        let before = engine.deck(0);
+        enqueue_transport(&mut engine);
+        let sent = engine.sent;
+        shared.stats.callbacks.store(11, Ordering::Relaxed);
+        shared.stats.frames.store(512, Ordering::Relaxed);
+        shared.stats.errors.store(7, Ordering::Relaxed);
+        shared.stats.xruns.store(3, Ordering::Relaxed);
+        let candidate = driver.open(Stage::Success, 48_000, shared.clone()).unwrap();
+        let callback = driver.callback.borrow_mut().take().unwrap();
+        let barrier = Arc::new(Barrier::new(2));
+        let backend_barrier = barrier.clone();
+        let mut backend = Some(std::thread::spawn(move || {
+            backend_barrier.wait();
+            drop_callback_without_allocating(callback);
+        }));
+        let renderer = engine.output.reclaim().unwrap();
+        engine.output = candidate.arm_with(renderer, |phase| {
+            if phase == teardown_at {
+                barrier.wait();
+                backend.take().unwrap().join().unwrap();
+                assert_eq!(engine_dead(&shared), phase == ArmPhase::Armed);
+            }
+        });
+        assert!(backend.is_none());
+        assert!(engine_dead(&shared), "arm must observe the closed callback");
+        assert!(Arc::ptr_eq(&engine.shared, &shared));
+        assert_eq!(engine.sent, sent);
+        assert!(engine.pending(0));
+        assert_eq!((engine.stats().callbacks, engine.stats().frames), (11, 512));
+        assert_eq!((engine.stats().errors, engine.stats().xruns), (7, 3));
+        let mut renderer = engine
+            .output
+            .reclaim()
+            .expect("concurrent teardown returns handoff");
+        assert!(Arc::ptr_eq(&renderer.shared, &shared));
+        assert_eq!(renderer.decks[0].pos, before.frame);
+        assert!(renderer.decks[0].previewing);
+        assert_eq!(renderer.decks[0].loop_range, before.loop_range);
+        renderer.render(&mut [], 2);
+        assert!(!engine.pending(0));
+        assert_eq!(
+            (
+                renderer.decks[0].pos,
+                renderer.decks[0].cue,
+                renderer.decks[0].loop_in,
+                renderer.decks[0].loop_range
+            ),
+            (2000.0, 1000.0, Some(2000.0), Some((2000.0, 4000.0)))
+        );
+        assert!(renderer.decks[0].playing && !renderer.decks[0].previewing);
+    }
+}
+
+#[test]
+fn recovery_independent_teardown_poll_keeps_shared_preview_and_counters() {
+    for teardown in ["before-arm", "after-arm", "after-first-callback"] {
+        let (mut engine, _) = parked();
+        let driver = Rc::new(Driver::default());
+        let shared = engine.shared.clone();
+        let before = engine.deck(0);
+        shared.stats.errors.store(7, Ordering::Relaxed);
+        shared.stats.xruns.store(3, Ordering::Relaxed);
+        engine.poll_with(|_, shared| {
+            let candidate = driver.open(Stage::Success, 48_000, shared)?;
+            if teardown == "before-arm" {
+                drop_callback_without_allocating(driver.callback.borrow_mut().take().unwrap());
+            }
+            Ok(candidate)
+        });
+        if teardown == "after-first-callback" {
+            driver.render(&mut [0.0; 512]);
+        }
+        if teardown != "before-arm" {
+            drop_callback_without_allocating(driver.callback.borrow_mut().take().unwrap());
+        }
+        // Pending commands unrelated to deck 0 must survive the *next poll*,
+        // where the old bug reconstructed snapshots and reset the channel.
+        assert!(engine.send(Command::Seek {
+            deck: 1,
+            frame: 2000.0
+        }));
+        assert!(engine.send(Command::Seek {
+            deck: 1,
+            frame: 6000.0
+        }));
+        let sent = engine.sent;
+        let stats = engine.stats();
+        assert!(
+            engine_dead(&shared),
+            "independent death must trigger recovery"
+        );
+        engine.poll_with(|_, _| panic!("loss fallback must not open hardware"));
+        assert_eq!(engine.output(), OutputKind::Silent);
+        assert!(Arc::ptr_eq(&engine.shared, &shared));
+        assert_eq!(engine.sent, sent);
+        assert_eq!((engine.stats().errors, engine.stats().xruns), (7, 3));
+        assert_eq!(
+            (engine.stats().callbacks, engine.stats().frames),
+            (stats.callbacks, stats.frames)
+        );
+        assert!(engine.retry_at.is_some());
+        let mut renderer = engine.output.reclaim().unwrap();
+        assert!(Arc::ptr_eq(&renderer.shared, &shared));
+        assert!(renderer.decks[0].previewing);
+        assert_eq!(renderer.decks[0].cue, before.cue);
+        assert_eq!(renderer.decks[0].loop_range, before.loop_range);
+        renderer.render(&mut [], 2);
+        assert!(!engine.pending(1));
+        assert!(renderer.decks[1].pos >= 6000.0, "ordered seeks were lost");
     }
 }
 
