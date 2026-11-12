@@ -91,6 +91,17 @@ impl Resampler {
     /// `(left, right)` of interleaved stereo `samples` at fractional source
     /// frame `pos`, through kernel set `table`; silence outside the track.
     pub(crate) fn at(&self, samples: &[f32], pos: f64, table: usize) -> (f32, f32) {
+        self.at_with_end_hold(samples, pos, table, false)
+    }
+
+    /// Read with the final frame extended beyond EOF when requested by a loop.
+    pub(crate) fn at_with_end_hold(
+        &self,
+        samples: &[f32],
+        pos: f64,
+        table: usize,
+        hold: bool,
+    ) -> (f32, f32) {
         if pos.is_nan() || pos < 0.0 {
             return (0.0, 0.0);
         }
@@ -132,6 +143,11 @@ impl Resampler {
                     .map(|f| f.saturating_mul(2))
                 else {
                     continue;
+                };
+                let at = if hold && !samples.is_empty() {
+                    at.min(samples.len().saturating_sub(2))
+                } else {
+                    at
                 };
                 if let (Some(sl), Some(sr)) = (samples.get(at), samples.get(at.saturating_add(1))) {
                     let c = ka + (kb - ka) * w;

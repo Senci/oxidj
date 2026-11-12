@@ -4,6 +4,93 @@
 use super::*;
 
 #[test]
+fn keylock_eof_loop_wrap_is_continuous_across_callbacks() {
+    for len in [12_000, 480] {
+        let (mut engine, mut renderer) = Engine::manual(RATE);
+        renderer.set_declick_ms(DECLICK_MS);
+        let start = 12_000;
+        let end = start + len;
+        let samples = (0..end)
+            .flat_map(|i| {
+                let v = if i < start + len / 3 {
+                    0.8
+                } else if i < start + len * 2 / 3 {
+                    0.8 - 1.6 * (i - start - len / 3) as f32 / (len / 3) as f32
+                } else {
+                    -0.8
+                };
+                [v, -v]
+            })
+            .collect();
+        for command in [
+            Command::Load {
+                deck: 0,
+                id: 1,
+                track: Arc::new(TrackPcm::new(RATE, samples).unwrap()),
+            },
+            Command::Seek {
+                deck: 0,
+                frame: start as f64,
+            },
+            Command::LoopIn { deck: 0 },
+            Command::Seek {
+                deck: 0,
+                frame: end as f64,
+            },
+            Command::LoopOut { deck: 0 },
+            Command::Seek {
+                deck: 0,
+                frame: start as f64,
+            },
+            Command::KeyLock { deck: 0, on: true },
+            Command::Speed {
+                deck: 0,
+                speed: 1.08,
+            },
+            Command::TogglePlay { deck: 0 },
+        ] {
+            assert!(engine.send(command));
+        }
+        let mut prev: Option<[f32; 2]> = None;
+        let mut pos = 0.0;
+        let mut wraps = 0;
+        let mut max_step = 0.0_f32;
+        let mut energy = [0.0_f32; 2];
+        let mut frames = 0;
+        for i in 0..400 {
+            let n = [128, 333, 512, 17][i % 4];
+            let mut output = vec![0.0; n * 2];
+            renderer.render(&mut output, 2);
+            engine.poll();
+            let next = engine.deck(0).frame;
+            if next < pos {
+                wraps += 1;
+            }
+            pos = next;
+            assert!((start as f64..end as f64).contains(&pos));
+            for f in output.as_chunks::<2>().0 {
+                if frames >= 10_000 {
+                    for c in 0..2 {
+                        energy[c] += f[c] * f[c];
+                        if let Some(p) = prev {
+                            max_step = max_step.max((f[c] - p[c]).abs());
+                        }
+                    }
+                }
+                prev = Some(*f);
+                frames += 1;
+            }
+        }
+        assert!(wraps >= 3, "len={len} wraps={wraps}");
+        assert!(
+            energy.iter().all(|v| *v > 100.0),
+            "len={len} energy={energy:?}"
+        );
+        assert!(max_step < 0.05, "len={len} max_step={max_step}");
+    }
+}
+
+#[test]
 fn loop_wrap_declicks_both_keylock_paths() {
     for key in [false, true] {
         let (mut engine, mut renderer) = Engine::manual(RATE);

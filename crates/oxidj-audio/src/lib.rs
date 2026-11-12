@@ -683,14 +683,25 @@ impl DeckState {
         // callback's reported loop position. Do not restart either engine.
         let range = self.loop_range.filter(|(start, end)| end > start);
         let fade = (f64::from(self.declick) * speed * step * 2.0).max(0.0);
+        let hold_end = range.is_some_and(|(_, end)| end + fade >= track.frames() as f64);
         let sample = |x: f64| {
             let x = wrap(x);
-            let (l, r) = track.at(x, resampler, table);
+            let read = |p: f64| {
+                let p = if hold_end {
+                    p.min(track.frames() as f64 - 1.0)
+                } else {
+                    p
+                };
+                resampler.at_with_end_hold(&track.samples, p, table, hold_end)
+            };
+            let (l, r) = read(x);
             if let Some((start, end)) = range {
                 let length = fade.min((end - start) / 2.0);
                 let offset = x - start;
                 if length > 0.0 && offset >= 0.0 && offset < length {
-                    let (old_l, old_r) = track.at(end + offset, resampler, table);
+                    // Extend the outgoing source at EOF rather than mixing
+                    // in silence, including the resampler's filter taps.
+                    let (old_l, old_r) = read(end + offset);
                     let g = (offset / length) as f32;
                     return (old_l * (1.0 - g) + l * g, old_r * (1.0 - g) + r * g);
                 }
