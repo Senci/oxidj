@@ -1,10 +1,9 @@
 # Audio engine: live-performance readiness
 
 Workstream started 2026-11-10 by the technical lead (owner asleep, autonomous).
-This file is the handoff: read it first, then `git log master..audio-engine`.
-
-- Branch `audio-engine`, worktree `/home/senci/dev/oxidj/.worktrees/audio-engine`.
-  Not merged to `master` (the UI session owns the main checkout). Owner merges.
+This file is the workstream handoff. The reviewed audio and settings integration
+landed on local `master` at `e2b9b28`; nothing was pushed. The original
+`audio-engine` branch remains available for history.
 - Kanban board `oxidj-audio` (`hermes kanban --board oxidj-audio list`). Cards
   carry the same ids as the table below. Cards have no assignee on purpose, so
   the dispatcher never starts a second writer in this worktree.
@@ -12,7 +11,10 @@ This file is the handoff: read it first, then `git log master..audio-engine`.
 - Any model can continue: each open row below names the files, the behaviour
   and the test that proves it. Do one row, run the gate, commit, tick the row.
 
-## Owner decisions (2026-11-10)
+## Owner decisions (2026-11-10; historical)
+
+The table records the original run; later owner instructions authorize local
+integration, OpenAI model routing and audio Settings work, without a push.
 
 | Topic | Decision |
 |---|---|
@@ -77,11 +79,11 @@ Status: `todo`, `doing`, `done <sha>`, `parked`.
 | A8 | Independent review of the branch (Anthropic model, Kanban card `t_7bcd47dd`) | done: CHANGES REQUESTED, 0 blockers; findings handled in the fifth commit (see progress log) |
 | A9 | WASAPI exclusive mode: needs cpal support or a patch; decide later | parked |
 | A10 | Streaming or i16 track storage to cut RAM | parked |
-| A11 | UI wiring: Settings for output device, buffer, limiter; status line with latency and load | parked (UI session) |
+| A11 | UI wiring: Settings for output device, buffer, limiter; status line with latency and load | reviewed and integrated `e2b9b28`; hardware validation remains A15 |
 | A12 | done by staggering (see log): the two decks' bursts are kept half an interval apart, worst steady block 1.16 ms to 0.52 ms. Not done: splitting one deck's own burst. Earlier finding kept for the record: cheaper preset cuts the worst block from 1.2 ms to 0.5 ms, but `key_lock_tempo_change_just_before_a_beat_stays_on_the_click` fails (6.0 ms against a 5 ms bound). Needs either `splitComputation` for the default preset (wrapper 0.1.3 does not expose it) or a re-derived position model plus a listening test | parked |
-| A13 | Build the installed app with `jack` (Linux) and prefer the JACK host when present; needs a change in the UI crate's Cargo features and `scripts/install-local.sh` | parked (UI session) |
+| A13 | Build the installed app with `jack` (Linux) and prefer the JACK host when present; needs a change in the UI crate's Cargo features and `scripts/install-local.sh` | reviewed and integrated `e2b9b28`; user installation pending unrelated PDB review gate |
 | A14 | Limiter look-ahead: real outputs delay the main output by 1 ms (`LIMITER_LOOKAHEAD_MS`) and ramp the gain down before a peak; held while overs keep arriving. The hand-driven renderer stays undelayed (`Renderer::set_limiter_lookahead_ms`). The cue pair is not delayed (1 ms ahead of main), and the 1 ms is not part of `StatsSnapshot::latency_ns` | done (see log) |
-| A15 | Real-hardware qualification: USB card unplug and replug, 4-channel cue through `OutputConfig`, 10-minute `qualify` on JACK, Windows ASIO build and run | needs owner hardware |
+| A15 | Real-hardware qualification: USB card unplug and replug, 4-channel cue through `OutputConfig`, 10-minute `qualify` on JACK, Windows ASIO build and run | open: USB reconnect/4-channel and Windows ASIO not run; 600 s synthetic JACK run at 512 frames had 2 xruns, not the 0-xrun target |
 | A17 | Key-lock fade-out: a spare stretch engine per deck; on a stop or jump the sounding engine is moved aside and fed for the declick frames so the stretched signal itself fades, while the other engine starts the new signal. Position model untouched | done (see log) |
 | A16 | Split cue for 2-channel cards (main mono left, cue mono right) and free channel-pair routing: `Routing` in `OutputConfig`, `OXIDJ_AUDIO_MASTER` / `_CUE` / `_SPLIT_CUE`, `Renderer::set_routing` | done (see log) |
 
