@@ -54,12 +54,21 @@ pub(crate) enum Output {
     },
     Silent {
         stop: Arc<AtomicBool>,
-        thread: Option<JoinHandle<()>>,
+        thread: Option<JoinHandle<Renderer>>,
     },
     Manual,
 }
 
 impl Output {
+    /// Stop the silent worker and reclaim its renderer on the control thread.
+    fn stop_silent(&mut self) -> Option<Renderer> {
+        let Self::Silent { stop, thread } = self else {
+            return None;
+        };
+        stop.store(true, Ordering::Release);
+        thread.take()?.join().ok()
+    }
+
     pub(crate) fn kind(&self) -> OutputKind {
         match self {
             Self::Device { kind, .. } => kind.clone(),
@@ -88,6 +97,7 @@ impl Output {
                         next = now;
                     }
                 }
+                renderer
             })
             .ok();
         Self::Silent { stop, thread }
@@ -96,12 +106,7 @@ impl Output {
 
 impl Drop for Output {
     fn drop(&mut self) {
-        if let Self::Silent { stop, thread } = self {
-            stop.store(true, Ordering::Release);
-            if let Some(thread) = thread.take() {
-                let _ = thread.join();
-            }
-        }
+        drop(self.stop_silent());
     }
 }
 
@@ -563,6 +568,22 @@ fn finish(stats: &Stats, frames: usize, rate: u64, origin: Instant, began: u64, 
 #[cfg(test)]
 mod host_selection_tests {
     use super::select_automatic_host;
+
+    #[test]
+    fn silent_worker_returns_its_renderer_on_join() {
+        let (renderer, mut tx, shared) =
+            crate::channel(Default::default(), 48_000, None, true, true);
+        let mut output = super::Output::silent(renderer);
+        let mut recovered = output.stop_silent().expect("worker joined");
+        assert!(std::sync::Arc::ptr_eq(&recovered.shared, &shared));
+        assert!(output.stop_silent().is_none());
+        tx.push(crate::Command::Limiter(false)).unwrap();
+        recovered.render(&mut [0.0; 2], 2);
+        assert!(
+            !recovered.limiter.on,
+            "the original command ring remains connected"
+        );
+    }
 
     #[test]
     fn automatic_selection_prefers_available_jack_and_falls_back() {
