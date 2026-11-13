@@ -47,6 +47,10 @@ jobs:
       # `cargo xtask ci-full` runs Tier 1 plus native tests and the mandatory
       # licence check; `cargo xtask ci` is the Tier-1 handoff portion.
       - name: cargo xtask ci-full (Tier 1 + Tier 2)
+        env:
+          # The hosted runner's workspace may not expose verifiable block
+          # ancestry. CLI import tests use an actual local tmpfs instead.
+          OXIDJ_TEST_SCRATCH_ROOT: /dev/shm/oxidj-tests
         run: cargo xtask ci-full
 
       # ------------------------------------------------------------------
