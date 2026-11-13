@@ -773,10 +773,15 @@ mod import_publication_tests {
             let destination = root.join("new.sqlite");
             let competing = root.join(format!("new.sqlite{suffix}"));
             // Runs after preflight but before publication. A foreign creator wins.
-            let result = import_library_with(&pdb, &destination, |_| {
-                std::fs::write(&competing, b"foreign sentinel").unwrap();
-                Ok(None)
-            });
+            let result = import_library_checked(
+                &pdb,
+                &destination,
+                |_| {
+                    std::fs::write(&competing, b"foreign sentinel").unwrap();
+                    Ok(None)
+                },
+                |parent| parent == root.canonicalize().unwrap(),
+            );
             assert_eq!(
                 result.unwrap_err().0,
                 "refusing to reuse an existing catalog path"
@@ -802,12 +807,17 @@ mod import_publication_tests {
         let pdb = root.join("device/PIONEER/rekordbox/export.pdb");
         std::fs::write(&pdb, synthetic_pdb(None)).unwrap();
         let destination = root.join("new.sqlite");
-        let result = import_library_with(&pdb, &destination, |_| {
-            std::fs::write(&pdb, b"external source change").unwrap();
-            std::fs::write(&destination, b"foreign destination").unwrap();
-            std::fs::write(root.join("new.sqlite-wal"), b"foreign WAL").unwrap();
-            Ok(None)
-        });
+        let result = import_library_checked(
+            &pdb,
+            &destination,
+            |_| {
+                std::fs::write(&pdb, b"external source change").unwrap();
+                std::fs::write(&destination, b"foreign destination").unwrap();
+                std::fs::write(root.join("new.sqlite-wal"), b"foreign WAL").unwrap();
+                Ok(None)
+            },
+            |parent| parent == root.canonicalize().unwrap(),
+        );
         assert_eq!(result.unwrap_err().0, "import verification failed");
         assert_eq!(std::fs::read(&destination).unwrap(), b"foreign destination");
         assert_eq!(
