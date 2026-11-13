@@ -266,7 +266,9 @@ fn scratch() -> PathBuf {
     // Keep DeviceSQL's encoded file URL below its 127-byte string limit even
     // when TMPDIR is unusually long. Use a deterministic short path under the
     // repository-owned scratch root instead of depending on the process ID.
-    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/m6");
+    let root = std::env::var_os("OXIDJ_TEST_SCRATCH_ROOT")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/m6"));
     std::fs::create_dir_all(&root).unwrap();
     let dir = root.join(format!("{nonce:x}-{seq:x}"));
     std::fs::create_dir(&dir).unwrap();

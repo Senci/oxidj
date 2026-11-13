@@ -34,7 +34,10 @@ fn write_wav(path: &Path, seconds: f32) {
 
 /// A temporary catalog with three imported synthetic tracks.
 fn catalog_root(tag: &str) -> (std::path::PathBuf, std::path::PathBuf) {
-    let root = std::env::temp_dir().join(format!(
+    let scratch = std::env::var_os("OXIDJ_TEST_SCRATCH_ROOT")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(std::env::temp_dir);
+    let root = scratch.join(format!(
         "oxidj-ui-w8-{tag}-{}-{}",
         std::process::id(),
         std::time::SystemTime::now()

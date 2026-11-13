@@ -1,0 +1,20 @@
+# Release engineering notes
+
+OxiDJ publishes experimental archives, not installers or qualified builds. The library UI is a separate Cargo workspace with its own lockfile; build it with `--manifest-path prototypes/oxidj-library-ui/Cargo.toml --locked` as well as `cargo build -p oxidj-cli --locked`. The repo's `rust-toolchain.toml` controls both. The UI defaults to a catalog in its current directory; the archives document `--db` to avoid accidentally using an unrelated catalog. `import_destination.rs` deliberately rejects destination admission outside Linux, so native builds do not mean feature parity.
+
+## Sources and decisions
+
+- [ripgrep release workflow](https://github.com/BurntSushi/ripgrep/blob/master/.github/workflows/release.yml): target-specific builds and archives, tag/version checks, checksums and provenance. OxiDJ uses native runners, staged workflow artifacts, and a single publication job after all builds; its checksum is integrity-only, not a signature.
+- [bat CI workflow](https://github.com/sharkdp/bat/blob/master/.github/workflows/CICD.yml): matrix builds, locked Cargo dependencies, executable smoke commands and archive artifacts. OxiDJ compiles the separate UI as well as the CLI.
+- [GitHub secure use](https://docs.github.com/en/actions/reference/security/secure-use): minimize token permissions, pin actions to full commit SHA, avoid untrusted interpolation. Build jobs receive read only; the release job gets contents write only. Tag names are passed through an environment variable and validated.
+- [GitHub-hosted runners](https://docs.github.com/en/actions/reference/runners/github-hosted-runners): Linux/Windows x86-64 and macOS arm64 labels; native runner builds avoid unverified cross-linking assumptions.
+
+## Trust boundary and operation
+
+Release publication is **manual**, not tag-triggered: `gh workflow run release.yml --ref master -f tag=v0.1.0-alpha.1` (choose a new alpha version). Do not push a release tag yourself. Only the reviewed workflow on the protected default branch `master` can publish. It verifies the current branch SHA and a successful exact-SHA **push** run of `.github/workflows/ci.yml`, including its `cargo xtask ci-full` job; a same-named unrelated check does not satisfy it. Tags are never checked out or executed. PR runs build and smoke only with read-only tokens. This design does not depend on unconfigured tag protections or change repository security settings.
+
+Merge through the protected PR/check path after independent review and all three native PR builds succeed. After exact-head post-merge CI succeeds, dispatch the release. Each native runner builds both executables, packages them, and starts the **extracted** CLI/UI with a scratch catalog. All three builds must succeed before the publisher runs. The publisher rechecks that protected `master` has not advanced, atomically creates a fresh lightweight tag (never moves or deletes one), creates a draft prerelease, uploads three archives plus `SHA256SUMS`, downloads all draft assets, checks checksums and byte equality against the built files, and verifies tag identity and complete asset names before making it public. No repository code is executed with the write token.
+
+A failed run can leave an unused tag or draft needing deliberate recovery; do not force-update tags or automatically delete drafts. Inspect the run and draft first; choose a fresh alpha version for a new attempt. Public partial releases are not the recovery mechanism. The Pages Download button links to the GitHub **Releases listing** (not `/latest`, which can omit prereleases). Verify the new release appears first and the deployed button targets that listing.
+
+No signing, notarization, vendor compatibility, native UI interaction on Windows/macOS, device behavior, or performance qualification is implied by native builds/startup smokes. Never publish before independent review and required checks pass. Installers are deferred: unsigned portable archives are the supported experimental distribution, not an installer or OS trust solution.

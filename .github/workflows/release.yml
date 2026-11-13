@@ -1,0 +1,180 @@
+name: Release archives
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'New experimental version (v0.1.0-alpha.1)'
+        required: true
+        type: string
+  pull_request:
+    branches: [master]
+    paths:
+      - '.github/workflows/release.yml'
+      - 'scripts/*release*'
+      - 'docs/release-*.md'
+
+permissions:
+  contents: read
+  actions: read
+  checks: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Test release validation refusal controls
+        run: python -m unittest scripts.test_release_validation
+      # PRs only build/smoke with a read-only token; only a manual run of the
+      # reviewed default-branch workflow may publish. No code is loaded from tags.
+      - name: Validate trusted default-branch dispatch and exact-head CI
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          TAG: ${{ inputs.tag }}
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          WORKFLOW_REF: ${{ github.workflow_ref }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-alpha\.[0-9]+$ ]]
+          test "$GITHUB_REF" = refs/heads/master
+          test "$WORKFLOW_REF" = "$GITHUB_REPOSITORY/.github/workflows/release.yml@refs/heads/master"
+          gh api "repos/$GITHUB_REPOSITORY" --jq .default_branch | grep -qx master
+          gh api "repos/$GITHUB_REPOSITORY/branches/master" | jq -e --arg sha "$GITHUB_SHA" '.protected == true and .commit.sha == $sha' >/dev/null
+          RUN_ID=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?head_sha=$GITHUB_SHA&event=push&per_page=100" | jq -r --arg sha "$GITHUB_SHA" '[.workflow_runs[] | select(.head_sha == $sha and .head_branch == "master" and .event == "push" and .path == ".github/workflows/ci.yml" and .status == "completed" and .conclusion == "success")][0].id // empty')
+          test -n "$RUN_ID"
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID/jobs?per_page=100" --jq '[.jobs[] | select(.name == "cargo xtask ci-full" and .status == "completed" and .conclusion == "success")] | length == 1' | grep -qx true
+          # List via successful API requests: an API/auth failure is not absence.
+          gh api --paginate "repos/$GITHUB_REPOSITORY/git/matching-refs/tags/$TAG" | jq -se --arg ref "refs/tags/$TAG" 'add | all(.ref != $ref)' >/dev/null
+          gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" | jq -se --arg tag "$TAG" 'add | all(.tag_name != $tag)' >/dev/null
+
+  build:
+    needs: validate
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            platform: linux-x86_64
+          - os: windows-2022
+            platform: windows-x86_64
+          - os: macos-15
+            platform: macos-aarch64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Install Linux native dependencies
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libasound2-dev libjack-jackd2-dev libdbus-1-dev libxkbcommon-x11-0 libgl1-mesa-dri libegl1 pkg-config xvfb xauth
+      - name: Build CLI and standalone UI with pinned Rust and lockfiles
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustc --version
+          cargo build --release --locked -p oxidj-cli
+          cargo build --release --locked --manifest-path prototypes/oxidj-library-ui/Cargo.toml
+      - name: Smoke CLI on native host
+        shell: bash
+        run: target/release/oxidj-cli --help
+      - name: Test release packager
+        shell: bash
+        run: python -m unittest scripts.test_package_release
+      - name: Package
+        shell: bash
+        env:
+          PLATFORM: ${{ matrix.platform }}
+        run: python scripts/package-release.py "$PLATFORM" dist
+      - name: Extract and smoke packaged CLI
+        shell: bash
+        env:
+          PLATFORM: ${{ matrix.platform }}
+        run: |
+          set -euo pipefail
+          mkdir extracted
+          if [[ "$PLATFORM" == windows-* ]]; then
+            python -m zipfile -e "dist/oxidj-$PLATFORM.zip" extracted
+            ./extracted/oxidj-cli.exe --help
+          else
+            tar -xzf "dist/oxidj-$PLATFORM.tar.gz" -C extracted
+            ./extracted/oxidj-cli --help
+          fi
+      # Windows hosted runners lack OpenGL 2.0. Install software rendering only
+      # beside the extracted smoke-test executable, never in the release archive.
+      - name: Install Mesa for Windows UI smoke
+        if: runner.os == 'Windows'
+        uses: f3d-app/install-mesa-windows-action@1824e370ed7fb1795f5bc88fd1f6c81eb15d92bc # v1
+        with:
+          # The action appends '*' and copies into matching directories; a
+          # trailing slash would select children instead of extracted itself.
+          path: ${{ github.workspace }}/extracted
+          version: '23.3.5'
+      - name: Smoke extracted UI startup with isolated catalog
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$RUNNER_OS" == Linux ]]; then
+            xvfb-run -a python scripts/smoke-release-ui.py extracted/oxidj-library-ui
+          elif [[ "$RUNNER_OS" == Windows ]]; then
+            test -f extracted/opengl32.dll
+            test -f extracted/libglapi.dll
+            test -f extracted/libgallium_wgl.dll
+            python scripts/smoke-release-ui.py extracted/oxidj-library-ui.exe
+          else
+            python3 scripts/smoke-release-ui.py extracted/oxidj-library-ui
+          fi
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: ${{ matrix.platform }}
+          path: dist/*
+          if-no-files-found: error
+
+  publish:
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/master'
+    needs: [validate, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          path: artifacts
+          merge-multiple: true
+      - name: Verify exact set and publish complete pre-release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ inputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-alpha\.[0-9]+$ ]]
+          # Fail closed if master advanced during the builds. Never execute tag code.
+          gh api "repos/$GITHUB_REPOSITORY/branches/master" | jq -e --arg sha "$GITHUB_SHA" '.protected == true and .commit.sha == $sha' >/dev/null
+          cd artifacts
+          test "$(find . -maxdepth 1 -type f | wc -l)" = 3
+          for name in oxidj-linux-x86_64.tar.gz oxidj-windows-x86_64.zip oxidj-macos-aarch64.tar.gz; do test -s "$name"; done
+          sha256sum oxidj-linux-x86_64.tar.gz oxidj-windows-x86_64.zip oxidj-macos-aarch64.tar.gz > SHA256SUMS
+          # Atomic create refuses existing tags; no force, update or deletion.
+          gh api --method POST "repos/$GITHUB_REPOSITORY/git/refs" -f ref="refs/tags/$TAG" -f sha="$GITHUB_SHA" >/dev/null
+          gh release create "$TAG" --verify-tag --draft --prerelease --title "OxiDJ $TAG (pre-release)" --notes "Experimental unsigned builds of $GITHUB_SHA. macOS is not notarized; Windows and macOS interoperability and audio devices are not qualified. All three native runners built and startup-smoked these archives. See the included README for prerequisites and limitations." oxidj-linux-x86_64.tar.gz oxidj-windows-x86_64.zip oxidj-macos-aarch64.tar.gz SHA256SUMS
+          mkdir verified-download
+          gh release download "$TAG" --dir verified-download
+          test "$(find verified-download -maxdepth 1 -type f | wc -l)" = 4
+          (cd verified-download && sha256sum -c SHA256SUMS)
+          cmp SHA256SUMS verified-download/SHA256SUMS
+          for name in oxidj-linux-x86_64.tar.gz oxidj-windows-x86_64.zip oxidj-macos-aarch64.tar.gz; do cmp "$name" "verified-download/$name"; done
+          gh release view "$TAG" --json isDraft,isPrerelease,assets | jq -e '.isDraft and .isPrerelease and ([.assets[].name] | sort) == (["SHA256SUMS", "oxidj-linux-x86_64.tar.gz", "oxidj-windows-x86_64.zip", "oxidj-macos-aarch64.tar.gz"] | sort)' >/dev/null
+          gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" | jq -e --arg sha "$GITHUB_SHA" '.object.type == "commit" and .object.sha == $sha' >/dev/null
+          gh release edit "$TAG" --draft=false --prerelease
+          gh release view "$TAG" --json isDraft,isPrerelease | jq -e '.isDraft == false and .isPrerelease == true' >/dev/null
