@@ -76,7 +76,7 @@ jobs:
           persist-credentials: false
       - name: Install Linux native dependencies
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libasound2-dev libjack-jackd2-dev libdbus-1-dev pkg-config xvfb xauth
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libasound2-dev libjack-jackd2-dev libdbus-1-dev libxkbcommon-x11-0 libgl1-mesa-dri libegl1 pkg-config xvfb xauth
       - name: Build CLI and standalone UI with pinned Rust and lockfiles
         shell: bash
         run: |

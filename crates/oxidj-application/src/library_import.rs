@@ -504,7 +504,9 @@ impl ImportStage {
         for _ in 0..100 {
             let serial = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             let path = parent.join(format!(".oxidj-import-{}-{serial}", std::process::id()));
-            let mut builder = std::fs::DirBuilder::new();
+            let builder = std::fs::DirBuilder::new();
+            #[cfg(unix)]
+            let mut builder = builder;
             #[cfg(unix)]
             {
                 use std::os::unix::fs::DirBuilderExt;
