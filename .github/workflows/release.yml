@@ -87,17 +87,17 @@ jobs:
             tar -xzf "dist/oxidj-$PLATFORM.tar.gz" -C extracted
             ./extracted/oxidj-cli --help
           fi
-      - name: Smoke extracted UI on Linux virtual display
-        if: runner.os == 'Linux'
+      - name: Smoke extracted UI startup with isolated catalog
         shell: bash
         run: |
           set -euo pipefail
-          set +e
-          timeout 15s xvfb-run -a ./extracted/oxidj-library-ui --db "$RUNNER_TEMP/smoke.sqlite"
-          result=$?
-          set -e
-          test "$result" = 124
-          test -f "$RUNNER_TEMP/smoke.sqlite"
+          if [[ "$RUNNER_OS" == Linux ]]; then
+            xvfb-run -a python scripts/smoke-release-ui.py extracted/oxidj-library-ui
+          elif [[ "$RUNNER_OS" == Windows ]]; then
+            python scripts/smoke-release-ui.py extracted/oxidj-library-ui.exe
+          else
+            python3 scripts/smoke-release-ui.py extracted/oxidj-library-ui
+          fi
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: ${{ matrix.platform }}
