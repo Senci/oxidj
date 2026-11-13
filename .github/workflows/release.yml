@@ -115,7 +115,9 @@ jobs:
         if: runner.os == 'Windows'
         uses: f3d-app/install-mesa-windows-action@1824e370ed7fb1795f5bc88fd1f6c81eb15d92bc # v1
         with:
-          path: ${{ github.workspace }}/extracted/
+          # The action appends '*' and copies into matching directories; a
+          # trailing slash would select children instead of extracted itself.
+          path: ${{ github.workspace }}/extracted
           version: '23.3.5'
       - name: Smoke extracted UI startup with isolated catalog
         shell: bash
@@ -124,6 +126,9 @@ jobs:
           if [[ "$RUNNER_OS" == Linux ]]; then
             xvfb-run -a python scripts/smoke-release-ui.py extracted/oxidj-library-ui
           elif [[ "$RUNNER_OS" == Windows ]]; then
+            test -f extracted/opengl32.dll
+            test -f extracted/libglapi.dll
+            test -f extracted/libgallium_wgl.dll
             python scripts/smoke-release-ui.py extracted/oxidj-library-ui.exe
           else
             python3 scripts/smoke-release-ui.py extracted/oxidj-library-ui
