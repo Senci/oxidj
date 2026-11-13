@@ -1,8 +1,18 @@
 name: Release archives
 
 on:
-  push:
-    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'New experimental version (v0.1.0-alpha.1)'
+        required: true
+        type: string
+  pull_request:
+    branches: [master]
+    paths:
+      - '.github/workflows/release.yml'
+      - 'scripts/*release*'
+      - 'docs/release-*.md'
 
 permissions:
   contents: read
@@ -21,19 +31,31 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
-      - name: Validate tag, protected branch ancestry and exact-head gate
+      - name: Test release validation refusal controls
+        run: python -m unittest scripts.test_release_validation
+      # PRs only build/smoke with a read-only token; only a manual run of the
+      # reviewed default-branch workflow may publish. No code is loaded from tags.
+      - name: Validate trusted default-branch dispatch and exact-head CI
+        if: github.event_name == 'workflow_dispatch'
         env:
-          TAG: ${{ github.ref_name }}
+          TAG: ${{ inputs.tag }}
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          WORKFLOW_REF: ${{ github.workflow_ref }}
         shell: bash
         run: |
           set -euo pipefail
           [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-alpha\.[0-9]+$ ]]
-          git merge-base --is-ancestor "$GITHUB_SHA" origin/master
-          RUN_ID=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?head_sha=$GITHUB_SHA&event=push&per_page=100" | jq -r --arg sha "$GITHUB_SHA" '[.workflow_runs[] | select(.head_sha == $sha and .head_branch == "master" and .status == "completed" and .conclusion == "success")][0].id // empty')
+          test "$GITHUB_REF" = refs/heads/master
+          test "$WORKFLOW_REF" = "$GITHUB_REPOSITORY/.github/workflows/release.yml@refs/heads/master"
+          gh api "repos/$GITHUB_REPOSITORY" --jq .default_branch | grep -qx master
+          gh api "repos/$GITHUB_REPOSITORY/branches/master" | jq -e --arg sha "$GITHUB_SHA" '.protected == true and .commit.sha == $sha' >/dev/null
+          RUN_ID=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?head_sha=$GITHUB_SHA&event=push&per_page=100" | jq -r --arg sha "$GITHUB_SHA" '[.workflow_runs[] | select(.head_sha == $sha and .head_branch == "master" and .event == "push" and .path == ".github/workflows/ci.yml" and .status == "completed" and .conclusion == "success")][0].id // empty')
           test -n "$RUN_ID"
-          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID/jobs?per_page=100" --jq '[.jobs[] | select(.name == "cargo xtask ci-full" and .status == "completed" and .conclusion == "success")] | length > 0' | grep -qx true
-          if gh release view "$TAG" >/dev/null 2>&1; then echo 'Release already exists' >&2; exit 1; fi
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID/jobs?per_page=100" --jq '[.jobs[] | select(.name == "cargo xtask ci-full" and .status == "completed" and .conclusion == "success")] | length == 1' | grep -qx true
+          # List via successful API requests: an API/auth failure is not absence.
+          gh api --paginate "repos/$GITHUB_REPOSITORY/git/matching-refs/tags/$TAG" | jq -se --arg ref "refs/tags/$TAG" 'add | all(.ref != $ref)' >/dev/null
+          gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" | jq -se --arg tag "$TAG" 'add | all(.tag_name != $tag)' >/dev/null
 
   build:
     needs: validate
@@ -105,6 +127,7 @@ jobs:
           if-no-files-found: error
 
   publish:
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/master'
     needs: [validate, build]
     runs-on: ubuntu-latest
     permissions:
@@ -118,21 +141,27 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          TAG: ${{ github.ref_name }}
+          TAG: ${{ inputs.tag }}
         shell: bash
         run: |
           set -euo pipefail
-          # Require a lightweight tag still bound to the exact built commit.
-          gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" | jq -e --arg sha "$GITHUB_SHA" '.object.type == "commit" and .object.sha == $sha' >/dev/null
+          [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-alpha\.[0-9]+$ ]]
+          # Fail closed if master advanced during the builds. Never execute tag code.
+          gh api "repos/$GITHUB_REPOSITORY/branches/master" | jq -e --arg sha "$GITHUB_SHA" '.protected == true and .commit.sha == $sha' >/dev/null
           cd artifacts
           test "$(find . -maxdepth 1 -type f | wc -l)" = 3
           for name in oxidj-linux-x86_64.tar.gz oxidj-windows-x86_64.zip oxidj-macos-aarch64.tar.gz; do test -s "$name"; done
           sha256sum oxidj-linux-x86_64.tar.gz oxidj-windows-x86_64.zip oxidj-macos-aarch64.tar.gz > SHA256SUMS
-          gh release create "$TAG" --verify-tag --draft --prerelease --title "OxiDJ $TAG (pre-release)" --notes 'Experimental unsigned builds. macOS is not notarized; Windows and macOS runtime and interoperability are not qualified. See the included README for prerequisites and limitations.' oxidj-linux-x86_64.tar.gz oxidj-windows-x86_64.zip oxidj-macos-aarch64.tar.gz SHA256SUMS
+          # Atomic create refuses existing tags; no force, update or deletion.
+          gh api --method POST "repos/$GITHUB_REPOSITORY/git/refs" -f ref="refs/tags/$TAG" -f sha="$GITHUB_SHA" >/dev/null
+          gh release create "$TAG" --verify-tag --draft --prerelease --title "OxiDJ $TAG (pre-release)" --notes "Experimental unsigned builds of $GITHUB_SHA. macOS is not notarized; Windows and macOS interoperability and audio devices are not qualified. All three native runners built and startup-smoked these archives. See the included README for prerequisites and limitations." oxidj-linux-x86_64.tar.gz oxidj-windows-x86_64.zip oxidj-macos-aarch64.tar.gz SHA256SUMS
           mkdir verified-download
           gh release download "$TAG" --dir verified-download
           test "$(find verified-download -maxdepth 1 -type f | wc -l)" = 4
           (cd verified-download && sha256sum -c SHA256SUMS)
           cmp SHA256SUMS verified-download/SHA256SUMS
+          for name in oxidj-linux-x86_64.tar.gz oxidj-windows-x86_64.zip oxidj-macos-aarch64.tar.gz; do cmp "$name" "verified-download/$name"; done
+          gh release view "$TAG" --json isDraft,isPrerelease,assets | jq -e '.isDraft and .isPrerelease and ([.assets[].name] | sort) == (["SHA256SUMS", "oxidj-linux-x86_64.tar.gz", "oxidj-windows-x86_64.zip", "oxidj-macos-aarch64.tar.gz"] | sort)' >/dev/null
           gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" | jq -e --arg sha "$GITHUB_SHA" '.object.type == "commit" and .object.sha == $sha' >/dev/null
           gh release edit "$TAG" --draft=false --prerelease
+          gh release view "$TAG" --json isDraft,isPrerelease | jq -e '.isDraft == false and .isPrerelease == true' >/dev/null
