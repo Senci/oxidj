@@ -635,44 +635,78 @@ impl LibraryApp {
         }
         let mut open = true;
         let mut done = false;
-        egui::Window::new("Add track to root playlist")
+        egui::Window::new("Add track to playlist")
             .open(&mut open)
             .show(ctx, |ui| {
-                ui.label("Choose an existing root playlist. Duplicate entries are kept.");
+                ui.label("Choose an existing playlist. Duplicate entries are kept.");
                 egui::ScrollArea::vertical()
                     .max_height(240.0)
                     .show(ui, |ui| {
                         if let Ok(nav) = &self.imported_navigation {
-                            for (index, node) in nav.roots.iter().enumerate() {
-                                if let oxidj_library::LibraryNode::Playlist { name, members } = node
+                            fn collect(
+                                nodes: &[oxidj_library::LibraryNode],
+                                path: &mut Vec<usize>,
+                                names: &mut Vec<String>,
+                                out: &mut Vec<(Vec<usize>, Vec<String>, Vec<usize>)>,
+                            ) {
+                                for (index, node) in nodes.iter().enumerate() {
+                                    path.push(index);
+                                    match node {
+                                        oxidj_library::LibraryNode::Folder { name, children } => {
+                                            names.push(name.clone());
+                                            collect(children, path, names, out);
+                                            names.pop();
+                                        }
+                                        oxidj_library::LibraryNode::Playlist { name, members } => {
+                                            names.push(name.clone());
+                                            out.push((
+                                                path.clone(),
+                                                names.clone(),
+                                                members.clone(),
+                                            ));
+                                            names.pop();
+                                        }
+                                    }
+                                    path.pop();
+                                }
+                            }
+                            let mut choices = Vec::new();
+                            collect(&nav.roots, &mut Vec::new(), &mut Vec::new(), &mut choices);
+                            for (path, names, members) in choices {
+                                let selected = self
+                                    .catalog_append_pending
+                                    .as_ref()
+                                    .and_then(|p| p.2.as_ref())
+                                    .is_some_and(|p| p.0 == path);
+                                if ui
+                                    .selectable_label(
+                                        selected,
+                                        format!("Target: {:?} {:?}", path, names),
+                                    )
+                                    .clicked()
                                 {
-                                    let selected = self
-                                        .catalog_append_pending
+                                    match self
+                                        .catalog
                                         .as_ref()
-                                        .and_then(|p| p.2.as_ref())
-                                        .is_some_and(|p| p.0 == index);
-                                    if ui
-                                        .selectable_label(selected, format!("Target: {name}"))
-                                        .clicked()
-                                    {
-                                        match self
-                                            .catalog
-                                            .as_ref()
-                                            .map_err(|_| "catalog unavailable".to_string())
-                                            .and_then(|db| {
-                                                db.root_playlist_guard(index, name, members)
-                                                    .map_err(|e| e.to_string())
-                                            }) {
-                                            Ok(guard) => {
-                                                self.catalog_append_pending.as_mut().unwrap().2 =
-                                                    Some((index, guard))
+                                        .map_err(|_| "catalog unavailable".to_string())
+                                        .and_then(|db| {
+                                            if path.len() == 1 {
+                                                db.root_playlist_guard(path[0], &names[0], &members)
+                                                    .map(crate::app::AppendTarget::Root)
+                                            } else {
+                                                db.nested_rename_guard(&path, &names, &members)
+                                                    .map(crate::app::AppendTarget::Nested)
                                             }
-                                            Err(error) => {
-                                                self.catalog_append_pending.as_mut().unwrap().2 =
-                                                    None;
-                                                self.notice =
-                                                    format!("Playlist selection refused: {error}");
-                                            }
+                                            .map_err(|e| e.to_string())
+                                        }) {
+                                        Ok(guard) => {
+                                            self.catalog_append_pending.as_mut().unwrap().2 =
+                                                Some((path, guard))
+                                        }
+                                        Err(error) => {
+                                            self.catalog_append_pending.as_mut().unwrap().2 = None;
+                                            self.notice =
+                                                format!("Playlist selection refused: {error}");
                                         }
                                     }
                                 }
@@ -685,19 +719,30 @@ impl LibraryApp {
                         let result =
                             if self.selected_imported != Some(*member) || !self.db_path.is_file() {
                                 Err("selection or catalog is no longer available".to_owned())
-                            } else if let Some((_, guard)) = target {
+                            } else if let Some((path, guard)) = target {
                                 match &mut self.catalog {
-                                    Ok(db) => db
-                                        .append_guarded_root_playlist_member(guard, track)
-                                        .map_err(|e| e.to_string()),
+                                    Ok(db) => match guard {
+                                        crate::app::AppendTarget::Root(guard) => db
+                                            .append_guarded_root_playlist_member(guard, track)
+                                            .map(|_| None),
+                                        crate::app::AppendTarget::Nested(guard) => db
+                                            .append_guarded_nested_playlist_member(guard, track)
+                                            .map(|updated| Some((path.clone(), updated))),
+                                    }
+                                    .map_err(|e| e.to_string()),
                                     Err(_) => Err("catalog unavailable".to_owned()),
                                 }
                             } else {
-                                Err("choose a root playlist".to_owned())
+                                Err("choose a playlist".to_owned())
                             };
                         match result {
-                            Ok(()) => {
+                            Ok(updated_nested) => {
                                 self.reload();
+                                if let Some((path, guard)) = updated_nested
+                                    && self.imported_playlist.as_ref() == Some(&path)
+                                {
+                                    self.imported_nested_guard = Some(guard);
+                                }
                                 self.imported_root_guard = self
                                     .imported_playlist
                                     .as_ref()
@@ -1634,15 +1679,18 @@ impl LibraryApp {
                 (self.selected_imported, &self.selected_imported_guard)
             {
                 if ui.button("Add selected to playlist…").clicked() {
-                    let target = self
-                        .imported_playlist
-                        .as_ref()
-                        .filter(|path| path.len() == 1)
-                        .and_then(|path| {
+                    let target = self.imported_playlist.as_ref().and_then(|path| {
+                        let guard = if path.len() == 1 {
                             self.imported_root_guard
                                 .clone()
-                                .map(|guard| (path[0], guard))
-                        });
+                                .map(crate::app::AppendTarget::Root)
+                        } else {
+                            self.imported_nested_guard
+                                .clone()
+                                .map(crate::app::AppendTarget::Nested)
+                        };
+                        guard.map(|guard| (path.clone(), guard))
+                    });
                     self.catalog_append_pending = Some((member, guard.clone(), target));
                 }
                 if ui.button("Create playlist from selected…").clicked() {

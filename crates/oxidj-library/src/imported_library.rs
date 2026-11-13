@@ -241,6 +241,70 @@ fn nested_members(tx: &rusqlite::Transaction<'_>, id: i64) -> Result<Vec<usize>,
 }
 
 impl Catalog {
+    /// Append a selected track to a nested playlist after transactional revalidation.
+    pub fn append_guarded_nested_playlist_member(
+        &mut self,
+        guard: &NestedRenameGuard,
+        track: &ImportedTrackGuard,
+    ) -> Result<NestedRenameGuard, CatalogError> {
+        use rusqlite::OptionalExtension;
+        let tx = self
+            .connection
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let path: Vec<_> = guard.chain.iter().map(|n| n.2).collect();
+        let names: Vec<_> = guard.chain.iter().map(|n| n.3.clone()).collect();
+        let chain = nested_chain(&tx, &path, &names)?;
+        let id = chain
+            .last()
+            .ok_or(CatalogError::InvalidRecord("invalid nested playlist path"))?
+            .0;
+        if chain != guard.chain || nested_members(&tx, id)? != guard.members {
+            return Err(CatalogError::InvalidRecord(
+                "selected nested playlist is stale",
+            ));
+        }
+        let row: Option<ImportedTrackRow> = tx.query_row(
+            "SELECT i.token,t.title,t.location,t.artist,t.album,t.tempo_hundredths_bpm,t.duration_seconds,t.musical_key FROM library_tracks t JOIN library_track_identity i ON i.track_position=t.position WHERE t.position=?1",
+            [to_i64(track.position)?], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?,r.get(5)?,r.get(6)?,r.get(7)?)),
+        ).optional()?;
+        let v = &track.visible;
+        if row
+            != Some((
+                track.token.clone(),
+                v.title.clone(),
+                v.location.clone(),
+                v.artist.clone(),
+                v.album.clone(),
+                i64::from(v.tempo_hundredths_bpm),
+                i64::from(v.duration_seconds),
+                v.key.clone(),
+            ))
+        {
+            return Err(CatalogError::InvalidRecord(
+                "selected imported track is stale",
+            ));
+        }
+        let last: Option<i64> = tx.query_row(
+            "SELECT MAX(position) FROM library_members WHERE node_id=?1",
+            [id],
+            |r| r.get(0),
+        )?;
+        let next = last
+            .unwrap_or(-1)
+            .checked_add(1)
+            .ok_or(CatalogError::InvalidRecord(
+                "playlist membership position exceeds range",
+            ))?;
+        tx.execute(
+            "INSERT INTO library_members(node_id,position,track_position) VALUES(?1,?2,?3)",
+            rusqlite::params![id, next, to_i64(track.position)?],
+        )?;
+        tx.commit()?;
+        let mut updated = guard.clone();
+        updated.members.push(track.position);
+        Ok(updated)
+    }
+
     /// Remove one nested membership after revalidating ancestry, membership and track identity.
     pub fn remove_guarded_nested_playlist_member(
         &mut self,
@@ -1800,6 +1864,71 @@ mod tests {
                 assert_eq!(catalog.library_snapshot().unwrap(), before, "{case}");
             }
         }
+    }
+
+    #[test]
+    fn nested_append_prototype_checks_guard_and_preserves_snapshot() {
+        let mut catalog = Catalog::open(path()).unwrap();
+        let mut before = snapshot();
+        catalog.import_library(&before).unwrap();
+        let nav = catalog.library_navigation().unwrap();
+        let track = catalog.imported_track_guard(1, &nav.tracks[1]).unwrap();
+        let names = vec!["Folder".to_owned(), "Inner".to_owned()];
+        let guard = catalog.nested_rename_guard(&[1, 0], &names, &[1]).unwrap();
+        let updated = catalog
+            .append_guarded_nested_playlist_member(&guard, &track)
+            .unwrap();
+        if let LibraryNode::Folder { children, .. } = &mut before.roots[1]
+            && let LibraryNode::Playlist { members, .. } = &mut children[0]
+        {
+            members.push(1);
+        }
+        assert_eq!(catalog.library_snapshot().unwrap(), before);
+        assert!(
+            catalog
+                .append_guarded_nested_playlist_member(&guard, &track)
+                .is_err()
+        );
+        assert_eq!(catalog.library_snapshot().unwrap(), before);
+        catalog
+            .connection
+            .execute(
+                "UPDATE library_track_identity SET token=randomblob(16) WHERE track_position=1",
+                [],
+            )
+            .unwrap();
+        assert!(
+            catalog
+                .append_guarded_nested_playlist_member(&updated, &track)
+                .is_err()
+        );
+        assert_eq!(catalog.library_snapshot().unwrap(), before);
+        let fresh_track = catalog
+            .imported_track_guard(1, &catalog.library_navigation().unwrap().tracks[1])
+            .unwrap();
+        catalog
+            .connection
+            .execute(
+                "UPDATE library_node_identity SET token=randomblob(16) WHERE node_id=?1",
+                [updated.chain[0].0],
+            )
+            .unwrap();
+        assert!(
+            catalog
+                .append_guarded_nested_playlist_member(&updated, &fresh_track)
+                .is_err()
+        );
+        assert_eq!(catalog.library_snapshot().unwrap(), before);
+        let fresh_guard = catalog
+            .nested_rename_guard(&[1, 0], &names, &[1, 1])
+            .unwrap();
+        catalog.connection.execute_batch("CREATE TEMP TRIGGER fail_nested_append BEFORE INSERT ON library_members BEGIN SELECT RAISE(ABORT, 'injected append failure'); END;").unwrap();
+        assert!(
+            catalog
+                .append_guarded_nested_playlist_member(&fresh_guard, &fresh_track)
+                .is_err()
+        );
+        assert_eq!(catalog.library_snapshot().unwrap(), before);
     }
 
     #[test]

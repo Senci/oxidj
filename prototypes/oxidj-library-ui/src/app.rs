@@ -160,7 +160,7 @@ pub(crate) struct LibraryApp {
     pub(crate) catalog_append_pending: Option<(
         usize,
         oxidj_library::ImportedTrackGuard,
-        Option<(usize, oxidj_library::RootPlaylistGuard)>,
+        Option<(Vec<usize>, AppendTarget)>,
     )>,
     pub(crate) catalog_create_pending: Option<(usize, oxidj_library::ImportedTrackGuard)>,
     pub(crate) catalog_create_name: String,
@@ -181,6 +181,12 @@ pub(crate) struct LibraryApp {
     /// M8/D0 persisted settings and the Settings window state.
     pub(crate) settings: crate::settings::Settings,
     pub(crate) settings_ui: crate::settings::SettingsUi,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) enum AppendTarget {
+    Root(oxidj_library::RootPlaylistGuard),
+    Nested(oxidj_library::NestedRenameGuard),
 }
 
 #[derive(Clone, Copy, Debug)]

@@ -590,6 +590,296 @@ fn nested_playlist_offers_rename_and_root_collision_refuses() {
 }
 
 #[test]
+fn nested_append_picker_targets_one_of_two_same_named_playlists() {
+    let (root, db) = catalog_root("nested-append-picker");
+    let fixture = LibrarySnapshot {
+        tracks: vec![LibraryTrack {
+            title: "Track".into(),
+            location: "file://localhost/test.mp3".into(),
+            ..Default::default()
+        }],
+        roots: ["First", "Second"]
+            .into_iter()
+            .map(|name| oxidj_library::LibraryNode::Folder {
+                name: name.into(),
+                children: vec![oxidj_library::LibraryNode::Playlist {
+                    name: "Nested".into(),
+                    members: vec![0, 0],
+                }],
+            })
+            .collect(),
+    };
+    Catalog::open(&db)
+        .unwrap()
+        .import_library(&fixture)
+        .unwrap();
+    let mut shell = Shell::new(&db, 1440.0);
+    let rows: Vec<_> = texts(&shell.settle())
+        .into_iter()
+        .filter(|(s, _)| s == "♫ Nested")
+        .collect();
+    shell.click(rows[0].1.center());
+    let row = text_rect(&mut shell, "1 · Track");
+    shell.click(row.center());
+    let out = shell.settle();
+    shell.click(find(&nodes(&out), "Add selected to playlist…").2.center());
+    let out = shell.settle();
+    let out = shell.click(
+        find(&nodes(&out), "Target: [1, 0] [\"Second\", \"Nested\"]")
+            .2
+            .center(),
+    );
+    shell.click(find(&nodes(&out), "Cancel").2.center());
+    assert_eq!(
+        Catalog::open_read_only(&db)
+            .unwrap()
+            .library_snapshot()
+            .unwrap(),
+        fixture
+    );
+    let out = shell.settle();
+    shell.click(find(&nodes(&out), "Add selected to playlist…").2.center());
+    let out = shell.settle();
+    let out = shell.click(
+        find(&nodes(&out), "Target: [1, 0] [\"Second\", \"Nested\"]")
+            .2
+            .center(),
+    );
+    shell.click(find(&nodes(&out), "Confirm addition").2.center());
+    assert!(
+        shell.app.notice.starts_with("Track added"),
+        "{}",
+        shell.app.notice
+    );
+    let mut expected = fixture;
+    let oxidj_library::LibraryNode::Folder { children, .. } = &mut expected.roots[1] else {
+        panic!("folder")
+    };
+    let oxidj_library::LibraryNode::Playlist { members, .. } = &mut children[0] else {
+        panic!("playlist")
+    };
+    members.push(0);
+    assert_eq!(
+        Catalog::open_read_only(&db)
+            .unwrap()
+            .library_snapshot()
+            .unwrap(),
+        expected
+    );
+    drop(shell);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn nested_append_disambiguates_identical_paths_and_repeats_without_reselection() {
+    let (root, db) = catalog_root("nested-append-review-fixes");
+    let fixture = LibrarySnapshot {
+        tracks: vec![LibraryTrack {
+            title: "Track".into(),
+            location: "file://localhost/test.mp3".into(),
+            ..Default::default()
+        }],
+        roots: (0..2)
+            .map(|_| oxidj_library::LibraryNode::Folder {
+                name: "Same / folder".into(),
+                children: vec![oxidj_library::LibraryNode::Playlist {
+                    name: "Mix".into(),
+                    members: vec![0],
+                }],
+            })
+            .collect(),
+    };
+    Catalog::open(&db)
+        .unwrap()
+        .import_library(&fixture)
+        .unwrap();
+    let mut shell = Shell::new(&db, 1440.0);
+    let rows: Vec<_> = texts(&shell.settle())
+        .into_iter()
+        .filter(|(s, _)| s == "♫ Mix")
+        .collect();
+    shell.click(rows[1].1.center());
+    let row = text_rect(&mut shell, "1 · Track");
+    shell.click(row.center());
+    for _ in 0..2 {
+        let out = shell.settle();
+        let out = shell.click(find(&nodes(&out), "Add selected to playlist…").2.center());
+        let labels = texts(&out);
+        assert!(
+            labels
+                .iter()
+                .any(|(s, _)| s == "Target: [0, 0] [\"Same / folder\", \"Mix\"]")
+        );
+        assert!(
+            labels
+                .iter()
+                .any(|(s, _)| s == "Target: [1, 0] [\"Same / folder\", \"Mix\"]")
+        );
+        shell.click(find(&nodes(&out), "Confirm addition").2.center());
+        assert!(
+            shell.app.notice.starts_with("Track added"),
+            "{}",
+            shell.app.notice
+        );
+    }
+    let mut expected = fixture;
+    let oxidj_library::LibraryNode::Folder { children, .. } = &mut expected.roots[1] else {
+        panic!("folder")
+    };
+    let oxidj_library::LibraryNode::Playlist { members, .. } = &mut children[0] else {
+        panic!("playlist")
+    };
+    members.extend([0, 0]);
+    assert_eq!(
+        Catalog::open_read_only(&db)
+            .unwrap()
+            .library_snapshot()
+            .unwrap(),
+        expected
+    );
+    drop(shell);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn nested_append_ui_rejects_changed_ancestor_and_track_identity() {
+    for case in ["ancestor", "track"] {
+        let (root, db) = catalog_root(&format!("nested-append-stale-{case}"));
+        let fixture = LibrarySnapshot {
+            tracks: vec![LibraryTrack {
+                title: "Track".into(),
+                location: "file://localhost/test.mp3".into(),
+                ..Default::default()
+            }],
+            roots: vec![oxidj_library::LibraryNode::Folder {
+                name: "Folder".into(),
+                children: vec![oxidj_library::LibraryNode::Playlist {
+                    name: "Nested".into(),
+                    members: vec![0],
+                }],
+            }],
+        };
+        Catalog::open(&db)
+            .unwrap()
+            .import_library(&fixture)
+            .unwrap();
+        let mut shell = Shell::new(&db, 1440.0);
+        let row = text_rect(&mut shell, "♫ Nested");
+        shell.click(row.center());
+        let row = text_rect(&mut shell, "1 · Track");
+        shell.click(row.center());
+        let out = shell.settle();
+        shell.click(find(&nodes(&out), "Add selected to playlist…").2.center());
+        let sql = if case == "ancestor" {
+            "UPDATE library_node_identity SET token=randomblob(16) WHERE node_id=(SELECT id FROM library_nodes WHERE name='Folder')"
+        } else {
+            "UPDATE library_track_identity SET token=randomblob(16) WHERE track_position=0"
+        };
+        let result = std::process::Command::new("python3").args(["-c", "import sqlite3,sys; c=sqlite3.connect(sys.argv[1]); c.execute(sys.argv[2]); c.commit()"])
+            .arg(&db).arg(sql).output().unwrap();
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        let out = shell.settle();
+        shell.click(find(&nodes(&out), "Confirm addition").2.center());
+        let reason = if case == "ancestor" {
+            "selected nested playlist is stale"
+        } else {
+            "selected imported track is stale"
+        };
+        assert!(
+            shell.app.notice.contains(reason),
+            "{case}: {}",
+            shell.app.notice
+        );
+        assert_eq!(
+            Catalog::open_read_only(&db)
+                .unwrap()
+                .library_snapshot()
+                .unwrap(),
+            fixture
+        );
+        drop(shell);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+}
+
+#[test]
+fn nested_append_ui_refuses_membership_reorder_without_further_changes() {
+    let (root, db) = catalog_root("nested-append-order-stale");
+    let fixture = LibrarySnapshot {
+        tracks: ["Track A", "Track B"]
+            .into_iter()
+            .enumerate()
+            .map(|(i, name)| LibraryTrack {
+                title: name.into(),
+                location: format!("file://localhost/{i}.mp3"),
+                ..Default::default()
+            })
+            .collect(),
+        roots: vec![oxidj_library::LibraryNode::Folder {
+            name: "Folder".into(),
+            children: vec![oxidj_library::LibraryNode::Playlist {
+                name: "Nested".into(),
+                members: vec![0, 1],
+            }],
+        }],
+    };
+    Catalog::open(&db)
+        .unwrap()
+        .import_library(&fixture)
+        .unwrap();
+    let mut shell = Shell::new(&db, 1440.0);
+    let row = text_rect(&mut shell, "♫ Nested");
+    shell.click(row.center());
+    let row = text_rect(&mut shell, "1 · Track A");
+    shell.click(row.center());
+    let out = shell.settle();
+    shell.click(find(&nodes(&out), "Add selected to playlist…").2.center());
+    let sql = "UPDATE library_members SET track_position=1-track_position WHERE node_id=(SELECT id FROM library_nodes WHERE name='Nested')";
+    let result = std::process::Command::new("python3").args(["-c", "import sqlite3,sys; c=sqlite3.connect(sys.argv[1]); c.execute(sys.argv[2]); c.commit()"]).arg(&db).arg(sql).output().unwrap();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let before = Catalog::open_read_only(&db)
+        .unwrap()
+        .library_snapshot()
+        .unwrap();
+    let mut reordered = fixture;
+    let oxidj_library::LibraryNode::Folder { children, .. } = &mut reordered.roots[0] else {
+        panic!("folder")
+    };
+    let oxidj_library::LibraryNode::Playlist { members, .. } = &mut children[0] else {
+        panic!("playlist")
+    };
+    *members = vec![1, 0];
+    assert_eq!(before, reordered);
+    let out = shell.settle();
+    shell.click(find(&nodes(&out), "Confirm addition").2.center());
+    assert!(
+        shell
+            .app
+            .notice
+            .contains("selected nested playlist is stale"),
+        "{}",
+        shell.app.notice
+    );
+    assert_eq!(
+        Catalog::open_read_only(&db)
+            .unwrap()
+            .library_snapshot()
+            .unwrap(),
+        before
+    );
+    drop(shell);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn nested_remove_selected_occurrence_is_available() {
     let (root, db) = catalog_root("nested-remove-available");
     let fixture = LibrarySnapshot {
@@ -957,6 +1247,78 @@ c.commit()"#;
         drop(shell);
         std::fs::remove_dir_all(root).unwrap();
     }
+}
+
+#[test]
+fn pdb_nested_append_ui_export_matches_oracle_and_rejects_mutation() {
+    let (root, _) = catalog_root("nested-append-oracle");
+    let (pdb, source, analysis) = m7_fixture::write(&root.join("device"));
+    let db = root.join("imported.sqlite");
+    oxidj_application::import_library_from_pdb(&pdb, &db, None).unwrap();
+    let mut shell = Shell::new(&db, 1440.0);
+    shell.screen.max.y = 1800.0;
+    let row = text_rect(&mut shell, "♫ Playlist 19");
+    shell.click(row.center());
+    let row = text_rect(&mut shell, "2 · Track 812");
+    shell.click(row.center());
+    let out = shell.settle();
+    let out = shell.click(find(&nodes(&out), "Add selected to playlist…").2.center());
+    shell.click(find(&nodes(&out), "Confirm addition").2.center());
+    assert!(
+        shell.app.notice.starts_with("Track added"),
+        "{}",
+        shell.app.notice
+    );
+    let output = root.join("nested-appended.xml");
+    let menu = shell.click(shell.app.shell.more.unwrap().center());
+    let out = shell.click(find(&nodes(&menu), "Export catalog XML…").2.center());
+    shell.app.catalog_export_path = output.display().to_string();
+    shell.click(find(&nodes(&out), "Export catalog XML").2.center());
+    assert!(
+        shell.app.notice.starts_with("Catalog exported"),
+        "{}",
+        shell.app.notice
+    );
+    let oracle = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../scripts/verify_m7_export.py");
+    let check = |xml: &Path| {
+        std::process::Command::new("python3")
+            .arg("-B")
+            .arg(&oracle)
+            .arg(&pdb)
+            .arg(xml)
+            .args(["--append-member", "118", "812"])
+            .output()
+            .unwrap()
+    };
+    let result = check(&output);
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let wrong = root.join("wrong.xml");
+    let mutate = "import sys,xml.etree.ElementTree as E; t=E.parse(sys.argv[1]); n=next(x for x in t.iter('NODE') if x.get('Name')=='Playlist 19'); n[-1].set('Key','1'); t.write(sys.argv[2])";
+    assert!(
+        std::process::Command::new("python3")
+            .args(["-c", mutate])
+            .arg(&output)
+            .arg(&wrong)
+            .status()
+            .unwrap()
+            .success()
+    );
+    let rejected = check(&wrong);
+    assert!(!rejected.status.success());
+    assert!(
+        String::from_utf8_lossy(&rejected.stderr)
+            .contains("tree: complete ordered nodes/members differ")
+    );
+    assert_eq!(std::fs::read(&pdb).unwrap(), source);
+    for (path, bytes) in analysis {
+        assert_eq!(std::fs::read(path).unwrap(), bytes);
+    }
+    drop(shell);
+    std::fs::remove_dir_all(root).unwrap();
 }
 
 #[test]
@@ -1359,7 +1721,7 @@ fn pdb_append_allows_selecting_a_different_root_target() {
     shell.app.catalog_append_pending.as_mut().unwrap().2 = None;
     let out = shell.settle();
     shell.click(find(&nodes(&out), "Confirm addition").2.center());
-    assert!(shell.app.notice.contains("choose a root playlist"));
+    assert!(shell.app.notice.contains("choose a playlist"));
     assert_eq!(
         Catalog::open_read_only(&db)
             .unwrap()
@@ -1368,7 +1730,11 @@ fn pdb_append_allows_selecting_a_different_root_target() {
         before
     );
     let out = shell.settle();
-    let out = shell.click(find(&nodes(&out), "Target: Playlist 2").2.center());
+    let out = shell.click(
+        find(&nodes(&out), "Target: [1] [\"Playlist 2\"]")
+            .2
+            .center(),
+    );
     shell.click(find(&nodes(&out), "Confirm addition").2.center());
     assert!(
         shell.app.notice.starts_with("Track added"),
