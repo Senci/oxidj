@@ -5,9 +5,12 @@ use super::*;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Sort {
+    Availability,
     Id,
     Filename,
+    Folder,
     Duration,
+    Format,
 }
 
 pub(crate) struct LibraryApp {
@@ -21,6 +24,12 @@ pub(crate) struct LibraryApp {
     pub(crate) sort: Sort,
     pub(crate) descending: bool,
     pub(crate) imported_sort: Option<(usize, bool)>,
+    pub(crate) filter_min_bpm: String,
+    pub(crate) filter_max_bpm: String,
+    pub(crate) filter_key: String,
+    pub(crate) filter_genre: String,
+    pub(crate) filter_availability: u8,
+    pub(crate) show_filters: bool,
     pub(crate) notice: String,
     pub(crate) theme: ThemeMode,
     pub(crate) custom_tokens: theme::ColorTokens,
@@ -208,6 +217,12 @@ impl LibraryApp {
             selected: None,
             sort: Sort::Id,
             imported_sort: None,
+            filter_min_bpm: String::new(),
+            filter_max_bpm: String::new(),
+            filter_key: String::new(),
+            filter_genre: String::new(),
+            filter_availability: 0,
+            show_filters: false,
             descending: false,
             notice: String::new(),
             theme,

@@ -1609,7 +1609,48 @@ impl LibraryApp {
             }
             if let Some(members) = playlist {
                 let snapshot = snapshot.clone();
+                if ui.button("Filters").clicked() {
+                    self.show_filters = !self.show_filters;
+                }
+                let mut show_filters = self.show_filters;
+                egui::Window::new("Playlist filters").open(&mut show_filters).show(ui.ctx(), |ui| {
+                    ui.label("BPM minimum");
+                    ui.text_edit_singleline(&mut self.filter_min_bpm);
+                    ui.label("BPM maximum");
+                    ui.text_edit_singleline(&mut self.filter_max_bpm);
+                    ui.label("Key contains");
+                    ui.text_edit_singleline(&mut self.filter_key);
+                    ui.label("Genre contains");
+                    ui.text_edit_singleline(&mut self.filter_genre);
+                    egui::ComboBox::from_label("Scanned availability")
+                        .selected_text(["Any", "Available", "Missing", "Unknown"][self.filter_availability as usize])
+                        .show_ui(ui, |ui| {
+                            for (value, label) in ["Any", "Available", "Missing", "Unknown"].into_iter().enumerate() {
+                                ui.selectable_value(&mut self.filter_availability, value as u8, label);
+                            }
+                        });
+                    ui.label("Unknown means no unique matching scanned catalog status.");
+                    if [&self.filter_min_bpm, &self.filter_max_bpm].iter().any(|s| !s.trim().is_empty() && !s.trim().parse::<f64>().is_ok_and(|v| v.is_finite() && v >= 0.0)) {
+                        ui.label("Enter a valid non-negative BPM.");
+                    }
+                    if ui.button("Clear filters").clicked() {
+                        self.filter_min_bpm.clear();
+                        self.filter_max_bpm.clear();
+                        self.filter_key.clear();
+                        self.filter_genre.clear();
+                        self.filter_availability = 0;
+                    }
+                });
+                self.show_filters = show_filters;
                 let mut load = None;
+                let mut availability = std::collections::HashMap::new();
+                if self.filter_availability != 0 {
+                    for item in &self.tracks {
+                        let location = oxidj_application::location_uri(&item.track.path).0;
+                        let value = if item.availability == TrackAvailability::Available { 1 } else { 2 };
+                        availability.entry(location).and_modify(|old| { if *old != value { *old = 3; } }).or_insert(value);
+                    }
+                }
                 let fit = |ui: &egui::Ui| fit_column_values(ui, PLAYLIST_LABELS, snapshot.tracks.iter().map(imported_values));
                 self.shell.table = Some(ui.available_rect_before_wrap());
                 let columns = self.settings.playlist_columns;
@@ -1623,7 +1664,7 @@ impl LibraryApp {
                     .show(ui, |ui| {
                         let (header, _) = ui.allocate_exact_size(egui::vec2(total, theme::HEADER_HEIGHT), egui::Sense::hover());
                         if let Some(index) = column_header(ui, header, &mut self.settings.playlist_columns, PLAYLIST_LABELS, crate::settings::Settings::default().playlist_columns, tokens, self.imported_sort, &fit) {
-                            self.imported_sort = Some(match self.imported_sort { Some((old, descending)) if old == index => (index, !descending), _ => (index, false) });
+                            self.imported_sort = match self.imported_sort { Some((old, true)) if old == index => None, Some((old, false)) if old == index => Some((index, true)), _ => Some((index, false)) };
                         }
                         let columns = self.settings.playlist_columns;
                         if members.is_empty() {
@@ -1643,6 +1684,8 @@ impl LibraryApp {
                                     )
                                     .to_lowercase()
                                     .contains(&query)
+                                        && imported_filter_matches(t, &self.filter_min_bpm, &self.filter_max_bpm, &self.filter_key, &self.filter_genre)
+                                        && (self.filter_availability == 0 || availability.get(&t.location).copied().unwrap_or(3) == self.filter_availability)
                                 })
                             })
                             .collect();
@@ -1745,16 +1788,19 @@ impl LibraryApp {
             .collect();
         visible.sort_by(|a, b| {
             let order = match self.sort {
+                Sort::Availability => (a.availability != TrackAvailability::Available).cmp(&(b.availability != TrackAvailability::Available)),
                 Sort::Id => a.track.id.as_u64().cmp(&b.track.id.as_u64()),
                 Sort::Filename => PathBuf::from(&a.track.path)
                     .file_name()
                     .cmp(&PathBuf::from(&b.track.path).file_name())
                     .then(a.track.id.as_u64().cmp(&b.track.id.as_u64())),
+                Sort::Folder => folder_name(&a.track.path).to_lowercase().cmp(&folder_name(&b.track.path).to_lowercase()),
                 Sort::Duration => a
                     .duration_seconds
                     .partial_cmp(&b.duration_seconds)
                     .unwrap_or(std::cmp::Ordering::Equal)
                     .then(a.track.id.as_u64().cmp(&b.track.id.as_u64())),
+                Sort::Format => format_facts(a.sample_rate, a.channels, a.bit_depth).cmp(&format_facts(b.sample_rate, b.channels, b.bit_depth)),
             };
             if self.descending {
                 order.reverse()
@@ -1776,8 +1822,8 @@ impl LibraryApp {
             .auto_shrink([false, false])
             .show(ui, |ui| {
                 let (header, _) = ui.allocate_exact_size(egui::vec2(total, theme::HEADER_HEIGHT), egui::Sense::hover());
-                if let Some(index) = column_header(ui, header, &mut self.settings.catalog_columns, CATALOG_LABELS, crate::settings::TableColumns::default(), tokens, Some((match self.sort { Sort::Id => 1, Sort::Filename => 2, Sort::Duration => 4 }, self.descending)), &fit) {
-                    let sort = match index { 1 => Some(Sort::Id), 2 => Some(Sort::Filename), 4 => Some(Sort::Duration), _ => None };
+                if let Some(index) = column_header(ui, header, &mut self.settings.catalog_columns, CATALOG_LABELS, crate::settings::TableColumns::default(), tokens, Some((match self.sort { Sort::Availability => 0, Sort::Id => 1, Sort::Filename => 2, Sort::Folder => 3, Sort::Duration => 4, Sort::Format => 5 }, self.descending)), &fit) {
+                    let sort = match index { 0 => Some(Sort::Availability), 1 => Some(Sort::Id), 2 => Some(Sort::Filename), 3 => Some(Sort::Folder), 4 => Some(Sort::Duration), 5 => Some(Sort::Format), _ => None };
                     if let Some(sort) = sort {
                         if self.sort == sort { self.descending = !self.descending; } else { self.sort = sort; self.descending = false; }
                     }
@@ -1884,6 +1930,20 @@ fn catalog_values(item: &TrackDetails) -> [String; 6] {
 
 fn imported_values(track: &oxidj_library::LibraryNavigationTrack) -> [String; 6] {
     [track.title.clone(), track.artist.clone().unwrap_or_else(|| "—".into()), track.album.clone().unwrap_or_else(|| "—".into()), if track.tempo_hundredths_bpm == 0 { "—".into() } else { format!("{:.2}", track.tempo_hundredths_bpm as f64 / 100.0) }, track.key.clone().unwrap_or_else(|| "—".into()), if track.duration_seconds == 0 { "—".into() } else { format_duration(track.duration_seconds as f64) }]
+}
+
+fn imported_filter_matches(track: &oxidj_library::LibraryNavigationTrack, min: &str, max: &str, key: &str, genre: &str) -> bool {
+    let bpm = f64::from(track.tempo_hundredths_bpm) / 100.0;
+    let bound = |s: &str, lower: bool| {
+        if s.trim().is_empty() { return true; }
+        s.trim().parse::<f64>().ok().filter(|v| v.is_finite() && *v >= 0.0)
+            .is_some_and(|v| bpm > 0.0 && if lower { bpm >= v } else { bpm <= v })
+    };
+    let text = |value: &Option<String>, query: &str| {
+        let query = query.trim().to_lowercase();
+        query.is_empty() || value.as_ref().is_some_and(|v| v.to_lowercase().contains(&query))
+    };
+    bound(min, true) && bound(max, false) && text(&track.key, key) && text(&track.genre, genre)
 }
 
 /// One full-width selectable row (true when clicked), W11 states:

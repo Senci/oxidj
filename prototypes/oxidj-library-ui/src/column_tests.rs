@@ -385,6 +385,86 @@ fn imported_header_click_changes_sort_direction() {
     let title = header(&mut shell, "Title");
     let out = shell.click(title.center());
     assert!(nodes(&out).iter().any(|n| n.1.as_deref() == Some("Title, sorted descending")));
+    let title = header(&mut shell, "Title");
+    shell.click(title.center());
+    assert!(shell.app.imported_sort.is_none(), "third click restores playlist order");
+    drop(shell);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn catalog_folder_header_sorts() {
+    let (root, db) = catalog_root("catalog-folder-sort");
+    let mut shell = Shell::new(&db, 1440.0);
+    let folder = header(&mut shell, "Folder");
+    let out = shell.click(folder.center());
+    assert!(nodes(&out).iter().any(|n| n.1.as_deref() == Some("Folder, sorted ascending")));
+    drop(shell);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn imported_quick_filter_opens_and_can_be_cleared() {
+    let (root, db) = catalog_root("imported-quick-filter");
+    Catalog::open(&db).unwrap().import_library(&LibrarySnapshot {
+        tracks: vec![
+            LibraryTrack { title: "Match".into(), location: "file://localhost/a".into(), tempo_hundredths_bpm: 12800, key: Some("8A".into()), genre: Some("House".into()), ..Default::default() },
+            LibraryTrack { title: "No metadata".into(), location: "file://localhost/b".into(), ..Default::default() },
+        ],
+        roots: vec![oxidj_library::LibraryNode::Playlist { name: "Browse".into(), members: vec![0, 1, 0] }],
+    }).unwrap();
+    let mut shell = Shell::new(&db, 1440.0);
+    let browse = text_rect(&mut shell, "♫ Browse");
+    shell.click(browse.center());
+    let out = shell.settle();
+    let tree = nodes(&out);
+    let button = find(&tree, "Filters");
+    let out = shell.click(button.2.center());
+    let mut fields: Vec<_> = nodes(&out).into_iter().filter(|n| n.0 == Role::TextInput && Some(n.2) != shell.app.shell.search).map(|n| n.2).collect();
+    fields.sort_by(|a, b| a.top().total_cmp(&b.top()));
+    assert_eq!(fields.len(), 4);
+    for (rect, value) in fields.into_iter().zip(["128", "128", "8a", "house"]) {
+        shell.frame(vec![egui::Event::PointerMoved(rect.center())], Default::default());
+        shell.click(rect.center());
+        shell.frame(vec![egui::Event::Text(value.into())], Default::default());
+    }
+    assert_eq!(shell.app.filter_genre, "house");
+    let out = shell.settle();
+    assert!(texts(&out).iter().any(|(s, _)| s == "1 · Match"));
+    assert!(!texts(&out).iter().any(|(s, _)| s == "2 · No metadata"));
+    let tree = nodes(&out);
+    let clear = find(&tree, "Clear filters");
+    shell.click(clear.2.center());
+    assert!(shell.app.filter_min_bpm.is_empty());
+    let out = shell.settle();
+    assert!(texts(&out).iter().any(|(s, _)| s == "2 · No metadata"));
+    drop(shell);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn imported_scanned_availability_does_not_guess_for_unmatched_locations() {
+    let (root, db) = catalog_root("playlist-scanned-availability");
+    let file = root.join("audio/tone-a.wav");
+    let location = oxidj_application::location_uri(file.to_str().unwrap()).0;
+    Catalog::open(&db).unwrap().import_library(&LibrarySnapshot {
+        tracks: vec![
+            LibraryTrack { title: "Scanned".into(), location, ..Default::default() },
+            LibraryTrack { title: "Unmatched".into(), location: "file://localhost/unknown".into(), ..Default::default() },
+        ],
+        roots: vec![oxidj_library::LibraryNode::Playlist { name: "Browse".into(), members: vec![0, 1] }],
+    }).unwrap();
+    let mut shell = Shell::new(&db, 1440.0);
+    let browse = text_rect(&mut shell, "♫ Browse");
+    shell.click(browse.center());
+    shell.app.filter_availability = 1;
+    let out = shell.settle();
+    assert!(texts(&out).iter().any(|(s, _)| s == "1 · Scanned"));
+    assert!(!texts(&out).iter().any(|(s, _)| s == "2 · Unmatched"));
+    shell.app.filter_availability = 3;
+    let out = shell.settle();
+    assert!(!texts(&out).iter().any(|(s, _)| s == "1 · Scanned"));
+    assert!(texts(&out).iter().any(|(s, _)| s == "2 · Unmatched"));
     drop(shell);
     std::fs::remove_dir_all(root).unwrap();
 }

@@ -20,7 +20,7 @@ integration are separate. This branch must not install or modify local master.
   records fall back per table; unrelated old preferences remain intact.
 - Horizontal scrolling handles narrow windows; headers and virtualized rows
   share the same column geometry. Selection and deck loading remain row actions.
-  Existing catalog ID/Filename/Duration left-click sorting is preserved.
+  Catalog headers and imported-playlist headers support ascending/descending sorting.
 
 ## Metadata audit / honest scope
 
@@ -33,11 +33,13 @@ are added.
 
 Imported-playlist browsing uses `LibraryNavigationTrack` from
 `Catalog::library_navigation`: title/location, optional artist/album/key,
-integer BPM hundredths and duration seconds. Its available display choices are
+integer BPM hundredths, genre and duration seconds. Its available display choices are
 Title, Artist, Album, BPM, Key and Duration. Source membership positions and
 repeated members retain their identity. Absent optionals, zero/unspecified BPM
 and zero/unspecified imported duration display `—`, not an invented value.
-Genre and scanned-file availability are not present in this lightweight DTO.
+Genre is used by the playlist filter. Scanned-file availability is matched only
+against exact catalog location URIs; an unmatched or conflicting reference is
+unknown, not missing. This lookup does not import or probe files.
 No database schema, vendor parser, audio path or catalog mutation is changed.
 
 ## Verification boundary
@@ -51,8 +53,8 @@ pre-column settings exercise fallback compatibility. Existing UI tests retain
 deck loading and virtual scrolling coverage. These synthetic tests are not a
 live desktop, screen-reader or presented-FPS qualification.
 
-Owner-approved enhanced sorting and BPM/key/genre/availability quick filters are
-additional scope recorded on the same card, not delivered by the core column
-layout change. Existing search, availability filter and catalog sorting remain;
-new filter controls or new metadata DTO fields need their own bounded follow-on.
+Imported-playlist quick filters combine inclusive BPM bounds, key and genre
+substrings and scanned availability. Missing metadata does not match an active
+filter; clearing filters restores the unfiltered list. Invalid BPM input shows a
+warning and does not match tracks. Filter values are session-only.
 Meme treatments remain unapproved proposals. No installation or push is claimed.

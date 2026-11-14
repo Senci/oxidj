@@ -94,6 +94,7 @@ pub struct LibraryNavigationTrack {
     pub tempo_hundredths_bpm: u32,
     pub duration_seconds: u32,
     pub key: Option<String>,
+    pub genre: Option<String>,
 }
 
 /// Lightweight imported-library tree used by the UI navigation panel.
@@ -771,7 +772,7 @@ impl Catalog {
     pub fn library_navigation(&self) -> Result<LibraryNavigation, CatalogError> {
         let mut statement = self
             .connection
-            .prepare("SELECT position,title,location,artist,album,tempo_hundredths_bpm,duration_seconds,musical_key FROM library_tracks ORDER BY position")?;
+            .prepare("SELECT position,title,location,artist,album,tempo_hundredths_bpm,duration_seconds,musical_key,genre FROM library_tracks ORDER BY position")?;
         let rows = statement.query_map([], |row| {
             Ok((
                 row.get::<_, i64>(0)?,
@@ -783,6 +784,7 @@ impl Catalog {
                     tempo_hundredths_bpm: row.get(5)?,
                     duration_seconds: row.get(6)?,
                     key: row.get(7)?,
+                    genre: row.get(8)?,
                 },
             ))
         })?;
@@ -1246,12 +1248,14 @@ mod tests {
             ["A", "B", "C"]
         );
         assert_eq!(navigation.tracks[0].location, "file://localhost/A.wav");
+        assert_eq!(navigation.tracks[0].genre.as_deref(), Some("Genre"));
         for (actual, expected) in navigation.tracks.iter().zip(snapshot().tracks) {
             assert_eq!(actual.artist, expected.artist);
             assert_eq!(actual.album, expected.album);
             assert_eq!(actual.tempo_hundredths_bpm, expected.tempo_hundredths_bpm);
             assert_eq!(actual.duration_seconds, expected.duration_seconds);
             assert_eq!(actual.key, expected.key);
+            assert_eq!(actual.genre, expected.genre);
         }
         assert_eq!(navigation.roots, snapshot().roots);
         assert!(
