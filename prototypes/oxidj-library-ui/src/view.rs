@@ -1622,13 +1622,15 @@ impl LibraryApp {
                     .auto_shrink([false, false])
                     .show(ui, |ui| {
                         let (header, _) = ui.allocate_exact_size(egui::vec2(total, theme::HEADER_HEIGHT), egui::Sense::hover());
-                        column_header(ui, header, &mut self.settings.playlist_columns, PLAYLIST_LABELS, crate::settings::Settings::default().playlist_columns, tokens, None, &fit);
+                        if let Some(index) = column_header(ui, header, &mut self.settings.playlist_columns, PLAYLIST_LABELS, crate::settings::Settings::default().playlist_columns, tokens, self.imported_sort, &fit) {
+                            self.imported_sort = Some(match self.imported_sort { Some((old, descending)) if old == index => (index, !descending), _ => (index, false) });
+                        }
                         let columns = self.settings.playlist_columns;
                         if members.is_empty() {
                             ui.label("This playlist is empty.");
                         }
                         let query = self.search.to_lowercase();
-                        let visible: Vec<_> = members
+                        let mut visible: Vec<_> = members
                             .iter()
                             .enumerate()
                             .filter(|(_, member)| {
@@ -1644,6 +1646,22 @@ impl LibraryApp {
                                 })
                             })
                             .collect();
+                        if let Some((column, descending)) = self.imported_sort {
+                            visible.sort_by(|a, b| {
+                                let a = &snapshot.tracks[*a.1];
+                                let b = &snapshot.tracks[*b.1];
+                                let order = match column {
+                                    0 => a.title.to_lowercase().cmp(&b.title.to_lowercase()),
+                                    1 => a.artist.as_deref().map(str::to_lowercase).cmp(&b.artist.as_deref().map(str::to_lowercase)),
+                                    2 => a.album.as_deref().map(str::to_lowercase).cmp(&b.album.as_deref().map(str::to_lowercase)),
+                                    3 => a.tempo_hundredths_bpm.cmp(&b.tempo_hundredths_bpm),
+                                    4 => a.key.as_deref().map(str::to_lowercase).cmp(&b.key.as_deref().map(str::to_lowercase)),
+                                    5 => a.duration_seconds.cmp(&b.duration_seconds),
+                                    _ => std::cmp::Ordering::Equal,
+                                };
+                                if descending { order.reverse() } else { order }
+                            });
+                        }
                         egui::ScrollArea::vertical()
                             .id_salt(("playlist-rows", &self.imported_playlist))
                             .auto_shrink([false, false])

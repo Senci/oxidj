@@ -346,6 +346,50 @@ fn column_middle_click_fits_one_column_and_catalog_sort_still_clicks() {
 }
 
 #[test]
+fn imported_sort_changes_visible_order_without_changing_member_identity() {
+    let (root, db) = catalog_root("imported-sort-members");
+    Catalog::open(&db).unwrap().import_library(&LibrarySnapshot {
+        tracks: vec![
+            LibraryTrack { title: "Zulu".into(), location: "file://localhost/z.mp3".into(), ..Default::default() },
+            LibraryTrack { title: "Alpha".into(), location: "file://localhost/a.mp3".into(), ..Default::default() },
+        ],
+        roots: vec![oxidj_library::LibraryNode::Playlist { name: "Browse".into(), members: vec![0, 1, 0] }],
+    }).unwrap();
+    let before = Catalog::open_read_only(&db).unwrap().library_snapshot().unwrap();
+    let mut shell = Shell::new(&db, 1440.0);
+    let browse = text_rect(&mut shell, "♫ Browse");
+    shell.click(browse.center());
+    let title = header(&mut shell, "Title");
+    shell.click(title.center());
+    let alpha = text_rect(&mut shell, "2 · Alpha");
+    let zulu = text_rect(&mut shell, "1 · Zulu");
+    assert!(alpha.top() < zulu.top());
+    shell.click(alpha.center());
+    assert_eq!(shell.app.imported_member, Some(1));
+    assert_eq!(shell.app.selected_imported, Some(1));
+    assert_eq!(Catalog::open_read_only(&db).unwrap().library_snapshot().unwrap(), before);
+    drop(shell);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn imported_header_click_changes_sort_direction() {
+    let (root, db) = catalog_root("imported-header-sort");
+    imported(&db, &root);
+    let mut shell = Shell::new(&db, 1440.0);
+    let browse = text_rect(&mut shell, "♫ Browse");
+    shell.click(browse.center());
+    let title = header(&mut shell, "Title");
+    let out = shell.click(title.center());
+    assert!(nodes(&out).iter().any(|n| n.1.as_deref() == Some("Title, sorted ascending")));
+    let title = header(&mut shell, "Title");
+    let out = shell.click(title.center());
+    assert!(nodes(&out).iter().any(|n| n.1.as_deref() == Some("Title, sorted descending")));
+    drop(shell);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn column_missing_imported_values_are_not_invented() {
     let (root, db) = catalog_root("column-missing-values");
     Catalog::open(&db)
