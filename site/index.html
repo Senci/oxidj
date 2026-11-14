@@ -9,136 +9,293 @@
     <!-- site:head -->
     <link rel="stylesheet" href="./src/styles/public.css" />
     <link rel="stylesheet" href="./src/styles/landing.css" />
+    <link rel="stylesheet" href="./src/styles/approved-landing.css" />
   </head>
   <body>
-    <!-- site:header -->
-    <main id="main">
-      <section class="hero hero-home" aria-labelledby="title">
-        <div class="container landing-hero">
-          <div class="hero-copy">
-            <p class="hero-index">Free software / Built in Rust / Pre-release</p>
-            <h1 id="title">Your USB stick deserves <span>fewer trust issues.</span></h1>
-            <p class="lead">
-              OxiDJ is a free-software DJ library with two decks. Bring your own tracks.
-            </p>
-            <div class="actions">
-              <a class="button" href="#downloads">Get OxiDJ</a>
-              <a class="button button-quiet" href="#inside">See the prototype</a>
-            </div>
-            <p class="hero-footnote">Local files. No mandatory account. Work in progress.</p>
-          </div>
-          <div class="stage stage-frame" aria-label="Prototype screenshot">
-            <div class="hero-record" aria-hidden="true">
-              <div class="hero-record-disc"></div>
-              <div class="hero-record-needle"></div>
-            </div>
-            <div class="stage-heading">
-              <span>On the desk</span><span>Actual app / synthetic library</span>
-            </div>
-            <!-- site:stage -->
-          </div>
-        </div>
-      </section>
-
-      <nav class="container page-jumps" aria-label="On this page">
-        <a href="#why"
-          ><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h6l2 2h8v10H4z" /></svg> Your
-          library</a
-        >
-        <a href="#inside"
-          ><svg viewBox="0 0 24 24" aria-hidden="true">
-            <rect x="3" y="5" width="18" height="14" rx="2" />
-            <path d="M8 15l3-3 2 2 3-4 3 5" />
-          </svg>
-          The prototype</a
-        >
-        <a href="#path"
-          ><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 6h14M5 12h14M5 18h14" /></svg>
-          Roadmap</a
-        >
-        <a href="#try-it"
-          ><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 7 5 5-5 5M12 17h7" /></svg> Get
-          started</a
-        >
+    <a class="skip-link" href="#main">Skip to content</a>
+    <header class="tripbar">
+      <a class="tripbrand" href="./">/ OxiDJ</a
+      ><span>INDEPENDENT SOFTWARE FOR INDEPENDENT EARS</span>
+      <nav class="artist-links" aria-label="Artist links">
+        <a
+          class="artist-icon"
+          href="https://soundcloud.com/s3nci"
+          aria-label="Senči on SoundCloud"
+          title="Senči on SoundCloud"
+          target="_blank"
+          rel="noopener noreferrer"
+          ><svg aria-hidden="true" viewBox="0 0 32 24" fill="currentColor">
+            <path
+              d="M1 14h2v5H1zm3-3h2v8H4zm3-3h2v11H7zm3 2h2v9h-2zm3-4h2v13h-2zm3 3a6 6 0 0 1 11 2h.3a4 4 0 1 1 0 8H16z"
+            /></svg></a
+        ><a
+          class="artist-icon"
+          href="https://s3nci.bandcamp.com/music"
+          aria-label="Senči on Bandcamp"
+          title="Senči on Bandcamp"
+          target="_blank"
+          rel="noopener noreferrer"
+          ><svg aria-hidden="true" viewBox="0 0 32 24" fill="currentColor">
+            <path d="M11 5h20L21 19H1z" /></svg
+        ></a>
       </nav>
+      <nav aria-label="Main navigation">
+        <a href="./">Home</a> <a href="./roadmap.html">Roadmap</a>
+        <a href="./roadmap.html#updates">Updates</a>
+        <a href="https://github.com/Senci/oxidj">Source</a>
+      </nav>
+    </header>
 
-      <section class="section container" aria-labelledby="why">
-        <div class="section-head reveal">
-          <h2 id="why">Your files can stay right where they are.</h2>
+    <main id="main" class="trip">
+      <section class="triphero" aria-labelledby="title">
+        <div class="tripcopy">
+          <span class="stamp">SIDE A / THE INDEPENDENT RELEASE</span>
+          <h1 id="title">YOUR USB STICK DESERVES <span>FEWER TRUST ISSUES.</span></h1>
           <p>
-            Audio stays where it is. A local catalog keeps references and technical facts, so
-            organising a library never means copying or rewriting your music. No cloud account.
+            A local-first DJ library with two decks. Built for your music, not somebody else's
+            quarterly report.
           </p>
-        </div>
-        <figure class="flow" aria-labelledby="flow-caption">
-          <ol class="flow-stages">
-            <li><strong>Audio files</strong><span>Stay in place, unchanged.</span></li>
-            <li><strong>Local catalog</strong><span>References and technical facts.</span></li>
-            <li><strong>Library window</strong><span>Search, sort, details, two decks.</span></li>
-          </ol>
-          <figcaption id="flow-caption" class="visually-hidden">
-            Audio stays in place. The catalog keeps references and technical facts. The library
-            window reads the catalog. Illustration only.
-          </figcaption>
-          <div class="flow-details">
-            <details>
-              <summary>Audio files</summary>
-              <p>
-                The importer reads supported WAV, FLAC, MP3 and AIFF/AIFF-C encodings. Originals
-                stay in place and unchanged.
-              </p>
-            </details>
-            <details>
-              <summary>Local catalog</summary>
-              <p>
-                The catalog stores file references, filenames and technical facts. This local scope
-                is single-process and capped at 10,000 tracks.
-              </p>
-            </details>
-            <details>
-              <summary>Library window</summary>
-              <p>
-                The provisional window reopens the saved catalog for search, sort, selection, track
-                details, a computed waveform and computed or imported beat grids. Two decks play
-                tracks from it.
-              </p>
-            </details>
-          </div>
-        </figure>
-      </section>
-
-      <section class="section container sleeve-section" aria-labelledby="sleeve-title">
-        <div class="section-head">
-          <h2 id="sleeve-title">Two sides. One record.</h2>
-          <p>
-            Flip the sleeve for the liner notes: what OxiDJ does today, and what still needs work.
-          </p>
-        </div>
-        <div class="sleeve-view">
-          <input type="checkbox" id="sleeve-flip" class="sleeve-toggle" />
-          <label for="sleeve-flip" class="sleeve-control"
-            ><span class="show-side-b">Flip to side B</span
-            ><span class="show-side-a">Flip to side A</span></label
+          <a class="tripbutton" href="https://github.com/Senci/oxidj/releases">GET OXIDJ ↗</a>
+          <button class="freedom-trigger" id="freedom-open" type="button" hidden>
+            ♪ FREE AS IN FREEDOM
+          </button>
+          <a class="video-fallback" href="https://www.youtube.com/watch?v=9sJUDx7iEJw"
+            >Watch on YouTube</a
           >
-          <div class="sleeve-scene">
-            <div class="sleeve-card">
-              <div class="sleeve-face sleeve-front">
-                <span>OxiDJ / Side A</span
-                ><strong>Your USB stick deserves fewer trust issues.</strong>
-                <p>Free software for the music you already own.</p>
+          <p class="micro" style="margin-top: 22px">
+            FREE SOFTWARE / WORK IN PROGRESS / ALPHA AVAILABLE
+          </p>
+        </div>
+        <div class="recordfield">
+          <div class="disc" aria-hidden="true"></div>
+          <div class="mock-needle" aria-hidden="true"><span></span></div>
+          <div class="recordshot">
+            <!-- site:deckMixerV2 --><span class="recordtag">Actual app / synthetic library</span>
+          </div>
+        </div>
+      </section>
+      <dialog class="freedom-dialog" id="freedom-dialog" aria-labelledby="freedom-title">
+        <button class="freedom-close" id="freedom-close" type="button" aria-label="Close video">
+          ×
+        </button>
+        <h2 id="freedom-title">let me play you the song of my people...</h2>
+        <p>A little anthem for the right to run, study, change and share your software.</p>
+        <div class="freedom-video" id="freedom-video"></div>
+        <p>
+          If the embedded player is unavailable,
+          <a
+            href="https://www.youtube.com/watch?v=9sJUDx7iEJw"
+            target="_blank"
+            rel="noopener noreferrer"
+            >▶ Watch the video on YouTube</a
+          >.
+        </p>
+      </dialog>
+      <div class="ticker" aria-hidden="true">
+        <span
+          >YOUR FILES ARE NOT A SUBSCRIPTION &nbsp; / &nbsp; SORRY ABOUT THE FORMATS &nbsp; / &nbsp;
+          PLEASE EJECT RESPONSIBLY &nbsp; / &nbsp; YOUR FILES ARE NOT A SUBSCRIPTION &nbsp; / &nbsp;
+          SORRY ABOUT THE FORMATS &nbsp; / &nbsp; PLEASE EJECT RESPONSIBLY &nbsp; / &nbsp;</span
+        >
+      </div>
+      <section class="trip-punches">
+        <span class="stamp">FIELD NOTES / FROM THE DJ INTERNET</span>
+        <h2>WE READ THE COMMENTS.<br />WE BROUGHT SNACKS.</h2>
+        <div class="punch-grid">
+          <article class="punch">
+            <small>01 / SUBSCRIPTION FATIGUE</small>
+            <h3>YOUR PLAYLIST DOESN'T NEED A PAYMENT PLAN.</h3>
+            <p>
+              Free software. Your library lives locally. No monthly relationship status required.
+            </p>
+            <details>
+              <summary>The real-world inspiration + sources</summary>
+              <p>
+                Some DJs complain about subscription fatigue. Rekordbox also has a free plan; some
+                features depend on plan or hardware. OxiDJ remains a work in progress.
+              </p>
+              <a
+                href="https://www.reddit.com/r/Rekordbox/comments/1lp9grq/the_relentless_enshittification_of_rekordbox/"
+                >Community discussion ↗</a
+              ><a href="https://rekordbox.com/en/support/faq/plans-7/">Rekordbox plans FAQ ↗</a>
+            </details>
+          </article>
+          <article class="punch">
+            <small>02 / THE LINUX CROWD</small>
+            <h3>YES, THE PENGUIN GETS TO DJ.</h3>
+            <p>OxiDJ is developed on Linux. Your operating system can come to the booth too.</p>
+            <details>
+              <summary>The real-world inspiration + sources</summary>
+              <p>
+                Linux users have requested support; a Pioneer DJ forum reply in 2021 said a Linux or
+                Wine-compatible version was not planned. This is a dated statement, not proof of
+                future plans.
+              </p>
+              <a
+                href="https://forums.pioneerdj.com/hc/en-us/community/posts/900002031126-Linux-Support-for-Rekordbox"
+                >Pioneer DJ forum ↗</a
+              >
+            </details>
+          </article>
+          <article class="punch">
+            <small>03 / FORMAT ANXIETY</small>
+            <h3>YOUR USB HAS ENOUGH IDENTITY CRISES.</h3>
+            <p>
+              We are working on ways to move your library. No magic compatibility wand included.
+            </p>
+            <details>
+              <summary>The real-world inspiration + sources</summary>
+              <p>
+                Device Library and OneLibrary are distinct formats; Rekordbox documents conversion
+                for certain players. OxiDJ's hardware support and OneLibrary export are not
+                demonstrated.
+              </p>
+              <a href="https://rekordbox.com/en/support/faq/trouble-shooting-6/"
+                >Rekordbox export FAQ ↗</a
+              >
+            </details>
+          </article>
+          <article class="punch">
+            <small>04 / PLAN ARCHAEOLOGY</small>
+            <h3>THE ONLY MIX THAT NEEDS A SUBSCRIPTION CHART.</h3>
+            <p>
+              Some features change with plan, hardware or registration. We prefer music to
+              flowcharts.
+            </p>
+            <details>
+              <summary>The real-world inspiration + sources</summary>
+              <p>
+                Rekordbox lists free and paid plans, and says availability depends on usage and
+                connected hardware.
+              </p>
+              <a href="https://rekordbox.com/en/support/faq/plans-7/">Rekordbox plans FAQ ↗</a>
+            </details>
+          </article>
+          <article class="punch">
+            <small>05 / CLOUD TROUBLE</small>
+            <h3>YOUR CLOUD HAS A BUFFERING PROBLEM.</h3>
+            <p>We think a local library should not need a weather forecast.</p>
+            <details>
+              <summary>The real-world inspiration + sources</summary>
+              <p>
+                Rekordbox documents that Cloud Library Sync can slow responsiveness depending on
+                computer and network conditions. OxiDJ does not require a cloud account.
+              </p>
+              <a href="https://rekordbox.com/en/support/faq/trouble-shooting-6/#faq-q600144"
+                >Rekordbox troubleshooting ↗</a
+              >
+            </details>
+          </article>
+          <article class="punch">
+            <small>06 / THE UPGRADE PROMPT</small>
+            <h3>THE DROP IS HERE. SO IS THE UPGRADE POPUP.</h3>
+            <p>We would rather put the DJ in the spotlight.</p>
+            <details>
+              <summary>The real-world inspiration + sources</summary>
+              <p>
+                Rekordbox's version 7 FAQ describes an upgrade notice at launch for free-plan users
+                and how owner registration or a paid plan affects it.
+              </p>
+              <a href="https://rekordbox.com/en/support/faq/plans-7/">Rekordbox plans FAQ ↗</a>
+            </details>
+          </article>
+          <article class="punch">
+            <small>07 / SUBSCRIPTION LOGIC</small>
+            <h3>UNPLUGGING YOUR LAPTOP DOESN'T CANCEL A SUBSCRIPTION. OBVIOUSLY.</h3>
+            <p>We like software whose relationship status is less complicated.</p>
+            <details>
+              <summary>The real-world inspiration + sources</summary>
+              <p>Rekordbox's FAQ says deactivating a device does not cancel its subscription.</p>
+              <a href="https://rekordbox.com/en/support/faq/plans-7/"
+                >Rekordbox cancellation FAQ ↗</a
+              >
+            </details>
+          </article>
+          <article class="punch">
+            <small>08 / THE CONVERSION RITUAL</small>
+            <h3>CONVERT YOUR LIBRARY. KEEP YOUR FINGERS CROSSED.</h3>
+            <p>Nothing says pre-gig confidence like a warning label on your playlists.</p>
+            <details>
+              <summary>The real-world inspiration + sources</summary>
+              <p>
+                Rekordbox warns that converting a Device Library over an existing OneLibrary
+                overwrites it and can lose playlists or play history stored only there. OxiDJ does
+                not currently offer OneLibrary export.
+              </p>
+              <a href="https://rekordbox.com/en/support/faq/trouble-shooting-6/#faq-q60700038"
+                >Rekordbox conversion warning ↗</a
+              >
+            </details>
+          </article>
+          <article class="punch">
+            <small>09 / STREAMING SURPRISE</small>
+            <h3>CHANGE THE QUALITY. REMIX YOUR CUE POINTS. UNINTENTIONALLY.</h3>
+            <p>Your hot cues should be the surprises you planned.</p>
+            <details>
+              <summary>The real-world inspiration + sources</summary>
+              <p>
+                Rekordbox warns that changing SoundCloud or TIDAL streaming quality can shift beat
+                grids and cue points. OxiDJ does not currently offer those streaming integrations.
+              </p>
+              <a href="https://rekordbox.com/en/support/faq/trouble-shooting-6/#faq-q600146"
+                >Rekordbox streaming-quality warning ↗</a
+              >
+            </details>
+          </article>
+        </div>
+        <p class="trip-note">
+          Punchline, not a parity claim: this is an early free-software project. Hardware support,
+          native-device export and broader interoperability remain unproven.
+        </p>
+      </section>
+      <section class="tripbody" id="trip-inside">
+        <div id="why">
+          <span class="stamp">SIDE B / LINER NOTES</span>
+          <h2>THE TRACKS STAY.<br />THE DRAMA GOES.</h2>
+          <p>
+            Import audio by reference, browse your collection and play tracks on two prototype
+            decks. Export and hardware compatibility are still being developed.
+          </p>
+          <p><a href="#sleeve-heading">Flip the sleeve ↓</a></p>
+        </div>
+        <div class="receipt">
+          <strong>RECEIPT FOR YOUR MUSIC</strong>
+          <hr />
+          01 &nbsp; YOUR TRACKS &nbsp; .......... &nbsp; YOUR DISK<br />02 &nbsp; YOUR LIBRARY
+          &nbsp; ........ &nbsp; LOCAL<br />03 &nbsp; MANDATORY ACCOUNT &nbsp; ... &nbsp; NONE
+          <hr />
+          NOTE: HARDWARE COMPATIBILITY IS NOT YET DEMONSTRATED.<br /><br />THANK YOU FOR NOT READING
+          THE TERMS OF YOUR OWN MUSIC.
+        </div>
+      </section>
+      <section class="trip-sleeve" aria-labelledby="sleeve-heading">
+        <div class="sleeve-intro">
+          <span class="stamp">SIDE A / SIDE B</span>
+          <h2 id="sleeve-heading">TWO SIDES.<br />ONE RECORD.</h2>
+          <p>One side for the party. Flip for the liner notes.</p>
+        </div>
+        <div class="flip-wrap">
+          <input id="sleeve-flip" type="checkbox" /><label for="sleeve-flip" class="tripbutton"
+            >FLIP THE SLEEVE</label
+          >
+          <div class="flip-perspective">
+            <div class="flip-card">
+              <div class="flip-face flip-front sleeve-front">
+                <small>OXIDJ / SIDE A</small
+                ><strong>YOUR MUSIC.<br />NO MEETING<br />WITH LEGAL.</strong
+                ><span>FREE SOFTWARE / NOT A RENTAL</span>
               </div>
-              <div class="sleeve-face sleeve-back">
-                <span>OxiDJ / Side B</span><strong>The liner notes.</strong>
-                <p>
-                  A local library and two prototype decks. Hardware compatibility and broader
-                  interchange are still being tested.
-                </p>
+              <div class="flip-face flip-back sleeve-back">
+                <small>OXIDJ / SIDE B</small><strong>THE LINER<br />NOTES.</strong
+                ><span
+                  >Local files. Two prototype decks. Hardware support and broad interoperability are
+                  still being developed.</span
+                >
               </div>
             </div>
           </div>
         </div>
       </section>
-
       <section class="section container" aria-labelledby="shared-time-title">
         <div class="section-head">
           <h2 id="shared-time-title">Two tracks.<br />One shared time.</h2>
@@ -176,7 +333,7 @@
           </p>
         </div>
         <div class="current-deck-shot">
-          <!-- site:deckMixerV2 -->
+          <!-- site:stage -->
         </div>
         <details class="layout-showcase">
           <summary>Explore the four deck arrangements</summary>
