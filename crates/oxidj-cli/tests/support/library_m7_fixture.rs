@@ -257,4 +257,3 @@ fn write_analysis_m7(root: &Path) -> Vec<(PathBuf, Vec<u8>)> {
         })
         .collect()
 }
-

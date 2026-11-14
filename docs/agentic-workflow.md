@@ -59,7 +59,7 @@ cargo xtask ui-test       # Tier 2: build + test prototypes/oxidj-library-ui (ou
 cargo xtask ci-full       # Tier 2 + licence gate (cargo deny check licenses)
 ```
 
-`rust-toolchain.toml` pins `channel = "1.99.0"`; rustup installs the exact
+`rust-toolchain.toml` pins `channel = "1.100.0"`; rustup installs the exact
 toolchain on the first `cargo` invocation. The persistent
 `.cargo/config.toml` sets `[build] warnings = "deny"` so the lint gate is
 self-contained on a fresh clone.
@@ -205,7 +205,7 @@ cargo machete --json
 typos --format json
 ```
 
-Tier policy (stable Rust/Cargo 1.99.0; Tier 1 is stable-only and fast, with no advisory registry scans; a cold Cargo cache may still fetch locked dependencies):
+Tier policy (stable Rust/Cargo 1.100.0; Tier 1 is stable-only and fast, with no advisory registry scans; a cold Cargo cache may still fetch locked dependencies):
 
 | Tier | Runs at | Toolset | Evidence format |
 |------|---------|---------|-----------------|
@@ -334,7 +334,7 @@ items 1, 3, 8, 16):
   (oxidj-core), `[workspace.lints]` (rust + clippy). `default-members` restricts
   bare `cargo build`/`test` to product crates; `xtask` is invoked via the
   explicit alias (research item 1).
-- Toolchain pin: `rust-toolchain.toml` (`channel = "1.99.0"`, profile minimal,
+- Toolchain pin: `rust-toolchain.toml` (`channel = "1.100.0"`, profile minimal,
   components rustfmt/clippy/rust-analyzer/rust-src) + `clippy.toml`
   (`msrv = "1.99.0"`) + `deny.toml` (MIT allowlist). Reproducible on a fresh
   clone (research item 1).

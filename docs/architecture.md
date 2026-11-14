@@ -3,7 +3,7 @@
 **Status:** ACCEPTED — M0 architecture baseline, after the M0-07 Sol reviews completed and the architecture ADRs (ADR-001–004, ADR-008, ADR-009) transitioned to `Accepted` (see `docs/adr/index.md`).
 **Lead:** OxiDJ (oxidj-2)
 **Date:** 2026-10-15
-**MSRV:** Rust 1.99.0 — declared as `rust-version` in `Cargo.toml` and `msrv` in `clippy.toml`; reproduced by the `rust-toolchain.toml` pin. See `docs/development.md`.
+**MSRV:** Rust 1.99.0 — declared as `rust-version` in `Cargo.toml` and `msrv` in `clippy.toml`; distinct from the Rust 1.100.0 reproducibility pin in `rust-toolchain.toml`. See `docs/development.md`.
 
 This document records the M0 architecture baseline now that the M0-07 independent Sol reviews are complete and the architecture ADRs are `Accepted`. The baseline distinguishes *accepted architectural direction* (the ADRs) from *implementation preconditions* and *deferred choices* (listed in [Open Decisions](#10-open-decisions), unresolved until M1+). Under the dated ADR-002 amendment, only dependencies needed by the named `local-catalog-alpha-v1` reference-only, single-process, local-filesystem slice capped at 10,000 tracks may proceed; PR #13 integrated that exception at `671ae2b3df933ada97297bbba19ea1394657c14e`. The separate representative 500k-track qualification gate remains NOT READY and unpassed. Decisions are captured in [ADRs](adr/).
 

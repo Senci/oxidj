@@ -17,19 +17,18 @@ fn decode(bytes: &[u8]) -> Node {
     loop {
         match reader.read_event().unwrap() {
             Event::Start(event) => {
-                let name = String::from_utf8(event.local_name().as_ref().to_vec()).unwrap();
+                let name =
+                    String::from_utf8(event.local_name().as_ref().as_bytes().to_vec()).unwrap();
                 let attrs = event
                     .attributes()
                     .map(|attr| {
                         let attr = attr.unwrap();
                         (
-                            String::from_utf8(attr.key.local_name().as_ref().to_vec()).unwrap(),
-                            attr.decoded_and_normalized_value(
-                                XmlVersion::Explicit1_0,
-                                reader.decoder(),
-                            )
-                            .unwrap()
-                            .into_owned(),
+                            String::from_utf8(attr.key.local_name().as_ref().as_bytes().to_vec())
+                                .unwrap(),
+                            attr.normalized_value(XmlVersion::Explicit1_0)
+                                .unwrap()
+                                .into_owned(),
                         )
                     })
                     .collect();
@@ -40,19 +39,18 @@ fn decode(bytes: &[u8]) -> Node {
                 });
             }
             Event::Empty(event) => {
-                let name = String::from_utf8(event.local_name().as_ref().to_vec()).unwrap();
+                let name =
+                    String::from_utf8(event.local_name().as_ref().as_bytes().to_vec()).unwrap();
                 let attrs = event
                     .attributes()
                     .map(|attr| {
                         let attr = attr.unwrap();
                         (
-                            String::from_utf8(attr.key.local_name().as_ref().to_vec()).unwrap(),
-                            attr.decoded_and_normalized_value(
-                                XmlVersion::Explicit1_0,
-                                reader.decoder(),
-                            )
-                            .unwrap()
-                            .into_owned(),
+                            String::from_utf8(attr.key.local_name().as_ref().as_bytes().to_vec())
+                                .unwrap(),
+                            attr.normalized_value(XmlVersion::Explicit1_0)
+                                .unwrap()
+                                .into_owned(),
                         )
                     })
                     .collect();

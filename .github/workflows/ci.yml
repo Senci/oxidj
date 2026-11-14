@@ -13,7 +13,7 @@ env:
 # PR/issue bodies, commit messages, etc.) into any `run:` command — every step is
 # a fixed string — so there is no command-injection surface.
 
-# The compiler is pinned by rust-toolchain.toml (channel = "1.99.0", profile
+# The compiler is pinned by rust-toolchain.toml (channel = "1.100.0", profile
 # minimal, components rustfmt / clippy / rust-analyzer / rust-src). The GitHub
 # runner's rustup installs that exact toolchain on the first `cargo` invocation,
 # so there is no separate install step that could drift from the pin.

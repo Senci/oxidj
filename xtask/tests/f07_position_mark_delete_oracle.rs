@@ -25,14 +25,15 @@ fn decode(b: &[u8]) -> N {
     loop {
         match r.read_event().unwrap() {
             Event::Start(e) => {
-                let n = String::from_utf8(e.local_name().as_ref().to_vec()).unwrap();
+                let n = String::from_utf8(e.local_name().as_ref().as_bytes().to_vec()).unwrap();
                 let a = e
                     .attributes()
                     .map(|x| {
                         let x = x.unwrap();
                         (
-                            String::from_utf8(x.key.local_name().as_ref().to_vec()).unwrap(),
-                            x.decoded_and_normalized_value(XmlVersion::Explicit1_0, r.decoder())
+                            String::from_utf8(x.key.local_name().as_ref().as_bytes().to_vec())
+                                .unwrap(),
+                            x.normalized_value(XmlVersion::Explicit1_0)
                                 .unwrap()
                                 .into_owned(),
                         )
@@ -45,14 +46,15 @@ fn decode(b: &[u8]) -> N {
                 })
             }
             Event::Empty(e) => {
-                let n = String::from_utf8(e.local_name().as_ref().to_vec()).unwrap();
+                let n = String::from_utf8(e.local_name().as_ref().as_bytes().to_vec()).unwrap();
                 let a = e
                     .attributes()
                     .map(|x| {
                         let x = x.unwrap();
                         (
-                            String::from_utf8(x.key.local_name().as_ref().to_vec()).unwrap(),
-                            x.decoded_and_normalized_value(XmlVersion::Explicit1_0, r.decoder())
+                            String::from_utf8(x.key.local_name().as_ref().as_bytes().to_vec())
+                                .unwrap(),
+                            x.normalized_value(XmlVersion::Explicit1_0)
                                 .unwrap()
                                 .into_owned(),
                         )

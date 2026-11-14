@@ -104,9 +104,79 @@ pub enum TempoRange {
     Sixteen,
 }
 
+/// Stable column IDs, visibility and widths in logical points, independently
+/// persisted for scanned catalog and imported-playlist tables.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TableColumns {
+    pub order: [u8; 6],
+    pub visible: [bool; 6],
+    pub widths: [u16; 6],
+}
+
+impl Default for TableColumns {
+    fn default() -> Self {
+        Self {
+            order: [0, 1, 2, 3, 4, 5],
+            visible: [true; 6],
+            widths: [90, 52, 220, 160, 90, 172],
+        }
+    }
+}
+
+impl TableColumns {
+    fn encode(self) -> String {
+        self.order
+            .iter()
+            .map(|&i| {
+                format!(
+                    "{}:{}:{}",
+                    i,
+                    u8::from(self.visible[i as usize]),
+                    self.widths[i as usize]
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(",")
+    }
+
+    fn decode(raw: &str) -> Option<Self> {
+        let mut result = Self::default();
+        let mut seen = [false; 6];
+        let entries: Vec<_> = raw.split(',').collect();
+        if entries.len() != 6 {
+            return None;
+        }
+        for (position, entry) in entries.iter().enumerate() {
+            let values: Vec<_> = entry.split(':').collect();
+            if values.len() != 3 {
+                return None;
+            }
+            let i = values[0].parse::<usize>().ok()?;
+            if i >= 6 || seen[i] {
+                return None;
+            }
+            let visible = parse_bool(values[1])?;
+            let width = values[2].parse::<u16>().ok()?;
+            if !(24..=2000).contains(&width) {
+                return None;
+            }
+            seen[i] = true;
+            result.order[position] = i as u8;
+            result.visible[i] = visible;
+            result.widths[i] = width;
+        }
+        if !result.visible.iter().any(|v| *v) {
+            return None;
+        }
+        Some(result)
+    }
+}
+
 /// Every user-configurable option except the theme (see the module docs).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Settings {
+    pub catalog_columns: TableColumns,
+    pub playlist_columns: TableColumns,
     pub waveform_style: Style,
     /// Anti-aliased waveform edges.
     pub smooth: bool,
@@ -167,16 +237,6 @@ pub(crate) const WINDOW_MIN_SIZE: egui::Vec2 = egui::vec2(360.0, 240.0);
 const WINDOW_DEFAULT_WIDTH: f32 = 480.0;
 /// Gap kept between the window and the screen edge.
 const WINDOW_MARGIN: f32 = 8.0;
-
-/// Frame and title-bar overhead around a window's content (egui sizes the
-/// content; Settings stores and clamps the outer rect).
-fn window_chrome(ctx: &egui::Context) -> egui::Vec2 {
-    let style = ctx.style();
-    let frame = egui::Frame::window(&style);
-    let heading = ctx.fonts(|f| f.row_height(&egui::TextStyle::Heading.resolve(&style)));
-    let title = heading.max(style.spacing.interact_size.y) + frame.inner_margin.sum().y;
-    frame.total_margin().sum() + egui::vec2(0.0, title + frame.stroke.width)
-}
 
 const WINDOW_KEY: &str = "settings_window";
 
@@ -352,6 +412,11 @@ impl DeckSections {
 impl Default for Settings {
     fn default() -> Self {
         Self {
+            catalog_columns: TableColumns::default(),
+            playlist_columns: TableColumns {
+                widths: [240, 165, 140, 90, 90, 100],
+                ..TableColumns::default()
+            },
             waveform_style: Style::Mono,
             smooth: true,
             auto_gain: true,
@@ -467,9 +532,27 @@ impl Settings {
             b(self.show_meta),
             b(self.mirror_b),
             name_of(&ARRANGEMENTS, self.arrangement),
-        ) + &sections + &format!(";limiter={}", b(self.limiter))
-            + &self.audio_device.as_ref().map(|(host, id)| format!(";audio_device={}:{}", hex_encode(host), hex_encode(id))).unwrap_or_default()
-            + &self.audio_buffer.map(|buffer| format!(";audio_buffer={}", buffer.map_or_else(|| "host".to_owned(), |n| n.to_string()))).unwrap_or_default()
+        ) + &sections
+            + &format!(
+                ";columns_catalog={};columns_playlist={}",
+                self.catalog_columns.encode(),
+                self.playlist_columns.encode()
+            )
+            + &format!(";limiter={}", b(self.limiter))
+            + &self
+                .audio_device
+                .as_ref()
+                .map(|(host, id)| format!(";audio_device={}:{}", hex_encode(host), hex_encode(id)))
+                .unwrap_or_default()
+            + &self
+                .audio_buffer
+                .map(|buffer| {
+                    format!(
+                        ";audio_buffer={}",
+                        buffer.map_or_else(|| "host".to_owned(), |n| n.to_string())
+                    )
+                })
+                .unwrap_or_default()
     }
 
     /// Never fails: unknown names are ignored and an invalid value keeps
@@ -479,6 +562,12 @@ impl Settings {
         for (key, value) in raw.split(';').filter_map(|pair| pair.split_once('=')) {
             let value = value.trim();
             match key.trim() {
+                "columns_catalog" => {
+                    s.catalog_columns = TableColumns::decode(value).unwrap_or(s.catalog_columns)
+                }
+                "columns_playlist" => {
+                    s.playlist_columns = TableColumns::decode(value).unwrap_or(s.playlist_columns)
+                }
                 "mixer_density" => {
                     s.mixer.density = parse_in(&DENSITIES, value).unwrap_or(s.mixer.density)
                 }
@@ -492,11 +581,20 @@ impl Settings {
                 "mirror_b" => s.mirror_b = parse_bool(value).unwrap_or(s.mirror_b),
                 "limiter" => s.limiter = parse_bool(value).unwrap_or(s.limiter),
                 "audio_device" => {
-                    s.audio_device = value.split_once(':').and_then(|(h, d)| Some((hex_decode(h)?, hex_decode(d)?))).filter(|(h, d)| !h.is_empty() && !d.is_empty());
+                    s.audio_device = value
+                        .split_once(':')
+                        .and_then(|(h, d)| Some((hex_decode(h)?, hex_decode(d)?)))
+                        .filter(|(h, d)| !h.is_empty() && !d.is_empty());
                 }
                 "audio_buffer" => {
-                    s.audio_buffer = if value == "host" { Some(None) } else {
-                        value.parse::<u32>().ok().filter(|n| (64..=2048).contains(n)).map(Some)
+                    s.audio_buffer = if value == "host" {
+                        Some(None)
+                    } else {
+                        value
+                            .parse::<u32>()
+                            .ok()
+                            .filter(|n| (64..=2048).contains(n))
+                            .map(Some)
                     };
                 }
                 "mixer_ab" => s.mixer.ab_labels = parse_bool(value).unwrap_or(s.mixer.ab_labels),
@@ -561,30 +659,45 @@ impl Settings {
 fn hex_encode(value: &str) -> String {
     use std::fmt::Write;
     let mut result = String::new();
-    for byte in value.as_bytes() { write!(result, "{byte:02x}").unwrap(); }
+    for byte in value.as_bytes() {
+        write!(result, "{byte:02x}").unwrap();
+    }
     result
 }
 
 fn hex_decode(value: &str) -> Option<String> {
-    if !value.len().is_multiple_of(2) || !value.is_ascii() { return None; }
-    let bytes = value.as_bytes().chunks_exact(2).map(|pair| {
-        u8::from_str_radix(std::str::from_utf8(pair).ok()?, 16).ok()
-    }).collect::<Option<Vec<_>>>()?;
+    if !value.len().is_multiple_of(2) || !value.is_ascii() {
+        return None;
+    }
+    let bytes = value
+        .as_bytes()
+        .chunks_exact(2)
+        .map(|pair| u8::from_str_radix(std::str::from_utf8(pair).ok()?, 16).ok())
+        .collect::<Option<Vec<_>>>()?;
     String::from_utf8(bytes).ok()
 }
 
 impl Settings {
-    pub(crate) fn output_config(&self, mut config: oxidj_audio::OutputConfig) -> oxidj_audio::OutputConfig {
+    pub(crate) fn output_config(
+        &self,
+        mut config: oxidj_audio::OutputConfig,
+    ) -> oxidj_audio::OutputConfig {
         if let Some((host, device)) = &self.audio_device {
-            if config.implicit_device_rate { config.sample_rate = None; }
-            if config.implicit_device_channels { config.channels = None; }
+            if config.implicit_device_rate {
+                config.sample_rate = None;
+            }
+            if config.implicit_device_channels {
+                config.channels = None;
+            }
             config.implicit_device_rate = false;
             config.implicit_device_channels = false;
             config.host = Some(host.clone());
             config.device = Some(device.clone());
             config.device_id_only = true;
         }
-        if let Some(buffer) = self.audio_buffer { config.buffer_frames = buffer; }
+        if let Some(buffer) = self.audio_buffer {
+            config.buffer_frames = buffer;
+        }
         config
     }
 }
@@ -622,35 +735,51 @@ impl std::fmt::Debug for OutputScan {
 }
 
 impl OutputScan {
-    pub(crate) fn is_pending(&self) -> bool { self.pending.is_some() }
+    pub(crate) fn is_pending(&self) -> bool {
+        self.pending.is_some()
+    }
 
     fn request(&mut self, ctx: &egui::Context) {
-        if self.is_pending() { return; }
+        if self.is_pending() {
+            return;
+        }
         let (send, receive) = std::sync::mpsc::channel();
         let provider = self.provider.clone();
         let ctx = ctx.clone();
         self.requested = true;
         self.error = None;
-        match std::thread::Builder::new().name("oxidj-output-discovery".into()).spawn(move || {
-            let _ = send.send(provider());
-            ctx.request_repaint();
-        }) {
+        match std::thread::Builder::new()
+            .name("oxidj-output-discovery".into())
+            .spawn(move || {
+                let _ = send.send(provider());
+                ctx.request_repaint();
+            }) {
             Ok(_) => self.pending = Some(receive),
             Err(error) => self.error = Some(format!("Cannot start output discovery: {error}")),
         }
     }
 
     fn poll(&mut self, outputs: &mut Vec<oxidj_audio::OutputChoice>) {
-        let Some(receive) = &self.pending else { return; };
+        let Some(receive) = &self.pending else {
+            return;
+        };
         let result = match receive.try_recv() {
             Ok(result) => result,
             Err(std::sync::mpsc::TryRecvError::Empty) => return,
-            Err(std::sync::mpsc::TryRecvError::Disconnected) => Err("Output discovery worker stopped without a result".into()),
+            Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                Err("Output discovery worker stopped without a result".into())
+            }
         };
         self.pending = None;
         match result {
-            Ok(found) => { *outputs = found; self.error = None; }
-            Err(error) => { outputs.clear(); self.error = Some(error); }
+            Ok(found) => {
+                *outputs = found;
+                self.error = None;
+            }
+            Err(error) => {
+                outputs.clear();
+                self.error = Some(error);
+            }
         }
     }
 }
@@ -722,7 +851,6 @@ impl LibraryApp {
         if open && !state.open {
             state.return_focus = ctx.memory(|m| m.focused());
             state.focus_first = true;
-
         } else if !open && state.open {
             let back = state.return_focus.take();
             ctx.memory_mut(|m| match back {
@@ -744,16 +872,17 @@ impl LibraryApp {
     }
 
     pub(crate) fn settings_window(&mut self, ctx: &egui::Context, tokens: theme::ColorTokens) {
-        self.settings_ui.output_scan.poll(&mut self.settings_ui.outputs);
+        self.settings_ui
+            .output_scan
+            .poll(&mut self.settings_ui.outputs);
         self.settings_ui.layout = SettingsLayout::default();
         if !self.settings_ui.open {
             return;
         }
         let mut open = true;
         let mut layout = SettingsLayout::default();
-        let screen = ctx.screen_rect();
-        // egui sizes the window content; geometry here is the outer rect.
-        let chrome = window_chrome(ctx);
+        let screen = ctx.content_rect();
+        // egui 0.37 window sizes include frame margins and title bar.
         let avail =
             (screen.size() - egui::Vec2::splat(2.0 * WINDOW_MARGIN)).max(egui::Vec2::splat(1.0));
         // First show: saved geometry (fitted to this screen) or centred default.
@@ -768,13 +897,13 @@ impl LibraryApp {
             |g| g.clamped(screen),
         );
         let shown = egui::Window::new(WINDOW_TITLE)
-            .id(egui::Id::new("oxidj-settings"))
+            .id(egui::Id::unique("oxidj-settings"))
             .open(&mut open)
             .collapsible(false)
             .default_pos(initial.min)
-            .default_size((initial.size() - chrome).max(egui::Vec2::splat(1.0)))
-            .min_size((WINDOW_MIN_SIZE.min(avail) - chrome).max(egui::Vec2::splat(1.0)))
-            .max_size((avail - chrome).max(egui::Vec2::splat(1.0)))
+            .default_size(initial.size())
+            .min_size(WINDOW_MIN_SIZE.min(avail))
+            .max_size(avail)
             .constrain_to(screen.shrink(WINDOW_MARGIN))
             .vscroll(true)
             .resizable(true)
@@ -903,14 +1032,23 @@ impl LibraryApp {
         if self.settings_ui.tab == 4 {
             SectionHeading { title: "Audio" }.show(ui, tokens);
             let s = &mut self.settings;
-            ui.label("Output device (takes effect after restart; list may include input-only devices)");
+            ui.label(
+                "Output device (takes effect after restart; list may include input-only devices)",
+            );
             let scan = &mut self.settings_ui.output_scan;
-            if ui.add_enabled(!scan.is_pending(), egui::Button::new("Refresh output devices")).clicked() {
+            if ui
+                .add_enabled(
+                    !scan.is_pending(),
+                    egui::Button::new("Refresh output devices"),
+                )
+                .clicked()
+            {
                 scan.request(ui.ctx());
             }
             if scan.is_pending() {
                 ui.label("Scanning output devices…");
-                ui.ctx().request_repaint_after(std::time::Duration::from_millis(50));
+                ui.ctx()
+                    .request_repaint_after(std::time::Duration::from_millis(50));
             } else if let Some(error) = &scan.error {
                 ui.label(format!("Output discovery failed: {error}"));
             } else if !scan.requested && self.settings_ui.outputs.is_empty() {
@@ -918,19 +1056,38 @@ impl LibraryApp {
             } else if self.settings_ui.outputs.is_empty() {
                 ui.label("No output devices found.");
             }
-            if ui.selectable_label(s.audio_device.is_none(), "Environment / automatic").clicked() {
+            if ui
+                .selectable_label(s.audio_device.is_none(), "Environment / automatic")
+                .clicked()
+            {
                 s.audio_device = None;
             }
 
             if let Some((host, id)) = &s.audio_device {
-                if !self.settings_ui.outputs.iter().any(|o| &o.host == host && &o.id == id) {
+                if !self
+                    .settings_ui
+                    .outputs
+                    .iter()
+                    .any(|o| &o.host == host && &o.id == id)
+                {
                     ui.label(format!("Saved output not found in last enumeration (which may have failed): {host} / {id}"));
                 }
             }
             for output in &self.settings_ui.outputs {
-                if output.id.is_empty() { continue; }
-                let selected = s.audio_device.as_ref().is_some_and(|(host, id)| host == &output.host && id == &output.id);
-                if ui.selectable_label(selected, format!("{} — {} ({})", output.host, output.device, output.id)).clicked() {
+                if output.id.is_empty() {
+                    continue;
+                }
+                let selected = s
+                    .audio_device
+                    .as_ref()
+                    .is_some_and(|(host, id)| host == &output.host && id == &output.id);
+                if ui
+                    .selectable_label(
+                        selected,
+                        format!("{} — {} ({})", output.host, output.device, output.id),
+                    )
+                    .clicked()
+                {
                     s.audio_device = Some((output.host.clone(), output.id.clone()));
                 }
             }
@@ -946,7 +1103,10 @@ impl LibraryApp {
                     ("1024 frames", Some(Some(1024))),
                     ("2048 frames", Some(Some(2048))),
                 ] {
-                    if ui.selectable_label(s.audio_buffer == choice, label).clicked() {
+                    if ui
+                        .selectable_label(s.audio_buffer == choice, label)
+                        .clicked()
+                    {
                         s.audio_buffer = choice;
                     }
                 }
@@ -1079,6 +1239,22 @@ impl LibraryApp {
 }
 
 #[cfg(test)]
+mod column_persistence_regression {
+    use super::Settings;
+
+    #[test]
+    fn stored_column_layout_survives_settings_roundtrip() {
+        let layout = "2:1:210,0:0:36,1:1:80,3:1:160,4:1:90,5:1:100";
+        let restored = Settings::decode(&format!("columns_catalog={layout}"));
+        assert!(
+            restored
+                .encode()
+                .contains(&format!("columns_catalog={layout}"))
+        );
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use std::collections::HashMap;
@@ -1092,6 +1268,9 @@ mod tests {
         }
         fn set_string(&mut self, key: &str, value: String) {
             self.0.insert(key.to_owned(), value);
+        }
+        fn remove_string(&mut self, key: &str) {
+            self.0.remove(key);
         }
         fn flush(&mut self) {}
     }
@@ -1124,7 +1303,10 @@ mod tests {
     fn audio_buffer_choice_round_trips_without_disturbing_old_settings() {
         for raw in ["audio_buffer=host", "audio_buffer=256", "audio_buffer=2048"] {
             let saved = Settings::decode(raw).encode();
-            assert!(saved.split(';').any(|entry| entry == raw), "lost {raw}: {saved}");
+            assert!(
+                saved.split(';').any(|entry| entry == raw),
+                "lost {raw}: {saved}"
+            );
         }
         assert!(!Settings::decode("").encode().contains("audio_buffer="));
     }
@@ -1166,6 +1348,7 @@ mod tests {
             limiter: false,
             audio_buffer: None,
             audio_device: None,
+            ..Settings::default()
         };
         let mut storage = MemoryStorage::default();
         edited.save(&mut storage);

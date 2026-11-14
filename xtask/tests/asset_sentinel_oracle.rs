@@ -43,7 +43,10 @@ fn boundary_manifest_asset_sets_are_exact() {
 }
 
 fn sha256(bytes: &[u8]) -> String {
-    format!("{:x}", Sha256::digest(bytes))
+    Sha256::digest(bytes)
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<String>()
 }
 
 fn manifest(boundary_id: &str, asset_ids: &[&str]) -> (Vec<u8>, String) {

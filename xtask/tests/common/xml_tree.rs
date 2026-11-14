@@ -18,16 +18,16 @@ pub struct Node {
     pub texts: Vec<(usize, String)>,
 }
 
-fn node(e: &BytesStart<'_>, r: &Reader<&[u8]>) -> Node {
+fn node(e: &BytesStart<'_>, _r: &Reader<&[u8]>) -> Node {
     Node {
-        name: String::from_utf8(e.local_name().as_ref().to_vec()).unwrap(),
+        name: String::from_utf8(e.local_name().as_ref().as_bytes().to_vec()).unwrap(),
         attrs: e
             .attributes()
             .map(|a| {
                 let a = a.unwrap();
                 (
-                    String::from_utf8(a.key.local_name().as_ref().to_vec()).unwrap(),
-                    a.decoded_and_normalized_value(XmlVersion::Explicit1_0, r.decoder())
+                    String::from_utf8(a.key.local_name().as_ref().as_bytes().to_vec()).unwrap(),
+                    a.normalized_value(XmlVersion::Explicit1_0)
                         .unwrap()
                         .into_owned(),
                 )
@@ -60,13 +60,13 @@ fn decode_tree(bytes: &[u8], keep_text: bool) -> Node {
             Event::Text(e) if keep_text => {
                 if let Some(n) = stack.last_mut() {
                     let at = n.children.len();
-                    n.texts.push((at, e.decode().unwrap().into_owned()))
+                    n.texts.push((at, e.as_ref().to_owned()))
                 }
             }
             Event::CData(e) if keep_text => {
                 if let Some(n) = stack.last_mut() {
                     let at = n.children.len();
-                    n.texts.push((at, e.decode().unwrap().into_owned()))
+                    n.texts.push((at, e.as_ref().to_owned()))
                 }
             }
             Event::Eof => break,

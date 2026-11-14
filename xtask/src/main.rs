@@ -691,7 +691,7 @@ fn cmd_deny() -> i32 {
 
 /// Tier 1 — the per-handoff gate. Stable-only and fast; no remote advisory scans (Cargo may fetch a cold cache).
 fn cmd_ci() -> i32 {
-    println!("cargo xtask ci — Tier 1 per-handoff gate (stable 1.99.0)");
+    println!("cargo xtask ci — Tier 1 per-handoff gate");
     if let Some(failed) = stop_on_fail("layers", cmd_layers()) {
         return failed;
     }

@@ -5,9 +5,12 @@ use super::*;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Sort {
+    Availability,
     Id,
     Filename,
+    Folder,
     Duration,
+    Format,
 }
 
 pub(crate) struct LibraryApp {
@@ -20,6 +23,13 @@ pub(crate) struct LibraryApp {
     pub(crate) selected: Option<u64>,
     pub(crate) sort: Sort,
     pub(crate) descending: bool,
+    pub(crate) imported_sort: Option<(usize, bool)>,
+    pub(crate) filter_min_bpm: String,
+    pub(crate) filter_max_bpm: String,
+    pub(crate) filter_key: String,
+    pub(crate) filter_genre: String,
+    pub(crate) filter_availability: u8,
+    pub(crate) show_filters: bool,
     pub(crate) notice: String,
     pub(crate) theme: ThemeMode,
     pub(crate) custom_tokens: theme::ColorTokens,
@@ -234,6 +244,13 @@ impl LibraryApp {
             import_root: String::new(),
             selected: None,
             sort: Sort::Id,
+            imported_sort: None,
+            filter_min_bpm: String::new(),
+            filter_max_bpm: String::new(),
+            filter_key: String::new(),
+            filter_genre: String::new(),
+            filter_availability: 0,
+            show_filters: false,
             descending: false,
             notice: String::new(),
             theme,
@@ -524,7 +541,7 @@ impl LibraryApp {
             let response = ui
                 .add(
                     egui::TextEdit::singleline(&mut self.primary_hex)
-                        .id(egui::Id::new("primary-hex"))
+                        .id(egui::Id::unique("primary-hex"))
                         .desired_width(90.0)
                         .hint_text("#RRGGBB"),
                 )
@@ -547,7 +564,7 @@ impl LibraryApp {
             let response = ui
                 .add(
                     egui::TextEdit::singleline(&mut self.secondary_hex)
-                        .id(egui::Id::new("secondary-hex"))
+                        .id(egui::Id::unique("secondary-hex"))
                         .desired_width(90.0)
                         .hint_text("#RRGGBB"),
                 )

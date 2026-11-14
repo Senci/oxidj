@@ -195,4 +195,3 @@ Status: `todo`, `doing`, `done <sha>`, `parked`.
 4. Merge is the owner's call: `git merge audio-engine` on `master` when the UI
    session's checkout is clean. Expected conflicts: none in the UI crate (not
    touched); `Cargo.lock` may need `cargo update -w` or a re-resolve.
-

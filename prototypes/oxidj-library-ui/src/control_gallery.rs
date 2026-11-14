@@ -704,7 +704,7 @@ fn draw_minimal_rotary(
     let (_, rect) = ui.allocate_space(egui::vec2(76.0, 76.0));
     let response = ui.interact(
         rect,
-        egui::Id::new("minimal-line-filter"),
+        egui::Id::unique("minimal-line-filter"),
         egui::Sense::click_and_drag(),
     );
     let center = rect.center();
@@ -782,7 +782,7 @@ fn draw_knob(
 ) -> egui::Response {
     if concept == Concept::MinimalLine {
         ui.vertical(|ui| {
-            let drag_id = egui::Id::new("minimal-line-gallery-knob-drag-angle");
+            let drag_id = egui::Id::unique("minimal-line-gallery-knob-drag-angle");
             let mut drag_angle = ui.ctx().data(|data| data.get_temp::<f32>(drag_id));
             let response = draw_minimal_rotary(ui, value, &mut drag_angle, tokens);
             ui.ctx().data_mut(|data| {
@@ -983,7 +983,7 @@ fn draw_fader(
         let (rect, _) = ui.allocate_exact_size(egui::vec2(28.0, height), egui::Sense::hover());
         let response = ui.interact(
             rect,
-            egui::Id::new("minimal-line-channel"),
+            egui::Id::unique("minimal-line-channel"),
             egui::Sense::click_and_drag(),
         );
         if (response.dragged() || response.clicked())
@@ -1149,7 +1149,7 @@ fn transport_button(
     }
     let accessible_name = format!("{label}, {}", concept.name());
     response.widget_info(|| {
-        egui::WidgetInfo::labeled(egui::WidgetType::Button, true, accessible_name.clone())
+        egui::WidgetInfo::labeled(egui::Role::Button, true, accessible_name.clone())
     });
     if response.clicked() {
         state.last_transport = Some((concept, action));
@@ -1242,7 +1242,8 @@ mod tests {
             (ComponentTab::ChannelFader, "Channel level · "),
         ] {
             state.component = component;
-            let output = ctx.run(
+            let output = crate::test_frame(
+                &ctx,
                 egui::RawInput {
                     screen_rect: Some(egui::Rect::from_min_size(
                         egui::Pos2::ZERO,
@@ -1250,8 +1251,9 @@ mod tests {
                     )),
                     ..Default::default()
                 },
-                |ctx| {
-                    egui::CentralPanel::default().show(ctx, |ui| {
+                |root_ui| {
+                    let _ctx = &root_ui.ctx().clone();
+                    egui::CentralPanel::default().show(root_ui, |ui| {
                         show(ui, &mut state, ThemeMode::TokyoNight.tokens());
                     });
                 },
@@ -1287,7 +1289,8 @@ mod tests {
         let ctx = egui::Context::default();
         let mut state = GalleryState::default();
         state.component = component;
-        let output = ctx.run(
+        let output = crate::test_frame(
+            &ctx,
             egui::RawInput {
                 screen_rect: Some(egui::Rect::from_min_size(
                     egui::Pos2::ZERO,
@@ -1295,8 +1298,9 @@ mod tests {
                 )),
                 ..Default::default()
             },
-            |ctx| {
-                egui::CentralPanel::default().show(ctx, |ui| match component {
+            |root_ui| {
+                let _ctx = &root_ui.ctx().clone();
+                egui::CentralPanel::default().show(root_ui, |ui| match component {
                     ComponentTab::RotaryKnob => {
                         let _ = draw_knob(
                             ui,
@@ -1362,13 +1366,15 @@ mod tests {
         let mut state = GalleryState::default();
         let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1200.0, 1600.0));
         let slider_id = std::cell::Cell::new(None);
-        let _ = ctx.run(
+        let _ = crate::test_frame(
+            &ctx,
             egui::RawInput {
                 screen_rect: Some(screen),
                 ..Default::default()
             },
-            |ctx| {
-                egui::CentralPanel::default().show(ctx, |ui| {
+            |root_ui| {
+                let _ctx = &root_ui.ctx().clone();
+                egui::CentralPanel::default().show(root_ui, |ui| {
                     slider_id.set(Some(
                         draw_knob(
                             ui,
@@ -1384,7 +1390,8 @@ mod tests {
         ctx.memory_mut(|memory| memory.request_focus(slider_id.get().expect("slider response id")));
         let focused = std::cell::Cell::new(false);
         let initial_value = state.values[Concept::StudioRack as usize];
-        let _ = ctx.run(
+        let _ = crate::test_frame(
+            &ctx,
             egui::RawInput {
                 screen_rect: Some(screen),
                 events: vec![egui::Event::Key {
@@ -1396,8 +1403,9 @@ mod tests {
                 }],
                 ..Default::default()
             },
-            |ctx| {
-                egui::CentralPanel::default().show(ctx, |ui| {
+            |root_ui| {
+                let _ctx = &root_ui.ctx().clone();
+                egui::CentralPanel::default().show(root_ui, |ui| {
                     focused.set(
                         draw_knob(
                             ui,
@@ -1420,7 +1428,8 @@ mod tests {
         let ctx = egui::Context::default();
         ctx.enable_accesskit();
         let mut state = GalleryState::default();
-        let output = ctx.run(
+        let output = crate::test_frame(
+            &ctx,
             egui::RawInput {
                 screen_rect: Some(egui::Rect::from_min_size(
                     egui::Pos2::ZERO,
@@ -1428,8 +1437,9 @@ mod tests {
                 )),
                 ..Default::default()
             },
-            |ctx| {
-                egui::CentralPanel::default().show(ctx, |ui| {
+            |root_ui| {
+                let _ctx = &root_ui.ctx().clone();
+                egui::CentralPanel::default().show(root_ui, |ui| {
                     show(ui, &mut state, ThemeMode::TokyoNight.tokens());
                 });
             },
@@ -1465,7 +1475,8 @@ mod tests {
 
         for component in ComponentTab::ALL {
             state.component = component;
-            let output = ctx.run(
+            let output = crate::test_frame(
+                &ctx,
                 egui::RawInput {
                     screen_rect: Some(egui::Rect::from_min_size(
                         egui::Pos2::ZERO,
@@ -1473,8 +1484,9 @@ mod tests {
                     )),
                     ..Default::default()
                 },
-                |ctx| {
-                    egui::CentralPanel::default().show(ctx, |ui| {
+                |root_ui| {
+                    let _ctx = &root_ui.ctx().clone();
+                    egui::CentralPanel::default().show(root_ui, |ui| {
                         show(ui, &mut state, ThemeMode::TokyoNight.tokens());
                     });
                 },
@@ -1509,8 +1521,9 @@ mod tests {
         let mut state = GalleryState::default();
         let rect = std::cell::Cell::new(egui::Rect::NOTHING);
         let run = |ctx: &egui::Context, state: &mut GalleryState, input| {
-            ctx.run(input, |ctx| {
-                egui::CentralPanel::default().show(ctx, |ui| {
+            crate::test_frame(&ctx, input, |root_ui| {
+                let _ctx = &root_ui.ctx().clone();
+                egui::CentralPanel::default().show(root_ui, |ui| {
                     let response = ui.selectable_value(
                         &mut state.selected,
                         Concept::NeonDeck,
@@ -1567,13 +1580,15 @@ mod tests {
             ..Default::default()
         };
         let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(700.0, 500.0));
-        let _ = ctx.run(
+        let _ = crate::test_frame(
+            &ctx,
             egui::RawInput {
                 screen_rect: Some(screen),
                 ..Default::default()
             },
-            |ctx| {
-                egui::CentralPanel::default().show(ctx, |ui| {
+            |root_ui| {
+                let _ctx = &root_ui.ctx().clone();
+                egui::CentralPanel::default().show(root_ui, |ui| {
                     show(ui, &mut state, ThemeMode::TokyoNight.tokens());
                 });
             },
@@ -1599,13 +1614,15 @@ mod tests {
         for endpoint in [0.0_f32, 1.0] {
             let value = std::cell::Cell::new(endpoint);
             let bounds = std::cell::Cell::new(None);
-            let output = ctx.run(
+            let output = crate::test_frame(
+                &ctx,
                 egui::RawInput {
                     screen_rect: Some(screen),
                     ..Default::default()
                 },
-                |ctx| {
-                    egui::CentralPanel::default().show(ctx, |ui| {
+                |root_ui| {
+                    let _ctx = &root_ui.ctx().clone();
+                    egui::CentralPanel::default().show(root_ui, |ui| {
                         let mut current = value.get();
                         let response = draw_fader(
                             ui,
@@ -1647,14 +1664,16 @@ mod tests {
         let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(500.0, 300.0));
         let bounds = std::cell::Cell::new(None);
         let render = |events: Vec<egui::Event>| {
-            ctx.run(
+            crate::test_frame(
+                &ctx,
                 egui::RawInput {
                     screen_rect: Some(screen),
                     events,
                     ..Default::default()
                 },
-                |ctx| {
-                    egui::CentralPanel::default().show(ctx, |ui| {
+                |root_ui| {
+                    let _ctx = &root_ui.ctx().clone();
+                    egui::CentralPanel::default().show(root_ui, |ui| {
                         let mut current = value.get();
                         let response = draw_knob(
                             ui,
@@ -1710,14 +1729,16 @@ mod tests {
         };
         let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1000.0, 700.0));
         let render = |state: &mut GalleryState, events: Vec<egui::Event>| {
-            ctx.run(
+            crate::test_frame(
+                &ctx,
                 egui::RawInput {
                     screen_rect: Some(screen),
                     events,
                     ..Default::default()
                 },
-                |ctx| {
-                    egui::CentralPanel::default().show(ctx, |ui| {
+                |root_ui| {
+                    let _ctx = &root_ui.ctx().clone();
+                    egui::CentralPanel::default().show(root_ui, |ui| {
                         show(ui, state, ThemeMode::TokyoNight.tokens());
                     });
                 },
@@ -1905,14 +1926,16 @@ mod tests {
         };
         let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1000.0, 700.0));
         let render = |state: &mut GalleryState, events: Vec<egui::Event>| {
-            ctx.run(
+            crate::test_frame(
+                &ctx,
                 egui::RawInput {
                     screen_rect: Some(screen),
                     events,
                     ..Default::default()
                 },
-                |ctx| {
-                    egui::CentralPanel::default().show(ctx, |ui| {
+                |root_ui| {
+                    let _ctx = &root_ui.ctx().clone();
+                    egui::CentralPanel::default().show(root_ui, |ui| {
                         show(ui, state, ThemeMode::TokyoNight.tokens());
                     });
                 },
@@ -1969,7 +1992,8 @@ mod tests {
             ..Default::default()
         };
         let render = |state: &mut GalleryState| {
-            ctx.run(
+            crate::test_frame(
+                &ctx,
                 egui::RawInput {
                     screen_rect: Some(egui::Rect::from_min_size(
                         egui::Pos2::ZERO,
@@ -1977,8 +2001,9 @@ mod tests {
                     )),
                     ..Default::default()
                 },
-                |ctx| {
-                    egui::CentralPanel::default().show(ctx, |ui| {
+                |root_ui| {
+                    let _ctx = &root_ui.ctx().clone();
+                    egui::CentralPanel::default().show(root_ui, |ui| {
                         show(ui, state, ThemeMode::TokyoNight.tokens());
                     });
                 },
@@ -2032,8 +2057,9 @@ mod tests {
             )),
             ..Default::default()
         };
-        let _ = ctx.run(input(), |ctx| {
-            egui::CentralPanel::default().show(ctx, |ui| {
+        let _ = crate::test_frame(&ctx, input(), |root_ui| {
+            let _ctx = &root_ui.ctx().clone();
+            egui::CentralPanel::default().show(root_ui, |ui| {
                 *rects.borrow_mut() = component_tabs(ui, &mut state)
                     .into_iter()
                     .map(|response| response.rect)
@@ -2041,7 +2067,8 @@ mod tests {
             });
         });
         let target = rects.borrow()[1].center();
-        let _ = ctx.run(
+        let _ = crate::test_frame(
+            &ctx,
             egui::RawInput {
                 events: vec![
                     egui::Event::PointerMoved(target),
@@ -2060,8 +2087,9 @@ mod tests {
                 ],
                 ..input()
             },
-            |ctx| {
-                egui::CentralPanel::default().show(ctx, |ui| {
+            |root_ui| {
+                let _ctx = &root_ui.ctx().clone();
+                egui::CentralPanel::default().show(root_ui, |ui| {
                     component_tabs(ui, &mut state);
                 });
             },
@@ -2075,13 +2103,15 @@ mod tests {
         let mut state = GalleryState::default();
         let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(900.0, 700.0));
         let first_tab_id = std::cell::Cell::new(None);
-        let _ = ctx.run(
+        let _ = crate::test_frame(
+            &ctx,
             egui::RawInput {
                 screen_rect: Some(screen),
                 ..Default::default()
             },
-            |ctx| {
-                egui::CentralPanel::default().show(ctx, |ui| {
+            |root_ui| {
+                let _ctx = &root_ui.ctx().clone();
+                egui::CentralPanel::default().show(root_ui, |ui| {
                     first_tab_id.set(Some(component_tabs(ui, &mut state)[0].id));
                 });
             },
@@ -2089,7 +2119,8 @@ mod tests {
         ctx.memory_mut(|memory| memory.request_focus(first_tab_id.get().unwrap()));
         let press = |key, state: &mut GalleryState| {
             for pressed in [true, false] {
-                let _ = ctx.run(
+                let _ = crate::test_frame(
+                    &ctx,
                     egui::RawInput {
                         screen_rect: Some(screen),
                         events: vec![egui::Event::Key {
@@ -2101,8 +2132,9 @@ mod tests {
                         }],
                         ..Default::default()
                     },
-                    |ctx| {
-                        egui::CentralPanel::default().show(ctx, |ui| {
+                    |root_ui| {
+                        let _ctx = &root_ui.ctx().clone();
+                        egui::CentralPanel::default().show(root_ui, |ui| {
                             component_tabs(ui, state);
                         });
                     },
@@ -2129,14 +2161,16 @@ mod tests {
         let pointer_is_held_on_cue = std::cell::Cell::new(false);
         let cue_has_focus = std::cell::Cell::new(false);
         let mut render = |events: Vec<egui::Event>, capture_pressed: bool| {
-            ctx.run(
+            crate::test_frame(
+                &ctx,
                 egui::RawInput {
                     screen_rect: Some(screen),
                     events,
                     ..Default::default()
                 },
-                |ctx| {
-                    egui::CentralPanel::default().show(ctx, |ui| {
+                |root_ui| {
+                    let _ctx = &root_ui.ctx().clone();
+                    egui::CentralPanel::default().show(root_ui, |ui| {
                         let cue_responses = draw_transport(
                             ui,
                             Concept::StudioRack,
@@ -2207,8 +2241,9 @@ mod tests {
             )),
             ..Default::default()
         };
-        let _ = ctx.run(input(), |ctx| {
-            egui::CentralPanel::default().show(ctx, |ui| {
+        let _ = crate::test_frame(&ctx, input(), |root_ui| {
+            let _ctx = &root_ui.ctx().clone();
+            egui::CentralPanel::default().show(root_ui, |ui| {
                 *rects.borrow_mut() = draw_transport(
                     ui,
                     Concept::StudioRack,
@@ -2221,7 +2256,8 @@ mod tests {
             });
         });
         let target = rects.borrow()[1].center();
-        let output = ctx.run(
+        let output = crate::test_frame(
+            &ctx,
             egui::RawInput {
                 events: vec![
                     egui::Event::PointerMoved(target),
@@ -2240,8 +2276,9 @@ mod tests {
                 ],
                 ..input()
             },
-            |ctx| {
-                egui::CentralPanel::default().show(ctx, |ui| {
+            |root_ui| {
+                let _ctx = &root_ui.ctx().clone();
+                egui::CentralPanel::default().show(root_ui, |ui| {
                     draw_transport(
                         ui,
                         Concept::StudioRack,
@@ -2273,13 +2310,15 @@ mod tests {
         let mut state = GalleryState::default();
         let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(700.0, 400.0));
         let cue_id = std::cell::Cell::new(None);
-        let _ = ctx.run(
+        let _ = crate::test_frame(
+            &ctx,
             egui::RawInput {
                 screen_rect: Some(screen),
                 ..Default::default()
             },
-            |ctx| {
-                egui::CentralPanel::default().show(ctx, |ui| {
+            |root_ui| {
+                let _ctx = &root_ui.ctx().clone();
+                egui::CentralPanel::default().show(root_ui, |ui| {
                     cue_id.set(Some(
                         draw_transport(
                             ui,
@@ -2293,7 +2332,8 @@ mod tests {
             },
         );
         ctx.memory_mut(|memory| memory.request_focus(cue_id.get().expect("Cue response id")));
-        let output = ctx.run(
+        let output = crate::test_frame(
+            &ctx,
             egui::RawInput {
                 screen_rect: Some(screen),
                 events: vec![egui::Event::Key {
@@ -2305,8 +2345,9 @@ mod tests {
                 }],
                 ..Default::default()
             },
-            |ctx| {
-                egui::CentralPanel::default().show(ctx, |ui| {
+            |root_ui| {
+                let _ctx = &root_ui.ctx().clone();
+                egui::CentralPanel::default().show(root_ui, |ui| {
                     draw_transport(
                         ui,
                         Concept::StudioRack,
@@ -2338,7 +2379,8 @@ mod tests {
             minimal_line_view: true,
             ..Default::default()
         };
-        let output = ctx.run(
+        let output = crate::test_frame(
+            &ctx,
             egui::RawInput {
                 screen_rect: Some(egui::Rect::from_min_size(
                     egui::Pos2::ZERO,
@@ -2346,8 +2388,9 @@ mod tests {
                 )),
                 ..Default::default()
             },
-            |ctx| {
-                egui::CentralPanel::default().show(ctx, |ui| {
+            |root_ui| {
+                let _ctx = &root_ui.ctx().clone();
+                egui::CentralPanel::default().show(root_ui, |ui| {
                     show(ui, &mut state, ThemeMode::TokyoNight.tokens());
                 });
             },
@@ -2387,13 +2430,15 @@ mod tests {
                 let card_rects = std::cell::RefCell::new(Vec::new());
                 let card_index = std::cell::Cell::new(0);
                 let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(width, 4000.0));
-                let output = ctx.run(
+                let output = crate::test_frame(
+                    &ctx,
                     egui::RawInput {
                         screen_rect: Some(screen),
                         ..Default::default()
                     },
-                    |ctx| {
-                        egui::CentralPanel::default().show(ctx, |ui| {
+                    |root_ui| {
+                        let _ctx = &root_ui.ctx().clone();
+                        egui::CentralPanel::default().show(root_ui, |ui| {
                             let viewport = show_with_card_bounds(
                                 ui,
                                 &mut state,

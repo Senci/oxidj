@@ -19,18 +19,18 @@ struct Element {
 }
 
 impl Element {
-    fn from_start(start: &BytesStart<'_>, reader: &Reader<&[u8]>) -> Result<Self, String> {
-        let name = std::str::from_utf8(start.local_name().as_ref())
+    fn from_start(start: &BytesStart<'_>, _reader: &Reader<&[u8]>) -> Result<Self, String> {
+        let name = std::str::from_utf8(start.local_name().as_ref().as_bytes())
             .map_err(|error| error.to_string())?
             .to_owned();
         let mut attributes = BTreeMap::new();
         for attribute in start.attributes().with_checks(true) {
             let attribute = attribute.map_err(|error| error.to_string())?;
-            let key = std::str::from_utf8(attribute.key.local_name().as_ref())
+            let key = std::str::from_utf8(attribute.key.local_name().as_ref().as_bytes())
                 .map_err(|error| error.to_string())?
                 .to_owned();
             let value = attribute
-                .decoded_and_normalized_value(XmlVersion::Explicit1_0, reader.decoder())
+                .normalized_value(XmlVersion::Explicit1_0)
                 .map_err(|error| error.to_string())?
                 .into_owned();
             if attributes.insert(key.clone(), value).is_some() {
@@ -80,10 +80,10 @@ fn parse(source: &[u8]) -> Result<Element, String> {
                 let element = stack.pop().ok_or("unexpected closing element")?;
                 let open_name = element.name.as_bytes();
                 let close_name = end.name();
-                if close_name.as_ref() != open_name {
+                if close_name.as_ref().as_bytes() != open_name {
                     return Err(format!(
                         "closing element {} does not match open element {}",
-                        String::from_utf8_lossy(end.name().as_ref()),
+                        String::from_utf8_lossy(end.name().as_ref().as_bytes()),
                         element.name
                     ));
                 }
@@ -384,7 +384,10 @@ const A1_CHECKER_VERSION: &str = "rekordbox-xml-a1-checker-v1";
 const A1_CHECKER_IDENTITY_PATH: &str = "tests/fixtures/rekordbox-a1/checker-identity.json";
 
 fn sha256(bytes: &[u8]) -> String {
-    format!("{:x}", Sha256::digest(bytes))
+    Sha256::digest(bytes)
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<String>()
 }
 
 fn read_json(case_id: &str, name: &str) -> Value {
@@ -463,7 +466,10 @@ fn a1_fixture_bytes_match_frozen_provenance_and_goldens() {
         ),
     ] {
         let source = std::fs::read(fixture(case_id, "source.bin")).unwrap();
-        let digest = format!("{:x}", Sha256::digest(&source));
+        let digest = Sha256::digest(&source)
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect::<String>();
         assert_eq!(digest, expected_hash, "{case_id} source bytes changed");
         let provenance = read_json(case_id, "provenance.json");
         assert_eq!(provenance["checker"], A1_CHECKER_PATH);
@@ -633,7 +639,10 @@ fn a1_fixture_bytes_match_frozen_provenance_and_goldens() {
     assert_eq!(provenance["expected_plan_length_bytes"], plan_bytes.len());
     assert_eq!(
         provenance["expected_plan_sha256"],
-        format!("{:x}", Sha256::digest(&plan_bytes))
+        Sha256::digest(&plan_bytes)
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect::<String>()
     );
     assert_eq!(read_json("F-10", "operations.json"), json!([]));
     assert_eq!(read_json("F-10", "expected-report.json"), json!([]));

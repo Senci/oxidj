@@ -1,6 +1,9 @@
 //! Actual production multi-frame browsing, drop, and keyboard interactions.
 use super::*;
 
+#[path = "column_tests.rs"]
+mod column_tests;
+
 fn key_event(key: egui::Key, pressed: bool) -> egui::Event {
     egui::Event::Key {
         key,
@@ -2229,6 +2232,63 @@ fn removal_ui_refuses_stale_order_and_same_name_replacement() {
         drop(shell);
         std::fs::remove_dir_all(root).unwrap();
     }
+}
+
+#[test]
+fn playlist_header_menu_toggles_a_column() {
+    let (root, db) = catalog_root("playlist-column-menu");
+    imported(&db, &root);
+    let mut shell = Shell::new(&db, 1440.0);
+    let playlist = text_rect(&mut shell, "♫ Browse");
+    shell.click(playlist.center());
+    let header = text_rect(&mut shell, "Title");
+    let out = shell.right_click(header.center());
+    let album = nodes(&out)
+        .into_iter()
+        .find(|n| n.0 == Role::CheckBox && n.1.as_deref() == Some("Album"))
+        .unwrap()
+        .2
+        .center();
+    shell.click(album);
+    assert!(!shell.app.settings.playlist_columns.visible[2]);
+    assert!(
+        !texts(&shell.settle())
+            .iter()
+            .any(|(s, _)| s == "Synthetic album")
+    );
+    drop(shell);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn playlist_renders_configured_order_and_visibility() {
+    let (root, db) = catalog_root("playlist-column-layout");
+    imported(&db, &root);
+    let mut shell = Shell::new(&db, 1440.0);
+    let playlist = text_rect(&mut shell, "♫ Browse");
+    shell.click(playlist.center());
+    shell.app.settings.playlist_columns.order = [1, 0, 2, 3, 4, 5];
+    shell.app.settings.playlist_columns.visible[2] = false;
+    let out = shell.settle();
+    let values = texts(&out);
+    let artist = values
+        .iter()
+        .find(|(s, _)| s == "Synthetic artist")
+        .unwrap()
+        .1;
+    let title = values
+        .iter()
+        .find(|(s, _)| s == "1 · Imported title")
+        .unwrap()
+        .1;
+    assert!(artist.left() < title.left());
+    assert!(
+        !values
+            .iter()
+            .any(|(s, _)| s == "Synthetic album" || s == "Album")
+    );
+    drop(shell);
+    std::fs::remove_dir_all(root).unwrap();
 }
 
 #[test]

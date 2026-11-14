@@ -14,7 +14,10 @@ fn read(name: &str) -> Value {
     serde_json::from_slice(&std::fs::read(fixture(name)).unwrap()).unwrap()
 }
 fn digest(b: &[u8]) -> String {
-    format!("{:x}", Sha256::digest(b))
+    Sha256::digest(b)
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<String>()
 }
 fn expected_cues() -> Vec<Value> {
     (0..40).map(|i| json!({"id":format!("c{i}"),"kind":"HotCue","index":i,"start_usec":(i+1)*1_000_000,"label":format!("H{i:02}"),"flags":0})).collect()

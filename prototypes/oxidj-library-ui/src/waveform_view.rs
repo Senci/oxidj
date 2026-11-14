@@ -387,7 +387,8 @@ pub fn publish_smooth(ctx: &egui::Context, smooth: bool) {
 
 /// The published "Smooth" setting; on (anti-aliased) when never published.
 pub fn smooth(ctx: &egui::Context) -> bool {
-    ctx.data(|d| d.get_temp(egui::Id::NULL.with(SMOOTH_ID))).unwrap_or(true)
+    ctx.data(|d| d.get_temp(egui::Id::NULL.with(SMOOTH_ID)))
+        .unwrap_or(true)
 }
 
 /// Reused layer buffers, keyed by the widget id in egui temp memory.
@@ -433,7 +434,9 @@ pub fn waveform_view_sized(
         .each_mut()
         .map(|slot| Arc::get_mut(slot).map(std::mem::take).unwrap_or_default());
     let fringe = if smooth(ui.ctx()) { FRINGE } else { 0.0 };
-    build_layers_with_fringe(peaks, style, viewport, eq, rect, palette, fringe, &mut owned);
+    build_layers_with_fringe(
+        peaks, style, viewport, eq, rect, palette, fringe, &mut owned,
+    );
     for (slot, mesh) in slots.iter_mut().zip(owned) {
         match Arc::get_mut(slot) {
             Some(dst) => *dst = mesh,
@@ -540,9 +543,10 @@ mod tests {
         eq: Eq,
     ) -> (Rect, Vec<egui::epaint::ClippedShape>) {
         let mut rect = Rect::NOTHING;
-        let output = ctx.run(egui::RawInput::default(), |ctx| {
+        let output = crate::test_frame(&ctx, egui::RawInput::default(), |root_ui| {
+            let ctx = &root_ui.ctx().clone();
             theme::publish_tokens(ctx, tokens());
-            egui::CentralPanel::default().show(ctx, |ui| {
+            egui::CentralPanel::default().show(root_ui, |ui| {
                 rect = waveform_view(ui, peaks, style, viewport, eq).rect;
             });
         });
@@ -1282,9 +1286,10 @@ mod tests {
         // the number of waveform meshes painted.
         let frame = |app: &mut crate::LibraryApp, input| {
             let mut button = Rect::NOTHING;
-            let output = ctx.run(input, |ctx| {
+            let output = crate::test_frame(&ctx, input, |root_ui| {
+                let ctx = &root_ui.ctx().clone();
                 theme::publish_tokens(ctx, tokens());
-                egui::TopBottomPanel::top("toolbar").show(ctx, |ui| {
+                egui::Panel::top("toolbar").show(root_ui, |ui| {
                     button = app.show_waveform_demo_button(ui).rect;
                 });
                 app.show_waveform_demo_window(ctx);
@@ -1368,9 +1373,10 @@ mod tests {
                     };
                     let t0 = Instant::now();
                     let mut b = std::time::Duration::ZERO;
-                    let output = ctx.run(input(), |ctx| {
+                    let output = crate::test_frame(&ctx, input(), |root_ui| {
+                        let ctx = &root_ui.ctx().clone();
                         theme::publish_tokens(ctx, tokens());
-                        egui::CentralPanel::default().show(ctx, |ui| {
+                        egui::CentralPanel::default().show(root_ui, |ui| {
                             let tb = Instant::now();
                             waveform_view(ui, Some(&peaks), style, vp, eq);
                             b = tb.elapsed();

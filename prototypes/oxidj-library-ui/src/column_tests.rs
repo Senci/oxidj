@@ -1,0 +1,709 @@
+//! Production table gestures, accessible alternatives and a fresh-app restart.
+use super::*;
+
+fn drag(shell: &mut Shell, from: Pos2, to: Pos2) {
+    shell.frame(vec![egui::Event::PointerMoved(from)], Default::default());
+    shell.frame(
+        vec![egui::Event::PointerButton {
+            pos: from,
+            button: egui::PointerButton::Primary,
+            pressed: true,
+            modifiers: Default::default(),
+        }],
+        Default::default(),
+    );
+    shell.frame(
+        vec![egui::Event::PointerMoved(from + (to - from) * 0.5)],
+        Default::default(),
+    );
+    shell.frame(vec![egui::Event::PointerMoved(to)], Default::default());
+    shell.frame(
+        vec![egui::Event::PointerButton {
+            pos: to,
+            button: egui::PointerButton::Primary,
+            pressed: false,
+            modifiers: Default::default(),
+        }],
+        Default::default(),
+    );
+    shell.settle();
+}
+
+fn header(shell: &mut Shell, label: &str) -> Rect {
+    let out = shell.settle();
+    nodes(&out)
+        .into_iter()
+        .find(|n| {
+            n.0 == Role::Button
+                && n.1
+                    .as_deref()
+                    .is_some_and(|s| s == label || s.starts_with(&format!("{label}, sorted ")))
+                && shell.table().contains(n.2.center())
+        })
+        .unwrap_or_else(|| panic!("header {label}"))
+        .2
+}
+
+fn menu(shell: &mut Shell) -> egui::FullOutput {
+    let out = shell.settle();
+    shell.click(find(&nodes(&out), "Columns").2.center())
+}
+
+fn checkbox(out: &egui::FullOutput, label: &str) -> Pos2 {
+    nodes(out)
+        .into_iter()
+        .find(|n| n.0 == Role::CheckBox && n.1.as_deref() == Some(label))
+        .unwrap()
+        .2
+        .center()
+}
+
+fn layout(shell: &Shell, playlist: bool) -> crate::settings::TableColumns {
+    if playlist {
+        shell.app.settings.playlist_columns
+    } else {
+        shell.app.settings.catalog_columns
+    }
+}
+
+#[test]
+fn column_drag_resize_visibility_restart_and_row_selection_in_both_tables() {
+    for playlist in [false, true] {
+        let (root, db) = catalog_root(if playlist {
+            "columns-playlist"
+        } else {
+            "columns-catalog"
+        });
+        imported(&db, &root);
+        let snapshot = Catalog::open_read_only(&db)
+            .unwrap()
+            .library_snapshot()
+            .unwrap();
+        let mut shell = Shell::new(&db, 1440.0);
+        // The merged model must persist columns alongside the newer audio
+        // preferences, including identifiers containing storage delimiters.
+        shell.app.settings.limiter = false;
+        shell.app.settings.audio_buffer = Some(Some(256));
+        shell.app.settings.audio_device = Some(("Synthetic;host".into(), "device=id".into()));
+        if playlist {
+            let r = text_rect(&mut shell, "♫ Browse");
+            shell.click(r.center());
+        }
+        let first = if playlist { "Title" } else { "Availability" };
+        let second = if playlist { "Artist" } else { "ID" };
+        let h1 = header(&mut shell, first);
+        let h2 = header(&mut shell, second);
+        drag(&mut shell, h1.center(), h2.center());
+        assert_eq!(&layout(&shell, playlist).order[..2], &[1, 0]);
+        assert!(matches!(shell.app.sort, Sort::Id));
+        assert!(!shell.app.descending, "reorder must not trigger sort");
+        let h = header(&mut shell, first);
+        let width = layout(&shell, playlist).widths[0];
+        let edge = egui::pos2(h.right() + 3.0, h.center().y);
+        drag(&mut shell, edge, edge + egui::vec2(65.0, 0.0));
+        assert_eq!(layout(&shell, playlist).widths[0], width + 65);
+        assert!(!shell.app.descending, "resize must not trigger sort");
+        let out = menu(&mut shell);
+        shell.click(checkbox(&out, if playlist { "Album" } else { "Folder" }));
+        assert!(!layout(&shell, playlist).visible[if playlist { 2 } else { 3 }]);
+        key(&mut shell, egui::Key::Escape);
+        let expected = shell.app.settings.clone();
+        // The real App::save path writes through eframe::Storage. Reconstruct
+        // storage, egui context and LibraryApp, not just the layout value.
+        let mut storage = FileStorage(root.join("settings.txt"));
+        eframe::App::save(&mut shell.app, &mut storage);
+        drop(shell);
+        let storage = FileStorage(root.join("settings.txt"));
+        let mut restarted = Shell::new(&db, 1440.0);
+        restarted.app.settings = crate::settings::Settings::load(Some(&storage));
+        assert_eq!(restarted.app.settings, expected);
+        if playlist {
+            let r = text_rect(&mut restarted, "♫ Browse");
+            restarted.click(r.center());
+        }
+        assert!(header(&mut restarted, second).left() < header(&mut restarted, first).left());
+        let row = text_rect(
+            &mut restarted,
+            if playlist {
+                "1 · Imported title"
+            } else {
+                "tone-a.wav"
+            },
+        );
+        restarted.click(row.center());
+        if playlist {
+            assert_eq!(restarted.app.imported_member, Some(0));
+        } else {
+            assert!(restarted.app.selected.is_some());
+        }
+        assert_eq!(
+            Catalog::open_read_only(&db)
+                .unwrap()
+                .library_snapshot()
+                .unwrap(),
+            snapshot,
+            "column gestures never edit catalog metadata/memberships"
+        );
+        drop(restarted);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+}
+
+#[test]
+fn column_sortable_header_drag_reverse_cancel_and_resize_limits() {
+    let (root, db) = catalog_root("column-gesture-limits");
+    let mut shell = Shell::new(&db, 1440.0);
+    let id = header(&mut shell, "ID").center();
+    let filename = header(&mut shell, "Filename").center();
+    drag(&mut shell, id, filename);
+    assert_eq!(shell.app.settings.catalog_columns.order, [0, 2, 1, 3, 4, 5]);
+    assert!(!shell.app.descending);
+    let id = header(&mut shell, "ID").center();
+    let filename = header(&mut shell, "Filename").center();
+    drag(&mut shell, id, filename);
+    assert_eq!(shell.app.settings.catalog_columns.order, [0, 1, 2, 3, 4, 5]);
+    let original = shell.app.settings.catalog_columns;
+    let id = header(&mut shell, "ID").center();
+    let outside = egui::pos2(id.x, shell.table().bottom() - 10.0);
+    drag(&mut shell, id, outside);
+    assert_eq!(
+        shell.app.settings.catalog_columns, original,
+        "outside release cancels reorder"
+    );
+    for (delta, expected) in [(-1000.0, 24), (3000.0, 2000)] {
+        let h = header(&mut shell, "ID");
+        let edge = egui::pos2(h.right() + 3.0, h.center().y);
+        drag(&mut shell, edge, edge + egui::vec2(delta, 0.0));
+        assert_eq!(shell.app.settings.catalog_columns.widths[1], expected);
+        assert!(!shell.app.descending);
+    }
+    drop(shell);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn column_narrow_table_scrolls_headers_and_rows_together_and_keeps_menu_reachable() {
+    for playlist in [false, true] {
+        let (root, db) = catalog_root(if playlist {
+            "columns-narrow-playlist"
+        } else {
+            "columns-narrow-catalog"
+        });
+        imported(&db, &root);
+        let mut shell = Shell::new(&db, 600.0);
+        shell.app.show_nav = false;
+        shell.app.show_details = false;
+        shell.app.show_decks = false;
+        if playlist {
+            shell.app.imported_playlist = Some(vec![0]);
+        }
+        shell.settle();
+        let pointer = shell.table().center();
+        shell.frame(
+            vec![
+                egui::Event::PointerMoved(pointer),
+                egui::Event::MouseWheel {
+                    phase: egui::TouchPhase::Move,
+                    source: egui::MouseWheelSource::Unknown,
+                    unit: egui::MouseWheelUnit::Point,
+                    delta: egui::vec2(-1500.0, 0.0),
+                    modifiers: Default::default(),
+                },
+            ],
+            Default::default(),
+        );
+        // Let egui consume its smooth-scroll delta over multiple frames.
+        for _ in 0..20 {
+            shell.settle();
+        }
+        let out = shell.settle();
+        let label = if playlist { "Duration" } else { "Format" };
+        let h = header(&mut shell, label);
+        assert!(
+            shell.table().contains(h.center()),
+            "last column is reachable by horizontal scroll"
+        );
+        let value = if playlist {
+            "1:13"
+        } else {
+            "44.1 kHz · 16-bit · mono"
+        };
+        let r = texts(&out).into_iter().find(|(s, _)| s == value).unwrap().1;
+        assert!(
+            r.left() >= h.left() && r.right() <= h.right() + 5.0,
+            "rows follow horizontally scrolled header"
+        );
+        let out = menu(&mut shell);
+        assert!(
+            nodes(&out).iter().any(|n| n.0 == Role::CheckBox),
+            "pinned menu remains usable"
+        );
+        drop(shell);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+}
+
+/// A disk-backed single-key storage for the actual settings save/load boundary.
+struct FileStorage(std::path::PathBuf);
+impl eframe::Storage for FileStorage {
+    fn get_string(&self, key: &str) -> Option<String> {
+        (key == "ui_settings")
+            .then(|| std::fs::read_to_string(&self.0).ok())
+            .flatten()
+    }
+    fn set_string(&mut self, key: &str, value: String) {
+        if key == "ui_settings" {
+            std::fs::write(&self.0, value).unwrap();
+        }
+    }
+    fn remove_string(&mut self, key: &str) {
+        if key == "ui_settings" {
+            match std::fs::remove_file(&self.0) {
+                Ok(()) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => panic!("remove settings: {error}"),
+            }
+        }
+    }
+    fn flush(&mut self) {}
+}
+
+#[test]
+fn column_menu_keyboard_access_autofit_reset_and_last_visible_guard() {
+    let (root, db) = catalog_root("column-menu-actions");
+    let mut shell = Shell::new(&db, 900.0);
+    let out = shell.settle();
+    let button = find(&nodes(&out), "Columns").2.center();
+    // Click to acquire focus, close, then keyboard activation of the same
+    // normal menu control (no right/middle mouse required).
+    shell.click(button);
+    key(&mut shell, egui::Key::Escape);
+    let out = shell.settle();
+    let button_id = out
+        .platform_output
+        .accesskit_update
+        .as_ref()
+        .unwrap()
+        .nodes
+        .iter()
+        .find(|(_, n)| n.label() == Some("Columns"))
+        .unwrap()
+        .0;
+    shell.frame(
+        vec![egui::Event::AccessKitActionRequest(
+            egui::accesskit::ActionRequest {
+                action: egui::accesskit::Action::Focus,
+                target_tree: egui::accesskit::TreeId::ROOT,
+                target_node: button_id,
+                data: None,
+            },
+        )],
+        Default::default(),
+    );
+    key(&mut shell, egui::Key::Enter);
+    let out = shell.settle();
+    assert!(
+        nodes(&out)
+            .iter()
+            .any(|n| n.1.as_deref() == Some("Auto-fit columns"))
+    );
+    shell.click(find(&nodes(&out), "Auto-fit columns").2.center());
+    assert!(
+        shell.app.settings.catalog_columns.widths[3] < 160,
+        "auto-fit measures actual folder contents rather than restoring defaults"
+    );
+    let out = menu(&mut shell);
+    shell.click(find(&nodes(&out), "Reset columns").2.center());
+    assert_eq!(
+        shell.app.settings.catalog_columns,
+        crate::settings::TableColumns::default()
+    );
+    shell.app.settings.catalog_columns.visible = [false, false, true, false, false, false];
+    let out = menu(&mut shell);
+    shell.click(checkbox(&out, "Filename"));
+    assert!(
+        shell.app.settings.catalog_columns.visible[2],
+        "at least one column stays visible"
+    );
+    drop(shell);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn column_middle_click_fits_one_column_and_catalog_sort_still_clicks() {
+    let (root, db) = catalog_root("column-fit-sort");
+    let mut shell = Shell::new(&db, 1440.0);
+    let pos = header(&mut shell, "Folder").center();
+    let before = shell.app.settings.catalog_columns;
+    shell.frame(vec![egui::Event::PointerMoved(pos)], Default::default());
+    for pressed in [true, false] {
+        shell.frame(
+            vec![egui::Event::PointerButton {
+                pos,
+                button: egui::PointerButton::Middle,
+                pressed,
+                modifiers: Default::default(),
+            }],
+            Default::default(),
+        );
+    }
+    shell.settle();
+    assert!(shell.app.settings.catalog_columns.widths[3] < before.widths[3]);
+    for i in [0, 1, 2, 4, 5] {
+        assert_eq!(
+            shell.app.settings.catalog_columns.widths[i],
+            before.widths[i]
+        );
+    }
+    let id = header(&mut shell, "ID").center();
+    shell.click(id);
+    assert!(shell.app.descending);
+    drop(shell);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn imported_sort_changes_visible_order_without_changing_member_identity() {
+    let (root, db) = catalog_root("imported-sort-members");
+    Catalog::open(&db)
+        .unwrap()
+        .import_library(&LibrarySnapshot {
+            tracks: vec![
+                LibraryTrack {
+                    title: "Zulu".into(),
+                    location: "file://localhost/z.mp3".into(),
+                    ..Default::default()
+                },
+                LibraryTrack {
+                    title: "Alpha".into(),
+                    location: "file://localhost/a.mp3".into(),
+                    ..Default::default()
+                },
+            ],
+            roots: vec![oxidj_library::LibraryNode::Playlist {
+                name: "Browse".into(),
+                members: vec![0, 1, 0],
+            }],
+        })
+        .unwrap();
+    let before = Catalog::open_read_only(&db)
+        .unwrap()
+        .library_snapshot()
+        .unwrap();
+    let mut shell = Shell::new(&db, 1440.0);
+    let browse = text_rect(&mut shell, "♫ Browse");
+    shell.click(browse.center());
+    let title = header(&mut shell, "Title");
+    shell.click(title.center());
+    let alpha = text_rect(&mut shell, "2 · Alpha");
+    let zulu = text_rect(&mut shell, "1 · Zulu");
+    assert!(alpha.top() < zulu.top());
+    shell.click(alpha.center());
+    assert_eq!(shell.app.imported_member, Some(1));
+    assert_eq!(shell.app.selected_imported, Some(1));
+    assert_eq!(
+        Catalog::open_read_only(&db)
+            .unwrap()
+            .library_snapshot()
+            .unwrap(),
+        before
+    );
+    drop(shell);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+// Integration characterization: the newer mutation UI must consume source
+// occurrence/track guards, never the row index in the sorted/filtered view.
+#[test]
+fn sorted_filtered_duplicate_removal_preserves_root_and_nested_source_identity() {
+    use oxidj_library::LibraryNode;
+    for nested in [false, true] {
+        let (root, db) = catalog_root(if nested {
+            "columns-nested-remove"
+        } else {
+            "columns-root-remove"
+        });
+        let playlist = LibraryNode::Playlist {
+            name: "Browse".into(),
+            members: vec![0, 1, 0],
+        };
+        let mut expected = LibrarySnapshot {
+            tracks: vec![
+                LibraryTrack {
+                    title: "Zulu".into(),
+                    genre: Some("House".into()),
+                    location: "file://localhost/z.wav".into(),
+                    ..Default::default()
+                },
+                LibraryTrack {
+                    title: "Alpha".into(),
+                    genre: Some("Ambient".into()),
+                    location: "file://localhost/a.wav".into(),
+                    ..Default::default()
+                },
+            ],
+            roots: vec![if nested {
+                LibraryNode::Folder {
+                    name: "Parent".into(),
+                    children: vec![playlist],
+                }
+            } else {
+                playlist
+            }],
+        };
+        Catalog::open(&db)
+            .unwrap()
+            .import_library(&expected)
+            .unwrap();
+        let mut shell = Shell::new(&db, 1440.0);
+        let browse = text_rect(&mut shell, "♫ Browse");
+        shell.click(browse.center());
+        let title = header(&mut shell, "Title");
+        shell.click(title.center());
+        assert!(text_rect(&mut shell, "2 · Alpha").top() < text_rect(&mut shell, "1 · Zulu").top());
+        shell.app.filter_genre = "house".into();
+        let first = text_rect(&mut shell, "1 · Zulu");
+        let second = text_rect(&mut shell, "3 · Zulu");
+        assert!(first.top() < second.top());
+        shell.click(second.center());
+        assert_eq!(shell.app.imported_member, Some(2));
+        assert_eq!(shell.app.selected_imported, Some(0));
+        assert!(shell.app.selected_imported_guard.is_some());
+        let out = shell.settle();
+        let out = shell.click(
+            find(&nodes(&out), "Remove selected from playlist…")
+                .2
+                .center(),
+        );
+        shell.click(find(&nodes(&out), "Confirm removal").2.center());
+        assert_eq!(shell.app.notice, "Playlist member removed");
+        if nested {
+            assert!(shell.app.imported_nested_guard.is_some());
+        }
+        let node = if nested {
+            let LibraryNode::Folder { children, .. } = &mut expected.roots[0] else {
+                panic!("folder")
+            };
+            &mut children[0]
+        } else {
+            &mut expected.roots[0]
+        };
+        let LibraryNode::Playlist { members, .. } = node else {
+            panic!("playlist")
+        };
+        members.remove(2);
+        assert_eq!(
+            Catalog::open_read_only(&db)
+                .unwrap()
+                .library_snapshot()
+                .unwrap(),
+            expected
+        );
+        drop(shell);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+}
+
+#[test]
+fn imported_header_click_changes_sort_direction() {
+    let (root, db) = catalog_root("imported-header-sort");
+    imported(&db, &root);
+    let mut shell = Shell::new(&db, 1440.0);
+    let browse = text_rect(&mut shell, "♫ Browse");
+    shell.click(browse.center());
+    let title = header(&mut shell, "Title");
+    let out = shell.click(title.center());
+    assert!(
+        nodes(&out)
+            .iter()
+            .any(|n| n.1.as_deref() == Some("Title, sorted ascending"))
+    );
+    let title = header(&mut shell, "Title");
+    let out = shell.click(title.center());
+    assert!(
+        nodes(&out)
+            .iter()
+            .any(|n| n.1.as_deref() == Some("Title, sorted descending"))
+    );
+    let title = header(&mut shell, "Title");
+    shell.click(title.center());
+    assert!(
+        shell.app.imported_sort.is_none(),
+        "third click restores playlist order"
+    );
+    drop(shell);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn catalog_folder_header_sorts() {
+    let (root, db) = catalog_root("catalog-folder-sort");
+    let mut shell = Shell::new(&db, 1440.0);
+    let folder = header(&mut shell, "Folder");
+    let out = shell.click(folder.center());
+    assert!(
+        nodes(&out)
+            .iter()
+            .any(|n| n.1.as_deref() == Some("Folder, sorted ascending"))
+    );
+    drop(shell);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn imported_quick_filter_opens_and_can_be_cleared() {
+    let (root, db) = catalog_root("imported-quick-filter");
+    Catalog::open(&db)
+        .unwrap()
+        .import_library(&LibrarySnapshot {
+            tracks: vec![
+                LibraryTrack {
+                    title: "Match".into(),
+                    location: "file://localhost/a".into(),
+                    tempo_hundredths_bpm: 12800,
+                    key: Some("8A".into()),
+                    genre: Some("House".into()),
+                    ..Default::default()
+                },
+                LibraryTrack {
+                    title: "No metadata".into(),
+                    location: "file://localhost/b".into(),
+                    ..Default::default()
+                },
+            ],
+            roots: vec![oxidj_library::LibraryNode::Playlist {
+                name: "Browse".into(),
+                members: vec![0, 1, 0],
+            }],
+        })
+        .unwrap();
+    let mut shell = Shell::new(&db, 1440.0);
+    let browse = text_rect(&mut shell, "♫ Browse");
+    shell.click(browse.center());
+    let out = shell.settle();
+    let tree = nodes(&out);
+    let button = find(&tree, "Filters");
+    let out = shell.click(button.2.center());
+    let mut fields: Vec<_> = nodes(&out)
+        .into_iter()
+        .filter(|n| n.0 == Role::TextInput && Some(n.2) != shell.app.shell.search)
+        .map(|n| n.2)
+        .collect();
+    fields.sort_by(|a, b| a.top().total_cmp(&b.top()));
+    assert_eq!(fields.len(), 4);
+    for (rect, value) in fields.into_iter().zip(["128", "128", "8a", "house"]) {
+        shell.frame(
+            vec![egui::Event::PointerMoved(rect.center())],
+            Default::default(),
+        );
+        shell.click(rect.center());
+        shell.frame(vec![egui::Event::Text(value.into())], Default::default());
+    }
+    assert_eq!(shell.app.filter_genre, "house");
+    let out = shell.settle();
+    assert!(texts(&out).iter().any(|(s, _)| s == "1 · Match"));
+    assert!(!texts(&out).iter().any(|(s, _)| s == "2 · No metadata"));
+    let tree = nodes(&out);
+    let clear = find(&tree, "Clear filters");
+    shell.click(clear.2.center());
+    assert!(shell.app.filter_min_bpm.is_empty());
+    let out = shell.settle();
+    assert!(texts(&out).iter().any(|(s, _)| s == "2 · No metadata"));
+    drop(shell);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn imported_scanned_availability_does_not_guess_for_unmatched_locations() {
+    let (root, db) = catalog_root("playlist-scanned-availability");
+    let file = root.join("audio/tone-a.wav");
+    let location = oxidj_application::location_uri(file.to_str().unwrap()).0;
+    Catalog::open(&db)
+        .unwrap()
+        .import_library(&LibrarySnapshot {
+            tracks: vec![
+                LibraryTrack {
+                    title: "Scanned".into(),
+                    location,
+                    ..Default::default()
+                },
+                LibraryTrack {
+                    title: "Unmatched".into(),
+                    location: "file://localhost/unknown".into(),
+                    ..Default::default()
+                },
+            ],
+            roots: vec![oxidj_library::LibraryNode::Playlist {
+                name: "Browse".into(),
+                members: vec![0, 1],
+            }],
+        })
+        .unwrap();
+    let mut shell = Shell::new(&db, 1440.0);
+    let browse = text_rect(&mut shell, "♫ Browse");
+    shell.click(browse.center());
+    shell.app.filter_availability = 1;
+    let out = shell.settle();
+    assert!(texts(&out).iter().any(|(s, _)| s == "1 · Scanned"));
+    assert!(!texts(&out).iter().any(|(s, _)| s == "2 · Unmatched"));
+    shell.app.filter_availability = 3;
+    let out = shell.settle();
+    assert!(!texts(&out).iter().any(|(s, _)| s == "1 · Scanned"));
+    assert!(texts(&out).iter().any(|(s, _)| s == "2 · Unmatched"));
+    drop(shell);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn column_missing_imported_values_are_not_invented() {
+    let (root, db) = catalog_root("column-missing-values");
+    Catalog::open(&db)
+        .unwrap()
+        .import_library(&LibrarySnapshot {
+            tracks: vec![LibraryTrack {
+                title: "Unknown facts".into(),
+                location: "file://localhost/not-present.wav".into(),
+                ..Default::default()
+            }],
+            roots: vec![oxidj_library::LibraryNode::Playlist {
+                name: "Unknown".into(),
+                members: vec![0],
+            }],
+        })
+        .unwrap();
+    let mut shell = Shell::new(&db, 1440.0);
+    let r = text_rect(&mut shell, "♫ Unknown");
+    shell.click(r.center());
+    let out = shell.settle();
+    let values: Vec<_> = texts(&out)
+        .into_iter()
+        .filter(|(_, r)| shell.table().contains(r.center()))
+        .map(|(s, _)| s)
+        .collect();
+    assert_eq!(values.iter().filter(|s| *s == "—").count(), 5);
+    assert!(!values.iter().any(|s| s == "0:00" || s == "0.00"));
+    drop(shell);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn old_and_malformed_column_settings_preserve_other_preferences() {
+    for columns in [
+        "",
+        ";columns_catalog=0:1:100,0:1:100",
+        ";columns_catalog=0:0:100,1:0:100,2:0:100,3:0:100,4:0:100,5:0:100",
+        ";columns_playlist=0:1:23,1:1:80,2:1:200,3:1:160,4:1:90,5:1:100",
+        ";columns_catalog=0:1:100,1:1:80,2:1:200,3:1:160,4:1:90,9:1:100",
+    ] {
+        let settings = crate::settings::Settings::decode(&format!("zoom=8{columns}"));
+        assert_eq!(settings.zoom_bars, 8);
+        assert_eq!(
+            settings.catalog_columns,
+            crate::settings::Settings::default().catalog_columns
+        );
+        assert_eq!(
+            settings.playlist_columns,
+            crate::settings::Settings::default().playlist_columns
+        );
+    }
+}

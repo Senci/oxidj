@@ -11,8 +11,8 @@ impl eframe::App for LibraryApp {
         }
     }
 
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        self.ui(ctx);
+    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        self.ui(ui);
     }
 
     fn raw_input_hook(&mut self, ctx: &egui::Context, raw_input: &mut egui::RawInput) {
@@ -20,13 +20,15 @@ impl eframe::App for LibraryApp {
     }
 }
 
-/// Fixed track-table columns (W11): availability dot, ID, Duration, Format.
-const STATUS_COLUMN: f32 = 24.0;
-const ID_COLUMN: f32 = 52.0;
-const DURATION_COLUMN: f32 = 72.0;
-const FORMAT_COLUMN: f32 = 172.0;
-/// Filename and folder share the rest; below this the table scrolls sideways.
-const MIN_FLEX_COLUMNS: f32 = 2.0 * 130.0;
+const CATALOG_LABELS: [&str; 6] = [
+    "Availability",
+    "ID",
+    "Filename",
+    "Folder",
+    "Duration",
+    "Format",
+];
+const PLAYLIST_LABELS: [&str; 6] = ["Title", "Artist", "Album", "BPM", "Key", "Duration"];
 /// Track-table columns, left to right.
 const COLUMNS: usize = 6;
 /// Columns whose cells and header are right-aligned (numbers).
@@ -52,7 +54,8 @@ impl LibraryApp {
     /// One frame of the whole library UI (the production `update` body):
     /// one-row toolbar, status bar, optional nav/details/decks panels and the
     /// track table filling whatever space the visible panels leave.
-    pub(crate) fn ui(&mut self, ctx: &egui::Context) {
+    pub(crate) fn ui(&mut self, root_ui: &mut egui::Ui) {
+        let ctx = &root_ui.ctx().clone();
         self.handle_settings_shortcuts(ctx);
         self.handle_theme_shortcuts(ctx);
         self.handle_panel_shortcuts(ctx);
@@ -65,23 +68,23 @@ impl LibraryApp {
         self.theme.apply(self.custom_tokens, ctx);
         let tokens = self.active_tokens();
         self.shell = ShellLayout::default();
-        let style = ctx.style();
+        let style = ctx.global_style();
         let bar = egui::Frame::side_top_panel(&style).inner_margin(theme::BAR_MARGIN);
         let status_frame = egui::Frame::side_top_panel(&style).inner_margin(theme::STATUS_MARGIN);
         let panel = egui::Frame::side_top_panel(&style).inner_margin(theme::PANEL_MARGIN);
-        let toolbar = egui::TopBottomPanel::top("toolbar")
+        let toolbar = egui::Panel::top("toolbar")
             .frame(bar)
-            .show(ctx, |ui| self.toolbar(ui, ctx, tokens));
+            .show(root_ui, |ui| self.toolbar(ui, ctx, tokens));
         self.shell.toolbar = Some(toolbar.response.rect);
         // D1: the deck area sits under the toolbar, the library below it.
         if self.show_decks {
-            let decks = egui::TopBottomPanel::top("decks")
+            let decks = egui::Panel::top("decks")
                 .frame(panel)
                 .resizable(false)
-                .show(ctx, |ui| {
+                .show(root_ui, |ui| {
                     // Tall mixer faders must remain reachable on short displays.
                     // The library table keeps `LIBRARY_MIN_H` below the decks.
-                    let screen = ctx.screen_rect();
+                    let screen = ctx.content_rect();
                     let max_height = decks::deck_budget(
                         screen.height(),
                         self.shell.toolbar.map_or(40.0, |t| t.height()),
@@ -104,7 +107,7 @@ impl LibraryApp {
                         egui::ScrollArea::vertical()
                             .id_salt("deck-area-scroll")
                             .scroll_source(egui::scroll_area::ScrollSource {
-                                drag: false,
+                                drag: egui::scroll_area::DragScroll::Never,
                                 ..Default::default()
                             })
                             // Content is taller than `max_height` here, so take
@@ -140,17 +143,17 @@ impl LibraryApp {
         self.catalog_remove_window(ctx);
         self.catalog_append_window(ctx);
         self.catalog_create_window(ctx);
-        let status = egui::TopBottomPanel::bottom("status-bar")
+        let status = egui::Panel::bottom("status-bar")
             .frame(status_frame)
-            .show(ctx, |ui| self.status_bar(ui, tokens));
+            .show(root_ui, |ui| self.status_bar(ui, tokens));
         self.shell.status = Some(status.response.rect);
         if self.show_nav {
-            let nav = egui::SidePanel::left("library-navigation")
+            let nav = egui::Panel::left("library-navigation")
                 .frame(panel)
-                .default_width(168.0)
-                .width_range(140.0..=280.0)
+                .default_size(168.0)
+                .size_range(140.0..=280.0)
                 .resizable(true)
-                .show(ctx, |ui| {
+                .show(root_ui, |ui| {
                     egui::ScrollArea::vertical()
                         .id_salt("navigation-scroll")
                         .show(ui, |ui| self.navigation(ui, tokens));
@@ -163,13 +166,13 @@ impl LibraryApp {
             // at most 40% of a narrow window so the track table keeps room.
             // W9: the minimum is the content's real minimum (the two-line
             // SHA-256 row is ~296 px), so the panel never silently widens.
-            let details = egui::SidePanel::right("details")
+            let details = egui::Panel::right("details")
                 .frame(panel)
-                .default_width(380.0)
-                .min_width(DETAILS_MIN_WIDTH)
-                .max_width((ctx.screen_rect().width() * 0.4).clamp(DETAILS_MIN_WIDTH, 480.0))
+                .default_size(380.0)
+                .min_size(DETAILS_MIN_WIDTH)
+                .max_size((ctx.content_rect().width() * 0.4).clamp(DETAILS_MIN_WIDTH, 480.0))
                 .resizable(true)
-                .show(ctx, |ui| {
+                .show(root_ui, |ui| {
                     // No auto-shrink: the panel keeps its width with or without
                     // a selection instead of jumping to the content width.
                     egui::ScrollArea::vertical()
@@ -183,13 +186,13 @@ impl LibraryApp {
             // Re-opening the panel re-lays the facts grid like a new
             // selection does (W11: the first opened frame showed rows sized
             // from a stale grid until the next input).
-            ctx.data_mut(|d| d.remove::<u64>(egui::Id::new(TRACK_FACTS_SHOWN)));
+            ctx.data_mut(|d| d.remove::<u64>(egui::Id::unique(TRACK_FACTS_SHOWN)));
         }
         // No inner margin: the table runs edge to edge between the panels'
         // hairline separators.
         egui::CentralPanel::default()
             .frame(egui::Frame::central_panel(&style).inner_margin(0))
-            .show(ctx, |ui| self.track_table(ui, tokens));
+            .show(root_ui, |ui| self.track_table(ui, tokens));
         self.finish_track_drop(ctx, tokens);
         // D2: this frame's deck controls go to the audio engine; D4: the
         // mixer is in the path only while visible (else exact unity bypass).
@@ -236,7 +239,7 @@ impl LibraryApp {
                         target = Some(d);
                         ctx.layer_painter(egui::LayerId::new(
                             egui::Order::Foreground,
-                            egui::Id::new("track-drop-highlight"),
+                            egui::Id::unique("track-drop-highlight"),
                         ))
                         .rect_stroke(
                             rect.shrink(1.0),
@@ -341,7 +344,7 @@ impl LibraryApp {
                     ui.style().interact(&gear).fg_stroke.color,
                 );
                 gear.widget_info(|| {
-                    egui::WidgetInfo::labeled(egui::WidgetType::Button, true, "Settings")
+                    egui::WidgetInfo::labeled(egui::Role::Button, true, "Settings")
                 });
                 if gear.clicked() {
                     let open = !self.settings_ui.open;
@@ -435,7 +438,7 @@ impl LibraryApp {
                     [field, height],
                     egui::TextEdit::singleline(&mut self.import_root)
                         .hint_text("Folder path")
-                        .vertical_align(egui::Align::Center),
+                        .align(egui::Align2::LEFT_CENTER),
                 );
                 let import = ui
                     .add_enabled_ui(self.waveform_job.is_none(), |ui| {
@@ -457,7 +460,7 @@ impl LibraryApp {
                         [field, height],
                         egui::TextEdit::singleline(&mut self.xml_path)
                             .hint_text("XML file path (read-only)")
-                            .vertical_align(egui::Align::Center),
+                            .align(egui::Align2::LEFT_CENTER),
                     )
                     .changed();
                 if source_changed {
@@ -966,11 +969,11 @@ impl LibraryApp {
             egui::TextEdit::singleline(&mut self.search)
                 .id_salt("track-search")
                 .hint_text("Search tracks")
-                .frame(false)
+                .frame(egui::Frame::NONE)
                 .margin(egui::Margin::symmetric(0, 2))
                 .desired_width(field.width())
                 .min_size(egui::vec2(0.0, h))
-                .vertical_align(egui::Align::Center),
+                .align(egui::Align2::LEFT_CENTER),
         );
         let stroke = if edit.has_focus() {
             egui::Stroke::new(2.0_f32, tokens.focus)
@@ -998,9 +1001,13 @@ impl LibraryApp {
         self.shell.search = Some(edit.rect);
         self.shell.search_clear = None;
         if !self.search.is_empty() {
-            let response = ui.interact(clear, ui.id().with("clear-search"), egui::Sense::click());
+            let response = ui.interact(
+                clear,
+                ui.scope_id().with("clear-search"),
+                egui::Sense::click(),
+            );
             response.widget_info(|| {
-                egui::WidgetInfo::labeled(egui::WidgetType::Button, true, "Clear search")
+                egui::WidgetInfo::labeled(egui::Role::Button, true, "Clear search")
             });
             let color = if response.hovered() || response.has_focus() {
                 tokens.text
@@ -1081,10 +1088,11 @@ impl LibraryApp {
         if self.show_xml_preview {
             let mut open = self.show_xml_preview;
             egui::Window::new("Rekordbox XML preview · guarded edits")
+                .id(egui::Id::unique("Rekordbox XML preview · guarded edits"))
                 .open(&mut open)
                 .default_width(720.0)
                 .vscroll(true)
-                .max_height(ctx.screen_rect().height() - 96.0)
+                .max_height(ctx.content_rect().height() - 96.0)
                 .show(ctx, |ui| match self.xml_preview.clone() {
                     Some(Err(error)) => {
                         StatusBadge {
@@ -1866,7 +1874,7 @@ impl LibraryApp {
         };
         // The facts grid sizes rows from the previous frame; re-run the
         // frame when the selection changes so it never paints overlapped.
-        let shown = egui::Id::new(TRACK_FACTS_SHOWN);
+        let shown = egui::Id::unique(TRACK_FACTS_SHOWN);
         let previous = ui.ctx().data_mut(|d| {
             let previous = d.get_temp::<u64>(shown);
             d.insert_temp(shown, id);
@@ -2095,17 +2103,96 @@ impl LibraryApp {
             }
             if let Some(members) = playlist {
                 let snapshot = snapshot.clone();
-                self.shell.table = Some(ui.max_rect());
+                if ui.button("Filters").clicked() {
+                    self.show_filters = !self.show_filters;
+                }
+                let mut show_filters = self.show_filters;
+                egui::Window::new("Playlist filters")
+                    .open(&mut show_filters)
+                    .show(ui.ctx(), |ui| {
+                        ui.label("BPM minimum");
+                        ui.text_edit_singleline(&mut self.filter_min_bpm);
+                        ui.label("BPM maximum");
+                        ui.text_edit_singleline(&mut self.filter_max_bpm);
+                        ui.label("Key contains");
+                        ui.text_edit_singleline(&mut self.filter_key);
+                        ui.label("Genre contains");
+                        ui.text_edit_singleline(&mut self.filter_genre);
+                        egui::ComboBox::from_label("Scanned availability")
+                            .selected_text(
+                                ["Any", "Available", "Missing", "Unknown"]
+                                    [self.filter_availability as usize],
+                            )
+                            .show_ui(ui, |ui| {
+                                for (value, label) in ["Any", "Available", "Missing", "Unknown"]
+                                    .into_iter()
+                                    .enumerate()
+                                {
+                                    ui.selectable_value(
+                                        &mut self.filter_availability,
+                                        value as u8,
+                                        label,
+                                    );
+                                }
+                            });
+                        ui.label("Unknown means no unique matching scanned catalog status.");
+                        if [&self.filter_min_bpm, &self.filter_max_bpm]
+                            .iter()
+                            .any(|s| {
+                                !s.trim().is_empty()
+                                    && !s
+                                        .trim()
+                                        .parse::<f64>()
+                                        .is_ok_and(|v| v.is_finite() && v >= 0.0)
+                            })
+                        {
+                            ui.label("Enter a valid non-negative BPM.");
+                        }
+                        if ui.button("Clear filters").clicked() {
+                            self.filter_min_bpm.clear();
+                            self.filter_max_bpm.clear();
+                            self.filter_key.clear();
+                            self.filter_genre.clear();
+                            self.filter_availability = 0;
+                        }
+                    });
+                self.show_filters = show_filters;
                 let mut load = None;
-                let total = ui.available_width().max(720.0);
-                let widths = [
-                    total * 0.34,
-                    total * 0.23,
-                    total * 0.13,
-                    total * 0.10,
-                    total * 0.10,
-                    total * 0.10,
-                ];
+                let mut availability = std::collections::HashMap::new();
+                if self.filter_availability != 0 {
+                    for item in &self.tracks {
+                        let location = oxidj_application::location_uri(&item.track.path).0;
+                        let value = if item.availability == TrackAvailability::Available {
+                            1
+                        } else {
+                            2
+                        };
+                        availability
+                            .entry(location)
+                            .and_modify(|old| {
+                                if *old != value {
+                                    *old = 3;
+                                }
+                            })
+                            .or_insert(value);
+                    }
+                }
+                let fit = |ui: &egui::Ui| {
+                    fit_column_values(
+                        ui,
+                        PLAYLIST_LABELS,
+                        snapshot.tracks.iter().map(imported_values),
+                    )
+                };
+                self.shell.table = Some(ui.available_rect_before_wrap());
+                let columns = self.settings.playlist_columns;
+                let total = columns
+                    .order
+                    .iter()
+                    .filter(|&&i| columns.visible[i as usize])
+                    .map(|&i| f32::from(columns.widths[i as usize]))
+                    .sum::<f32>();
+                let total = (total + 100.0).max(ui.available_width());
                 ui.spacing_mut().item_spacing = egui::Vec2::ZERO;
                 egui::ScrollArea::horizontal()
                     .id_salt("playlist-columns")
@@ -2115,19 +2202,28 @@ impl LibraryApp {
                             egui::vec2(total, theme::HEADER_HEIGHT),
                             egui::Sense::hover(),
                         );
-                        playlist_cells(
+                        if let Some(index) = column_header(
                             ui,
                             header,
-                            widths,
-                            ["Title", "Artist", "Album", "BPM", "Key", "Duration"]
-                                .map(str::to_owned),
+                            &mut self.settings.playlist_columns,
+                            PLAYLIST_LABELS,
+                            crate::settings::Settings::default().playlist_columns,
                             tokens,
-                        );
+                            self.imported_sort,
+                            &fit,
+                        ) {
+                            self.imported_sort = match self.imported_sort {
+                                Some((old, true)) if old == index => None,
+                                Some((old, false)) if old == index => Some((index, true)),
+                                _ => Some((index, false)),
+                            };
+                        }
+                        let columns = self.settings.playlist_columns;
                         if members.is_empty() {
                             ui.label("This playlist is empty.");
                         }
                         let query = self.search.to_lowercase();
-                        let visible: Vec<_> = members
+                        let mut visible: Vec<_> = members
                             .iter()
                             .enumerate()
                             .filter(|(_, member)| {
@@ -2140,9 +2236,47 @@ impl LibraryApp {
                                     )
                                     .to_lowercase()
                                     .contains(&query)
+                                        && imported_filter_matches(
+                                            t,
+                                            &self.filter_min_bpm,
+                                            &self.filter_max_bpm,
+                                            &self.filter_key,
+                                            &self.filter_genre,
+                                        )
+                                        && (self.filter_availability == 0
+                                            || availability.get(&t.location).copied().unwrap_or(3)
+                                                == self.filter_availability)
                                 })
                             })
                             .collect();
+                        if let Some((column, descending)) = self.imported_sort {
+                            visible.sort_by(|a, b| {
+                                let a = &snapshot.tracks[*a.1];
+                                let b = &snapshot.tracks[*b.1];
+                                let order = match column {
+                                    0 => a.title.to_lowercase().cmp(&b.title.to_lowercase()),
+                                    1 => a
+                                        .artist
+                                        .as_deref()
+                                        .map(str::to_lowercase)
+                                        .cmp(&b.artist.as_deref().map(str::to_lowercase)),
+                                    2 => a
+                                        .album
+                                        .as_deref()
+                                        .map(str::to_lowercase)
+                                        .cmp(&b.album.as_deref().map(str::to_lowercase)),
+                                    3 => a.tempo_hundredths_bpm.cmp(&b.tempo_hundredths_bpm),
+                                    4 => a
+                                        .key
+                                        .as_deref()
+                                        .map(str::to_lowercase)
+                                        .cmp(&b.key.as_deref().map(str::to_lowercase)),
+                                    5 => a.duration_seconds.cmp(&b.duration_seconds),
+                                    _ => std::cmp::Ordering::Equal,
+                                };
+                                if descending { order.reverse() } else { order }
+                            });
+                        }
                         egui::ScrollArea::vertical()
                             .id_salt(("playlist-rows", &self.imported_playlist))
                             .auto_shrink([false, false])
@@ -2157,7 +2291,7 @@ impl LibraryApp {
                                     let selected = self.imported_member == Some(position);
                                     response.widget_info(|| {
                                         egui::WidgetInfo::selected(
-                                            egui::WidgetType::SelectableLabel,
+                                            egui::Role::Button,
                                             true,
                                             selected,
                                             &track.title,
@@ -2177,22 +2311,13 @@ impl LibraryApp {
                                     playlist_cells(
                                         ui,
                                         rect,
-                                        widths,
-                                        [
-                                            format!("{} · {}", position + 1, track.title),
-                                            track.artist.clone().unwrap_or_else(|| "—".into()),
-                                            track.album.clone().unwrap_or_else(|| "—".into()),
-                                            if track.tempo_hundredths_bpm == 0 {
-                                                "—".into()
-                                            } else {
-                                                format!(
-                                                    "{:.2}",
-                                                    track.tempo_hundredths_bpm as f64 / 100.0
-                                                )
-                                            },
-                                            track.key.clone().unwrap_or_else(|| "—".into()),
-                                            format_duration(track.duration_seconds as f64),
-                                        ],
+                                        columns,
+                                        {
+                                            let mut values = imported_values(track);
+                                            values[0] =
+                                                format!("{} · {}", position + 1, track.title);
+                                            values
+                                        },
                                         tokens,
                                     );
                                     if response.clicked() || response.drag_started() {
@@ -2221,6 +2346,14 @@ impl LibraryApp {
                                 }
                             });
                     });
+                column_dropdown(
+                    ui,
+                    &mut self.settings.playlist_columns,
+                    PLAYLIST_LABELS,
+                    crate::settings::Settings::default().playlist_columns,
+                    &fit,
+                    self.shell.table.unwrap(),
+                );
                 if let Some((member, deck)) = load {
                     self.load_imported_member(member, deck);
                 }
@@ -2243,16 +2376,23 @@ impl LibraryApp {
             .collect();
         visible.sort_by(|a, b| {
             let order = match self.sort {
+                Sort::Availability => (a.availability != TrackAvailability::Available)
+                    .cmp(&(b.availability != TrackAvailability::Available)),
                 Sort::Id => a.track.id.as_u64().cmp(&b.track.id.as_u64()),
                 Sort::Filename => PathBuf::from(&a.track.path)
                     .file_name()
                     .cmp(&PathBuf::from(&b.track.path).file_name())
                     .then(a.track.id.as_u64().cmp(&b.track.id.as_u64())),
+                Sort::Folder => folder_name(&a.track.path)
+                    .to_lowercase()
+                    .cmp(&folder_name(&b.track.path).to_lowercase()),
                 Sort::Duration => a
                     .duration_seconds
                     .partial_cmp(&b.duration_seconds)
                     .unwrap_or(std::cmp::Ordering::Equal)
                     .then(a.track.id.as_u64().cmp(&b.track.id.as_u64())),
+                Sort::Format => format_facts(a.sample_rate, a.channels, a.bit_depth)
+                    .cmp(&format_facts(b.sample_rate, b.channels, b.bit_depth)),
             };
             if self.descending {
                 order.reverse()
@@ -2260,19 +2400,20 @@ impl LibraryApp {
                 order
             }
         });
-        let fixed = STATUS_COLUMN + ID_COLUMN + DURATION_COLUMN + FORMAT_COLUMN;
-        let total = ui.available_width().max(fixed + MIN_FLEX_COLUMNS);
-        let name = ((total - fixed) * 0.6).floor();
-        let widths = [
-            STATUS_COLUMN,
-            ID_COLUMN,
-            name,
-            total - fixed - name,
-            DURATION_COLUMN,
-            FORMAT_COLUMN,
-        ];
+        let fit = |ui: &egui::Ui| {
+            fit_column_values(ui, CATALOG_LABELS, self.tracks.iter().map(catalog_values))
+        };
+        let columns = self.settings.catalog_columns;
+        let total = columns
+            .order
+            .iter()
+            .filter(|&&i| columns.visible[i as usize])
+            .map(|&i| f32::from(columns.widths[i as usize]))
+            .sum::<f32>()
+            + 100.0;
+        let total = total.max(ui.available_width());
         // The visible table viewport (wider content scrolls inside it).
-        self.shell.table = Some(ui.max_rect());
+        self.shell.table = Some(ui.available_rect_before_wrap());
         ui.spacing_mut().item_spacing = egui::vec2(0.0, 0.0);
         // D1: a "Load to deck" choice from a row's context menu.
         let mut load = None;
@@ -2281,7 +2422,13 @@ impl LibraryApp {
             .auto_shrink([false, false])
             .show(ui, |ui| {
                 let (header, _) = ui.allocate_exact_size(egui::vec2(total, theme::HEADER_HEIGHT), egui::Sense::hover());
-                table_header(ui, header, widths, tokens, &mut self.sort, &mut self.descending);
+                if let Some(index) = column_header(ui, header, &mut self.settings.catalog_columns, CATALOG_LABELS, crate::settings::TableColumns::default(), tokens, Some((match self.sort { Sort::Availability => 0, Sort::Id => 1, Sort::Filename => 2, Sort::Folder => 3, Sort::Duration => 4, Sort::Format => 5 }, self.descending)), &fit) {
+                    let sort = match index { 0 => Some(Sort::Availability), 1 => Some(Sort::Id), 2 => Some(Sort::Filename), 3 => Some(Sort::Folder), 4 => Some(Sort::Duration), 5 => Some(Sort::Format), _ => None };
+                    if let Some(sort) = sort {
+                        if self.sort == sort { self.descending = !self.descending; } else { self.sort = sort; self.descending = false; }
+                    }
+                }
+                let columns = self.settings.catalog_columns;
                 if visible.is_empty() {
                     ui.add_space(24.0);
                     ui.vertical_centered(|ui| {
@@ -2315,7 +2462,7 @@ impl LibraryApp {
                             let item = visible[index];
                             let id = item.track.id.as_u64();
                             let on = crate::decks::badges(loaded, id);
-                            let response = track_row(ui, item, self.selected, index, total, widths, tokens, on, badge_colours);
+                            let response = track_row(ui, item, self.selected, index, total, columns, tokens, on, badge_colours);
                             if response.clicked() || response.drag_started() {
                                 self.selected = Some(id);
                                 self.selected_imported = None;
@@ -2332,6 +2479,14 @@ impl LibraryApp {
                         }
                     });
             });
+        column_dropdown(
+            ui,
+            &mut self.settings.catalog_columns,
+            CATALOG_LABELS,
+            crate::settings::TableColumns::default(),
+            &fit,
+            self.shell.table.unwrap(),
+        );
         if let Some((deck, id)) = load {
             self.selected = Some(id);
             self.load_deck(deck, id);
@@ -2344,12 +2499,18 @@ impl LibraryApp {
 fn playlist_cells(
     ui: &egui::Ui,
     rect: egui::Rect,
-    widths: [f32; 6],
+    columns: crate::settings::TableColumns,
     cells: [String; 6],
     tokens: theme::ColorTokens,
 ) {
     let mut x = rect.left();
-    for (text, width) in cells.into_iter().zip(widths) {
+    for index in columns.order {
+        let index = index as usize;
+        if !columns.visible[index] {
+            continue;
+        }
+        let width = f32::from(columns.widths[index]);
+        let text = &cells[index];
         let galley = egui::WidgetText::from(egui::RichText::new(text).color(tokens.text))
             .into_galley(
                 ui,
@@ -2368,125 +2529,68 @@ fn playlist_cells(
     }
 }
 
-/// Column labels; ID, Filename and Duration sort on click (or Enter).
-fn table_header(
-    ui: &mut egui::Ui,
-    rect: egui::Rect,
-    widths: [f32; COLUMNS],
-    tokens: theme::ColorTokens,
-    current: &mut Sort,
-    descending: &mut bool,
-) {
-    let painter = ui.painter();
-    painter.rect_filled(rect, 0.0, tokens.surface);
-    painter.hline(
-        rect.x_range(),
-        rect.bottom() - 0.5,
-        egui::Stroke::new(1.0_f32, theme::hairline(tokens)),
-    );
-    // W11: the availability column is a dot only (state on row hover);
-    // "Folder" replaces "Path", which repeated the filename.
-    let columns: [(&str, Option<Sort>); COLUMNS] = [
-        ("", None),
-        ("ID", Some(Sort::Id)),
-        ("Filename", Some(Sort::Filename)),
-        ("Folder", None),
-        ("Duration", Some(Sort::Duration)),
-        ("Format", None),
-    ];
-    let mut x = rect.left();
-    for (column, ((title, sort), width)) in columns.into_iter().zip(widths).enumerate() {
-        let right = RIGHT_ALIGNED[column];
-        let cell =
-            egui::Rect::from_min_size(egui::pos2(x, rect.top()), egui::vec2(width, rect.height()));
-        x += width;
-        let active = sort == Some(*current);
-        // The default fonts lack ▲/▼, so the sort arrow is painted.
-        let name = if active {
-            format!(
-                "{title}, sorted {}",
-                if *descending {
-                    "descending"
-                } else {
-                    "ascending"
-                }
-            )
+#[path = "table_columns.rs"]
+mod table_columns;
+use table_columns::{column_dropdown, column_header, fit_column_values};
+
+fn catalog_values(item: &TrackDetails) -> [String; 6] {
+    [
+        availability_status(item.availability).0.into(),
+        item.track.id.as_u64().to_string(),
+        file_name(&item.track.path),
+        folder_name(&item.track.path),
+        item.duration_seconds
+            .map(format_duration)
+            .unwrap_or_else(|| "—".into()),
+        format_facts(item.sample_rate, item.channels, item.bit_depth),
+    ]
+}
+
+fn imported_values(track: &oxidj_library::LibraryNavigationTrack) -> [String; 6] {
+    [
+        track.title.clone(),
+        track.artist.clone().unwrap_or_else(|| "—".into()),
+        track.album.clone().unwrap_or_else(|| "—".into()),
+        if track.tempo_hundredths_bpm == 0 {
+            "—".into()
         } else {
-            title.to_owned()
-        };
-        let text = title;
-        let color = if active {
-            tokens.text
+            format!("{:.2}", track.tempo_hundredths_bpm as f64 / 100.0)
+        },
+        track.key.clone().unwrap_or_else(|| "—".into()),
+        if track.duration_seconds == 0 {
+            "—".into()
         } else {
-            tokens.muted_text
-        };
-        let galley =
-            egui::WidgetText::from(egui::RichText::new(text).small().strong().color(color))
-                .into_galley(
-                    ui,
-                    Some(egui::TextWrapMode::Truncate),
-                    width - 2.0 * CELL_INSET,
-                    egui::TextStyle::Small,
-                );
-        let tx = if right {
-            cell.right() - CELL_INSET - galley.size().x
-        } else {
-            cell.left() + CELL_INSET
-        };
-        let pos = egui::pos2(tx, cell.center().y - galley.size().y / 2.0);
-        if let Some(sort) = sort {
-            let response = ui.interact(
-                cell,
-                ui.id().with(("sort-header", title)),
-                egui::Sense::click(),
-            );
-            response.widget_info(|| {
-                egui::WidgetInfo::selected(egui::WidgetType::Button, true, active, &name)
-            });
-            if response.hovered() || response.has_focus() {
-                let stroke: f32 = if response.has_focus() { 2.0 } else { 1.0 };
-                ui.painter().rect_stroke(
-                    cell.shrink(1.0),
-                    2.0,
-                    egui::Stroke::new(stroke, tokens.focus),
-                    egui::StrokeKind::Inside,
-                );
-            }
-            if response.on_hover_text(format!("Sort by {title}")).clicked() {
-                if active {
-                    *descending = !*descending;
-                } else {
-                    *current = sort;
-                    *descending = false;
-                }
-            }
+            format_duration(track.duration_seconds as f64)
+        },
+    ]
+}
+
+fn imported_filter_matches(
+    track: &oxidj_library::LibraryNavigationTrack,
+    min: &str,
+    max: &str,
+    key: &str,
+    genre: &str,
+) -> bool {
+    let bpm = f64::from(track.tempo_hundredths_bpm) / 100.0;
+    let bound = |s: &str, lower: bool| {
+        if s.trim().is_empty() {
+            return true;
         }
-        if active {
-            let size = galley.size();
-            // Right-aligned titles carry the arrow on their left.
-            let ax = if right {
-                pos.x - 8.0
-            } else {
-                pos.x + size.x + 8.0
-            };
-            let c = egui::pos2(ax, cell.center().y);
-            let (tip, base) = if *descending {
-                (3.0, -3.0)
-            } else {
-                (-3.0, 3.0)
-            };
-            ui.painter().add(egui::Shape::convex_polygon(
-                vec![
-                    egui::pos2(c.x, c.y + tip),
-                    egui::pos2(c.x + 4.0, c.y + base),
-                    egui::pos2(c.x - 4.0, c.y + base),
-                ],
-                color,
-                egui::Stroke::NONE,
-            ));
-        }
-        ui.painter().galley(pos, galley, color);
-    }
+        s.trim()
+            .parse::<f64>()
+            .ok()
+            .filter(|v| v.is_finite() && *v >= 0.0)
+            .is_some_and(|v| bpm > 0.0 && if lower { bpm >= v } else { bpm <= v })
+    };
+    let text = |value: &Option<String>, query: &str| {
+        let query = query.trim().to_lowercase();
+        query.is_empty()
+            || value
+                .as_ref()
+                .is_some_and(|v| v.to_lowercase().contains(&query))
+    };
+    bound(min, true) && bound(max, false) && text(&track.key, key) && text(&track.genre, genre)
 }
 
 /// One full-width selectable row (true when clicked), W11 states:
@@ -2501,7 +2605,7 @@ fn track_row(
     selected: Option<u64>,
     index: usize,
     total: f32,
-    widths: [f32; COLUMNS],
+    columns: crate::settings::TableColumns,
     tokens: theme::ColorTokens,
     on_decks: [bool; 2],
     deck_colours: [crate::decks::DeckColours; 2],
@@ -2513,9 +2617,8 @@ fn track_row(
         egui::vec2(total, theme::ROW_HEIGHT),
         egui::Sense::click_and_drag(),
     );
-    response.widget_info(|| {
-        egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, true, selected, &filename)
-    });
+    response
+        .widget_info(|| egui::WidgetInfo::selected(egui::Role::Button, true, selected, &filename));
     let painter = ui.painter();
     if selected {
         painter.rect_filled(rect, 0.0, theme::selection_fill(tokens));
@@ -2561,58 +2664,68 @@ fn track_row(
             false,
         ),
     ];
-    let dot = egui::pos2(rect.left() + STATUS_COLUMN / 2.0 + 1.0, rect.center().y);
-    ui.painter()
-        .circle_filled(dot, 3.5, kind_color(kind, tokens));
-    // D1 deck badges at the right end of the Filename cell.
-    let badge_w = 18.0;
-    let badges = on_decks.iter().filter(|b| **b).count() as f32;
     let mut x = rect.left();
-    for (column, ((text, color, strong), width)) in cells.into_iter().zip(widths).enumerate() {
-        let width = if column == 2 {
-            width - badges * (badge_w + 2.0)
+    for column in columns.order.map(usize::from) {
+        if !columns.visible[column] {
+            continue;
+        }
+        let width = f32::from(columns.widths[column]);
+        let cell =
+            egui::Rect::from_min_size(egui::pos2(x, rect.top()), egui::vec2(width, rect.height()));
+        x += width;
+        let painter = ui.painter().with_clip_rect(cell.intersect(ui.clip_rect()));
+        if column == 0 {
+            painter.circle_filled(
+                egui::pos2(cell.left() + 12.0, cell.center().y),
+                3.5,
+                kind_color(kind, tokens),
+            );
+            continue;
+        }
+        let (text, color, strong) = &cells[column];
+        let badge_count = if column == 2 {
+            on_decks.iter().filter(|on| **on).count()
         } else {
-            width
+            0
         };
-        if column == 3 {
-            let mut bx = x;
+        let text_width = (width - 2.0 * CELL_INSET - badge_count as f32 * 20.0).max(0.0);
+        let rich = egui::RichText::new(text).color(*color);
+        let galley = egui::WidgetText::from(if *strong { rich.strong() } else { rich })
+            .into_galley(
+                ui,
+                Some(egui::TextWrapMode::Truncate),
+                text_width,
+                egui::TextStyle::Body,
+            );
+        let left = if RIGHT_ALIGNED[column] {
+            cell.right() - CELL_INSET - galley.size().x
+        } else {
+            cell.left() + CELL_INSET
+        };
+        painter.galley(
+            egui::pos2(left, cell.center().y - galley.size().y / 2.0),
+            galley,
+            *color,
+        );
+        if column == 2 {
+            let mut bx = cell.right() - CELL_INSET - badge_count as f32 * 20.0;
             for (d, on) in on_decks.into_iter().enumerate() {
                 if on {
                     let r = egui::Rect::from_min_size(
-                        egui::pos2(bx, rect.center().y - 8.0),
-                        egui::vec2(badge_w, 16.0),
+                        egui::pos2(bx, cell.center().y - 8.0),
+                        egui::vec2(18.0, 16.0),
                     );
-                    ui.painter().rect_filled(r, 3.0, deck_colours[d].outer);
-                    let g = ui.painter().layout_no_wrap(
+                    painter.rect_filled(r, 3.0, deck_colours[d].outer);
+                    let g = painter.layout_no_wrap(
                         crate::decks::DECKS[d].into(),
                         egui::FontId::proportional(11.0),
                         deck_colours[d].chip_text,
                     );
-                    ui.painter()
-                        .galley(r.center() - g.size() / 2.0, g, deck_colours[d].chip_text);
-                    bx += badge_w + 2.0;
+                    painter.galley(r.center() - g.size() / 2.0, g, deck_colours[d].chip_text);
+                    bx += 20.0;
                 }
             }
-            x += badges * (badge_w + 2.0);
         }
-        if !text.is_empty() {
-            let rich = egui::RichText::new(text).color(color);
-            let galley = egui::WidgetText::from(if strong { rich.strong() } else { rich })
-                .into_galley(
-                    ui,
-                    Some(egui::TextWrapMode::Truncate),
-                    width - 2.0 * CELL_INSET,
-                    egui::TextStyle::Body,
-                );
-            let left = if RIGHT_ALIGNED[column] {
-                x + width - CELL_INSET - galley.size().x
-            } else {
-                x + CELL_INSET
-            };
-            let pos = egui::pos2(left, rect.center().y - galley.size().y / 2.0);
-            ui.painter().galley(pos, galley, color);
-        }
-        x += width;
     }
     let decks: Vec<&str> = on_decks
         .iter()
@@ -2697,9 +2810,7 @@ fn nav_row(
         egui::Sense::click(),
     );
     let name = format!("{label} · {count}");
-    response.widget_info(|| {
-        egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, true, selected, &name)
-    });
+    response.widget_info(|| egui::WidgetInfo::selected(egui::Role::Button, true, selected, &name));
     let painter = ui.painter();
     if selected {
         painter.rect_filled(rect, 2.0, theme::selection_fill(tokens));

@@ -20,9 +20,9 @@ fn independently_decode_xml(bytes: &[u8]) -> DecodedElement {
     let mut root = None;
     loop {
         match reader.read_event().unwrap() {
-            Event::Start(event) => stack.push(decode_element(&event, reader.decoder())),
+            Event::Start(event) => stack.push(decode_element(&event)),
             Event::Empty(event) => {
-                let node = decode_element(&event, reader.decoder());
+                let node = decode_element(&event);
                 if let Some(parent) = stack.last_mut() {
                     parent.children.push(node);
                 } else {
@@ -44,17 +44,18 @@ fn independently_decode_xml(bytes: &[u8]) -> DecodedElement {
     root.unwrap()
 }
 
-fn decode_element(event: &BytesStart<'_>, decoder: quick_xml::encoding::Decoder) -> DecodedElement {
+fn decode_element(event: &BytesStart<'_>) -> DecodedElement {
     DecodedElement {
-        name: String::from_utf8(event.local_name().as_ref().to_vec()).unwrap(),
+        name: String::from_utf8(event.local_name().as_ref().as_bytes().to_vec()).unwrap(),
         attributes: event
             .attributes()
             .map(|attribute| {
                 let attribute = attribute.unwrap();
                 (
-                    String::from_utf8(attribute.key.local_name().as_ref().to_vec()).unwrap(),
+                    String::from_utf8(attribute.key.local_name().as_ref().as_bytes().to_vec())
+                        .unwrap(),
                     attribute
-                        .decoded_and_normalized_value(XmlVersion::Explicit1_0, decoder)
+                        .normalized_value(XmlVersion::Explicit1_0)
                         .unwrap()
                         .into_owned(),
                 )

@@ -20,14 +20,24 @@ type Frame = egui::FullOutput;
 #[test]
 fn audio_metrics_distinguish_missing_measurements_from_zero() {
     use oxidj_audio::{OutputKind, StatsSnapshot};
-    let device = OutputKind::Device { name: "Synthetic".into(), rate: 48_000, channels: 2 };
+    let device = OutputKind::Device {
+        name: "Synthetic".into(),
+        rate: 48_000,
+        channels: 2,
+    };
     let mut stats = StatsSnapshot::default();
     assert_eq!(decks::audio_metrics(&device, stats), None);
     stats.callbacks = 1;
     stats.max_load_permille = 123;
-    assert_eq!(decks::audio_metrics(&device, stats).unwrap(), "latency unavailable · peak DSP 12.3%");
+    assert_eq!(
+        decks::audio_metrics(&device, stats).unwrap(),
+        "latency unavailable · peak DSP 12.3%"
+    );
     stats.latency_ns = 2_500_000;
-    assert_eq!(decks::audio_metrics(&device, stats).unwrap(), "latency 2.5 ms · peak DSP 12.3%");
+    assert_eq!(
+        decks::audio_metrics(&device, stats).unwrap(),
+        "latency 2.5 ms · peak DSP 12.3%"
+    );
     assert_eq!(decks::audio_metrics(&OutputKind::Silent, stats), None);
 }
 
@@ -211,14 +221,15 @@ impl Harness {
         self.time += 1.0 / 60.0;
         let mut input = egui::RawInput {
             screen_rect: Some(Rect::from_min_size(Pos2::ZERO, self.viewport)),
-            events,
-            modifiers,
+            events: std::iter::once(egui::Event::ModifiersChanged(modifiers))
+                .chain(events)
+                .collect(),
             time: Some(self.time),
             ..Default::default()
         };
         self.app.deck_input_hook(&self.ctx, &mut input);
         let app = &mut self.app;
-        let out = self.ctx.run(input, |ctx| app.ui(ctx));
+        let out = crate::test_frame(&self.ctx, input, |root_ui| app.ui(root_ui));
         // The fake sink: 1/60 s of audio per UI frame.
         let _ = self.app.decks.render(AUDIO_FRAMES_PER_UI_FRAME);
         out
@@ -661,6 +672,8 @@ fn zoom_by_keys_and_wheel_uses_bars_or_seconds_and_drag_scrubs() {
     );
     h.frame_with(
         vec![egui::Event::MouseWheel {
+            phase: egui::TouchPhase::Move,
+            source: egui::MouseWheelSource::Unknown,
             unit: egui::MouseWheelUnit::Line,
             delta: egui::vec2(0.0, 1.0),
             modifiers: Default::default(),
@@ -669,6 +682,23 @@ fn zoom_by_keys_and_wheel_uses_bars_or_seconds_and_drag_scrubs() {
     );
     h.settle();
     assert_eq!(h.app.settings.zoom_bars, 4, "wheel up zooms in one step");
+    h.frame_with(
+        vec![egui::Event::MouseWheel {
+            phase: egui::TouchPhase::Move,
+            source: egui::MouseWheelSource::Unknown,
+            unit: egui::MouseWheelUnit::Line,
+            delta: egui::vec2(0.0, 1.0),
+            modifiers: egui::Modifiers {
+                shift: true,
+                ..Default::default()
+            },
+        }],
+        egui::Modifiers {
+            shift: true,
+            ..Default::default()
+        },
+    );
+    assert_eq!(h.app.settings.zoom_bars, 4, "shift-wheel must not zoom");
     // Without a grid: 2 s per bar (deck B active with a no-grid track).
     h.select_and_load("c-nogrid.wav", egui::Key::B);
     h.app.decks.decks[0].track = None;
@@ -1147,6 +1177,8 @@ fn wheel_at(h: &mut Harness, pos: Pos2, y: f32) {
     h.frame_with(vec![egui::Event::PointerMoved(pos)], Default::default());
     h.frame_with(
         vec![egui::Event::MouseWheel {
+            phase: egui::TouchPhase::Move,
+            source: egui::MouseWheelSource::Unknown,
             unit: egui::MouseWheelUnit::Line,
             delta: egui::vec2(0.0, y),
             modifiers: Default::default(),
@@ -1195,6 +1227,8 @@ fn tempo_wheel_accumulates_fractional_point_events() {
     for _ in 0..10 {
         h.frame_with(
             vec![egui::Event::MouseWheel {
+                phase: egui::TouchPhase::Move,
+                source: egui::MouseWheelSource::Unknown,
                 unit: egui::MouseWheelUnit::Point,
                 delta: egui::vec2(0.0, 4.0),
                 modifiers: Default::default(),
@@ -1224,6 +1258,8 @@ fn tempo_wheel_reverses_immediately_at_both_limits() {
         for delta in [sign * 36.0, -sign * 40.0] {
             h.frame_with(
                 vec![egui::Event::MouseWheel {
+                    phase: egui::TouchPhase::Move,
+                    source: egui::MouseWheelSource::Unknown,
                     unit: egui::MouseWheelUnit::Point,
                     delta: egui::vec2(0.0, delta),
                     modifiers: Default::default(),
@@ -1253,6 +1289,8 @@ fn tempo_wheel_fractional_state_is_scoped_and_sync_waits_for_step() {
     let wheel = |h: &mut Harness, delta| {
         h.frame_with(
             vec![egui::Event::MouseWheel {
+                phase: egui::TouchPhase::Move,
+                source: egui::MouseWheelSource::Unknown,
                 unit: egui::MouseWheelUnit::Point,
                 delta: egui::vec2(0.0, delta),
                 modifiers: Default::default(),
@@ -1283,6 +1321,8 @@ fn tempo_wheel_discards_pending_input_when_controls_are_hidden() {
     h.settle();
     let p = h.layout().tempo[0].unwrap().center();
     let half = || egui::Event::MouseWheel {
+        phase: egui::TouchPhase::Move,
+        source: egui::MouseWheelSource::Unknown,
         unit: egui::MouseWheelUnit::Point,
         delta: egui::vec2(0.0, 20.0),
         modifiers: Default::default(),
@@ -1434,8 +1474,9 @@ fn tempo_wheel_preserves_accessibility_and_keyboard() {
         h.frame_with(
             vec![egui::Event::AccessKitActionRequest(
                 accesskit::ActionRequest {
+                    target_tree: accesskit::TreeId::ROOT,
                     action,
-                    target: id,
+                    target_node: id,
                     data,
                 },
             )],
@@ -1884,6 +1925,9 @@ fn every_section_combination_collapses_cleanly_toggles_and_persists() {
         }
         fn set_string(&mut self, key: &str, value: String) {
             self.0.insert(key.into(), value);
+        }
+        fn remove_string(&mut self, key: &str) {
+            self.0.remove(key);
         }
         fn flush(&mut self) {}
     }
@@ -2395,6 +2439,8 @@ fn mixer_wheel_changes_hovered_controls_and_clamps() {
                 vec![
                     egui::Event::PointerMoved(p),
                     egui::Event::MouseWheel {
+                        phase: egui::TouchPhase::Move,
+                        source: egui::MouseWheelSource::Unknown,
                         unit: egui::MouseWheelUnit::Line,
                         delta: egui::vec2(0.0, y),
                         modifiers: Default::default(),
@@ -2428,6 +2474,8 @@ fn mixer_wheel_changes_hovered_controls_and_clamps() {
         vec![
             egui::Event::PointerMoved(outside),
             egui::Event::MouseWheel {
+                phase: egui::TouchPhase::Move,
+                source: egui::MouseWheelSource::Unknown,
                 unit: egui::MouseWheelUnit::Line,
                 delta: egui::vec2(0.0, 1.0),
                 modifiers: Default::default(),
@@ -2476,8 +2524,9 @@ fn mixer_rotary_accesskit_value_actions() {
             h.frame_with(
                 vec![egui::Event::AccessKitActionRequest(
                     accesskit::ActionRequest {
+                        target_tree: accesskit::TreeId::ROOT,
                         action,
-                        target: id,
+                        target_node: id,
                         data,
                     },
                 )],
@@ -2543,8 +2592,9 @@ fn trim_and_master_rotaries_accessibility_input_and_audio() {
             h.frame_with(
                 vec![egui::Event::AccessKitActionRequest(
                     accesskit::ActionRequest {
+                        target_tree: accesskit::TreeId::ROOT,
                         action,
-                        target: id,
+                        target_node: id,
                         data,
                     },
                 )],
@@ -2589,6 +2639,8 @@ fn trim_and_master_rotaries_accessibility_input_and_audio() {
             vec![
                 egui::Event::PointerMoved(p),
                 egui::Event::MouseWheel {
+                    phase: egui::TouchPhase::Move,
+                    source: egui::MouseWheelSource::Unknown,
                     unit: egui::MouseWheelUnit::Line,
                     delta: egui::vec2(0.0, -1.0),
                     modifiers: Default::default(),
@@ -2697,6 +2749,8 @@ fn short_window_scroll_reaches_headphone_cue_without_changing_layout_preferences
     );
     h.frame_with(
         vec![egui::Event::MouseWheel {
+            phase: egui::TouchPhase::Move,
+            source: egui::MouseWheelSource::Unknown,
             unit: egui::MouseWheelUnit::Point,
             delta: egui::vec2(0.0, -1000.0),
             modifiers: Default::default(),
@@ -2754,8 +2808,9 @@ fn headphone_cue_ui_routes_blends_scales_and_exposes_lit_controls() {
         h.frame_with(
             vec![egui::Event::AccessKitActionRequest(
                 accesskit::ActionRequest {
+                    target_tree: accesskit::TreeId::ROOT,
                     action: accesskit::Action::SetValue,
-                    target: id,
+                    target_node: id,
                     data: Some(accesskit::ActionData::NumericValue(value)),
                 },
             )],
@@ -2828,6 +2883,8 @@ fn headphone_cue_ui_routes_blends_scales_and_exposes_lit_controls() {
         h.frame_with(vec![egui::Event::PointerMoved(p)], Default::default());
         let out = h.frame_with(
             vec![egui::Event::MouseWheel {
+                phase: egui::TouchPhase::Move,
+                source: egui::MouseWheelSource::Unknown,
                 unit: egui::MouseWheelUnit::Point,
                 delta: egui::vec2(0.0, 40.0),
                 modifiers: Default::default(),
@@ -3076,6 +3133,9 @@ impl eframe::Storage for MemStore {
     }
     fn set_string(&mut self, key: &str, value: String) {
         self.0.insert(key.into(), value);
+    }
+    fn remove_string(&mut self, key: &str) {
+        self.0.remove(key);
     }
     fn flush(&mut self) {}
 }
@@ -5310,10 +5370,8 @@ fn deck_panels_and_mixer_fit_the_visible_deck_area_at_common_sizes() {
                 let tag = format!("{arr:?} {size:?} loaded={loaded}");
                 let panel = h.app.shell.decks.unwrap();
                 let table = h.app.shell.table.unwrap();
-                let mut visible = panel.shrink2(egui::vec2(
-                    0.0,
-                    crate::theme::PANEL_MARGIN.top as f32,
-                ));
+                let mut visible =
+                    panel.shrink2(egui::vec2(0.0, crate::theme::PANEL_MARGIN.top as f32));
                 visible.set_bottom(visible.bottom().min(table.top()));
                 let mut rects = vec![l.mixer.unwrap(), l.crossfader.unwrap()];
                 for d in 0..2 {
