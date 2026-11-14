@@ -108,6 +108,7 @@ describe('screenshots', () => {
     );
     expect(home.match(/class="punch"/g)).toHaveLength(9);
     expect(home).toContain('id="freedom-open"');
+    expect(home).toMatch(/id="freedom-open"[^>]*\shidden/);
     expect(home).toContain('id="freedom-dialog"');
     expect(home).toContain('https://www.youtube.com/watch?v=9sJUDx7iEJw');
     expect(home).toContain('https://s3nci.bandcamp.com/music');

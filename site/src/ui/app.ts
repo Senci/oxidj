@@ -110,6 +110,7 @@ export function initApp(root: HTMLElement): void {
       videoContainer.replaceChildren();
       videoOpen.focus();
     });
+    videoOpen.hidden = false;
   }
   const sleeve = root.querySelector<HTMLInputElement>('#sleeve-flip');
   const front = root.querySelector<HTMLElement>('.sleeve-front');
