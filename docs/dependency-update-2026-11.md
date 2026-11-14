@@ -1,7 +1,7 @@
 # Dependency update inventory — 2026-11-14
 
-**Implementation progress, not full completion.** Latest-stable exceptions and
-license admission remain open; no installation or push is authorized by this
+**Implementation progress, not full completion.** Latest-stable exceptions
+remain open; no installation or push is authorized by this
 record. Registry versions were rechecked against crates.io and npm on
 2026-11-14; the git dependency was checked with `git ls-remote`.
 
@@ -55,8 +55,9 @@ transitive crate can use its latest breaking release.
   `MIT AND BSD-3-Clause AND blessing AND WTFPL`. The unchanged allowlist
   rejects `blessing` and `WTFPL`. Only this version bump was restored to the
   admitted graph; the reader boundary/version guard was not weakened.
-  Resume after an explicit license-policy decision and update the exact
-  boundary pins/tests together, preserving SQLCipher isolation.
+  The scoped technical decision retains the admitted graph without a new
+  license exception. Revisit if a compliant upgrade becomes available or the
+  owner changes policy; update boundary pins/tests together, preserving SQLCipher isolation.
 - Site **TypeScript 6.0.3**, not latest stable 7.0.2:
   latest `typescript-eslint` 8.72.2 declares peer `>=4.8.4 <6.1.0`;
   the prior 7.0.2 attempt failed lint. Keep the supported compiler/parser pair
@@ -153,7 +154,9 @@ personal database was used for this work.
   The attempted reader 0.42 graph exited 4; the retained reader graph passes
   the repository's layers/license boundary check.
 
-Independent review remains required. A bounded delegated technical assessment
-failed with provider HTTP 400 and supplied no verdict; it is not an approval.
-The reader license decision and three latest-stable exceptions remain open;
-this task is **not complete**. No push or installation has been performed.
+Independent Sol review of the implemented migration at `b7d0195` approved its
+code scope; it did not approve completion of the all-latest task. Its `ci-full`
+exited 0, with UI 352 passed/2 ignored, reader 13, probe 14 and site 80 tests;
+both prototype license checks passed. Three latest-stable exceptions remain;
+Wayland runtime remains NOT TESTED and this task is **not complete**. No push
+or installation has been performed.
