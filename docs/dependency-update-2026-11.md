@@ -18,7 +18,7 @@ Registry lookups: 2026-11-14. This is not a completion or platform-qualification
 | rusqlite_migration | 2.6.0 | 2.7.0 | updated |
 | serde | 1.0.229 | 1.0.229 | unchanged |
 | serde_json | 1.0.154 | 1.0.154 | unchanged |
-| sha2 | 0.10.9 | 0.11.1 | library updated; xtask and UI test code uses removed LowerHex support and remains on 0.10.9 pending adaptation |
+| sha2 | 0.10.9 | 0.11.1 | library and UI tests updated; xtask test code uses removed LowerHex support and remains on 0.10.9 pending adaptation |
 | signalsmith-stretch | 0.1.3 | 0.1.3 | unchanged |
 | taktus | 0.1.0 | 0.1.0 | unchanged |
 | wayland-client | 0.31.15 | 0.31.15 | unchanged |
@@ -30,4 +30,4 @@ Site direct packages before/observed latest: @eslint/js 9.39.5/10.0.1; @types/no
 
 The probe's eframe 0.37 dependency graph fails the repository's license policy when explicitly checked: `clipboard-win`/`error-code` BSL-1.0, default fonts OFL-1.1 and Ubuntu-font-1.0; the prototype itself lacks a declared license. Do not waive policy or install this work pending resolution and review.
 
-Wayland: upstream [egui PR #8660](https://github.com/emilk/egui/pull/8660) describes committing suspended-window configures for glow and wgpu, and depends on winit support. The locally downloaded eframe 0.37.0/winit 0.30.13 sources do not contain `notify_presentation_paused`; upstream inclusion is **not demonstrated** and runtime behavior is **not tested**. Separately, [issue #8776](https://github.com/emilk/egui/issues/8776) reports hidden viewport screenshots still do not paint on 0.37.0. Do not present either as fixed.
+Wayland: upstream [egui PR #8631](https://github.com/emilk/egui/pull/8631), the relevant hidden-window ANR fix, is listed in the eframe 0.37 changelog and its pre-present notification and redraw/swap changes are present in the downloaded 0.37.0 source. The main UI still uses 0.32.3, so it does not yet receive that upgrade; OxiDJ runtime behavior remains **NOT TESTED**. The separate PR #8660 and issue #8776 concern other suspended-window/hidden-viewport behavior and are not evidence about #8631.
