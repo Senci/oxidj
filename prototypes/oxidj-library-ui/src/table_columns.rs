@@ -40,8 +40,12 @@ pub(super) fn column_dropdown(
         egui::pos2(viewport.right() - 96.0, viewport.top()),
         egui::vec2(96.0, theme::HEADER_HEIGHT),
     );
-    let response = ui.interact(rect, ui.id().with("column-dropdown"), egui::Sense::click());
-    response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, "Columns"));
+    let response = ui.interact(
+        rect,
+        ui.scope_id().with("column-dropdown"),
+        egui::Sense::click(),
+    );
+    response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, "Columns"));
     let visuals = ui.style().interact(&response);
     ui.painter().rect_filled(rect, 0.0, visuals.bg_fill);
     if response.has_focus() || response.hovered() {
@@ -93,7 +97,7 @@ pub(super) fn column_header(
     clip.max.x = (clip.max.x - 100.0).max(clip.min.x);
     ui.set_clip_rect(clip);
     ui.painter().rect_filled(rect, 0.0, tokens.surface);
-    let drag_id = ui.id().with("column-reorder");
+    let drag_id = ui.scope_id().with("column-reorder");
     let mut clicked = None;
     let mut x = rect.left();
     let mut cells = Vec::new();
@@ -112,7 +116,7 @@ pub(super) fn column_header(
             egui::Rect::from_min_max(cell.min, egui::pos2(cell.right() - 5.0, cell.bottom()));
         let response = ui.interact(
             body,
-            ui.id().with(("column", index)),
+            ui.scope_id().with(("column", index)),
             egui::Sense::click_and_drag(),
         );
         let name = if let Some((_, descending)) = active.filter(|(i, _)| *i == index) {
@@ -128,7 +132,7 @@ pub(super) fn column_header(
         } else {
             labels[index].to_owned()
         };
-        response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, &name));
+        response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, &name));
         if response.has_focus() || response.hovered() {
             ui.painter().rect_stroke(
                 body.shrink(1.0),
@@ -202,11 +206,11 @@ pub(super) fn column_header(
         let edge_response = ui
             .interact(
                 edge,
-                ui.id().with(("column-edge", index)),
+                ui.scope_id().with(("column-edge", index)),
                 egui::Sense::drag(),
             )
             .on_hover_cursor(egui::CursorIcon::ResizeHorizontal);
-        let width_id = ui.id().with(("column-start-width", index));
+        let width_id = ui.scope_id().with(("column-start-width", index));
         if edge_response.drag_started() {
             ui.data_mut(|d| d.insert_temp(width_id, f32::from(snapshot.widths[index])));
         }

@@ -8,7 +8,7 @@ Vite's relative base supports the production repository prefix `/oxidj/`.
 `src/data/roadmap.ts` owns the snapshot date, focus, working/unfinished status,
 milestones, recent changes and the screenshot list (size, alt, caption). Vite renders
 `site:*` and `roadmap:*` fragments at build time through `src/logic/siteMarkup.ts`,
-`roadmapMarkup.ts` and `waveArt.ts` (the hero's deterministic, synthetic 3-band SVG).
+`roadmapMarkup.ts`. The hero uses a real application capture with synthetic library data.
 Every page works without scripts: facts, navigation, disclosures and images are static,
 and each screenshot is a plain link to its full-resolution file. Canonical product
 decisions stay in `idea.md`, `plan/MVP.md`, `plan/STATUS.md` and the research docs.
@@ -27,8 +27,7 @@ decisions stay in `idea.md`, `plan/MVP.md`, `plan/STATUS.md` and the research do
 ## Assets
 
 - Screenshots: `scripts/crop-screenshots.py` (PIL via uv); provenance in
-  `public/images/README.md`. Synthetic catalog/audio examples plus one cropped owner-library
-  row shown as metadata only; the owner track was not loaded or played. Inspect pixels before replacing.
+  `public/images/README.md`. Synthetic catalog/audio examples only. Inspect pixels before replacing.
 - Fonts: `scripts/subset-fonts.py` subsets `fonts-src/*.ttf` to Latin WOFF2 (about
   11 KB each). The IBM Plex Mono subset is renamed OxiDJ Mono for its OFL Reserved Font
   Name. Licence texts ship in `public/fonts/`.

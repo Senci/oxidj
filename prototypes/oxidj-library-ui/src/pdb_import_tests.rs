@@ -22,7 +22,10 @@ fn confirm(shell: &mut Shell) {
 fn finish(shell: &mut Shell) {
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
     while shell.app.pdb_job.is_some() {
-        assert!(std::time::Instant::now() < deadline, "import worker timed out");
+        assert!(
+            std::time::Instant::now() < deadline,
+            "import worker timed out"
+        );
         shell.settle();
         std::thread::sleep(std::time::Duration::from_millis(1));
     }
@@ -42,7 +45,10 @@ fn pdb_import_confirm_cancel_and_background_completion_preserve_active_state() {
     let destination = root.join("named-new-catalog.sqlite");
     let mut shell = Shell::new(&db, 1440.0);
     shell.app.search = "keep search".into();
-    let active_before = Catalog::open_read_only(&db).unwrap().library_snapshot().unwrap();
+    let active_before = Catalog::open_read_only(&db)
+        .unwrap()
+        .library_snapshot()
+        .unwrap();
     let active_bytes = std::fs::read(&db).unwrap();
     review(&mut shell, &pdb, &destination);
     let out = shell.settle();
@@ -62,45 +68,99 @@ fn pdb_import_confirm_cancel_and_background_completion_preserve_active_state() {
     assert!(!shell.app.pdb_import_open);
     let menu = shell.click(shell.app.shell.more.unwrap().center());
     let out = shell.click(find(&nodes(&menu), "Import Rekordbox PDB…").2.center());
-    assert!(!nodes(&out).iter().any(|n| n.1.as_deref() == Some("Confirm import")));
+    assert!(
+        !nodes(&out)
+            .iter()
+            .any(|n| n.1.as_deref() == Some("Confirm import"))
+    );
     shell.click(find(&nodes(&out), "Close").2.center());
-    assert!(shell.app.pdb_job.is_some(), "reopening must retain the original receiver");
+    assert!(
+        shell.app.pdb_job.is_some(),
+        "reopening must retain the original receiver"
+    );
     let shown = shell.app.show_nav;
     shell.click(shell.app.shell.toggles.unwrap()[0].center());
     assert_eq!(shell.app.show_nav, !shown);
     assert!(shell.app.pdb_job.is_some());
     gate.wait();
     finish(&mut shell);
-    assert!(shell.app.notice.starts_with("Created catalog"), "{}", shell.app.notice);
-    assert!(shell.app.notice.contains("3 tracks, 2 folders, 4 playlists, 6 entries"));
+    assert!(
+        shell.app.notice.starts_with("Created catalog"),
+        "{}",
+        shell.app.notice
+    );
+    assert!(
+        shell
+            .app
+            .notice
+            .contains("3 tracks, 2 folders, 4 playlists, 6 entries")
+    );
     assert!(shell.app.notice.contains(destination.to_str().unwrap()));
     assert!(shell.app.notice.contains("--db"));
     assert_eq!(shell.app.db_path, db);
     assert_eq!(shell.app.search, "keep search");
     assert_eq!(std::fs::read(&db).unwrap(), active_bytes);
-    assert_eq!(Catalog::open_read_only(&db).unwrap().library_snapshot().unwrap(), active_before);
+    assert_eq!(
+        Catalog::open_read_only(&db)
+            .unwrap()
+            .library_snapshot()
+            .unwrap(),
+        active_before
+    );
     assert_eq!(std::fs::read(&pdb).unwrap(), source_before);
     assert_eq!(std::fs::read_dir(pdb.parent().unwrap()).unwrap().count(), 1);
-    assert!(!root.read_dir().unwrap().any(|e| e.unwrap().file_name().to_string_lossy().starts_with(".oxidj-import-")));
+    assert!(!root.read_dir().unwrap().any(|e| {
+        e.unwrap()
+            .file_name()
+            .to_string_lossy()
+            .starts_with(".oxidj-import-")
+    }));
     drop(shell);
 
     // Fresh app opens the exact artifact made by the UI job, without rescanning.
-    let snapshot = Catalog::open_read_only(&destination).unwrap().library_snapshot().unwrap();
+    let snapshot = Catalog::open_read_only(&destination)
+        .unwrap()
+        .library_snapshot()
+        .unwrap();
     assert_eq!(snapshot.tracks.len(), 3);
     assert_eq!(snapshot.tracks[0].title, "Song A");
-    assert_eq!(snapshot.tracks[0].comments.as_deref(), Some("Synth <c> & \"d\""));
+    assert_eq!(
+        snapshot.tracks[0].comments.as_deref(),
+        Some("Synth <c> & \"d\"")
+    );
     assert_eq!(snapshot.tracks[0].key.as_deref(), Some("11B"));
     assert_eq!(snapshot.tracks[0].rating_stars, Some(5));
     use oxidj_library::LibraryNode::{Folder, Playlist};
-    assert_eq!(snapshot.roots, vec![
-        Playlist { name: "Top".into(), members: vec![1, 0, 0] },
-        Folder { name: "Folder".into(), children: vec![
-            Playlist { name: "Inner First".into(), members: vec![2] },
-            Playlist { name: "Inner Second".into(), members: vec![0, 1] },
-            Folder { name: "Empty Folder".into(), children: vec![] },
-        ] },
-        Playlist { name: "Empty Playlist".into(), members: vec![] },
-    ]);
+    assert_eq!(
+        snapshot.roots,
+        vec![
+            Playlist {
+                name: "Top".into(),
+                members: vec![1, 0, 0]
+            },
+            Folder {
+                name: "Folder".into(),
+                children: vec![
+                    Playlist {
+                        name: "Inner First".into(),
+                        members: vec![2]
+                    },
+                    Playlist {
+                        name: "Inner Second".into(),
+                        members: vec![0, 1]
+                    },
+                    Folder {
+                        name: "Empty Folder".into(),
+                        children: vec![]
+                    },
+                ]
+            },
+            Playlist {
+                name: "Empty Playlist".into(),
+                members: vec![]
+            },
+        ]
+    );
     let mut reopened = Shell::new(&destination, 1440.0);
     assert!(reopened.app.imported_navigation.is_ok());
     let xml = root.join("ui-export.xml");
@@ -108,7 +168,11 @@ fn pdb_import_confirm_cancel_and_background_completion_preserve_active_state() {
     let out = reopened.click(find(&nodes(&menu), "Export catalog XML…").2.center());
     reopened.app.catalog_export_path = xml.display().to_string();
     reopened.click(find(&nodes(&out), "Export catalog XML").2.center());
-    assert!(reopened.app.notice.starts_with("Catalog exported"), "{}", reopened.app.notice);
+    assert!(
+        reopened.app.notice.starts_with("Catalog exported"),
+        "{}",
+        reopened.app.notice
+    );
     // Independent whole-tree oracle: values fixed by the shared PDB builder,
     // not by production mapping, exporter, or preview. Mutation must be detected.
     let oracle = r#"import sys, xml.etree.ElementTree as E
@@ -119,8 +183,16 @@ assert tree(actual) == tree(expected), (E.tostring(actual), E.tostring(expected)
 actual.find('./PLAYLISTS/NODE/NODE').remove(actual.find('./PLAYLISTS/NODE/NODE/TRACK'))
 assert tree(actual) != tree(expected)
 "#;
-    let check = std::process::Command::new("python3").args(["-c", oracle]).arg(&xml).output().unwrap();
-    assert!(check.status.success(), "{}", String::from_utf8_lossy(&check.stderr));
+    let check = std::process::Command::new("python3")
+        .args(["-c", oracle])
+        .arg(&xml)
+        .output()
+        .unwrap();
+    assert!(
+        check.status.success(),
+        "{}",
+        String::from_utf8_lossy(&check.stderr)
+    );
     assert_eq!(std::fs::read(&pdb).unwrap(), source_before);
     drop(reopened);
     std::fs::remove_dir_all(root).unwrap();
@@ -138,17 +210,35 @@ fn pdb_import_ui_refuses_synthetic_removable_mount() {
         let bin = root.join("bin");
         std::fs::create_dir(&bin).unwrap();
         for (name, json) in [
-            ("findmnt", r#"{"filesystems":[{"fstype":"exfat","sources":["/dev/synthetic-usb"]}]}"#),
-            ("lsblk", r#"{"blockdevices":[{"type":"disk","tran":"usb","rm":false,"hotplug":false}]}"#),
+            (
+                "findmnt",
+                r#"{"filesystems":[{"fstype":"exfat","sources":["/dev/synthetic-usb"]}]}"#,
+            ),
+            (
+                "lsblk",
+                r#"{"blockdevices":[{"type":"disk","tran":"usb","rm":false,"hotplug":false}]}"#,
+            ),
         ] {
             let path = bin.join(name);
             std::fs::write(&path, format!("#!/bin/sh\nprintf '%s\\n' '{json}'\n")).unwrap();
             std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o700)).unwrap();
         }
         let result = std::process::Command::new(std::env::current_exe().unwrap())
-            .args(["--exact", "shell_tests::pdb_import_tests::pdb_import_ui_refuses_synthetic_removable_mount", "--nocapture"])
-            .env(CHILD, "1").env("PATH", &bin).output().unwrap();
-        assert!(result.status.success(), "{}\n{}", String::from_utf8_lossy(&result.stdout), String::from_utf8_lossy(&result.stderr));
+            .args([
+                "--exact",
+                "shell_tests::pdb_import_tests::pdb_import_ui_refuses_synthetic_removable_mount",
+                "--nocapture",
+            ])
+            .env(CHILD, "1")
+            .env("PATH", &bin)
+            .output()
+            .unwrap();
+        assert!(
+            result.status.success(),
+            "{}\n{}",
+            String::from_utf8_lossy(&result.stdout),
+            String::from_utf8_lossy(&result.stderr)
+        );
         assert!(String::from_utf8_lossy(&result.stdout).contains("1 passed"));
         std::fs::remove_dir_all(root).unwrap();
         return;
@@ -168,9 +258,19 @@ fn pdb_import_ui_refuses_synthetic_removable_mount() {
         let before = std::fs::read_dir(dir).unwrap().count();
         let destination = dir.join("no.sqlite");
         review(&mut shell, &pdb, &destination);
-        confirm(&mut shell); finish(&mut shell);
-        assert_eq!(shell.app.notice, format!("PDB import failed: destination must be on verified local non-removable storage (not USB); storage classification failed or destination is unsupported. Current catalog unchanged."));
-        assert_eq!(std::fs::read_dir(dir).unwrap().count(), before, "no stage/catalog/sidecars");
+        confirm(&mut shell);
+        finish(&mut shell);
+        assert_eq!(
+            shell.app.notice,
+            format!(
+                "PDB import failed: destination must be on verified local non-removable storage (not USB); storage classification failed or destination is unsupported. Current catalog unchanged."
+            )
+        );
+        assert_eq!(
+            std::fs::read_dir(dir).unwrap().count(),
+            before,
+            "no stage/catalog/sidecars"
+        );
         assert_eq!(std::fs::read(&pdb).unwrap(), bytes);
         assert_eq!(std::fs::read(&db).unwrap(), active);
         assert_eq!(shell.app.db_path, db);
@@ -196,18 +296,25 @@ fn pdb_import_ui_surfaces_invalid_source_existing_destinations_and_device_refusa
         let sidecar = root.join("sidecar.sqlite-wal");
         std::fs::write(&sidecar, b"foreign sidecar").unwrap();
         review(&mut shell, &pdb, &destination);
-        confirm(&mut shell); finish(&mut shell);
+        confirm(&mut shell);
+        finish(&mut shell);
         assert!(shell.app.notice.contains(expected), "{}", shell.app.notice);
         assert_eq!(std::fs::read(&sidecar).unwrap(), b"foreign sidecar");
         assert_eq!(std::fs::read(&db).unwrap(), before);
         assert_eq!(std::fs::read(&pdb).unwrap(), good_bytes);
-        let out = shell.settle(); shell.click(find(&nodes(&out), "Cancel").2.center());
+        let out = shell.settle();
+        shell.click(find(&nodes(&out), "Cancel").2.center());
     }
     std::fs::write(&pdb, b"not a PDB").unwrap();
     let destination = root.join("invalid.sqlite");
     review(&mut shell, &pdb, &destination);
-    confirm(&mut shell); finish(&mut shell);
-    assert!(shell.app.notice.contains("PDB source was rejected"), "{}", shell.app.notice);
+    confirm(&mut shell);
+    finish(&mut shell);
+    assert!(
+        shell.app.notice.contains("PDB source was rejected"),
+        "{}",
+        shell.app.notice
+    );
     assert!(!destination.exists());
     assert_eq!(std::fs::read(&pdb).unwrap(), b"not a PDB");
     assert_eq!(std::fs::read(&db).unwrap(), before);

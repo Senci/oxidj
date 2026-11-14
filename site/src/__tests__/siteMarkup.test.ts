@@ -82,20 +82,16 @@ describe('screenshots', () => {
     expect(html).toContain('Load A and Load B');
     expect(html).not.toContain('srcset');
   });
-  it('pins the metadata-only owner-library crop and disclosure', () => {
-    const html = renderShot(screenshots.ownerLibraryRecord, '92vw');
-    expect(html).toContain('href="./images/senci-owner-library-record.webp" data-lightbox');
-    expect(html).toContain('data-width="838" data-height="74"');
-    expect(html).toContain(`alt="${screenshots.ownerLibraryRecord.alt}"`);
-    expect(html).toContain('was not loaded or played');
-  });
-  it('places the stage, gallery and waveform art on the home page only', () => {
+
+  it('places the real application stage and gallery on the home page without a synthetic hero waveform', () => {
     const home = renderSite(
       renderRoadmap(readFileSync(new URL('../../index.html', import.meta.url), 'utf8')),
       'index.html',
     );
-    expect(home.match(/data-lightbox/g)).toHaveLength(18);
-    expect(home).toContain('class="wave"');
+    expect(home.match(/data-lightbox/g)).toHaveLength(17);
+    expect(home).not.toContain('senci-owner-library-record');
+    expect(home).not.toContain('class="wave"');
+    expect(home).toContain('Actual app / synthetic library');
     expect(home.match(/class="rail-stop /g)).toHaveLength(9);
     for (const shot of Object.values(screenshots)) {
       expect(shot.alt.length).toBeGreaterThan(20);
@@ -104,5 +100,24 @@ describe('screenshots', () => {
     expect(home).not.toMatch(
       /library-prototype|\/home\/|waveform-mono|waveform-3band|track-list\.webp|decks-bar\.webp/,
     );
+  });
+  it('includes the approved landing, sourced jokes, video fallback and artist links', () => {
+    const home = renderSite(
+      renderRoadmap(readFileSync(new URL('../../index.html', import.meta.url), 'utf8')),
+      'index.html',
+    );
+    expect(home.match(/class="punch"/g)).toHaveLength(9);
+    expect(home).toContain('id="freedom-open"');
+    expect(home).toMatch(/id="freedom-open"[^>]*\shidden/);
+    expect(home).toContain('id="freedom-dialog"');
+    expect(home).toContain('https://www.youtube.com/watch?v=9sJUDx7iEJw');
+    expect(home).toContain('https://s3nci.bandcamp.com/music');
+    expect(home).toContain('id="sleeve-flip"');
+    expect(home).toContain('class="disc"');
+    expect(home).toContain('id="why"');
+    expect(home.match(/<div class="recordshot">[\s\S]*?<\/figure>/)?.[0]).toContain(
+      `./images/${screenshots.deckMixerV2.id}.webp`,
+    );
+    expect(home).toContain('class="video-fallback"');
   });
 });

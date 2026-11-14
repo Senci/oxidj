@@ -18,8 +18,8 @@ pub(crate) fn attr(e: &quick_xml::events::BytesStart<'_>, key: &str) -> Result<S
     e.attributes()
         .with_checks(true)
         .find_map(|a| match a {
-            Ok(a) if a.key.as_ref() == key.as_bytes() => Some(
-                a.decoded_and_normalized_value(quick_xml::XmlVersion::Explicit1_0, e.decoder())
+            Ok(a) if a.key.as_ref().as_bytes() == key.as_bytes() => Some(
+                a.normalized_value(quick_xml::XmlVersion::Explicit1_0)
                     .map(|v| v.into_owned())
                     .map_err(|x| Error(x.to_string())),
             ),
@@ -33,9 +33,9 @@ pub(crate) fn optional(
 ) -> Result<Option<String>, Error> {
     for a in e.attributes().with_checks(true) {
         let a = a.map_err(|x| Error(x.to_string()))?;
-        if a.key.as_ref() == key.as_bytes() {
+        if a.key.as_ref().as_bytes() == key.as_bytes() {
             return a
-                .decoded_and_normalized_value(quick_xml::XmlVersion::Explicit1_0, e.decoder())
+                .normalized_value(quick_xml::XmlVersion::Explicit1_0)
                 .map(|v| Some(v.into_owned()))
                 .map_err(|x| Error(x.to_string()));
         }
@@ -88,7 +88,7 @@ pub fn parse(bytes: &[u8]) -> Result<Preview, Error> {
             .map_err(|e| Error(format!("malformed XML: {e}")))?
         {
             Event::Start(e) => {
-                let tag = String::from_utf8_lossy(e.name().as_ref()).into_owned();
+                let tag = String::from_utf8_lossy(e.name().as_ref().as_bytes()).into_owned();
                 if stack.is_empty() && tag == "DJ_PLAYLISTS" {
                     let v = attr(&e, "Version")?;
                     if v != "1.0.0" {
@@ -209,7 +209,7 @@ pub fn parse(bytes: &[u8]) -> Result<Preview, Error> {
                 stack.push(tag);
             }
             Event::Empty(e) => {
-                let tag = String::from_utf8_lossy(e.name().as_ref()).into_owned();
+                let tag = String::from_utf8_lossy(e.name().as_ref().as_bytes()).into_owned();
                 if tag == "DJ_PLAYLISTS" {
                     let v = attr(&e, "Version")?;
                     if v != "1.0.0" {
@@ -319,7 +319,7 @@ pub fn parse(bytes: &[u8]) -> Result<Preview, Error> {
                 }
             }
             Event::End(e) => {
-                let tag = String::from_utf8_lossy(e.name().as_ref()).into_owned();
+                let tag = String::from_utf8_lossy(e.name().as_ref().as_bytes()).into_owned();
                 if tag == "TRACK"
                     && let Some(t) = current.take()
                 {
@@ -386,7 +386,7 @@ pub(crate) fn validate_export_element(
     e: &quick_xml::events::BytesStart<'_>,
     parent: Option<&str>,
 ) -> Result<String, Error> {
-    let name = std::str::from_utf8(e.name().as_ref())
+    let name = std::str::from_utf8(e.name().as_ref().as_bytes())
         .map_err(|_| Error("non-UTF-8 element name".into()))?
         .to_owned();
     let allowed: &[&str] = match name.as_str() {
@@ -435,7 +435,7 @@ pub(crate) fn validate_export_element(
     let mut seen = HashSet::new();
     for a in e.attributes().with_checks(true) {
         let a = a.map_err(|e| Error(e.to_string()))?;
-        let key = std::str::from_utf8(a.key.as_ref())
+        let key = std::str::from_utf8(a.key.as_ref().as_bytes())
             .map_err(|_| Error("non-UTF-8 attribute name".into()))?;
         if !allowed.contains(&key) {
             return Err(Error(format!("unsupported {name} attribute {key}")));
@@ -592,7 +592,7 @@ pub fn preflight_export(bytes: &[u8]) -> Result<ExportPreflight, Error> {
             }
             Event::End(e) => {
                 let end_name = e.name();
-                let tag = std::str::from_utf8(end_name.as_ref())
+                let tag = std::str::from_utf8(end_name.as_ref().as_bytes())
                     .map_err(|_| Error("non-UTF-8 closing element".into()))?;
                 if tag == "NODE"
                     && let Some((_, declared, actual)) = node_counts.pop()
@@ -605,17 +605,12 @@ pub fn preflight_export(bytes: &[u8]) -> Result<ExportPreflight, Error> {
                     .ok_or_else(|| Error("unexpected closing element".into()))?;
             }
             Event::Text(t) => {
-                if !t
-                    .decode()
-                    .map_err(|e| Error(e.to_string()))?
-                    .trim()
-                    .is_empty()
-                {
+                if !t.as_ref().trim().is_empty() {
                     return Err(Error("text content unsupported by export subset".into()));
                 }
             }
             Event::Decl(d) => {
-                let declaration = std::str::from_utf8(d.as_ref())
+                let declaration = std::str::from_utf8(d.as_ref().as_bytes())
                     .map_err(|_| Error("invalid XML declaration".into()))?;
                 if !declaration.contains("encoding=\"UTF-8\"")
                     && !declaration.contains("encoding='UTF-8'")
@@ -688,9 +683,9 @@ pub(crate) fn attribute_value_range(
 ) -> Result<std::ops::Range<usize>, Error> {
     for attribute in element.attributes().with_checks(true) {
         let attribute = attribute.map_err(|error| Error(error.to_string()))?;
-        if attribute.key.as_ref() == key.as_bytes() {
+        if attribute.key.as_ref().as_bytes() == key.as_bytes() {
             let actual = attribute
-                .decoded_and_normalized_value(quick_xml::XmlVersion::Explicit1_0, element.decoder())
+                .normalized_value(quick_xml::XmlVersion::Explicit1_0)
                 .map_err(|error| Error(error.to_string()))?;
             if actual != expected {
                 return Err(Error(format!(

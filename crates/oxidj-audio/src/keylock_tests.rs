@@ -575,3 +575,70 @@ fn sync_without_a_master_track_is_ignored() {
     // Speed unchanged (1.0): 100 frames at equal rates.
     assert_eq!(e.deck(1).frame, 1334.0);
 }
+
+/// Distance between the two decks' transform bursts, as a share of the
+/// interval between bursts (0.5 = as far apart as they can be).
+fn burst_spacing(r: &Renderer) -> f64 {
+    let interval = r.stretch[0].interval_frames() as f64;
+    let phase = |d: usize| r.decks[d].clock + r.decks[d].stagger as f64;
+    (phase(0) - phase(1)).rem_euclid(interval) / interval
+}
+
+#[test]
+fn key_locked_decks_keep_their_transform_bursts_half_an_interval_apart() {
+    let (mut e, mut r) = Engine::manual(RATE);
+    assert_eq!(r.stretch[0].interval_frames(), RATE as usize * 30 / 1000);
+    for deck in 0..2 {
+        e.send(Command::Load {
+            deck,
+            id: deck as u64,
+            track: sine(RATE, 20.0, 440.0),
+        });
+        e.send(Command::KeyLock { deck, on: true });
+        e.send(Command::TogglePlay { deck });
+    }
+    // Started in the same callback: without staggering both engines would
+    // do their transform in the same blocks for ever.
+    render(&mut r, 5_000);
+    assert!(
+        (burst_spacing(&r) - 0.5).abs() < 0.01,
+        "{}",
+        burst_spacing(&r)
+    );
+    // Any later start or jump of one deck lands half an interval from the
+    // other again, whatever the moment and the block size.
+    for (frames, target) in [(777, 96_000.0), (1_301, 200_000.0), (64, 48_000.0)] {
+        render(&mut r, frames);
+        e.send(Command::Seek {
+            deck: 1,
+            frame: target,
+        });
+        render(&mut r, 3_000);
+        assert!(
+            (burst_spacing(&r) - 0.5).abs() < 0.01,
+            "{}",
+            burst_spacing(&r)
+        );
+        render(&mut r, frames + 5);
+        e.send(Command::TogglePlay { deck: 0 });
+        render(&mut r, 300);
+        e.send(Command::TogglePlay { deck: 0 });
+        render(&mut r, 2_000);
+        assert!(
+            (burst_spacing(&r) - 0.5).abs() < 0.01,
+            "{}",
+            burst_spacing(&r)
+        );
+    }
+    // One deck alone is not staggered against anything.
+    let (mut e, mut r) = Engine::manual(RATE);
+    e.send(Command::Load {
+        deck: 0,
+        id: 1,
+        track: sine(RATE, 5.0, 440.0),
+    });
+    e.send(Command::KeyLock { deck: 0, on: true });
+    e.send(Command::TogglePlay { deck: 0 });
+    render(&mut r, 1_000);
+    assert_eq!(r.decks[0].stagger, 0);
+}

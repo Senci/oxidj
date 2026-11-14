@@ -7,13 +7,16 @@ use std::{collections::BTreeMap, fs, path::PathBuf};
 
 type Files = BTreeMap<String, Vec<u8>>;
 const MANIFEST: &str = "tests/fixtures/f09-operation-provenance.json";
-const MANIFEST_SHA256: &str = "94e0ecd775a066599111e6098e4d93729d880f64963b3d6329ae4500585f8d80";
+const MANIFEST_SHA256: &str = "b3a0b89b3ed57975c5370abd18d49eaa3168de5d7df43b539135a458bd0f3541";
 const TRACK_NAME_HELPER: &str = "xtask/tests/common/f02_track_name_oracle_support.rs";
 const XML_TREE_HELPER: &str = "xtask/tests/common/xml_tree.rs";
 const TRACK_ATTRIBUTE_ORACLE: &str = "xtask/tests/f02_track_attribute_edit_oracle.rs";
 
 fn sha(bytes: &[u8]) -> String {
-    format!("{:x}", Sha256::digest(bytes))
+    Sha256::digest(bytes)
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<String>()
 }
 fn root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))

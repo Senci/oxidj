@@ -80,6 +80,11 @@ fn column_drag_resize_visibility_restart_and_row_selection_in_both_tables() {
             .library_snapshot()
             .unwrap();
         let mut shell = Shell::new(&db, 1440.0);
+        // The merged model must persist columns alongside the newer audio
+        // preferences, including identifiers containing storage delimiters.
+        shell.app.settings.limiter = false;
+        shell.app.settings.audio_buffer = Some(Some(256));
+        shell.app.settings.audio_device = Some(("Synthetic;host".into(), "device=id".into()));
         if playlist {
             let r = text_rect(&mut shell, "♫ Browse");
             shell.click(r.center());
@@ -102,7 +107,7 @@ fn column_drag_resize_visibility_restart_and_row_selection_in_both_tables() {
         shell.click(checkbox(&out, if playlist { "Album" } else { "Folder" }));
         assert!(!layout(&shell, playlist).visible[if playlist { 2 } else { 3 }]);
         key(&mut shell, egui::Key::Escape);
-        let expected = shell.app.settings;
+        let expected = shell.app.settings.clone();
         // The real App::save path writes through eframe::Storage. Reconstruct
         // storage, egui context and LibraryApp, not just the layout value.
         let mut storage = FileStorage(root.join("settings.txt"));
@@ -198,6 +203,8 @@ fn column_narrow_table_scrolls_headers_and_rows_together_and_keeps_menu_reachabl
             vec![
                 egui::Event::PointerMoved(pointer),
                 egui::Event::MouseWheel {
+                    phase: egui::TouchPhase::Move,
+                    source: egui::MouseWheelSource::Unknown,
                     unit: egui::MouseWheelUnit::Point,
                     delta: egui::vec2(-1500.0, 0.0),
                     modifiers: Default::default(),
@@ -249,6 +256,15 @@ impl eframe::Storage for FileStorage {
             std::fs::write(&self.0, value).unwrap();
         }
     }
+    fn remove_string(&mut self, key: &str) {
+        if key == "ui_settings" {
+            match std::fs::remove_file(&self.0) {
+                Ok(()) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => panic!("remove settings: {error}"),
+            }
+        }
+    }
     fn flush(&mut self) {}
 }
 
@@ -277,7 +293,8 @@ fn column_menu_keyboard_access_autofit_reset_and_last_visible_guard() {
         vec![egui::Event::AccessKitActionRequest(
             egui::accesskit::ActionRequest {
                 action: egui::accesskit::Action::Focus,
-                target: button_id,
+                target_tree: egui::accesskit::TreeId::ROOT,
+                target_node: button_id,
                 data: None,
             },
         )],
@@ -348,14 +365,31 @@ fn column_middle_click_fits_one_column_and_catalog_sort_still_clicks() {
 #[test]
 fn imported_sort_changes_visible_order_without_changing_member_identity() {
     let (root, db) = catalog_root("imported-sort-members");
-    Catalog::open(&db).unwrap().import_library(&LibrarySnapshot {
-        tracks: vec![
-            LibraryTrack { title: "Zulu".into(), location: "file://localhost/z.mp3".into(), ..Default::default() },
-            LibraryTrack { title: "Alpha".into(), location: "file://localhost/a.mp3".into(), ..Default::default() },
-        ],
-        roots: vec![oxidj_library::LibraryNode::Playlist { name: "Browse".into(), members: vec![0, 1, 0] }],
-    }).unwrap();
-    let before = Catalog::open_read_only(&db).unwrap().library_snapshot().unwrap();
+    Catalog::open(&db)
+        .unwrap()
+        .import_library(&LibrarySnapshot {
+            tracks: vec![
+                LibraryTrack {
+                    title: "Zulu".into(),
+                    location: "file://localhost/z.mp3".into(),
+                    ..Default::default()
+                },
+                LibraryTrack {
+                    title: "Alpha".into(),
+                    location: "file://localhost/a.mp3".into(),
+                    ..Default::default()
+                },
+            ],
+            roots: vec![oxidj_library::LibraryNode::Playlist {
+                name: "Browse".into(),
+                members: vec![0, 1, 0],
+            }],
+        })
+        .unwrap();
+    let before = Catalog::open_read_only(&db)
+        .unwrap()
+        .library_snapshot()
+        .unwrap();
     let mut shell = Shell::new(&db, 1440.0);
     let browse = text_rect(&mut shell, "♫ Browse");
     shell.click(browse.center());
@@ -367,9 +401,107 @@ fn imported_sort_changes_visible_order_without_changing_member_identity() {
     shell.click(alpha.center());
     assert_eq!(shell.app.imported_member, Some(1));
     assert_eq!(shell.app.selected_imported, Some(1));
-    assert_eq!(Catalog::open_read_only(&db).unwrap().library_snapshot().unwrap(), before);
+    assert_eq!(
+        Catalog::open_read_only(&db)
+            .unwrap()
+            .library_snapshot()
+            .unwrap(),
+        before
+    );
     drop(shell);
     std::fs::remove_dir_all(root).unwrap();
+}
+
+// Integration characterization: the newer mutation UI must consume source
+// occurrence/track guards, never the row index in the sorted/filtered view.
+#[test]
+fn sorted_filtered_duplicate_removal_preserves_root_and_nested_source_identity() {
+    use oxidj_library::LibraryNode;
+    for nested in [false, true] {
+        let (root, db) = catalog_root(if nested {
+            "columns-nested-remove"
+        } else {
+            "columns-root-remove"
+        });
+        let playlist = LibraryNode::Playlist {
+            name: "Browse".into(),
+            members: vec![0, 1, 0],
+        };
+        let mut expected = LibrarySnapshot {
+            tracks: vec![
+                LibraryTrack {
+                    title: "Zulu".into(),
+                    genre: Some("House".into()),
+                    location: "file://localhost/z.wav".into(),
+                    ..Default::default()
+                },
+                LibraryTrack {
+                    title: "Alpha".into(),
+                    genre: Some("Ambient".into()),
+                    location: "file://localhost/a.wav".into(),
+                    ..Default::default()
+                },
+            ],
+            roots: vec![if nested {
+                LibraryNode::Folder {
+                    name: "Parent".into(),
+                    children: vec![playlist],
+                }
+            } else {
+                playlist
+            }],
+        };
+        Catalog::open(&db)
+            .unwrap()
+            .import_library(&expected)
+            .unwrap();
+        let mut shell = Shell::new(&db, 1440.0);
+        let browse = text_rect(&mut shell, "♫ Browse");
+        shell.click(browse.center());
+        let title = header(&mut shell, "Title");
+        shell.click(title.center());
+        assert!(text_rect(&mut shell, "2 · Alpha").top() < text_rect(&mut shell, "1 · Zulu").top());
+        shell.app.filter_genre = "house".into();
+        let first = text_rect(&mut shell, "1 · Zulu");
+        let second = text_rect(&mut shell, "3 · Zulu");
+        assert!(first.top() < second.top());
+        shell.click(second.center());
+        assert_eq!(shell.app.imported_member, Some(2));
+        assert_eq!(shell.app.selected_imported, Some(0));
+        assert!(shell.app.selected_imported_guard.is_some());
+        let out = shell.settle();
+        let out = shell.click(
+            find(&nodes(&out), "Remove selected from playlist…")
+                .2
+                .center(),
+        );
+        shell.click(find(&nodes(&out), "Confirm removal").2.center());
+        assert_eq!(shell.app.notice, "Playlist member removed");
+        if nested {
+            assert!(shell.app.imported_nested_guard.is_some());
+        }
+        let node = if nested {
+            let LibraryNode::Folder { children, .. } = &mut expected.roots[0] else {
+                panic!("folder")
+            };
+            &mut children[0]
+        } else {
+            &mut expected.roots[0]
+        };
+        let LibraryNode::Playlist { members, .. } = node else {
+            panic!("playlist")
+        };
+        members.remove(2);
+        assert_eq!(
+            Catalog::open_read_only(&db)
+                .unwrap()
+                .library_snapshot()
+                .unwrap(),
+            expected
+        );
+        drop(shell);
+        std::fs::remove_dir_all(root).unwrap();
+    }
 }
 
 #[test]
@@ -381,13 +513,24 @@ fn imported_header_click_changes_sort_direction() {
     shell.click(browse.center());
     let title = header(&mut shell, "Title");
     let out = shell.click(title.center());
-    assert!(nodes(&out).iter().any(|n| n.1.as_deref() == Some("Title, sorted ascending")));
+    assert!(
+        nodes(&out)
+            .iter()
+            .any(|n| n.1.as_deref() == Some("Title, sorted ascending"))
+    );
     let title = header(&mut shell, "Title");
     let out = shell.click(title.center());
-    assert!(nodes(&out).iter().any(|n| n.1.as_deref() == Some("Title, sorted descending")));
+    assert!(
+        nodes(&out)
+            .iter()
+            .any(|n| n.1.as_deref() == Some("Title, sorted descending"))
+    );
     let title = header(&mut shell, "Title");
     shell.click(title.center());
-    assert!(shell.app.imported_sort.is_none(), "third click restores playlist order");
+    assert!(
+        shell.app.imported_sort.is_none(),
+        "third click restores playlist order"
+    );
     drop(shell);
     std::fs::remove_dir_all(root).unwrap();
 }
@@ -398,7 +541,11 @@ fn catalog_folder_header_sorts() {
     let mut shell = Shell::new(&db, 1440.0);
     let folder = header(&mut shell, "Folder");
     let out = shell.click(folder.center());
-    assert!(nodes(&out).iter().any(|n| n.1.as_deref() == Some("Folder, sorted ascending")));
+    assert!(
+        nodes(&out)
+            .iter()
+            .any(|n| n.1.as_deref() == Some("Folder, sorted ascending"))
+    );
     drop(shell);
     std::fs::remove_dir_all(root).unwrap();
 }
@@ -406,13 +553,30 @@ fn catalog_folder_header_sorts() {
 #[test]
 fn imported_quick_filter_opens_and_can_be_cleared() {
     let (root, db) = catalog_root("imported-quick-filter");
-    Catalog::open(&db).unwrap().import_library(&LibrarySnapshot {
-        tracks: vec![
-            LibraryTrack { title: "Match".into(), location: "file://localhost/a".into(), tempo_hundredths_bpm: 12800, key: Some("8A".into()), genre: Some("House".into()), ..Default::default() },
-            LibraryTrack { title: "No metadata".into(), location: "file://localhost/b".into(), ..Default::default() },
-        ],
-        roots: vec![oxidj_library::LibraryNode::Playlist { name: "Browse".into(), members: vec![0, 1, 0] }],
-    }).unwrap();
+    Catalog::open(&db)
+        .unwrap()
+        .import_library(&LibrarySnapshot {
+            tracks: vec![
+                LibraryTrack {
+                    title: "Match".into(),
+                    location: "file://localhost/a".into(),
+                    tempo_hundredths_bpm: 12800,
+                    key: Some("8A".into()),
+                    genre: Some("House".into()),
+                    ..Default::default()
+                },
+                LibraryTrack {
+                    title: "No metadata".into(),
+                    location: "file://localhost/b".into(),
+                    ..Default::default()
+                },
+            ],
+            roots: vec![oxidj_library::LibraryNode::Playlist {
+                name: "Browse".into(),
+                members: vec![0, 1, 0],
+            }],
+        })
+        .unwrap();
     let mut shell = Shell::new(&db, 1440.0);
     let browse = text_rect(&mut shell, "♫ Browse");
     shell.click(browse.center());
@@ -420,11 +584,18 @@ fn imported_quick_filter_opens_and_can_be_cleared() {
     let tree = nodes(&out);
     let button = find(&tree, "Filters");
     let out = shell.click(button.2.center());
-    let mut fields: Vec<_> = nodes(&out).into_iter().filter(|n| n.0 == Role::TextInput && Some(n.2) != shell.app.shell.search).map(|n| n.2).collect();
+    let mut fields: Vec<_> = nodes(&out)
+        .into_iter()
+        .filter(|n| n.0 == Role::TextInput && Some(n.2) != shell.app.shell.search)
+        .map(|n| n.2)
+        .collect();
     fields.sort_by(|a, b| a.top().total_cmp(&b.top()));
     assert_eq!(fields.len(), 4);
     for (rect, value) in fields.into_iter().zip(["128", "128", "8a", "house"]) {
-        shell.frame(vec![egui::Event::PointerMoved(rect.center())], Default::default());
+        shell.frame(
+            vec![egui::Event::PointerMoved(rect.center())],
+            Default::default(),
+        );
         shell.click(rect.center());
         shell.frame(vec![egui::Event::Text(value.into())], Default::default());
     }
@@ -447,13 +618,27 @@ fn imported_scanned_availability_does_not_guess_for_unmatched_locations() {
     let (root, db) = catalog_root("playlist-scanned-availability");
     let file = root.join("audio/tone-a.wav");
     let location = oxidj_application::location_uri(file.to_str().unwrap()).0;
-    Catalog::open(&db).unwrap().import_library(&LibrarySnapshot {
-        tracks: vec![
-            LibraryTrack { title: "Scanned".into(), location, ..Default::default() },
-            LibraryTrack { title: "Unmatched".into(), location: "file://localhost/unknown".into(), ..Default::default() },
-        ],
-        roots: vec![oxidj_library::LibraryNode::Playlist { name: "Browse".into(), members: vec![0, 1] }],
-    }).unwrap();
+    Catalog::open(&db)
+        .unwrap()
+        .import_library(&LibrarySnapshot {
+            tracks: vec![
+                LibraryTrack {
+                    title: "Scanned".into(),
+                    location,
+                    ..Default::default()
+                },
+                LibraryTrack {
+                    title: "Unmatched".into(),
+                    location: "file://localhost/unknown".into(),
+                    ..Default::default()
+                },
+            ],
+            roots: vec![oxidj_library::LibraryNode::Playlist {
+                name: "Browse".into(),
+                members: vec![0, 1],
+            }],
+        })
+        .unwrap();
     let mut shell = Shell::new(&db, 1440.0);
     let browse = text_rect(&mut shell, "♫ Browse");
     shell.click(browse.center());

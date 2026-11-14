@@ -2,11 +2,11 @@
 
 Live project site: <https://senci.github.io/oxidj/>. Artist profile: [Senči on SoundCloud](https://soundcloud.com/s3nci).
 
-OxiDJ is a modern, open-source DJ library manager and, eventually, performance application written primarily in Rust. Its long-term goal is a credible Rekordbox alternative without locking users into one vendor ecosystem (idea.md). The bounded local reference catalog exists as an implementation candidate; import, analysis, playback, and GUI workflows remain absent.
+OxiDJ is a modern, open-source DJ library manager and performance application written primarily in Rust. Its long-term goal is a credible Rekordbox alternative without locking users into one vendor ecosystem (idea.md). The local catalog, import, analysis, provisional library UI and two-deck playback are implemented; broader vendor, hardware and platform qualification remains open.
 
 ## Status
 
-M0 is verified complete. The named `local-catalog-alpha-v1` dependency exception is integrated by PR #13 (`671ae2b3df933ada97297bbba19ea1394657c14e`) for the reference-only, single-process, local-filesystem catalog capped at 10,000 tracks. A local implementation candidate now initializes and lists a versioned catalog, stores reference-only records through `oxidj-library`, and demonstrates fresh-process listing. Independent acceptance and full M1 remain incomplete (plan/STATUS.md). The separate representative 500k qualification remains NOT READY and unpassed.
+M0 and the bounded local M1–M3 scopes are complete; M4/M7 interoperability and M6 analysis remain in progress. The M8 two-deck UI and audio engine are provisional, not a production or hardware compatibility claim. See [project status](plan/STATUS.md) and [audio handoff](plan/AUDIO.md). The separate 500k-track/60fps qualification remains unpassed.
 
 **What exists today** (all local, Linux-first; synthetic and bounded real-library evidence only — see plan/STATUS.md):
 
@@ -16,17 +16,15 @@ M0 is verified complete. The named `local-catalog-alpha-v1` dependency exception
 - `oxidj-rekordbox` / `oxidj-onelibrary` — isolated adapters: Rekordbox XML preview, no-edit export and guarded edits; read-only DeviceSQL PDB, ANLZ (beat grid, cues, waveforms) and OneLibrary previews.
 - `oxidj-application` / `oxidj-cli` — orchestration and commands, including `catalog import-library`, `catalog export-library-xml`, `catalog analyze-waveform` and `catalog analyze-tempo`.
 - `prototypes/oxidj-library-ui` — provisional egui library UI: dense shell with a full-width track table and toggleable navigation / details / decks panels, guarded XML editing, and a smooth anti-aliased mono / 3-band / RGB waveform view with live per-band display gain and bar/beat lines from an imported library beat grid, or, when none matches, from an OxiDJ-computed grid (taktus; a suggestion, not Rekordbox parity). Since M8 it also has two playable decks (see below).
-- `oxidj-audio` — realtime audio engine (CPAL output, lock-free command/state queues, decode-on-load): two decks with CDJ-style cue, play/pause, seek, hot cues, loops, tempo fader, key lock (Signalsmith Stretch behind a replaceable trait), SYNC against imported-or-computed beat grids, and an optional in-house mixer (trim, 3-band isolator EQ, filter, faders, crossfader, meters). Owner-confirmed by ear on one machine; one 600 s PipeWire run (1 xrun) is the only latency evidence — club gear and CDJ/XDJ playback are NOT DEMONSTRATED (ADR-008).
+- `oxidj-audio` — realtime CPAL engine with two decks, key lock, SYNC, optional mixer, output selection and recovery, limiter, JACK support, measured output status and headphone cue routing. A muted synthetic JACK run at 48 kHz/256 frames lasted 600.1 s with 0 reported xruns/errors; physical USB reconnect and four-channel cue, Windows ASIO and macOS audio remain untested. Club gear, CDJ/XDJ playback and a latency guarantee are NOT DEMONSTRATED (ADR-008, plan/AUDIO.md).
 - `xtask` — the repo-owned quality gate: `cargo xtask ci` (Tier 1) and `cargo xtask ci-full` (Tier 1 + tests + UI tests + licence gate, used by CI).
 - Accepted ADRs and the architecture baseline (docs/adr/index.md, docs/architecture.md).
 
 **Deferred** — do not expect these yet (idea.md MVP §Deferred; docs/architecture.md §11; plan/MVP.md):
 
-- M1: bounded implementation candidate is under independent review; backup/restore, migration-failure, transaction-failure and complete M1 evidence remain open. Vendor DJ metadata schema remains proposed and unaccepted (ADR-005). Persistence dependencies for representative-scale qualification remain gated on the separate 500k-track route (ADR-002).
-- M2: filesystem import (plan/MVP.md).
-- M3: usable library UI — prototype direction only (egui/eframe, ADR-001), not committed to production.
-- M4: complete Rekordbox/OneLibrary interoperability remains unqualified. XML preview, preflight, no-edit export, and guarded edits to selected tempo and position-mark fields cover a bounded synthetic subset only; no vendor application acceptance or undocumented-format compatibility is claimed (interoperability.md §Fixture D).
-- Beyond M8: effects, stems, streaming, headphone cue/PFL, broad controller support, production-grade latency qualification (idea.md §Priorities/MVP).
+- M4/M7: complete Rekordbox/OneLibrary interoperability remains unqualified. An owner-run Rekordbox Windows round trip provides bounded evidence, not broad vendor or hardware compatibility.
+- The egui library UI is provisional; production accessibility, native platforms and representative-scale performance remain open.
+- Beyond M8: effects, stems, streaming, broad controller support and production-grade latency qualification remain future work.
 
 ## Install (Linux, no sudo)
 

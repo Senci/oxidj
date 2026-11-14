@@ -33,6 +33,85 @@ mod wheel_tests {
     use super::*;
 
     #[test]
+    fn stationary_pointer_wheel_tail_does_not_scroll_parent() {
+        for rotary in [true, false] {
+            let ctx = egui::Context::default();
+            let mut value = 0.5;
+            let mut frame = |events: Vec<egui::Event>| {
+                let mut pos = egui::Pos2::ZERO;
+                let mut offset = 0.0;
+                let input = egui::RawInput {
+                    screen_rect: Some(Rect::from_min_size(egui::Pos2::ZERO, vec2(400.0, 300.0))),
+                    events,
+                    ..Default::default()
+                };
+                let _ = crate::test_frame(&ctx, input, |root_ui| {
+                    let ctx = root_ui.ctx().clone();
+                    egui::CentralPanel::default().show(root_ui, |ui| {
+                        let output =
+                            egui::ScrollArea::vertical()
+                                .max_height(100.0)
+                                .show(ui, |ui| {
+                                    let (cell, _) =
+                                        ui.allocate_exact_size(vec2(180.0, 28.0), Sense::hover());
+                                    let tokens = crate::theme::current_tokens(&ctx);
+                                    let response = if rotary {
+                                        mixer_rotary(
+                                            ui,
+                                            cell,
+                                            "FILTER",
+                                            &mut value,
+                                            "filter",
+                                            String::new(),
+                                            tokens.primary,
+                                            tokens,
+                                        )
+                                    } else {
+                                        mixer_knob(
+                                            ui,
+                                            cell,
+                                            "VOL",
+                                            &mut value,
+                                            0.0..=1.0,
+                                            FADER_STEP,
+                                            1.0,
+                                            "volume",
+                                            String::new(),
+                                            tokens.primary,
+                                            tokens,
+                                        )
+                                    };
+                                    pos = response.rect.center();
+                                    ui.add_space(500.0);
+                                });
+                        offset = output.state.offset().y;
+                    });
+                });
+                (pos, offset, value)
+            };
+            let (p, _, _) = frame(vec![]);
+            let (_, offset_before, value_before) = frame(vec![egui::Event::PointerMoved(p)]);
+            let (_, offset_after, value_after) = frame(vec![egui::Event::MouseWheel {
+                phase: egui::TouchPhase::Move,
+                source: egui::MouseWheelSource::Unknown,
+                unit: egui::MouseWheelUnit::Line,
+                delta: vec2(0.0, -1.0),
+                modifiers: Default::default(),
+            }]);
+            assert!(value_after < value_before, "wheel must change control");
+            assert_eq!(offset_after, offset_before, "wheel must not scroll parent");
+            for _ in 0..10 {
+                let (_, offset, value) = frame(vec![]);
+                assert_eq!(value, value_after, "tail must not change control again");
+                assert_eq!(
+                    offset, offset_before,
+                    "stationary wheel tail must not scroll parent, rotary={rotary}"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn mixer_wheel_respects_parent_scroll_and_disabled_controls() {
         let ctx = egui::Context::default();
         let mut value = 0.5;
@@ -44,8 +123,9 @@ mod wheel_tests {
                 events,
                 ..Default::default()
             };
-            let _ = ctx.run(input, |ctx| {
-                egui::CentralPanel::default().show(ctx, |ui| {
+            let _ = crate::test_frame(&ctx, input, |root_ui| {
+                let ctx = &root_ui.ctx().clone();
+                egui::CentralPanel::default().show(root_ui, |ui| {
                     let output = egui::ScrollArea::vertical()
                         .max_height(100.0)
                         .show(ui, |ui| {
@@ -83,7 +163,7 @@ mod wheel_tests {
                             });
                             ui.add_space(500.0);
                         });
-                    offset = output.state.offset.y;
+                    offset = output.state.offset().y;
                 });
             });
             (pos, offset, value)
@@ -94,6 +174,8 @@ mod wheel_tests {
                 vec![
                     egui::Event::PointerMoved(p),
                     egui::Event::MouseWheel {
+                        phase: egui::TouchPhase::Move,
+                        source: egui::MouseWheelSource::Unknown,
                         unit: egui::MouseWheelUnit::Point,
                         delta: vec2(0.0, -4.0),
                         modifiers: Default::default(),
@@ -105,10 +187,31 @@ mod wheel_tests {
             let (_, after_offset, after_value) = frame(wheel(p), true, rotary);
             assert_eq!(after_offset, before_offset);
             assert!(after_value < before_value);
+            let (_, _, before_shift) = frame(vec![egui::Event::PointerMoved(p)], true, rotary);
+            let (_, _, after_shift) = frame(
+                vec![egui::Event::MouseWheel {
+                    phase: egui::TouchPhase::Move,
+                    source: egui::MouseWheelSource::Unknown,
+                    unit: egui::MouseWheelUnit::Point,
+                    delta: vec2(0.0, -4.0),
+                    modifiers: egui::Modifiers {
+                        shift: true,
+                        ..Default::default()
+                    },
+                }],
+                true,
+                rotary,
+            );
+            assert_eq!(
+                before_shift, after_shift,
+                "shift-wheel must not change a mixer control"
+            );
             let (_, tail_start, _) = frame(
                 vec![
                     egui::Event::PointerMoved(p),
                     egui::Event::MouseWheel {
+                        phase: egui::TouchPhase::Move,
+                        source: egui::MouseWheelSource::Unknown,
                         unit: egui::MouseWheelUnit::Line,
                         delta: vec2(0.0, -1.0),
                         modifiers: Default::default(),
@@ -163,6 +266,32 @@ pub(crate) const KNOB_DB_STEP: f64 = 1.0;
 /// Arrow-key step of the EQ knobs (position), filter, faders and crossfader.
 pub(crate) const FADER_STEP: f64 = 0.05;
 
+/// Unsmoothed wheel distance in egui points. Line ticks retain the existing
+/// 40-point control step; page events use the viewport height.
+pub(crate) fn raw_wheel_y(input: &egui::InputState) -> f32 {
+    input
+        .raw
+        .events
+        .iter()
+        .map(|event| match event {
+            egui::Event::MouseWheel {
+                unit,
+                delta,
+                modifiers,
+                ..
+            } if !modifiers.shift => {
+                delta.y
+                    * match unit {
+                        egui::MouseWheelUnit::Point => 1.0,
+                        egui::MouseWheelUnit::Line => 40.0,
+                        egui::MouseWheelUnit::Page => input.content_rect().height(),
+                    }
+            }
+            _ => 0.0,
+        })
+        .sum()
+}
+
 /// Consume vertical wheel input while the pointer is over a mixer control.
 pub(crate) fn mixer_wheel(
     ui: &mut Ui,
@@ -180,7 +309,7 @@ pub(crate) fn mixer_wheel(
         // their tail scroll an ancestor after the pointer leaves the control.
         if pending {
             let (raw, smooth) = ui.input_mut(|input| {
-                let raw = input.raw_scroll_delta.y;
+                let raw = raw_wheel_y(input);
                 let smooth = input.smooth_scroll_delta.y;
                 if raw == 0.0 {
                     input.smooth_scroll_delta.y = 0.0;
@@ -193,14 +322,30 @@ pub(crate) fn mixer_wheel(
         }
         return false;
     }
-    let delta = ui.input_mut(|input| {
-        let delta = input.raw_scroll_delta.y;
-        input.raw_scroll_delta.y = 0.0;
-        input.smooth_scroll_delta.y = 0.0;
-        delta / 40.0
+    let (delta, smooth, shifted_wheel) = ui.input_mut(|input| {
+        let delta = raw_wheel_y(input);
+        let smooth = input.smooth_scroll_delta.y;
+        for event in &mut input.raw.events {
+            if let egui::Event::MouseWheel {
+                delta, modifiers, ..
+            } = event
+                && !modifiers.shift
+            {
+                delta.y = 0.0;
+            }
+        }
+        let shifted_wheel = input.raw.events.iter().any(
+            |event| matches!(event, egui::Event::MouseWheel { modifiers, .. } if modifiers.shift),
+        );
+        if delta != 0.0 || (pending && !shifted_wheel) {
+            input.smooth_scroll_delta.y = 0.0;
+        }
+        (delta / 40.0, smooth, shifted_wheel)
     });
     if delta != 0.0 {
         ui.ctx().data_mut(|data| data.insert_temp(pending_id, true));
+    } else if shifted_wheel || smooth == 0.0 {
+        ui.ctx().data_mut(|data| data.remove::<bool>(pending_id));
     }
     let before = *value;
     *value = (*value + delta * step as f32).clamp(*range.start(), *range.end());
@@ -302,7 +447,7 @@ pub(crate) fn mixer_vertical_fader(
     // Slider track area: above the label, full cell width, minimum SLIDER_MIN_W height.
     let slider_h = (label_y - cell.top() - 4.0).max(SLIDER_MIN_W);
     let slider_r = Rect::from_min_size(pos2(cell.left(), cell.top()), vec2(cell.width(), slider_h));
-    let id = ui.id().with(("mixer-vertical-fader", name));
+    let id = ui.scope_id().with(("mixer-vertical-fader", name));
     let mut v = *value;
     let min = *range.start();
     let max = *range.end();
@@ -459,7 +604,7 @@ pub(crate) fn mixer_horizontal_fader(
     // Slider track area: right of the label, full cell height, minimum SLIDER_MIN_W width.
     let slider_w = (cell.right() - label_x - 4.0).max(SLIDER_MIN_W);
     let slider_r = Rect::from_min_size(pos2(label_x, cell.top()), vec2(slider_w, cell.height()));
-    let id = ui.id().with(("mixer-horizontal-fader", name));
+    let id = ui.scope_id().with(("mixer-horizontal-fader", name));
     let mut v = *value;
     let min = *range.start();
     let max = *range.end();
@@ -695,7 +840,7 @@ fn mixer_rotary_styled(
             rect
         }
     };
-    let id = ui.id().with(("mixer-rotary", name));
+    let id = ui.scope_id().with(("mixer-rotary", name));
     let mut response = ui.interact(rect, id, Sense::click_and_drag());
     if response.clicked() {
         response.request_focus();
@@ -905,15 +1050,17 @@ fn level_meter_padded(
     tokens: ColorTokens,
     pad: f32,
 ) {
-    let response = ui.interact(rect, ui.id().with(("level-meter", name)), Sense::hover());
+    let response = ui.interact(
+        rect,
+        ui.scope_id().with(("level-meter", name)),
+        Sense::hover(),
+    );
     let text = format!(
         "{name}: {}{}",
         db_text(meter.level),
         if meter.clipping() { ", clip" } else { "" }
     );
-    response.widget_info(|| {
-        egui::WidgetInfo::labeled(egui::WidgetType::ProgressIndicator, true, &text)
-    });
+    response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::ProgressIndicator, true, &text));
     let painter = ui.painter_at(rect);
     let bar = Rect::from_min_max(
         rect.min + vec2(0.0, pad),
@@ -971,15 +1118,17 @@ pub(crate) fn level_meter_v(
     name: &str,
     tokens: ColorTokens,
 ) {
-    let response = ui.interact(rect, ui.id().with(("level-meter", name)), Sense::hover());
+    let response = ui.interact(
+        rect,
+        ui.scope_id().with(("level-meter", name)),
+        Sense::hover(),
+    );
     let text = format!(
         "{name}: {}{}",
         db_text(meter.level),
         if meter.clipping() { ", clip" } else { "" }
     );
-    response.widget_info(|| {
-        egui::WidgetInfo::labeled(egui::WidgetType::ProgressIndicator, true, &text)
-    });
+    response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::ProgressIndicator, true, &text));
     let painter = ui.painter_at(rect);
     let clip = Rect::from_min_size(rect.min, vec2(rect.width(), CLIP_H));
     let bar = Rect::from_min_max(pos2(rect.left(), clip.bottom() + 1.0), rect.max);
@@ -1157,7 +1306,7 @@ impl LibraryApp {
         layout: &mut DeckLayout,
     ) {
         let prefs = self.settings.mixer;
-        let screen_w = ui.ctx().screen_rect().width();
+        let screen_w = ui.ctx().content_rect().width();
         // The strip placements split `r` into the strip and the mixer block.
         let side = if prefs.monitor == MonitorPlacement::Beside {
             MON_W + SPLIT
@@ -1695,9 +1844,13 @@ impl LibraryApp {
         );
         let assign_y = rail_row.bottom() + 2.0;
         let icon_r = Rect::from_min_size(label_row.min, vec2(ICON_W - 6.0, 14.0));
-        let response = ui.interact(icon_r, ui.id().with("crossfader-toggle"), Sense::click());
+        let response = ui.interact(
+            icon_r,
+            ui.scope_id().with("crossfader-toggle"),
+            Sense::click(),
+        );
         response.widget_info(|| {
-            egui::WidgetInfo::selected(egui::WidgetType::Checkbox, true, on, "Crossfader section")
+            egui::WidgetInfo::selected(egui::Role::CheckBox, true, on, "Crossfader section")
         });
         let painter = ui.painter_at(icon_r);
         if response.hovered() || response.has_focus() {

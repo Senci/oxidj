@@ -16,18 +16,15 @@ pub(crate) fn direct_xml_typed_child_order(
             .read_event_into(&mut buf)
             .map_err(|e| e.to_string())?
         {
-            Event::Start(e) if e.name().as_ref() == b"NODE" => {
+            Event::Start(e) if e.name().as_ref().as_bytes() == b"NODE" => {
                 let (mut kind, mut name) = (String::new(), String::new());
                 for attr in e.attributes().with_checks(false) {
                     let attr = attr.map_err(|e| e.to_string())?;
                     let value = attr
-                        .decoded_and_normalized_value(
-                            quick_xml::XmlVersion::Implicit1_0,
-                            reader.decoder(),
-                        )
+                        .normalized_value(quick_xml::XmlVersion::Implicit1_0)
                         .map_err(|e| e.to_string())?
                         .into_owned();
-                    match attr.key.as_ref() {
+                    match attr.key.as_ref().as_bytes() {
                         b"Type" => kind = value,
                         b"Name" => name = value,
                         _ => {}
@@ -42,18 +39,15 @@ pub(crate) fn direct_xml_typed_child_order(
                 }
                 frames.push(nested);
             }
-            Event::Empty(e) if e.name().as_ref() == b"NODE" => {
+            Event::Empty(e) if e.name().as_ref().as_bytes() == b"NODE" => {
                 let (mut kind, mut name) = (String::new(), String::new());
                 for attr in e.attributes().with_checks(false) {
                     let attr = attr.map_err(|e| e.to_string())?;
                     let value = attr
-                        .decoded_and_normalized_value(
-                            quick_xml::XmlVersion::Implicit1_0,
-                            reader.decoder(),
-                        )
+                        .normalized_value(quick_xml::XmlVersion::Implicit1_0)
                         .map_err(|e| e.to_string())?
                         .into_owned();
-                    match attr.key.as_ref() {
+                    match attr.key.as_ref().as_bytes() {
                         b"Type" => kind = value,
                         b"Name" => name = value,
                         _ => {}
@@ -63,7 +57,7 @@ pub(crate) fn direct_xml_typed_child_order(
                     result.push(format!("{kind}:{name}"));
                 }
             }
-            Event::End(e) if e.name().as_ref() == b"NODE" => {
+            Event::End(e) if e.name().as_ref().as_bytes() == b"NODE" => {
                 if frames.pop().unwrap_or(false) {
                     folders.pop();
                 }
@@ -92,19 +86,16 @@ pub(crate) fn direct_xml_node_order(
             .read_event_into(&mut buf)
             .map_err(|e| e.to_string())?
         {
-            Event::Start(e) if e.name().as_ref() == b"NODE" => {
+            Event::Start(e) if e.name().as_ref().as_bytes() == b"NODE" => {
                 let mut kind = None;
                 let mut name = None;
                 for attr in e.attributes().with_checks(false) {
                     let attr = attr.map_err(|e| e.to_string())?;
                     let value = attr
-                        .decoded_and_normalized_value(
-                            quick_xml::XmlVersion::Implicit1_0,
-                            reader.decoder(),
-                        )
+                        .normalized_value(quick_xml::XmlVersion::Implicit1_0)
                         .map_err(|e| e.to_string())?
                         .into_owned();
-                    match attr.key.as_ref() {
+                    match attr.key.as_ref().as_bytes() {
                         b"Type" => kind = Some(value),
                         b"Name" => name = Some(value),
                         _ => {}
@@ -121,19 +112,16 @@ pub(crate) fn direct_xml_node_order(
                 }
                 folder_frames.push(is_folder && !folder_frames.is_empty());
             }
-            Event::Empty(e) if e.name().as_ref() == b"NODE" => {
+            Event::Empty(e) if e.name().as_ref().as_bytes() == b"NODE" => {
                 let mut kind = None;
                 let mut name = None;
                 for attr in e.attributes().with_checks(false) {
                     let attr = attr.map_err(|e| e.to_string())?;
                     let value = attr
-                        .decoded_and_normalized_value(
-                            quick_xml::XmlVersion::Implicit1_0,
-                            reader.decoder(),
-                        )
+                        .normalized_value(quick_xml::XmlVersion::Implicit1_0)
                         .map_err(|e| e.to_string())?
                         .into_owned();
-                    match attr.key.as_ref() {
+                    match attr.key.as_ref().as_bytes() {
                         b"Type" => kind = Some(value),
                         b"Name" => name = Some(value),
                         _ => {}
@@ -145,7 +133,7 @@ pub(crate) fn direct_xml_node_order(
                 }
                 let _ = kind;
             }
-            Event::End(e) if e.name().as_ref() == b"NODE" => {
+            Event::End(e) if e.name().as_ref().as_bytes() == b"NODE" => {
                 if folder_frames.pop().unwrap_or(false) {
                     folders.pop();
                 }

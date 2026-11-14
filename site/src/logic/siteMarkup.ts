@@ -70,7 +70,7 @@ export function renderSite(html: string, page: string): string {
   const fragments: Record<string, string> = {
     head: `<link rel="preload" href="./fonts/epilogue-400.woff2" as="font" type="font/woff2" crossorigin /><link rel="preload" href="./fonts/epilogue-700.woff2" as="font" type="font/woff2" crossorigin /><meta name="description" content="${escapeHtml(info.description)}" /><title>${escapeHtml(info.title)}</title><link rel="canonical" href="${canonical}" /><meta property="og:type" content="website" /><meta property="og:title" content="${escapeHtml(info.title)}" /><meta property="og:description" content="${escapeHtml(info.description)}" /><meta property="og:image" content="${origin}images/social.png" /><meta property="og:image:width" content="1200" /><meta property="og:image:height" content="630" /><meta property="og:image:alt" content="Your music. Your decks. Provisional OxiDJ library window with two decks and synthetic tracks." /><meta property="og:url" content="${canonical}" /><meta name="twitter:card" content="summary_large_image" /><meta name="twitter:title" content="${escapeHtml(info.title)}" /><meta name="twitter:description" content="${escapeHtml(info.description)}" /><meta name="twitter:image" content="${origin}images/social.png" />`,
     header: `<a class="skip-link" href="${page === '404.html' ? './404.html#main' : '#main'}">Skip to content</a><header class="site-header"><div class="site-header-inner">${logo}<nav aria-label="Main navigation">${nav}</nav></div></header>`,
-    footer: `<footer class="site-footer"><div class="footer-inner"><div class="footer-mast">${logo}<p>Current focus: ${escapeHtml(roadmapSnapshot.currentFocus)}.</p></div><nav aria-label="Footer navigation">${nav}<a href="./dossier.html">Classified file (just for fun)</a></nav><p class="snapshot">Snapshot <time datetime="${roadmapSnapshot.verifiedAt}">${roadmapSnapshot.verifiedAt}</time>. Site code MIT. Fonts under the SIL Open Font License. Site screenshots use a synthetic catalog except for one cropped owner-library row, shown as metadata only; that track was not loaded or played. Built by <a href="https://soundcloud.com/s3nci">Senči on SoundCloud</a>.</p></div></footer>`,
+    footer: `<footer class="site-footer"><div class="footer-inner"><div class="footer-mast">${logo}<p>Current focus: ${escapeHtml(roadmapSnapshot.currentFocus)}.</p></div><nav aria-label="Footer navigation">${nav}<a href="./dossier.html">Classified file (just for fun)</a></nav><p class="snapshot">Snapshot <time datetime="${roadmapSnapshot.verifiedAt}">${roadmapSnapshot.verifiedAt}</time>. Site code MIT. Fonts under the SIL Open Font License. Site screenshots use synthetic data. Built by <a href="https://soundcloud.com/s3nci">Senči on SoundCloud</a>.</p></div></footer>`,
     status: `<aside class="status-callout reveal" aria-labelledby="status-title"><div class="status-head"><h2 id="status-title">Status: pre-release</h2><p>Snapshot <time datetime="${roadmapSnapshot.verifiedAt}">${roadmapSnapshot.verifiedAt}</time>. Current focus: <a href="./roadmap.html#m8">${escapeHtml(roadmapSnapshot.currentFocus)}</a>.</p></div><div class="status-cols"><section class="status-works" aria-labelledby="status-works"><h3 id="status-works">Works today</h3>${statusParagraphs(roadmapSnapshot.working)}</section><section class="status-open" aria-labelledby="status-open"><h3 id="status-open">Not yet demonstrated</h3>${statusParagraphs(roadmapSnapshot.unfinished)}</section></div></aside>`,
     focus: escapeHtml(roadmapSnapshot.currentFocus),
     wave: renderWaveSvg(),
@@ -89,10 +89,7 @@ export function renderSite(html: string, page: string): string {
     shotSynced: renderShot(screenshots.decksSynced, narrow),
     shotRefused: renderShot(screenshots.syncRefused, narrow),
     shotImportedPlaylists: renderShot(screenshots.importedPlaylists, '240px'),
-    shotOwnerLibraryRecord: renderShot(
-      screenshots.ownerLibraryRecord,
-      '(min-width: 1360px) 838px, 92vw',
-    ),
+
     shotWaveGrid: renderShot(screenshots.waveformGrid, '359px'),
     shotWaveClick: renderShot(screenshots.waveformClick, '359px'),
   };

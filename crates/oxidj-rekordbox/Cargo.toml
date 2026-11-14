@@ -8,7 +8,7 @@ description = "Isolated read-only Rekordbox XML inspection adapter."
 publish = false
 
 [dependencies]
-quick-xml = "=0.41.0"
+quick-xml = "=0.42.0"
 rekordbox-pdb = { workspace = true }
 
 

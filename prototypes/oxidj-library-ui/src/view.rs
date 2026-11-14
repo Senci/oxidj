@@ -11,8 +11,8 @@ impl eframe::App for LibraryApp {
         }
     }
 
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        self.ui(ctx);
+    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        self.ui(ui);
     }
 
     fn raw_input_hook(&mut self, ctx: &egui::Context, raw_input: &mut egui::RawInput) {
@@ -20,7 +20,14 @@ impl eframe::App for LibraryApp {
     }
 }
 
-const CATALOG_LABELS: [&str; 6] = ["Availability", "ID", "Filename", "Folder", "Duration", "Format"];
+const CATALOG_LABELS: [&str; 6] = [
+    "Availability",
+    "ID",
+    "Filename",
+    "Folder",
+    "Duration",
+    "Format",
+];
 const PLAYLIST_LABELS: [&str; 6] = ["Title", "Artist", "Album", "BPM", "Key", "Duration"];
 /// Track-table columns, left to right.
 const COLUMNS: usize = 6;
@@ -47,7 +54,8 @@ impl LibraryApp {
     /// One frame of the whole library UI (the production `update` body):
     /// one-row toolbar, status bar, optional nav/details/decks panels and the
     /// track table filling whatever space the visible panels leave.
-    pub(crate) fn ui(&mut self, ctx: &egui::Context) {
+    pub(crate) fn ui(&mut self, root_ui: &mut egui::Ui) {
+        let ctx = &root_ui.ctx().clone();
         self.handle_settings_shortcuts(ctx);
         self.handle_theme_shortcuts(ctx);
         self.handle_panel_shortcuts(ctx);
@@ -60,23 +68,23 @@ impl LibraryApp {
         self.theme.apply(self.custom_tokens, ctx);
         let tokens = self.active_tokens();
         self.shell = ShellLayout::default();
-        let style = ctx.style();
+        let style = ctx.global_style();
         let bar = egui::Frame::side_top_panel(&style).inner_margin(theme::BAR_MARGIN);
         let status_frame = egui::Frame::side_top_panel(&style).inner_margin(theme::STATUS_MARGIN);
         let panel = egui::Frame::side_top_panel(&style).inner_margin(theme::PANEL_MARGIN);
-        let toolbar = egui::TopBottomPanel::top("toolbar")
+        let toolbar = egui::Panel::top("toolbar")
             .frame(bar)
-            .show(ctx, |ui| self.toolbar(ui, ctx, tokens));
+            .show(root_ui, |ui| self.toolbar(ui, ctx, tokens));
         self.shell.toolbar = Some(toolbar.response.rect);
         // D1: the deck area sits under the toolbar, the library below it.
         if self.show_decks {
-            let decks = egui::TopBottomPanel::top("decks")
+            let decks = egui::Panel::top("decks")
                 .frame(panel)
                 .resizable(false)
-                .show(ctx, |ui| {
+                .show(root_ui, |ui| {
                     // Tall mixer faders must remain reachable on short displays.
                     // The library table keeps `LIBRARY_MIN_H` below the decks.
-                    let screen = ctx.screen_rect();
+                    let screen = ctx.content_rect();
                     let max_height = decks::deck_budget(
                         screen.height(),
                         self.shell.toolbar.map_or(40.0, |t| t.height()),
@@ -99,7 +107,7 @@ impl LibraryApp {
                         egui::ScrollArea::vertical()
                             .id_salt("deck-area-scroll")
                             .scroll_source(egui::scroll_area::ScrollSource {
-                                drag: false,
+                                drag: egui::scroll_area::DragScroll::Never,
                                 ..Default::default()
                             })
                             // Content is taller than `max_height` here, so take
@@ -132,17 +140,20 @@ impl LibraryApp {
         self.pdb_import_window(ctx);
         self.catalog_export_window(ctx);
         self.catalog_rename_window(ctx);
-        let status = egui::TopBottomPanel::bottom("status-bar")
+        self.catalog_remove_window(ctx);
+        self.catalog_append_window(ctx);
+        self.catalog_create_window(ctx);
+        let status = egui::Panel::bottom("status-bar")
             .frame(status_frame)
-            .show(ctx, |ui| self.status_bar(ui, tokens));
+            .show(root_ui, |ui| self.status_bar(ui, tokens));
         self.shell.status = Some(status.response.rect);
         if self.show_nav {
-            let nav = egui::SidePanel::left("library-navigation")
+            let nav = egui::Panel::left("library-navigation")
                 .frame(panel)
-                .default_width(168.0)
-                .width_range(140.0..=280.0)
+                .default_size(168.0)
+                .size_range(140.0..=280.0)
                 .resizable(true)
-                .show(ctx, |ui| {
+                .show(root_ui, |ui| {
                     egui::ScrollArea::vertical()
                         .id_salt("navigation-scroll")
                         .show(ui, |ui| self.navigation(ui, tokens));
@@ -155,13 +166,13 @@ impl LibraryApp {
             // at most 40% of a narrow window so the track table keeps room.
             // W9: the minimum is the content's real minimum (the two-line
             // SHA-256 row is ~296 px), so the panel never silently widens.
-            let details = egui::SidePanel::right("details")
+            let details = egui::Panel::right("details")
                 .frame(panel)
-                .default_width(380.0)
-                .min_width(DETAILS_MIN_WIDTH)
-                .max_width((ctx.screen_rect().width() * 0.4).clamp(DETAILS_MIN_WIDTH, 480.0))
+                .default_size(380.0)
+                .min_size(DETAILS_MIN_WIDTH)
+                .max_size((ctx.content_rect().width() * 0.4).clamp(DETAILS_MIN_WIDTH, 480.0))
                 .resizable(true)
-                .show(ctx, |ui| {
+                .show(root_ui, |ui| {
                     // No auto-shrink: the panel keeps its width with or without
                     // a selection instead of jumping to the content width.
                     egui::ScrollArea::vertical()
@@ -175,19 +186,20 @@ impl LibraryApp {
             // Re-opening the panel re-lays the facts grid like a new
             // selection does (W11: the first opened frame showed rows sized
             // from a stale grid until the next input).
-            ctx.data_mut(|d| d.remove::<u64>(egui::Id::new(TRACK_FACTS_SHOWN)));
+            ctx.data_mut(|d| d.remove::<u64>(egui::Id::unique(TRACK_FACTS_SHOWN)));
         }
         // No inner margin: the table runs edge to edge between the panels'
         // hairline separators.
         egui::CentralPanel::default()
             .frame(egui::Frame::central_panel(&style).inner_margin(0))
-            .show(ctx, |ui| self.track_table(ui, tokens));
+            .show(root_ui, |ui| self.track_table(ui, tokens));
         self.finish_track_drop(ctx, tokens);
         // D2: this frame's deck controls go to the audio engine; D4: the
         // mixer is in the path only while visible (else exact unity bypass).
         self.decks.range = crate::decks::tempo_range(self.settings.tempo_range);
         self.decks.crossfader_on = self.settings.crossfader;
         self.decks.curve = self.settings.xfader_curve;
+        self.decks.set_limiter(self.settings.limiter);
         self.decks
             .flush(self.show_decks && self.settings.sections.mixer);
     }
@@ -227,7 +239,7 @@ impl LibraryApp {
                         target = Some(d);
                         ctx.layer_painter(egui::LayerId::new(
                             egui::Order::Foreground,
-                            egui::Id::new("track-drop-highlight"),
+                            egui::Id::unique("track-drop-highlight"),
                         ))
                         .rect_stroke(
                             rect.shrink(1.0),
@@ -332,7 +344,7 @@ impl LibraryApp {
                     ui.style().interact(&gear).fg_stroke.color,
                 );
                 gear.widget_info(|| {
-                    egui::WidgetInfo::labeled(egui::WidgetType::Button, true, "Settings")
+                    egui::WidgetInfo::labeled(egui::Role::Button, true, "Settings")
                 });
                 if gear.clicked() {
                     let open = !self.settings_ui.open;
@@ -426,7 +438,7 @@ impl LibraryApp {
                     [field, height],
                     egui::TextEdit::singleline(&mut self.import_root)
                         .hint_text("Folder path")
-                        .vertical_align(egui::Align::Center),
+                        .align(egui::Align2::LEFT_CENTER),
                 );
                 let import = ui
                     .add_enabled_ui(self.waveform_job.is_none(), |ui| {
@@ -448,7 +460,7 @@ impl LibraryApp {
                         [field, height],
                         egui::TextEdit::singleline(&mut self.xml_path)
                             .hint_text("XML file path (read-only)")
-                            .vertical_align(egui::Align::Center),
+                            .align(egui::Align2::LEFT_CENTER),
                     )
                     .changed();
                 if source_changed {
@@ -488,7 +500,9 @@ impl LibraryApp {
     }
 
     fn pdb_import_window(&mut self, ctx: &egui::Context) {
-        if !self.pdb_import_open { return; }
+        if !self.pdb_import_open {
+            return;
+        }
         let mut open = true;
         let mut cancel = false;
         egui::Window::new("Import Rekordbox PDB").default_width(560.0).open(&mut open).show(ctx, |ui| {
@@ -520,22 +534,32 @@ impl LibraryApp {
             if !self.notice.is_empty() { ui.label(&self.notice); }
         });
         self.pdb_import_open = open && !cancel;
-        if !self.pdb_import_open { self.pdb_pending = None; }
+        if !self.pdb_import_open {
+            self.pdb_pending = None;
+        }
     }
 
     fn start_pdb_import(&mut self, ctx: &egui::Context, source: PathBuf, destination: PathBuf) {
-        if self.pdb_job.is_some() { return; }
+        if self.pdb_job.is_some() {
+            return;
+        }
         let (tx, rx) = std::sync::mpsc::channel();
         let repaint = ctx.clone();
         #[cfg(test)]
         let gate = self.pdb_gate.take();
-        match std::thread::Builder::new().name("oxidj-pdb-import".into()).spawn(move || {
-            #[cfg(test)]
-            if let Some(gate) = gate { gate.wait(); }
-            let result = oxidj_application::import_library_from_pdb(&source, &destination, None).map_err(|e| e.to_string());
-            let _ = tx.send((destination, result));
-            repaint.request_repaint();
-        }) {
+        match std::thread::Builder::new()
+            .name("oxidj-pdb-import".into())
+            .spawn(move || {
+                #[cfg(test)]
+                if let Some(gate) = gate {
+                    gate.wait();
+                }
+                let result =
+                    oxidj_application::import_library_from_pdb(&source, &destination, None)
+                        .map_err(|e| e.to_string());
+                let _ = tx.send((destination, result));
+                repaint.request_repaint();
+            }) {
             Ok(_) => {
                 self.pdb_job = Some(rx);
                 self.notice = "PDB import started; the active catalog remains open".into();
@@ -545,16 +569,29 @@ impl LibraryApp {
     }
 
     fn pump_pdb_import(&mut self, ctx: &egui::Context) {
-        let Some(rx) = &self.pdb_job else { return; };
+        let Some(rx) = &self.pdb_job else {
+            return;
+        };
         match rx.try_recv() {
             Ok((destination, result)) => {
                 self.pdb_job = None;
                 self.notice = match result {
-                    Ok(r) => format!("Created catalog {}: {} tracks, {} folders, {} playlists, {} entries. {} unresolved field values. XML cannot carry every vendor field. No audio copied. Current catalog unchanged. To open the new catalog, launch oxidj-library-ui with --db and this path: {}", destination.display(), r.counts.tracks, r.counts.folders, r.counts.playlists, r.counts.memberships, r.unresolved.iter().map(|(_, n)| n).sum::<usize>(), destination.display()),
+                    Ok(r) => format!(
+                        "Created catalog {}: {} tracks, {} folders, {} playlists, {} entries. {} unresolved field values. XML cannot carry every vendor field. No audio copied. Current catalog unchanged. To open the new catalog, launch oxidj-library-ui with --db and this path: {}",
+                        destination.display(),
+                        r.counts.tracks,
+                        r.counts.folders,
+                        r.counts.playlists,
+                        r.counts.memberships,
+                        r.unresolved.iter().map(|(_, n)| n).sum::<usize>(),
+                        destination.display()
+                    ),
                     Err(e) => format!("PDB import failed: {e}. Current catalog unchanged."),
                 };
             }
-            Err(std::sync::mpsc::TryRecvError::Empty) => ctx.request_repaint_after(std::time::Duration::from_millis(100)),
+            Err(std::sync::mpsc::TryRecvError::Empty) => {
+                ctx.request_repaint_after(std::time::Duration::from_millis(100))
+            }
             Err(std::sync::mpsc::TryRecvError::Disconnected) => {
                 self.pdb_job = None;
                 self.notice = "PDB import failed: background worker stopped unexpectedly. Current catalog unchanged.".into();
@@ -595,32 +632,319 @@ impl LibraryApp {
         self.catalog_export_open = open && !cancel;
     }
 
-    fn catalog_rename_window(&mut self, ctx: &egui::Context) {
-        if !self.catalog_rename_open { return; }
+    fn catalog_append_window(&mut self, ctx: &egui::Context) {
+        if self.catalog_append_pending.is_none() {
+            return;
+        }
         let mut open = true;
         let mut done = false;
-        egui::Window::new("Rename root playlist").open(&mut open).show(ctx, |ui| {
-            ui.horizontal(|ui| { ui.label("New name"); ui.text_edit_singleline(&mut self.catalog_rename_name); });
+        egui::Window::new("Add track to playlist")
+            .open(&mut open)
+            .show(ctx, |ui| {
+                ui.label("Choose an existing playlist. Duplicate entries are kept.");
+                egui::ScrollArea::vertical()
+                    .max_height(240.0)
+                    .show(ui, |ui| {
+                        if let Ok(nav) = &self.imported_navigation {
+                            fn collect(
+                                nodes: &[oxidj_library::LibraryNode],
+                                path: &mut Vec<usize>,
+                                names: &mut Vec<String>,
+                                out: &mut Vec<(Vec<usize>, Vec<String>, Vec<usize>)>,
+                            ) {
+                                for (index, node) in nodes.iter().enumerate() {
+                                    path.push(index);
+                                    match node {
+                                        oxidj_library::LibraryNode::Folder { name, children } => {
+                                            names.push(name.clone());
+                                            collect(children, path, names, out);
+                                            names.pop();
+                                        }
+                                        oxidj_library::LibraryNode::Playlist { name, members } => {
+                                            names.push(name.clone());
+                                            out.push((
+                                                path.clone(),
+                                                names.clone(),
+                                                members.clone(),
+                                            ));
+                                            names.pop();
+                                        }
+                                    }
+                                    path.pop();
+                                }
+                            }
+                            let mut choices = Vec::new();
+                            collect(&nav.roots, &mut Vec::new(), &mut Vec::new(), &mut choices);
+                            for (path, names, members) in choices {
+                                let selected = self
+                                    .catalog_append_pending
+                                    .as_ref()
+                                    .and_then(|p| p.2.as_ref())
+                                    .is_some_and(|p| p.0 == path);
+                                if ui
+                                    .selectable_label(
+                                        selected,
+                                        format!("Target: {:?} {:?}", path, names),
+                                    )
+                                    .clicked()
+                                {
+                                    match self
+                                        .catalog
+                                        .as_ref()
+                                        .map_err(|_| "catalog unavailable".to_string())
+                                        .and_then(|db| {
+                                            if path.len() == 1 {
+                                                db.root_playlist_guard(path[0], &names[0], &members)
+                                                    .map(crate::app::AppendTarget::Root)
+                                            } else {
+                                                db.nested_rename_guard(&path, &names, &members)
+                                                    .map(crate::app::AppendTarget::Nested)
+                                            }
+                                            .map_err(|e| e.to_string())
+                                        }) {
+                                        Ok(guard) => {
+                                            self.catalog_append_pending.as_mut().unwrap().2 =
+                                                Some((path, guard))
+                                        }
+                                        Err(error) => {
+                                            self.catalog_append_pending.as_mut().unwrap().2 = None;
+                                            self.notice =
+                                                format!("Playlist selection refused: {error}");
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    });
+                ui.horizontal(|ui| {
+                    if ui.button("Confirm addition").clicked() {
+                        let (member, track, target) = self.catalog_append_pending.as_ref().unwrap();
+                        let result =
+                            if self.selected_imported != Some(*member) || !self.db_path.is_file() {
+                                Err("selection or catalog is no longer available".to_owned())
+                            } else if let Some((path, guard)) = target {
+                                match &mut self.catalog {
+                                    Ok(db) => match guard {
+                                        crate::app::AppendTarget::Root(guard) => db
+                                            .append_guarded_root_playlist_member(guard, track)
+                                            .map(|_| None),
+                                        crate::app::AppendTarget::Nested(guard) => db
+                                            .append_guarded_nested_playlist_member(guard, track)
+                                            .map(|updated| Some((path.clone(), updated))),
+                                    }
+                                    .map_err(|e| e.to_string()),
+                                    Err(_) => Err("catalog unavailable".to_owned()),
+                                }
+                            } else {
+                                Err("choose a playlist".to_owned())
+                            };
+                        match result {
+                            Ok(updated_nested) => {
+                                self.reload();
+                                if let Some((path, guard)) = updated_nested
+                                    && self.imported_playlist.as_ref() == Some(&path)
+                                {
+                                    self.imported_nested_guard = Some(guard);
+                                }
+                                self.imported_root_guard = self
+                                    .imported_playlist
+                                    .as_ref()
+                                    .filter(|path| path.len() == 1)
+                                    .and_then(|path| {
+                                        let index = path[0];
+                                        let oxidj_library::LibraryNode::Playlist { name, members } =
+                                            self.imported_navigation
+                                                .as_ref()
+                                                .ok()?
+                                                .roots
+                                                .get(index)?
+                                        else {
+                                            return None;
+                                        };
+                                        self.catalog
+                                            .as_ref()
+                                            .ok()?
+                                            .root_playlist_guard(index, name, members)
+                                            .ok()
+                                    });
+                                self.notice = "Track added to playlist".into();
+                                done = true;
+                            }
+                            Err(error) => {
+                                self.notice = format!("Playlist addition refused: {error}")
+                            }
+                        }
+                    }
+                    if ui.button("Cancel").clicked() {
+                        done = true;
+                    }
+                });
+                if !self.notice.is_empty() {
+                    ui.label(&self.notice);
+                }
+            });
+        if !open || done {
+            self.catalog_append_pending = None;
+        }
+    }
+
+    fn catalog_create_window(&mut self, ctx: &egui::Context) {
+        if self.catalog_create_pending.is_none() {
+            return;
+        }
+        let mut open = true;
+        let mut done = false;
+        egui::Window::new("Create root playlist")
+            .open(&mut open)
+            .show(ctx, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label("Playlist name");
+                    ui.text_edit_singleline(&mut self.catalog_create_name);
+                });
+                ui.horizontal(|ui| {
+                    if ui.button("Confirm creation").clicked() {
+                        let (member, guard) = self.catalog_create_pending.as_ref().unwrap();
+                        let result = if self.selected_imported != Some(*member)
+                            || !self.db_path.is_file()
+                        {
+                            Err("selection or catalog is no longer available".to_owned())
+                        } else {
+                            match &mut self.catalog {
+                                Ok(db) => db
+                                    .create_guarded_root_playlist(&self.catalog_create_name, guard)
+                                    .map_err(|e| e.to_string()),
+                                Err(_) => Err("catalog unavailable".to_owned()),
+                            }
+                        };
+                        match result {
+                            Ok(()) => {
+                                self.reload();
+                                self.notice = "Playlist created".into();
+                                done = true;
+                            }
+                            Err(error) => {
+                                self.notice = format!("Playlist creation refused: {error}")
+                            }
+                        }
+                    }
+                    if ui.button("Cancel").clicked() {
+                        done = true;
+                    }
+                });
+                if !self.notice.is_empty() {
+                    ui.label(&self.notice);
+                }
+            });
+        if !open || done {
+            self.catalog_create_pending = None;
+        }
+    }
+
+    fn catalog_remove_window(&mut self, ctx: &egui::Context) {
+        if self.catalog_remove_pending.is_none() {
+            return;
+        }
+        let mut open = true;
+        let mut done = false;
+        egui::Window::new("Remove playlist member").open(&mut open).show(ctx, |ui| {
+            ui.label("Remove this occurrence from the playlist? The track and audio will not be deleted.");
             ui.horizontal(|ui| {
-                if ui.button("Confirm rename").clicked() {
-                    let result = match (&mut self.catalog, &self.imported_root_guard) {
-                        (Ok(db), Some(guard)) => db.rename_guarded_root_playlist(guard, &self.catalog_rename_name).map_err(|e| e.to_string()),
-                        _ => Err("selection is no longer available".to_owned()),
+                if ui.button("Confirm removal").clicked() {
+                    let (guard, nested, track, path, index, member) = self.catalog_remove_pending.as_ref().unwrap();
+                    let result = if !self.db_path.is_file() || self.imported_playlist.as_ref() != Some(path) || self.imported_member != Some(*index) || self.selected_imported != Some(*member) {
+                        Err("selection changed".to_owned())
+                    } else {
+                        match &mut self.catalog {
+                            Ok(db) => match (guard, nested, track) {
+                                (Some(guard), _, _) => db.remove_guarded_root_playlist_member(guard, *index, *member).map(|()| None),
+                                (_, Some(guard), Some(track)) => db.remove_guarded_nested_playlist_member(guard, track, *index).map(Some),
+                                _ => Err(oxidj_library::CatalogError::InvalidRecord("selection is stale")),
+                            }.map_err(|e| e.to_string()),
+                            Err(_) => Err("catalog unavailable".to_owned()),
+                        }
                     };
                     match result {
-                        Ok(guard) => {
-                            self.notice = "Playlist renamed".into();
+                        Ok(nested_guard) => {
                             self.reload();
-                            self.imported_root_guard = Some(guard);
+                            self.imported_member = None;
+                            self.selected_imported = None;
+                            self.imported_nested_guard = nested_guard;
+                            self.imported_root_guard = self.imported_playlist.as_ref().and_then(|path| {
+                                let index = *path.first()?;
+                                let oxidj_library::LibraryNode::Playlist { name, members } = self.imported_navigation.as_ref().ok()?.roots.get(index)? else { return None; };
+                                self.catalog.as_ref().ok()?.root_playlist_guard(index, name, members).ok()
+                            });
+                            self.notice = "Playlist member removed".into();
                             done = true;
                         }
-                        Err(error) => self.notice = format!("Playlist rename refused: {error}"),
+                        Err(error) => self.notice = format!("Playlist removal refused: {error}"),
                     }
                 }
                 if ui.button("Cancel").clicked() { done = true; }
             });
             if !self.notice.is_empty() { ui.label(&self.notice); }
         });
+        if !open || done {
+            self.catalog_remove_pending = None;
+        }
+    }
+
+    fn catalog_rename_window(&mut self, ctx: &egui::Context) {
+        if !self.catalog_rename_open {
+            return;
+        }
+        let mut open = true;
+        let mut done = false;
+        egui::Window::new("Rename playlist")
+            .open(&mut open)
+            .show(ctx, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label("New name");
+                    ui.text_edit_singleline(&mut self.catalog_rename_name);
+                });
+                ui.horizontal(|ui| {
+                    if ui.button("Confirm rename").clicked() {
+                        let result = if !self.db_path.is_file() {
+                            Err("catalog is no longer available".to_owned())
+                        } else {
+                            match (
+                                &mut self.catalog,
+                                &self.imported_root_guard,
+                                &self.imported_nested_guard,
+                            ) {
+                                (Ok(db), Some(guard), _) => db
+                                    .rename_guarded_root_playlist(guard, &self.catalog_rename_name)
+                                    .map(|guard| (Some(guard), None))
+                                    .map_err(|e| e.to_string()),
+                                (Ok(db), None, Some(guard)) => db
+                                    .rename_guarded_nested_playlist(
+                                        guard,
+                                        &self.catalog_rename_name,
+                                    )
+                                    .map(|guard| (None, Some(guard)))
+                                    .map_err(|e| e.to_string()),
+                                _ => Err("selection is no longer available".to_owned()),
+                            }
+                        };
+                        match result {
+                            Ok((root_guard, nested_guard)) => {
+                                self.notice = "Playlist renamed".into();
+                                self.reload();
+                                self.imported_root_guard = root_guard;
+                                self.imported_nested_guard = nested_guard;
+                                done = true;
+                            }
+                            Err(error) => self.notice = format!("Playlist rename refused: {error}"),
+                        }
+                    }
+                    if ui.button("Cancel").clicked() {
+                        done = true;
+                    }
+                });
+                if !self.notice.is_empty() {
+                    ui.label(&self.notice);
+                }
+            });
         self.catalog_rename_open = open && !done;
     }
 
@@ -645,11 +969,11 @@ impl LibraryApp {
             egui::TextEdit::singleline(&mut self.search)
                 .id_salt("track-search")
                 .hint_text("Search tracks")
-                .frame(false)
+                .frame(egui::Frame::NONE)
                 .margin(egui::Margin::symmetric(0, 2))
                 .desired_width(field.width())
                 .min_size(egui::vec2(0.0, h))
-                .vertical_align(egui::Align::Center),
+                .align(egui::Align2::LEFT_CENTER),
         );
         let stroke = if edit.has_focus() {
             egui::Stroke::new(2.0_f32, tokens.focus)
@@ -677,9 +1001,13 @@ impl LibraryApp {
         self.shell.search = Some(edit.rect);
         self.shell.search_clear = None;
         if !self.search.is_empty() {
-            let response = ui.interact(clear, ui.id().with("clear-search"), egui::Sense::click());
+            let response = ui.interact(
+                clear,
+                ui.scope_id().with("clear-search"),
+                egui::Sense::click(),
+            );
             response.widget_info(|| {
-                egui::WidgetInfo::labeled(egui::WidgetType::Button, true, "Clear search")
+                egui::WidgetInfo::labeled(egui::Role::Button, true, "Clear search")
             });
             let color = if response.hovered() || response.has_focus() {
                 tokens.text
@@ -722,6 +1050,10 @@ impl LibraryApp {
             if self.show_decks {
                 let (status, ok) = self.decks.status();
                 let colour = if ok { tokens.muted_text } else { tokens.warning };
+                if let Some(metrics) = crate::decks::audio_metrics(&self.decks.engine.output(), self.decks.engine.stats()) {
+                    ui.label(muted(metrics)).on_hover_text("Latency reported by the output host; peak DSP is the worst callback load since the stream opened.");
+                    ui.separator();
+                }
                 ui.label(egui::RichText::new(status).small().strong().color(colour))
                     .on_hover_text("Deck audio output (D2): both decks mixed at unity; without a device the decks keep running silently");
                 ui.separator();
@@ -756,10 +1088,11 @@ impl LibraryApp {
         if self.show_xml_preview {
             let mut open = self.show_xml_preview;
             egui::Window::new("Rekordbox XML preview · guarded edits")
+                .id(egui::Id::unique("Rekordbox XML preview · guarded edits"))
                 .open(&mut open)
                 .default_width(720.0)
                 .vscroll(true)
-                .max_height(ctx.screen_rect().height() - 96.0)
+                .max_height(ctx.content_rect().height() - 96.0)
                 .show(ctx, |ui| match self.xml_preview.clone() {
                     Some(Err(error)) => {
                         StatusBadge {
@@ -1230,6 +1563,7 @@ impl LibraryApp {
             self.availability_filter = None;
             self.imported_playlist = None;
             self.imported_root_guard = None;
+            self.imported_nested_guard = None;
             self.catalog_rename_open = false;
             self.imported_member = None;
             self.selected_imported = None;
@@ -1259,6 +1593,7 @@ impl LibraryApp {
                 self.availability_filter = Some(filter);
                 self.imported_playlist = None;
                 self.imported_root_guard = None;
+                self.imported_nested_guard = None;
                 self.catalog_rename_open = false;
                 self.imported_member = None;
                 self.selected_imported = None;
@@ -1278,16 +1613,21 @@ impl LibraryApp {
                 ui: &mut egui::Ui,
                 nodes: &[oxidj_library::LibraryNode],
                 path: &mut Vec<usize>,
+                names: &mut Vec<String>,
                 app: &mut LibraryApp,
             ) {
                 for (index, node) in nodes.iter().enumerate() {
                     path.push(index);
+                    names.push(match node {
+                        oxidj_library::LibraryNode::Folder { name, .. }
+                        | oxidj_library::LibraryNode::Playlist { name, .. } => name.clone(),
+                    });
                     match node {
                         oxidj_library::LibraryNode::Folder { name, children } => {
                             egui::CollapsingHeader::new(format!("📁 {name}"))
                                 .default_open(true)
                                 .id_salt(("imported-folder", &*path))
-                                .show(ui, |ui| show_nodes(ui, children, path, app));
+                                .show(ui, |ui| show_nodes(ui, children, path, names, app));
                         }
                         oxidj_library::LibraryNode::Playlist { name, members } => {
                             let label = format!("♫ {name}");
@@ -1299,15 +1639,38 @@ impl LibraryApp {
                                 .clicked()
                             {
                                 app.imported_playlist = Some(path.clone());
+                                app.imported_nested_guard = if path.len() > 1 {
+                                    app.catalog.as_ref().ok().and_then(|db| {
+                                        match db.nested_rename_guard(path, names, members) {
+                                            Ok(guard) => Some(guard),
+                                            Err(error) => {
+                                                app.notice =
+                                                    format!("Playlist selection is stale: {error}");
+                                                None
+                                            }
+                                        }
+                                    })
+                                } else {
+                                    None
+                                };
                                 app.imported_root_guard = if path.len() == 1 {
                                     match &app.catalog {
-                                        Ok(db) => match db.root_playlist_guard(index, name, members) {
-                                            Ok(guard) => Some(guard),
-                                            Err(error) => { app.notice = format!("Playlist selection is stale: {error}"); None }
-                                        },
+                                        Ok(db) => {
+                                            match db.root_playlist_guard(index, name, members) {
+                                                Ok(guard) => Some(guard),
+                                                Err(error) => {
+                                                    app.notice = format!(
+                                                        "Playlist selection is stale: {error}"
+                                                    );
+                                                    None
+                                                }
+                                            }
+                                        }
                                         Err(_) => None,
                                     }
-                                } else { None };
+                                } else {
+                                    None
+                                };
                                 app.catalog_rename_open = false;
                                 app.imported_member = None;
                                 app.selected_imported = None;
@@ -1316,13 +1679,144 @@ impl LibraryApp {
                         }
                     }
                     path.pop();
+                    names.pop();
                 }
             }
-            show_nodes(ui, &snapshot.roots, &mut Vec::new(), self);
-            if self.imported_playlist.as_ref().is_some_and(|path| path.len() == 1) && self.imported_root_guard.is_some() && ui.button("Rename playlist…").clicked() {
-                if let Some(oxidj_library::LibraryNode::Playlist { name, .. }) = self.imported_playlist.as_ref().and_then(|path| snapshot.roots.get(path[0])) {
+            show_nodes(ui, &snapshot.roots, &mut Vec::new(), &mut Vec::new(), self);
+            if let (Some(member), Some(guard)) =
+                (self.selected_imported, &self.selected_imported_guard)
+            {
+                if ui.button("Add selected to playlist…").clicked() {
+                    let target = self.imported_playlist.as_ref().and_then(|path| {
+                        let guard = if path.len() == 1 {
+                            self.imported_root_guard
+                                .clone()
+                                .map(crate::app::AppendTarget::Root)
+                        } else {
+                            self.imported_nested_guard
+                                .clone()
+                                .map(crate::app::AppendTarget::Nested)
+                        };
+                        guard.map(|guard| (path.clone(), guard))
+                    });
+                    self.catalog_append_pending = Some((member, guard.clone(), target));
+                }
+                if ui.button("Create playlist from selected…").clicked() {
+                    self.catalog_create_name.clear();
+                    self.catalog_create_pending = Some((member, guard.clone()));
+                }
+            }
+            if (self.imported_root_guard.is_some() || self.imported_nested_guard.is_some())
+                && ui.button("Rename playlist…").clicked()
+            {
+                let selected = self.imported_playlist.as_ref().and_then(|path| {
+                    let mut nodes = snapshot.roots.as_slice();
+                    for (depth, index) in path.iter().enumerate() {
+                        let node = nodes.get(*index)?;
+                        if depth + 1 == path.len() {
+                            return Some(node);
+                        }
+                        let oxidj_library::LibraryNode::Folder { children, .. } = node else {
+                            return None;
+                        };
+                        nodes = children;
+                    }
+                    None
+                });
+                if let Some(oxidj_library::LibraryNode::Playlist { name, .. }) = selected {
                     self.catalog_rename_name = name.clone();
                     self.catalog_rename_open = true;
+                }
+            }
+            if let (Some(guard), Some(track), Some(index), Some(member), Some(path)) = (
+                self.imported_root_guard.clone(),
+                self.selected_imported_guard.clone(),
+                self.imported_member,
+                self.selected_imported,
+                self.imported_playlist.clone(),
+            ) {
+                if path.len() == 1 {
+                    if let Some(oxidj_library::LibraryNode::Playlist { members, .. }) =
+                        snapshot.roots.get(path[0])
+                    {
+                        let up = ui
+                            .add_enabled(index > 0, egui::Button::new("Move selected up"))
+                            .clicked();
+                        let down = ui
+                            .add_enabled(
+                                index.checked_add(1).is_some_and(|i| i < members.len()),
+                                egui::Button::new("Move selected down"),
+                            )
+                            .clicked();
+                        let target = if up {
+                            index.checked_sub(1)
+                        } else if down {
+                            index.checked_add(1)
+                        } else {
+                            None
+                        };
+                        if let Some(target) = target {
+                            let result = if !self.db_path.is_file() {
+                                Err("catalog is no longer available".to_owned())
+                            } else {
+                                self.catalog
+                                    .as_mut()
+                                    .map_err(|_| "catalog unavailable".to_owned())
+                                    .and_then(|db| {
+                                        db.move_guarded_root_playlist_member(
+                                            &guard, &track, index, target,
+                                        )
+                                        .map_err(|e| e.to_string())
+                                    })
+                            };
+                            match result {
+                                Ok(()) => {
+                                    self.reload();
+                                    self.imported_member = Some(target);
+                                    self.selected_imported = Some(member);
+                                    self.imported_root_guard =
+                                        self.imported_navigation.as_ref().ok().and_then(|nav| {
+                                            let oxidj_library::LibraryNode::Playlist {
+                                                name,
+                                                members,
+                                            } = nav.roots.get(path[0])?
+                                            else {
+                                                return None;
+                                            };
+                                            self.catalog
+                                                .as_ref()
+                                                .ok()?
+                                                .root_playlist_guard(path[0], name, members)
+                                                .ok()
+                                        });
+                                    self.notice = "Playlist member moved".into();
+                                }
+                                Err(error) => {
+                                    self.notice = format!("Playlist move refused: {error}")
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            if let (Some(index), Some(member)) = (self.imported_member, self.selected_imported) {
+                if self.imported_playlist.as_ref().is_some_and(|path| {
+                    if path.len() == 1 {
+                        self.imported_root_guard.is_some()
+                    } else {
+                        self.imported_nested_guard.is_some()
+                            && self.selected_imported_guard.is_some()
+                    }
+                }) && ui.button("Remove selected from playlist…").clicked()
+                {
+                    self.catalog_remove_pending = Some((
+                        self.imported_root_guard.clone(),
+                        self.imported_nested_guard.clone(),
+                        self.selected_imported_guard.clone(),
+                        self.imported_playlist.clone().unwrap(),
+                        index,
+                        member,
+                    ));
                 }
             }
         } else if let Err(error) = snapshot {
@@ -1380,7 +1874,7 @@ impl LibraryApp {
         };
         // The facts grid sizes rows from the previous frame; re-run the
         // frame when the selection changes so it never paints overlapped.
-        let shown = egui::Id::new(TRACK_FACTS_SHOWN);
+        let shown = egui::Id::unique(TRACK_FACTS_SHOWN);
         let previous = ui.ctx().data_mut(|d| {
             let previous = d.get_temp::<u64>(shown);
             d.insert_temp(shown, id);
@@ -1613,58 +2107,116 @@ impl LibraryApp {
                     self.show_filters = !self.show_filters;
                 }
                 let mut show_filters = self.show_filters;
-                egui::Window::new("Playlist filters").open(&mut show_filters).show(ui.ctx(), |ui| {
-                    ui.label("BPM minimum");
-                    ui.text_edit_singleline(&mut self.filter_min_bpm);
-                    ui.label("BPM maximum");
-                    ui.text_edit_singleline(&mut self.filter_max_bpm);
-                    ui.label("Key contains");
-                    ui.text_edit_singleline(&mut self.filter_key);
-                    ui.label("Genre contains");
-                    ui.text_edit_singleline(&mut self.filter_genre);
-                    egui::ComboBox::from_label("Scanned availability")
-                        .selected_text(["Any", "Available", "Missing", "Unknown"][self.filter_availability as usize])
-                        .show_ui(ui, |ui| {
-                            for (value, label) in ["Any", "Available", "Missing", "Unknown"].into_iter().enumerate() {
-                                ui.selectable_value(&mut self.filter_availability, value as u8, label);
-                            }
-                        });
-                    ui.label("Unknown means no unique matching scanned catalog status.");
-                    if [&self.filter_min_bpm, &self.filter_max_bpm].iter().any(|s| !s.trim().is_empty() && !s.trim().parse::<f64>().is_ok_and(|v| v.is_finite() && v >= 0.0)) {
-                        ui.label("Enter a valid non-negative BPM.");
-                    }
-                    if ui.button("Clear filters").clicked() {
-                        self.filter_min_bpm.clear();
-                        self.filter_max_bpm.clear();
-                        self.filter_key.clear();
-                        self.filter_genre.clear();
-                        self.filter_availability = 0;
-                    }
-                });
+                egui::Window::new("Playlist filters")
+                    .open(&mut show_filters)
+                    .show(ui.ctx(), |ui| {
+                        ui.label("BPM minimum");
+                        ui.text_edit_singleline(&mut self.filter_min_bpm);
+                        ui.label("BPM maximum");
+                        ui.text_edit_singleline(&mut self.filter_max_bpm);
+                        ui.label("Key contains");
+                        ui.text_edit_singleline(&mut self.filter_key);
+                        ui.label("Genre contains");
+                        ui.text_edit_singleline(&mut self.filter_genre);
+                        egui::ComboBox::from_label("Scanned availability")
+                            .selected_text(
+                                ["Any", "Available", "Missing", "Unknown"]
+                                    [self.filter_availability as usize],
+                            )
+                            .show_ui(ui, |ui| {
+                                for (value, label) in ["Any", "Available", "Missing", "Unknown"]
+                                    .into_iter()
+                                    .enumerate()
+                                {
+                                    ui.selectable_value(
+                                        &mut self.filter_availability,
+                                        value as u8,
+                                        label,
+                                    );
+                                }
+                            });
+                        ui.label("Unknown means no unique matching scanned catalog status.");
+                        if [&self.filter_min_bpm, &self.filter_max_bpm]
+                            .iter()
+                            .any(|s| {
+                                !s.trim().is_empty()
+                                    && !s
+                                        .trim()
+                                        .parse::<f64>()
+                                        .is_ok_and(|v| v.is_finite() && v >= 0.0)
+                            })
+                        {
+                            ui.label("Enter a valid non-negative BPM.");
+                        }
+                        if ui.button("Clear filters").clicked() {
+                            self.filter_min_bpm.clear();
+                            self.filter_max_bpm.clear();
+                            self.filter_key.clear();
+                            self.filter_genre.clear();
+                            self.filter_availability = 0;
+                        }
+                    });
                 self.show_filters = show_filters;
                 let mut load = None;
                 let mut availability = std::collections::HashMap::new();
                 if self.filter_availability != 0 {
                     for item in &self.tracks {
                         let location = oxidj_application::location_uri(&item.track.path).0;
-                        let value = if item.availability == TrackAvailability::Available { 1 } else { 2 };
-                        availability.entry(location).and_modify(|old| { if *old != value { *old = 3; } }).or_insert(value);
+                        let value = if item.availability == TrackAvailability::Available {
+                            1
+                        } else {
+                            2
+                        };
+                        availability
+                            .entry(location)
+                            .and_modify(|old| {
+                                if *old != value {
+                                    *old = 3;
+                                }
+                            })
+                            .or_insert(value);
                     }
                 }
-                let fit = |ui: &egui::Ui| fit_column_values(ui, PLAYLIST_LABELS, snapshot.tracks.iter().map(imported_values));
+                let fit = |ui: &egui::Ui| {
+                    fit_column_values(
+                        ui,
+                        PLAYLIST_LABELS,
+                        snapshot.tracks.iter().map(imported_values),
+                    )
+                };
                 self.shell.table = Some(ui.available_rect_before_wrap());
                 let columns = self.settings.playlist_columns;
-                let total = columns.order.iter().filter(|&&i| columns.visible[i as usize])
-                    .map(|&i| f32::from(columns.widths[i as usize])).sum::<f32>();
+                let total = columns
+                    .order
+                    .iter()
+                    .filter(|&&i| columns.visible[i as usize])
+                    .map(|&i| f32::from(columns.widths[i as usize]))
+                    .sum::<f32>();
                 let total = (total + 100.0).max(ui.available_width());
                 ui.spacing_mut().item_spacing = egui::Vec2::ZERO;
                 egui::ScrollArea::horizontal()
                     .id_salt("playlist-columns")
                     .auto_shrink([false, false])
                     .show(ui, |ui| {
-                        let (header, _) = ui.allocate_exact_size(egui::vec2(total, theme::HEADER_HEIGHT), egui::Sense::hover());
-                        if let Some(index) = column_header(ui, header, &mut self.settings.playlist_columns, PLAYLIST_LABELS, crate::settings::Settings::default().playlist_columns, tokens, self.imported_sort, &fit) {
-                            self.imported_sort = match self.imported_sort { Some((old, true)) if old == index => None, Some((old, false)) if old == index => Some((index, true)), _ => Some((index, false)) };
+                        let (header, _) = ui.allocate_exact_size(
+                            egui::vec2(total, theme::HEADER_HEIGHT),
+                            egui::Sense::hover(),
+                        );
+                        if let Some(index) = column_header(
+                            ui,
+                            header,
+                            &mut self.settings.playlist_columns,
+                            PLAYLIST_LABELS,
+                            crate::settings::Settings::default().playlist_columns,
+                            tokens,
+                            self.imported_sort,
+                            &fit,
+                        ) {
+                            self.imported_sort = match self.imported_sort {
+                                Some((old, true)) if old == index => None,
+                                Some((old, false)) if old == index => Some((index, true)),
+                                _ => Some((index, false)),
+                            };
                         }
                         let columns = self.settings.playlist_columns;
                         if members.is_empty() {
@@ -1684,8 +2236,16 @@ impl LibraryApp {
                                     )
                                     .to_lowercase()
                                     .contains(&query)
-                                        && imported_filter_matches(t, &self.filter_min_bpm, &self.filter_max_bpm, &self.filter_key, &self.filter_genre)
-                                        && (self.filter_availability == 0 || availability.get(&t.location).copied().unwrap_or(3) == self.filter_availability)
+                                        && imported_filter_matches(
+                                            t,
+                                            &self.filter_min_bpm,
+                                            &self.filter_max_bpm,
+                                            &self.filter_key,
+                                            &self.filter_genre,
+                                        )
+                                        && (self.filter_availability == 0
+                                            || availability.get(&t.location).copied().unwrap_or(3)
+                                                == self.filter_availability)
                                 })
                             })
                             .collect();
@@ -1695,10 +2255,22 @@ impl LibraryApp {
                                 let b = &snapshot.tracks[*b.1];
                                 let order = match column {
                                     0 => a.title.to_lowercase().cmp(&b.title.to_lowercase()),
-                                    1 => a.artist.as_deref().map(str::to_lowercase).cmp(&b.artist.as_deref().map(str::to_lowercase)),
-                                    2 => a.album.as_deref().map(str::to_lowercase).cmp(&b.album.as_deref().map(str::to_lowercase)),
+                                    1 => a
+                                        .artist
+                                        .as_deref()
+                                        .map(str::to_lowercase)
+                                        .cmp(&b.artist.as_deref().map(str::to_lowercase)),
+                                    2 => a
+                                        .album
+                                        .as_deref()
+                                        .map(str::to_lowercase)
+                                        .cmp(&b.album.as_deref().map(str::to_lowercase)),
                                     3 => a.tempo_hundredths_bpm.cmp(&b.tempo_hundredths_bpm),
-                                    4 => a.key.as_deref().map(str::to_lowercase).cmp(&b.key.as_deref().map(str::to_lowercase)),
+                                    4 => a
+                                        .key
+                                        .as_deref()
+                                        .map(str::to_lowercase)
+                                        .cmp(&b.key.as_deref().map(str::to_lowercase)),
                                     5 => a.duration_seconds.cmp(&b.duration_seconds),
                                     _ => std::cmp::Ordering::Equal,
                                 };
@@ -1719,7 +2291,7 @@ impl LibraryApp {
                                     let selected = self.imported_member == Some(position);
                                     response.widget_info(|| {
                                         egui::WidgetInfo::selected(
-                                            egui::WidgetType::SelectableLabel,
+                                            egui::Role::Button,
                                             true,
                                             selected,
                                             &track.title,
@@ -1740,12 +2312,21 @@ impl LibraryApp {
                                         ui,
                                         rect,
                                         columns,
-                                        { let mut values = imported_values(track); values[0] = format!("{} · {}", position + 1, track.title); values },
+                                        {
+                                            let mut values = imported_values(track);
+                                            values[0] =
+                                                format!("{} · {}", position + 1, track.title);
+                                            values
+                                        },
                                         tokens,
                                     );
                                     if response.clicked() || response.drag_started() {
                                         self.imported_member = Some(position);
                                         self.selected_imported = Some(member);
+                                        self.selected_imported_guard =
+                                            self.catalog.as_ref().ok().and_then(|db| {
+                                                db.imported_track_guard(member, track).ok()
+                                            });
                                         self.selected = None;
                                     }
                                     if response.drag_started() {
@@ -1765,7 +2346,14 @@ impl LibraryApp {
                                 }
                             });
                     });
-                column_dropdown(ui, &mut self.settings.playlist_columns, PLAYLIST_LABELS, crate::settings::Settings::default().playlist_columns, &fit, self.shell.table.unwrap());
+                column_dropdown(
+                    ui,
+                    &mut self.settings.playlist_columns,
+                    PLAYLIST_LABELS,
+                    crate::settings::Settings::default().playlist_columns,
+                    &fit,
+                    self.shell.table.unwrap(),
+                );
                 if let Some((member, deck)) = load {
                     self.load_imported_member(member, deck);
                 }
@@ -1788,19 +2376,23 @@ impl LibraryApp {
             .collect();
         visible.sort_by(|a, b| {
             let order = match self.sort {
-                Sort::Availability => (a.availability != TrackAvailability::Available).cmp(&(b.availability != TrackAvailability::Available)),
+                Sort::Availability => (a.availability != TrackAvailability::Available)
+                    .cmp(&(b.availability != TrackAvailability::Available)),
                 Sort::Id => a.track.id.as_u64().cmp(&b.track.id.as_u64()),
                 Sort::Filename => PathBuf::from(&a.track.path)
                     .file_name()
                     .cmp(&PathBuf::from(&b.track.path).file_name())
                     .then(a.track.id.as_u64().cmp(&b.track.id.as_u64())),
-                Sort::Folder => folder_name(&a.track.path).to_lowercase().cmp(&folder_name(&b.track.path).to_lowercase()),
+                Sort::Folder => folder_name(&a.track.path)
+                    .to_lowercase()
+                    .cmp(&folder_name(&b.track.path).to_lowercase()),
                 Sort::Duration => a
                     .duration_seconds
                     .partial_cmp(&b.duration_seconds)
                     .unwrap_or(std::cmp::Ordering::Equal)
                     .then(a.track.id.as_u64().cmp(&b.track.id.as_u64())),
-                Sort::Format => format_facts(a.sample_rate, a.channels, a.bit_depth).cmp(&format_facts(b.sample_rate, b.channels, b.bit_depth)),
+                Sort::Format => format_facts(a.sample_rate, a.channels, a.bit_depth)
+                    .cmp(&format_facts(b.sample_rate, b.channels, b.bit_depth)),
             };
             if self.descending {
                 order.reverse()
@@ -1808,9 +2400,17 @@ impl LibraryApp {
                 order
             }
         });
-        let fit = |ui: &egui::Ui| fit_column_values(ui, CATALOG_LABELS, self.tracks.iter().map(catalog_values));
+        let fit = |ui: &egui::Ui| {
+            fit_column_values(ui, CATALOG_LABELS, self.tracks.iter().map(catalog_values))
+        };
         let columns = self.settings.catalog_columns;
-        let total = columns.order.iter().filter(|&&i| columns.visible[i as usize]).map(|&i| f32::from(columns.widths[i as usize])).sum::<f32>() + 100.0;
+        let total = columns
+            .order
+            .iter()
+            .filter(|&&i| columns.visible[i as usize])
+            .map(|&i| f32::from(columns.widths[i as usize]))
+            .sum::<f32>()
+            + 100.0;
         let total = total.max(ui.available_width());
         // The visible table viewport (wider content scrolls inside it).
         self.shell.table = Some(ui.available_rect_before_wrap());
@@ -1879,7 +2479,14 @@ impl LibraryApp {
                         }
                     });
             });
-        column_dropdown(ui, &mut self.settings.catalog_columns, CATALOG_LABELS, crate::settings::TableColumns::default(), &fit, self.shell.table.unwrap());
+        column_dropdown(
+            ui,
+            &mut self.settings.catalog_columns,
+            CATALOG_LABELS,
+            crate::settings::TableColumns::default(),
+            &fit,
+            self.shell.table.unwrap(),
+        );
         if let Some((deck, id)) = load {
             self.selected = Some(id);
             self.load_deck(deck, id);
@@ -1899,7 +2506,9 @@ fn playlist_cells(
     let mut x = rect.left();
     for index in columns.order {
         let index = index as usize;
-        if !columns.visible[index] { continue; }
+        if !columns.visible[index] {
+            continue;
+        }
         let width = f32::from(columns.widths[index]);
         let text = &cells[index];
         let galley = egui::WidgetText::from(egui::RichText::new(text).color(tokens.text))
@@ -1925,23 +2534,61 @@ mod table_columns;
 use table_columns::{column_dropdown, column_header, fit_column_values};
 
 fn catalog_values(item: &TrackDetails) -> [String; 6] {
-    [availability_status(item.availability).0.into(), item.track.id.as_u64().to_string(), file_name(&item.track.path), folder_name(&item.track.path), item.duration_seconds.map(format_duration).unwrap_or_else(|| "—".into()), format_facts(item.sample_rate, item.channels, item.bit_depth)]
+    [
+        availability_status(item.availability).0.into(),
+        item.track.id.as_u64().to_string(),
+        file_name(&item.track.path),
+        folder_name(&item.track.path),
+        item.duration_seconds
+            .map(format_duration)
+            .unwrap_or_else(|| "—".into()),
+        format_facts(item.sample_rate, item.channels, item.bit_depth),
+    ]
 }
 
 fn imported_values(track: &oxidj_library::LibraryNavigationTrack) -> [String; 6] {
-    [track.title.clone(), track.artist.clone().unwrap_or_else(|| "—".into()), track.album.clone().unwrap_or_else(|| "—".into()), if track.tempo_hundredths_bpm == 0 { "—".into() } else { format!("{:.2}", track.tempo_hundredths_bpm as f64 / 100.0) }, track.key.clone().unwrap_or_else(|| "—".into()), if track.duration_seconds == 0 { "—".into() } else { format_duration(track.duration_seconds as f64) }]
+    [
+        track.title.clone(),
+        track.artist.clone().unwrap_or_else(|| "—".into()),
+        track.album.clone().unwrap_or_else(|| "—".into()),
+        if track.tempo_hundredths_bpm == 0 {
+            "—".into()
+        } else {
+            format!("{:.2}", track.tempo_hundredths_bpm as f64 / 100.0)
+        },
+        track.key.clone().unwrap_or_else(|| "—".into()),
+        if track.duration_seconds == 0 {
+            "—".into()
+        } else {
+            format_duration(track.duration_seconds as f64)
+        },
+    ]
 }
 
-fn imported_filter_matches(track: &oxidj_library::LibraryNavigationTrack, min: &str, max: &str, key: &str, genre: &str) -> bool {
+fn imported_filter_matches(
+    track: &oxidj_library::LibraryNavigationTrack,
+    min: &str,
+    max: &str,
+    key: &str,
+    genre: &str,
+) -> bool {
     let bpm = f64::from(track.tempo_hundredths_bpm) / 100.0;
     let bound = |s: &str, lower: bool| {
-        if s.trim().is_empty() { return true; }
-        s.trim().parse::<f64>().ok().filter(|v| v.is_finite() && *v >= 0.0)
+        if s.trim().is_empty() {
+            return true;
+        }
+        s.trim()
+            .parse::<f64>()
+            .ok()
+            .filter(|v| v.is_finite() && *v >= 0.0)
             .is_some_and(|v| bpm > 0.0 && if lower { bpm >= v } else { bpm <= v })
     };
     let text = |value: &Option<String>, query: &str| {
         let query = query.trim().to_lowercase();
-        query.is_empty() || value.as_ref().is_some_and(|v| v.to_lowercase().contains(&query))
+        query.is_empty()
+            || value
+                .as_ref()
+                .is_some_and(|v| v.to_lowercase().contains(&query))
     };
     bound(min, true) && bound(max, false) && text(&track.key, key) && text(&track.genre, genre)
 }
@@ -1970,9 +2617,8 @@ fn track_row(
         egui::vec2(total, theme::ROW_HEIGHT),
         egui::Sense::click_and_drag(),
     );
-    response.widget_info(|| {
-        egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, true, selected, &filename)
-    });
+    response
+        .widget_info(|| egui::WidgetInfo::selected(egui::Role::Button, true, selected, &filename));
     let painter = ui.painter();
     if selected {
         painter.rect_filled(rect, 0.0, theme::selection_fill(tokens));
@@ -2020,29 +2666,61 @@ fn track_row(
     ];
     let mut x = rect.left();
     for column in columns.order.map(usize::from) {
-        if !columns.visible[column] { continue; }
+        if !columns.visible[column] {
+            continue;
+        }
         let width = f32::from(columns.widths[column]);
-        let cell = egui::Rect::from_min_size(egui::pos2(x, rect.top()), egui::vec2(width, rect.height()));
+        let cell =
+            egui::Rect::from_min_size(egui::pos2(x, rect.top()), egui::vec2(width, rect.height()));
         x += width;
         let painter = ui.painter().with_clip_rect(cell.intersect(ui.clip_rect()));
         if column == 0 {
-            painter.circle_filled(egui::pos2(cell.left() + 12.0, cell.center().y), 3.5, kind_color(kind, tokens));
+            painter.circle_filled(
+                egui::pos2(cell.left() + 12.0, cell.center().y),
+                3.5,
+                kind_color(kind, tokens),
+            );
             continue;
         }
         let (text, color, strong) = &cells[column];
-        let badge_count = if column == 2 { on_decks.iter().filter(|on| **on).count() } else { 0 };
+        let badge_count = if column == 2 {
+            on_decks.iter().filter(|on| **on).count()
+        } else {
+            0
+        };
         let text_width = (width - 2.0 * CELL_INSET - badge_count as f32 * 20.0).max(0.0);
         let rich = egui::RichText::new(text).color(*color);
-        let galley = egui::WidgetText::from(if *strong { rich.strong() } else { rich }).into_galley(ui, Some(egui::TextWrapMode::Truncate), text_width, egui::TextStyle::Body);
-        let left = if RIGHT_ALIGNED[column] { cell.right() - CELL_INSET - galley.size().x } else { cell.left() + CELL_INSET };
-        painter.galley(egui::pos2(left, cell.center().y - galley.size().y / 2.0), galley, *color);
+        let galley = egui::WidgetText::from(if *strong { rich.strong() } else { rich })
+            .into_galley(
+                ui,
+                Some(egui::TextWrapMode::Truncate),
+                text_width,
+                egui::TextStyle::Body,
+            );
+        let left = if RIGHT_ALIGNED[column] {
+            cell.right() - CELL_INSET - galley.size().x
+        } else {
+            cell.left() + CELL_INSET
+        };
+        painter.galley(
+            egui::pos2(left, cell.center().y - galley.size().y / 2.0),
+            galley,
+            *color,
+        );
         if column == 2 {
             let mut bx = cell.right() - CELL_INSET - badge_count as f32 * 20.0;
             for (d, on) in on_decks.into_iter().enumerate() {
                 if on {
-                    let r = egui::Rect::from_min_size(egui::pos2(bx, cell.center().y - 8.0), egui::vec2(18.0, 16.0));
+                    let r = egui::Rect::from_min_size(
+                        egui::pos2(bx, cell.center().y - 8.0),
+                        egui::vec2(18.0, 16.0),
+                    );
                     painter.rect_filled(r, 3.0, deck_colours[d].outer);
-                    let g = painter.layout_no_wrap(crate::decks::DECKS[d].into(), egui::FontId::proportional(11.0), deck_colours[d].chip_text);
+                    let g = painter.layout_no_wrap(
+                        crate::decks::DECKS[d].into(),
+                        egui::FontId::proportional(11.0),
+                        deck_colours[d].chip_text,
+                    );
                     painter.galley(r.center() - g.size() / 2.0, g, deck_colours[d].chip_text);
                     bx += 20.0;
                 }
@@ -2132,9 +2810,7 @@ fn nav_row(
         egui::Sense::click(),
     );
     let name = format!("{label} · {count}");
-    response.widget_info(|| {
-        egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, true, selected, &name)
-    });
+    response.widget_info(|| egui::WidgetInfo::selected(egui::Role::Button, true, selected, &name));
     let painter = ui.painter();
     if selected {
         painter.rect_filled(rect, 2.0, theme::selection_fill(tokens));

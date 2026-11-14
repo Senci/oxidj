@@ -10,15 +10,15 @@ struct Node {
     attrs: Vec<(String, String)>,
     children: Vec<Node>,
 }
-fn node(e: quick_xml::events::BytesStart<'_>, decoder: quick_xml::encoding::Decoder) -> Node {
-    let name = String::from_utf8(e.local_name().as_ref().to_vec()).unwrap();
+fn node(e: quick_xml::events::BytesStart<'_>) -> Node {
+    let name = String::from_utf8(e.local_name().as_ref().as_bytes().to_vec()).unwrap();
     let attrs = e
         .attributes()
         .map(|a| {
             let a = a.unwrap();
             (
-                String::from_utf8(a.key.local_name().as_ref().to_vec()).unwrap(),
-                a.decoded_and_normalized_value(XmlVersion::Explicit1_0, decoder)
+                String::from_utf8(a.key.local_name().as_ref().as_bytes().to_vec()).unwrap(),
+                a.normalized_value(XmlVersion::Explicit1_0)
                     .unwrap()
                     .into_owned(),
             )
@@ -36,9 +36,9 @@ fn decode(bytes: &[u8]) -> Node {
     let mut root = None;
     loop {
         match reader.read_event().unwrap() {
-            Event::Start(e) => stack.push(node(e, reader.decoder())),
+            Event::Start(e) => stack.push(node(e)),
             Event::Empty(e) => {
-                let node = node(e, reader.decoder());
+                let node = node(e);
                 if let Some(parent) = stack.last_mut() {
                     parent.children.push(node);
                 } else {

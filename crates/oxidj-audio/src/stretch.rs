@@ -14,6 +14,12 @@ pub trait TimeStretch: Send {
     fn latency(&self) -> (usize, usize);
     /// Input frames [`Self::preroll`] wants before the play point.
     fn preroll_frames(&self) -> usize;
+    /// Output frames between two bursts of transform work (0 = the engine
+    /// works evenly). Counted from the last [`Self::reset`]; the renderer
+    /// uses it to keep two decks' bursts out of the same callback.
+    fn interval_frames(&self) -> usize {
+        0
+    }
     /// Clear all history (no allocation).
     fn reset(&mut self);
     /// Feed `input` (the frames just before the play point) without output.
@@ -67,6 +73,12 @@ impl TimeStretch for Signalsmith {
         // Signalsmith asks for one block plus one interval: 2 × input latency
         // is a block; the interval is a quarter of it (default preset).
         self.inner.input_latency() * 2 + self.inner.input_latency() / 2
+    }
+
+    fn interval_frames(&self) -> usize {
+        // Default preset: the interval is a quarter of the block, and the
+        // input latency is half of the block.
+        self.inner.input_latency() / 2
     }
 
     fn reset(&mut self) {

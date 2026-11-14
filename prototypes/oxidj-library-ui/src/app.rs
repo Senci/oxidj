@@ -42,7 +42,12 @@ pub(crate) struct LibraryApp {
     pub(crate) pdb_source_path: String,
     pub(crate) pdb_destination_path: String,
     pub(crate) pdb_pending: Option<(PathBuf, PathBuf)>,
-    pub(crate) pdb_job: Option<std::sync::mpsc::Receiver<(PathBuf, Result<oxidj_application::LibraryImportReport, String>)>>,
+    pub(crate) pdb_job: Option<
+        std::sync::mpsc::Receiver<(
+            PathBuf,
+            Result<oxidj_application::LibraryImportReport, String>,
+        )>,
+    >,
     #[cfg(test)]
     pub(crate) pdb_gate: Option<std::sync::Arc<std::sync::Barrier>>,
     pub(crate) catalog_export_open: bool,
@@ -150,8 +155,25 @@ pub(crate) struct LibraryApp {
     /// Structural node path (not membership, names, or local audio IDs).
     pub(crate) imported_playlist: Option<Vec<usize>>,
     pub(crate) imported_root_guard: Option<oxidj_library::RootPlaylistGuard>,
+    pub(crate) imported_nested_guard: Option<oxidj_library::NestedRenameGuard>,
     pub(crate) catalog_rename_open: bool,
     pub(crate) catalog_rename_name: String,
+    pub(crate) catalog_remove_pending: Option<(
+        Option<oxidj_library::RootPlaylistGuard>,
+        Option<oxidj_library::NestedRenameGuard>,
+        Option<oxidj_library::ImportedTrackGuard>,
+        Vec<usize>,
+        usize,
+        usize,
+    )>,
+    pub(crate) selected_imported_guard: Option<oxidj_library::ImportedTrackGuard>,
+    pub(crate) catalog_append_pending: Option<(
+        usize,
+        oxidj_library::ImportedTrackGuard,
+        Option<(Vec<usize>, AppendTarget)>,
+    )>,
+    pub(crate) catalog_create_pending: Option<(usize, oxidj_library::ImportedTrackGuard)>,
+    pub(crate) catalog_create_name: String,
     pub(crate) imported_member: Option<usize>,
     pub(crate) selected_imported: Option<usize>,
     pub(crate) dragging_track: Option<TrackSource>,
@@ -169,6 +191,12 @@ pub(crate) struct LibraryApp {
     /// M8/D0 persisted settings and the Settings window state.
     pub(crate) settings: crate::settings::Settings,
     pub(crate) settings_ui: crate::settings::SettingsUi,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) enum AppendTarget {
+    Root(oxidj_library::RootPlaylistGuard),
+    Nested(oxidj_library::NestedRenameGuard),
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -354,7 +382,13 @@ impl LibraryApp {
             imported_playlist: None,
             imported_root_guard: None,
             catalog_rename_open: false,
+            imported_nested_guard: None,
             catalog_rename_name: String::new(),
+            catalog_remove_pending: None,
+            selected_imported_guard: None,
+            catalog_append_pending: None,
+            catalog_create_pending: None,
+            catalog_create_name: String::new(),
             imported_member: None,
             selected_imported: None,
             dragging_track: None,
@@ -507,7 +541,7 @@ impl LibraryApp {
             let response = ui
                 .add(
                     egui::TextEdit::singleline(&mut self.primary_hex)
-                        .id(egui::Id::new("primary-hex"))
+                        .id(egui::Id::unique("primary-hex"))
                         .desired_width(90.0)
                         .hint_text("#RRGGBB"),
                 )
@@ -530,7 +564,7 @@ impl LibraryApp {
             let response = ui
                 .add(
                     egui::TextEdit::singleline(&mut self.secondary_hex)
-                        .id(egui::Id::new("secondary-hex"))
+                        .id(egui::Id::unique("secondary-hex"))
                         .desired_width(90.0)
                         .hint_text("#RRGGBB"),
                 )

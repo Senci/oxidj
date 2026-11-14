@@ -8,8 +8,8 @@ Scope: home, roadmap, dossier and styled 404. Preserve the owner-directed dark s
   families live in root tokens; `night.css` supplies foundations, `public.css` compositions.
 - One capped centred container, compact Banner heroes, immediate keyboard focus and
   44px minimum interactive targets. Essential text is available without JavaScript.
-- The home hero draws a synthetic 3-band waveform on a beat grid (illustration only),
-  then the cropped after-W9 prototype capture tilts flat on scroll. Every screenshot is
+- The home hero leads with an actual application capture using a synthetic library;
+  no decorative waveform is presented as recorded audio. Every screenshot is
   captioned provisional/synthetic and opens in the zoomable lightbox.
 - One shared build-time Status callout per public content page, with working local
   features, pre-release maturity and unfinished GUI/accessibility/compatibility/scale work.

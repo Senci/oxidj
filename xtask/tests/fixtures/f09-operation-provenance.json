@@ -14,7 +14,7 @@
         "helpers": [
           {
             "path": "xtask/tests/common/xml_tree.rs",
-            "sha256": "4454b078fdd04664d64a6914abb92d3c325e710654ee25b997ba9cce9f322a56"
+            "sha256": "700a22d05f3390c801c5376b18b7c71146dd3dc2394342315732d096b7704cff"
           }
         ]
       },
@@ -35,7 +35,7 @@
         "helpers": [
           {
             "path": "xtask/tests/common/xml_tree.rs",
-            "sha256": "4454b078fdd04664d64a6914abb92d3c325e710654ee25b997ba9cce9f322a56"
+            "sha256": "700a22d05f3390c801c5376b18b7c71146dd3dc2394342315732d096b7704cff"
           }
         ]
       },
@@ -56,7 +56,7 @@
         "helpers": [
           {
             "path": "xtask/tests/common/xml_tree.rs",
-            "sha256": "4454b078fdd04664d64a6914abb92d3c325e710654ee25b997ba9cce9f322a56"
+            "sha256": "700a22d05f3390c801c5376b18b7c71146dd3dc2394342315732d096b7704cff"
           }
         ]
       },
@@ -77,7 +77,7 @@
         "helpers": [
           {
             "path": "xtask/tests/common/xml_tree.rs",
-            "sha256": "4454b078fdd04664d64a6914abb92d3c325e710654ee25b997ba9cce9f322a56"
+            "sha256": "700a22d05f3390c801c5376b18b7c71146dd3dc2394342315732d096b7704cff"
           }
         ]
       },
@@ -98,7 +98,7 @@
         "helpers": [
           {
             "path": "xtask/tests/common/xml_tree.rs",
-            "sha256": "4454b078fdd04664d64a6914abb92d3c325e710654ee25b997ba9cce9f322a56"
+            "sha256": "700a22d05f3390c801c5376b18b7c71146dd3dc2394342315732d096b7704cff"
           }
         ]
       },
@@ -119,7 +119,7 @@
         "helpers": [
           {
             "path": "xtask/tests/common/xml_tree.rs",
-            "sha256": "4454b078fdd04664d64a6914abb92d3c325e710654ee25b997ba9cce9f322a56"
+            "sha256": "700a22d05f3390c801c5376b18b7c71146dd3dc2394342315732d096b7704cff"
           }
         ]
       },
@@ -140,7 +140,7 @@
         "helpers": [
           {
             "path": "xtask/tests/common/xml_tree.rs",
-            "sha256": "4454b078fdd04664d64a6914abb92d3c325e710654ee25b997ba9cce9f322a56"
+            "sha256": "700a22d05f3390c801c5376b18b7c71146dd3dc2394342315732d096b7704cff"
           }
         ]
       },
@@ -165,7 +165,7 @@
           },
           {
             "path": "xtask/tests/common/xml_tree.rs",
-            "sha256": "4454b078fdd04664d64a6914abb92d3c325e710654ee25b997ba9cce9f322a56"
+            "sha256": "700a22d05f3390c801c5376b18b7c71146dd3dc2394342315732d096b7704cff"
           }
         ]
       },
@@ -186,7 +186,7 @@
         "helpers": [
           {
             "path": "xtask/tests/common/xml_tree.rs",
-            "sha256": "4454b078fdd04664d64a6914abb92d3c325e710654ee25b997ba9cce9f322a56"
+            "sha256": "700a22d05f3390c801c5376b18b7c71146dd3dc2394342315732d096b7704cff"
           }
         ]
       },
@@ -207,7 +207,7 @@
         "helpers": [
           {
             "path": "xtask/tests/common/xml_tree.rs",
-            "sha256": "4454b078fdd04664d64a6914abb92d3c325e710654ee25b997ba9cce9f322a56"
+            "sha256": "700a22d05f3390c801c5376b18b7c71146dd3dc2394342315732d096b7704cff"
           }
         ]
       },
@@ -228,7 +228,7 @@
         "helpers": [
           {
             "path": "xtask/tests/common/xml_tree.rs",
-            "sha256": "4454b078fdd04664d64a6914abb92d3c325e710654ee25b997ba9cce9f322a56"
+            "sha256": "700a22d05f3390c801c5376b18b7c71146dd3dc2394342315732d096b7704cff"
           }
         ]
       },
@@ -249,7 +249,7 @@
         "helpers": [
           {
             "path": "xtask/tests/common/xml_tree.rs",
-            "sha256": "4454b078fdd04664d64a6914abb92d3c325e710654ee25b997ba9cce9f322a56"
+            "sha256": "700a22d05f3390c801c5376b18b7c71146dd3dc2394342315732d096b7704cff"
           }
         ]
       },
@@ -270,7 +270,7 @@
         "helpers": [
           {
             "path": "xtask/tests/common/xml_tree.rs",
-            "sha256": "4454b078fdd04664d64a6914abb92d3c325e710654ee25b997ba9cce9f322a56"
+            "sha256": "700a22d05f3390c801c5376b18b7c71146dd3dc2394342315732d096b7704cff"
           }
         ]
       },
@@ -291,7 +291,7 @@
         "helpers": [
           {
             "path": "xtask/tests/common/xml_tree.rs",
-            "sha256": "4454b078fdd04664d64a6914abb92d3c325e710654ee25b997ba9cce9f322a56"
+            "sha256": "700a22d05f3390c801c5376b18b7c71146dd3dc2394342315732d096b7704cff"
           }
         ]
       },
@@ -312,7 +312,7 @@
         "helpers": [
           {
             "path": "xtask/tests/common/xml_tree.rs",
-            "sha256": "4454b078fdd04664d64a6914abb92d3c325e710654ee25b997ba9cce9f322a56"
+            "sha256": "700a22d05f3390c801c5376b18b7c71146dd3dc2394342315732d096b7704cff"
           }
         ]
       },
@@ -333,7 +333,7 @@
         "helpers": [
           {
             "path": "xtask/tests/common/xml_tree.rs",
-            "sha256": "4454b078fdd04664d64a6914abb92d3c325e710654ee25b997ba9cce9f322a56"
+            "sha256": "700a22d05f3390c801c5376b18b7c71146dd3dc2394342315732d096b7704cff"
           }
         ]
       },
@@ -354,7 +354,7 @@
         "helpers": [
           {
             "path": "xtask/tests/common/xml_tree.rs",
-            "sha256": "4454b078fdd04664d64a6914abb92d3c325e710654ee25b997ba9cce9f322a56"
+            "sha256": "700a22d05f3390c801c5376b18b7c71146dd3dc2394342315732d096b7704cff"
           }
         ]
       },
@@ -375,7 +375,7 @@
         "helpers": [
           {
             "path": "xtask/tests/common/xml_tree.rs",
-            "sha256": "4454b078fdd04664d64a6914abb92d3c325e710654ee25b997ba9cce9f322a56"
+            "sha256": "700a22d05f3390c801c5376b18b7c71146dd3dc2394342315732d096b7704cff"
           }
         ]
       },
@@ -396,7 +396,7 @@
         "helpers": [
           {
             "path": "xtask/tests/common/xml_tree.rs",
-            "sha256": "4454b078fdd04664d64a6914abb92d3c325e710654ee25b997ba9cce9f322a56"
+            "sha256": "700a22d05f3390c801c5376b18b7c71146dd3dc2394342315732d096b7704cff"
           }
         ]
       },
@@ -417,7 +417,7 @@
         "helpers": [
           {
             "path": "xtask/tests/common/xml_tree.rs",
-            "sha256": "4454b078fdd04664d64a6914abb92d3c325e710654ee25b997ba9cce9f322a56"
+            "sha256": "700a22d05f3390c801c5376b18b7c71146dd3dc2394342315732d096b7704cff"
           }
         ]
       },
@@ -438,7 +438,7 @@
         "helpers": [
           {
             "path": "xtask/tests/common/xml_tree.rs",
-            "sha256": "4454b078fdd04664d64a6914abb92d3c325e710654ee25b997ba9cce9f322a56"
+            "sha256": "700a22d05f3390c801c5376b18b7c71146dd3dc2394342315732d096b7704cff"
           }
         ]
       },
@@ -459,7 +459,7 @@
         "helpers": [
           {
             "path": "xtask/tests/common/xml_tree.rs",
-            "sha256": "4454b078fdd04664d64a6914abb92d3c325e710654ee25b997ba9cce9f322a56"
+            "sha256": "700a22d05f3390c801c5376b18b7c71146dd3dc2394342315732d096b7704cff"
           }
         ]
       },
@@ -480,7 +480,7 @@
         "helpers": [
           {
             "path": "xtask/tests/common/xml_tree.rs",
-            "sha256": "4454b078fdd04664d64a6914abb92d3c325e710654ee25b997ba9cce9f322a56"
+            "sha256": "700a22d05f3390c801c5376b18b7c71146dd3dc2394342315732d096b7704cff"
           }
         ]
       },
@@ -501,7 +501,7 @@
         "helpers": [
           {
             "path": "xtask/tests/common/xml_tree.rs",
-            "sha256": "4454b078fdd04664d64a6914abb92d3c325e710654ee25b997ba9cce9f322a56"
+            "sha256": "700a22d05f3390c801c5376b18b7c71146dd3dc2394342315732d096b7704cff"
           }
         ]
       },
@@ -522,7 +522,7 @@
         "helpers": [
           {
             "path": "xtask/tests/common/xml_tree.rs",
-            "sha256": "4454b078fdd04664d64a6914abb92d3c325e710654ee25b997ba9cce9f322a56"
+            "sha256": "700a22d05f3390c801c5376b18b7c71146dd3dc2394342315732d096b7704cff"
           }
         ]
       },
@@ -543,7 +543,7 @@
         "helpers": [
           {
             "path": "xtask/tests/common/xml_tree.rs",
-            "sha256": "4454b078fdd04664d64a6914abb92d3c325e710654ee25b997ba9cce9f322a56"
+            "sha256": "700a22d05f3390c801c5376b18b7c71146dd3dc2394342315732d096b7704cff"
           }
         ]
       },
@@ -564,7 +564,7 @@
         "helpers": [
           {
             "path": "xtask/tests/common/xml_tree.rs",
-            "sha256": "4454b078fdd04664d64a6914abb92d3c325e710654ee25b997ba9cce9f322a56"
+            "sha256": "700a22d05f3390c801c5376b18b7c71146dd3dc2394342315732d096b7704cff"
           }
         ]
       },
@@ -585,7 +585,7 @@
         "helpers": [
           {
             "path": "xtask/tests/common/xml_tree.rs",
-            "sha256": "4454b078fdd04664d64a6914abb92d3c325e710654ee25b997ba9cce9f322a56"
+            "sha256": "700a22d05f3390c801c5376b18b7c71146dd3dc2394342315732d096b7704cff"
           }
         ]
       },
@@ -606,7 +606,7 @@
         "helpers": [
           {
             "path": "xtask/tests/common/xml_tree.rs",
-            "sha256": "4454b078fdd04664d64a6914abb92d3c325e710654ee25b997ba9cce9f322a56"
+            "sha256": "700a22d05f3390c801c5376b18b7c71146dd3dc2394342315732d096b7704cff"
           }
         ]
       },
@@ -627,7 +627,7 @@
         "helpers": [
           {
             "path": "xtask/tests/common/xml_tree.rs",
-            "sha256": "4454b078fdd04664d64a6914abb92d3c325e710654ee25b997ba9cce9f322a56"
+            "sha256": "700a22d05f3390c801c5376b18b7c71146dd3dc2394342315732d096b7704cff"
           }
         ]
       },
@@ -648,7 +648,7 @@
         "helpers": [
           {
             "path": "xtask/tests/common/xml_tree.rs",
-            "sha256": "4454b078fdd04664d64a6914abb92d3c325e710654ee25b997ba9cce9f322a56"
+            "sha256": "700a22d05f3390c801c5376b18b7c71146dd3dc2394342315732d096b7704cff"
           }
         ]
       },
@@ -669,7 +669,7 @@
         "helpers": [
           {
             "path": "xtask/tests/common/xml_tree.rs",
-            "sha256": "4454b078fdd04664d64a6914abb92d3c325e710654ee25b997ba9cce9f322a56"
+            "sha256": "700a22d05f3390c801c5376b18b7c71146dd3dc2394342315732d096b7704cff"
           }
         ]
       },
@@ -690,7 +690,7 @@
         "helpers": [
           {
             "path": "xtask/tests/common/xml_tree.rs",
-            "sha256": "4454b078fdd04664d64a6914abb92d3c325e710654ee25b997ba9cce9f322a56"
+            "sha256": "700a22d05f3390c801c5376b18b7c71146dd3dc2394342315732d096b7704cff"
           }
         ]
       },
@@ -711,7 +711,7 @@
         "helpers": [
           {
             "path": "xtask/tests/common/xml_tree.rs",
-            "sha256": "4454b078fdd04664d64a6914abb92d3c325e710654ee25b997ba9cce9f322a56"
+            "sha256": "700a22d05f3390c801c5376b18b7c71146dd3dc2394342315732d096b7704cff"
           }
         ]
       },
@@ -732,7 +732,7 @@
         "helpers": [
           {
             "path": "xtask/tests/common/xml_tree.rs",
-            "sha256": "4454b078fdd04664d64a6914abb92d3c325e710654ee25b997ba9cce9f322a56"
+            "sha256": "700a22d05f3390c801c5376b18b7c71146dd3dc2394342315732d096b7704cff"
           }
         ]
       },
@@ -753,7 +753,7 @@
         "helpers": [
           {
             "path": "xtask/tests/common/xml_tree.rs",
-            "sha256": "4454b078fdd04664d64a6914abb92d3c325e710654ee25b997ba9cce9f322a56"
+            "sha256": "700a22d05f3390c801c5376b18b7c71146dd3dc2394342315732d096b7704cff"
           }
         ]
       },
@@ -774,7 +774,7 @@
         "helpers": [
           {
             "path": "xtask/tests/common/xml_tree.rs",
-            "sha256": "4454b078fdd04664d64a6914abb92d3c325e710654ee25b997ba9cce9f322a56"
+            "sha256": "700a22d05f3390c801c5376b18b7c71146dd3dc2394342315732d096b7704cff"
           }
         ]
       },
@@ -795,7 +795,7 @@
         "helpers": [
           {
             "path": "xtask/tests/common/xml_tree.rs",
-            "sha256": "4454b078fdd04664d64a6914abb92d3c325e710654ee25b997ba9cce9f322a56"
+            "sha256": "700a22d05f3390c801c5376b18b7c71146dd3dc2394342315732d096b7704cff"
           }
         ]
       },
@@ -816,7 +816,7 @@
         "helpers": [
           {
             "path": "xtask/tests/common/xml_tree.rs",
-            "sha256": "4454b078fdd04664d64a6914abb92d3c325e710654ee25b997ba9cce9f322a56"
+            "sha256": "700a22d05f3390c801c5376b18b7c71146dd3dc2394342315732d096b7704cff"
           }
         ]
       },
@@ -837,7 +837,7 @@
         "helpers": [
           {
             "path": "xtask/tests/common/xml_tree.rs",
-            "sha256": "4454b078fdd04664d64a6914abb92d3c325e710654ee25b997ba9cce9f322a56"
+            "sha256": "700a22d05f3390c801c5376b18b7c71146dd3dc2394342315732d096b7704cff"
           }
         ]
       },
@@ -858,7 +858,7 @@
         "helpers": [
           {
             "path": "xtask/tests/common/xml_tree.rs",
-            "sha256": "4454b078fdd04664d64a6914abb92d3c325e710654ee25b997ba9cce9f322a56"
+            "sha256": "700a22d05f3390c801c5376b18b7c71146dd3dc2394342315732d096b7704cff"
           }
         ]
       },
@@ -879,7 +879,7 @@
         "helpers": [
           {
             "path": "xtask/tests/common/f02_track_name_oracle_support.rs",
-            "sha256": "2ad49efe7408281eb4ab1a1c165a059eb624e283bb960ed405f19ca8afa0f215"
+            "sha256": "56323ddfcfc0a8d6ec88605c6e8763aa3bea10858e1be6d5cd9927c8b9500c9b"
           }
         ]
       },
@@ -899,7 +899,7 @@
       "checker": {
         "path": "xtask/tests/f07_position_mark_delete_oracle.rs",
         "version": "f09-operation-oracle-v1",
-        "sha256": "d79a6df16cf00422b630e1220563852493566d19aafc0a2cbd0fffc108a50ca6",
+        "sha256": "38c8acf3d057f90559c588906284f8b73842e73bc685e961a7ee68677a0a9106",
         "tests": [
           "independently_verifies_guarded_deletion_and_rejects_mutations"
         ]
@@ -914,7 +914,7 @@
       "checker": {
         "path": "xtask/tests/f07_position_mark_end_edit_oracle.rs",
         "version": "f09-operation-oracle-v1",
-        "sha256": "5fd0ad75de8bcf64836c1e70dbc3a127e549bfcb8215f8b043f3f83b6e46ab25",
+        "sha256": "b81b397a2452bf1a5a81f4a997208fcac512ab9a4d084d1cc03ae1fad1d361e2",
         "tests": [
           "independently_verifies_guarded_end_edit_and_rejects_mutations"
         ]
@@ -929,7 +929,7 @@
       "checker": {
         "path": "xtask/tests/f07_position_mark_name_edit_oracle.rs",
         "version": "f09-operation-oracle-v1",
-        "sha256": "910867180af8139602eb177f70135a74a1d5236c2a13f37f788942ece8c71a5c",
+        "sha256": "5fcd9483e6060ee9ae8c6feed4647f9f4047985993bf613be5281c7788eb15f2",
         "tests": [
           "independently_verifies_guarded_name_edit_and_rejects_mutations"
         ]
@@ -944,7 +944,7 @@
       "checker": {
         "path": "xtask/tests/f07_position_mark_start_edit_oracle.rs",
         "version": "f09-operation-oracle-v1",
-        "sha256": "7db4d77c37de83f6870d15748c23d55f5d51705960c29b6831d07561956fb9ef",
+        "sha256": "4150291b43d9adfc3d99b61bbfe3f1354cf5c44a3c9f061e0ca0e19f73098449",
         "tests": [
           "independently_verifies_guarded_start_edit_and_rejects_mutations"
         ]
@@ -959,7 +959,7 @@
       "checker": {
         "path": "xtask/tests/f07_tempo_battito_edit_oracle.rs",
         "version": "f09-operation-oracle-v1",
-        "sha256": "2bf5dd91fb9e37288062dad50be76727e6848f56f2f38055f57c7040db3343c6",
+        "sha256": "730121e854f028dd57e4e18fa349c2c6a7cc515529825ae74d16211e77b9e539",
         "tests": [
           "independently_verifies_guarded_battito_edit_and_rejects_mutations"
         ]
@@ -980,7 +980,7 @@
       "checker": {
         "path": "xtask/tests/f07_tempo_bpm_edit_oracle.rs",
         "version": "f09-operation-oracle-v1",
-        "sha256": "bacdfdb0bf9fa51a1ec758e0f556e352402374c1efdcf71ffbeac20aa06d6a9d",
+        "sha256": "1316a4f53bdc15ccc9c1aa288e3607ae4218642aaaada01140aafad9c92361a9",
         "tests": [
           "independently_verifies_guarded_bpm_edit_and_rejects_mutations"
         ]
@@ -1001,7 +1001,7 @@
       "checker": {
         "path": "xtask/tests/f07_tempo_inizio_edit_oracle.rs",
         "version": "f09-operation-oracle-v1",
-        "sha256": "97a90d06be279c2b4aeb1598a10473c0df6b907e9f2e6aa593e07ec414099efb",
+        "sha256": "b9eacbf783873915c75c58cb704e1fe77c69fc75369f22c245861a8592f13c8e",
         "tests": [
           "independently_verifies_guarded_inizio_edit_and_rejects_mutations"
         ]
@@ -1022,7 +1022,7 @@
       "checker": {
         "path": "xtask/tests/f07_tempo_metro_edit_oracle.rs",
         "version": "f09-operation-oracle-v1",
-        "sha256": "8f96777cedcb7b8945bde7b596c93e9ad01301a198fd817bd2fdedd323ae03ca",
+        "sha256": "0479b38d91775cecb6ad72710db2c24145ad448b3adac626047f78c62ed77059",
         "tests": [
           "independently_verifies_guarded_metro_edit_and_rejects_mutations"
         ]
@@ -1190,7 +1190,7 @@
     },
     "xtask/tests/fixtures/rekordbox-a1/F-02/provenance.json": {
       "length_bytes": 1768,
-      "sha256": "bac549470655e9a57772178ffb7f3cb46be30a8f6ec13adc66946ae51e9e0ff8"
+      "sha256": "510ed3b41b209a304788423eb3fa5dbab46e450e341ecd306654fb9327705d09"
     },
     "xtask/tests/fixtures/rekordbox-a1/F-02/source.bin": {
       "length_bytes": 950,
@@ -1262,7 +1262,7 @@
     },
     "xtask/tests/fixtures/rekordbox-a1/F-07/provenance.json": {
       "length_bytes": 1770,
-      "sha256": "93f31c24185540deeaaf15d0e334d312d09da9933b8ecefa8a341e82ad80fd07"
+      "sha256": "860f0f007ea620936bc9ef185340af5967b0a1082c84f5ee016eda7642f2ba73"
     },
     "xtask/tests/fixtures/rekordbox-a1/F-07/source.bin": {
       "length_bytes": 571,
