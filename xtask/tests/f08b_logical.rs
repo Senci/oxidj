@@ -14,7 +14,10 @@ fn read(name: &str) -> Value {
     serde_json::from_slice(&std::fs::read(fixture(name)).unwrap()).unwrap()
 }
 fn digest(bytes: &[u8]) -> String {
-    format!("{:x}", Sha256::digest(bytes))
+    Sha256::digest(bytes)
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<String>()
 }
 fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()

@@ -20,7 +20,10 @@ fn checker_identity_is_pinned(manifest: &Value) -> bool {
     let expected_path = "xtask/tests/f04_analysis_stale_logical.rs";
     let source_path =
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/f04_analysis_stale_logical.rs");
-    let digest = format!("{:x}", Sha256::digest(std::fs::read(source_path).unwrap()));
+    let digest = Sha256::digest(std::fs::read(source_path).unwrap())
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<String>();
     manifest["checker_source"] == expected_path
         && manifest["checker_version"] == "1"
         && manifest["checker_source_sha256"] == digest

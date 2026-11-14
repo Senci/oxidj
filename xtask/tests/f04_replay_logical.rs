@@ -12,7 +12,10 @@ fn read(n: &str) -> Value {
     serde_json::from_slice(&std::fs::read(path(n)).unwrap()).unwrap()
 }
 fn hash(b: &[u8]) -> String {
-    format!("{:x}", Sha256::digest(b))
+    Sha256::digest(b)
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<String>()
 }
 fn checker_identity() -> Value {
     serde_json::from_slice(&std::fs::read(path("checker-identity.json")).unwrap()).unwrap()

@@ -384,7 +384,10 @@ const A1_CHECKER_VERSION: &str = "rekordbox-xml-a1-checker-v1";
 const A1_CHECKER_IDENTITY_PATH: &str = "tests/fixtures/rekordbox-a1/checker-identity.json";
 
 fn sha256(bytes: &[u8]) -> String {
-    format!("{:x}", Sha256::digest(bytes))
+    Sha256::digest(bytes)
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<String>()
 }
 
 fn read_json(case_id: &str, name: &str) -> Value {
@@ -463,7 +466,10 @@ fn a1_fixture_bytes_match_frozen_provenance_and_goldens() {
         ),
     ] {
         let source = std::fs::read(fixture(case_id, "source.bin")).unwrap();
-        let digest = format!("{:x}", Sha256::digest(&source));
+        let digest = Sha256::digest(&source)
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect::<String>();
         assert_eq!(digest, expected_hash, "{case_id} source bytes changed");
         let provenance = read_json(case_id, "provenance.json");
         assert_eq!(provenance["checker"], A1_CHECKER_PATH);
@@ -633,7 +639,10 @@ fn a1_fixture_bytes_match_frozen_provenance_and_goldens() {
     assert_eq!(provenance["expected_plan_length_bytes"], plan_bytes.len());
     assert_eq!(
         provenance["expected_plan_sha256"],
-        format!("{:x}", Sha256::digest(&plan_bytes))
+        Sha256::digest(&plan_bytes)
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect::<String>()
     );
     assert_eq!(read_json("F-10", "operations.json"), json!([]));
     assert_eq!(read_json("F-10", "expected-report.json"), json!([]));

@@ -8,7 +8,10 @@ const ROOT: &str = "tests/fixtures/b1-b2-logical";
 const CHECKER_VERSION: &str = "b1-b2-logical-checker-v1";
 
 fn digest(bytes: &[u8]) -> String {
-    format!("{:x}", Sha256::digest(bytes))
+    Sha256::digest(bytes)
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<String>()
 }
 fn path(name: &str) -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))

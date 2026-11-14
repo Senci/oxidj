@@ -115,90 +115,93 @@ const CASES: &[(&str, &str, &str)] = &[
 const PROVENANCE_SHA256: &[(&str, &str)] = &[
     (
         "f01-relocation-logical",
-        "27565935557f590e501e547640240adc47c522db16fb3e78c09e8319c6963d15",
+        "ac4efec70b21bbc0951041e2cb8d4cd4d271b118fa82f6fb8c4dbc221c732edb",
     ),
     (
         "f01-conflict-logical",
-        "7b44f3abe73fbfadb58b5e45eef59f85bf6725981a798d2f2bb4f4f8fbe25311",
+        "6974fa52e8d6994d0fee450b20598734581c0746af9c243527074ecd4a69e1b3",
     ),
     (
         "f01-same-path-logical",
-        "2ab5c9f9acced0053ee9010fd4c001c4e89b20030b9f9d9d487b2c20da5962aa",
+        "c9e36ffff34e994a151b7102d4310c376455c10f3adcb1b5ec4a77887a818dce",
     ),
     (
         "f01-unconfirmed-logical",
-        "1c44cddac8f149d28d455e53db358b317eae8ae6f0d33027d8da07f2a8c206a4",
+        "5b991b0fbe0dd12935fe143d471b23742f0f3c9034f9e4ca9962e25a1e987d21",
     ),
     (
         "f01-metadata-conflict-logical",
-        "b828d6c1f35ef3180cdd5078f13627beb9b863e8b05eb43e7af8b5e19ac36d6f",
+        "c485bc27633d5da9b518cf43b8e0120812c3e4d6d7f73372feba864e584995ac",
     ),
     (
         "rekordbox-a1/F-02",
-        "bac549470655e9a57772178ffb7f3cb46be30a8f6ec13adc66946ae51e9e0ff8",
+        "59c2341e7d95dbccc71fb7ac244ee41eacbdd4bf1c764e118a8af85adb5f3ffb",
     ),
     (
         "f03-logical",
-        "2a8f1c63ae711f44560ea0de46a44ce8e3c6e1581755cb8a8ae5184924cca9d6",
+        "adeb2f725670bf974985c9be9f2ef97f02baf4527080621c77d20cecaa0cec42",
     ),
     (
         "f04-compose-logical",
-        "1364dc6fb1183844805453bad92a58d120a5c06cc3b6661e326ca292b4924532",
+        "18cf7585e679798a647b0d52ff3ec7e234bdf64cb9c385aa11d7ebe6549393cb",
     ),
     (
         "f04-replay-logical",
-        "64d399ab932d9070024cc4a64e7fb4c626cffd8652324670b956a80d08c9a3a7",
+        "e81f132aac738e65dd7db740dd9b68990299ea4e86bbb9de309f8b6015fe69a1",
     ),
     (
         "f04-analysis-logical",
-        "3ac4b8bbaea197ecfae60c5fca32cdb115847285757b2c220bddd646b66fd68e",
+        "a232d00b739655c647010cbe9204cd09ca9cc67f6d9316031488b1c65074894e",
     ),
     (
         "f04-cue-order-logical",
-        "49bf2e42d6d6d46575d78ee64c2623098ea41b841265e82ae55d14276ddfbf8c",
+        "bc55431a4c177628036dbd7d354428004a90ac626a83f900ce30900804b6fb44",
     ),
     (
         "f05-logical",
-        "5ef3d7e1c039beaee851179e84774b385dc4edb5ce73119015f3d653e2106af9",
+        "4c20b9b4ab2174a5a02de9650a4a5cb28c5d4a186aca3c955dc2b884a8b64df6",
     ),
     (
         "f06a-logical",
-        "11fc59a28211b58f0a17d47e9de68a44c4eec5106c6dfe521071300a9baae971",
+        "f394c99eca32df05b8816cdd144fab443f713ee266fc33f62637025e710b0785",
     ),
     (
         "f06b-logical",
-        "daed9526da7e9eb795b488065a8b9bdda6fa044fdb68c51e46cd87800e977de6",
+        "536e25d7bb67942ee51ca4533a1eba83af2074d112723cb8cb9a1ee741e6f046",
     ),
     (
         "rekordbox-a1/F-07",
-        "93f31c24185540deeaaf15d0e334d312d09da9933b8ecefa8a341e82ad80fd07",
+        "8e477a96588d0c33b8b1094c8d707f5442bf43afc2d949be57bc2d63241af2c7",
     ),
     (
         "f08-logical",
-        "9d0e721c988b04a757589a3e5d0faa121c0aca7a42bba2cc9a04bbcec5a2f652",
+        "862ebf323a258514805a4e0f7c101374d732a21bd5f5dca96f38c39018113fab",
     ),
     (
         "f08b-logical",
-        "34fd6eec16e0e1955181f7580310cdf317eafda2e881beee6bde72297de49e0e",
+        "d49e374576a0078b07979a59c947ac4bcf2e523a18170c98f3574f0ba129d5a8",
     ),
     (
         "rekordbox-a1/F-10",
-        "8de5ca4029168952ecbfe8c37c66cb7441d85d987c416c6f33623ceb7e614189",
+        "d58d715196baeff9bed63e5eab47bd08c5d91c76d8d41e1346e37333e89b07b2",
     ),
     (
         "f11-logical",
-        "39c61fa5959fc88452baa026c5c5f69c691cfadefe54e9ca68c840217c5c9f22",
+        "2cd7ebab7e9d7404a81a3da75c117d1b77a0a6c206c2278a47aabf125d5a07b3",
     ),
     (
         "f12-logical",
-        "85dd88e1593a1d557370444b2b3c9222f127d28d18104ee5ba0b4709564d77b6",
+        "d376996cea50d4ef88bed4d6faee6d109f7ffd7e82379dac8adbb0587d66bff6",
     ),
 ];
 fn root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures")
 }
 fn sha(bytes: &[u8]) -> String {
-    format!("{:x}", Sha256::digest(bytes))
+    Sha256::digest(bytes)
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<String>()
 }
 fn json(path: &Path) -> Value {
     serde_json::from_slice(&fs::read(path).unwrap()).unwrap()

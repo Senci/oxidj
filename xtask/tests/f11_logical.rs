@@ -14,7 +14,10 @@ fn read(name: &str) -> Value {
     serde_json::from_slice(&std::fs::read(fixture(name)).unwrap()).unwrap()
 }
 fn digest(bytes: &[u8]) -> String {
-    format!("{:x}", Sha256::digest(bytes))
+    Sha256::digest(bytes)
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<String>()
 }
 
 fn check_provenance(provenance: &Value, source: &[u8]) -> Result<(), &'static str> {

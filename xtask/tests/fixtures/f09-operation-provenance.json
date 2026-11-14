@@ -1190,7 +1190,7 @@
     },
     "xtask/tests/fixtures/rekordbox-a1/F-02/provenance.json": {
       "length_bytes": 1768,
-      "sha256": "bac549470655e9a57772178ffb7f3cb46be30a8f6ec13adc66946ae51e9e0ff8"
+      "sha256": "59c2341e7d95dbccc71fb7ac244ee41eacbdd4bf1c764e118a8af85adb5f3ffb"
     },
     "xtask/tests/fixtures/rekordbox-a1/F-02/source.bin": {
       "length_bytes": 950,
@@ -1262,7 +1262,7 @@
     },
     "xtask/tests/fixtures/rekordbox-a1/F-07/provenance.json": {
       "length_bytes": 1770,
-      "sha256": "93f31c24185540deeaaf15d0e334d312d09da9933b8ecefa8a341e82ad80fd07"
+      "sha256": "8e477a96588d0c33b8b1094c8d707f5442bf43afc2d949be57bc2d63241af2c7"
     },
     "xtask/tests/fixtures/rekordbox-a1/F-07/source.bin": {
       "length_bytes": 571,

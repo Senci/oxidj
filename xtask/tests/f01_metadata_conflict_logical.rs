@@ -10,7 +10,10 @@ fn read(n: &str) -> Value {
     serde_json::from_slice(&std::fs::read(dir().join(n)).unwrap()).unwrap()
 }
 fn hash(b: &[u8]) -> String {
-    format!("{:x}", Sha256::digest(b))
+    Sha256::digest(b)
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<String>()
 }
 fn checker_identity_matches(identity: &Value, live_source: &[u8]) -> bool {
     identity

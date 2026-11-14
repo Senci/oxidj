@@ -18,7 +18,7 @@ Registry lookups: 2026-11-14. This is not a completion or platform-qualification
 | rusqlite_migration | 2.6.0 | 2.7.0 | updated |
 | serde | 1.0.229 | 1.0.229 | unchanged |
 | serde_json | 1.0.154 | 1.0.154 | unchanged |
-| sha2 | 0.10.9 | 0.11.1 | library and UI tests updated; xtask test code uses removed LowerHex support and remains on 0.10.9 pending adaptation |
+| sha2 | 0.10.9 | 0.11.1 | updated library, UI and xtask; checker identities and provenance pins refreshed for the test-only hex-format migration |
 | signalsmith-stretch | 0.1.3 | 0.1.3 | unchanged |
 | taktus | 0.1.0 | 0.1.0 | unchanged |
 | wayland-client | 0.31.15 | 0.31.15 | unchanged |
