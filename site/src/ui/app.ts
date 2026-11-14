@@ -86,6 +86,17 @@ function initCopy(): void {
 }
 
 export function initApp(root: HTMLElement): void {
+  const sleeve = root.querySelector<HTMLInputElement>('#sleeve-flip');
+  const front = root.querySelector<HTMLElement>('.sleeve-front');
+  const back = root.querySelector<HTMLElement>('.sleeve-back');
+  if (sleeve && front && back) {
+    const syncSleeve = (): void => {
+      front.setAttribute('aria-hidden', String(sleeve.checked));
+      back.setAttribute('aria-hidden', String(!sleeve.checked));
+    };
+    sleeve.addEventListener('change', syncSleeve);
+    syncSleeve();
+  }
   initDossier(root);
   initReveal();
   initGlow();

@@ -8,7 +8,7 @@ Vite's relative base supports the production repository prefix `/oxidj/`.
 `src/data/roadmap.ts` owns the snapshot date, focus, working/unfinished status,
 milestones, recent changes and the screenshot list (size, alt, caption). Vite renders
 `site:*` and `roadmap:*` fragments at build time through `src/logic/siteMarkup.ts`,
-`roadmapMarkup.ts` and `waveArt.ts` (the hero's deterministic, synthetic 3-band SVG).
+`roadmapMarkup.ts`. The hero uses a real application capture with synthetic library data.
 Every page works without scripts: facts, navigation, disclosures and images are static,
 and each screenshot is a plain link to its full-resolution file. Canonical product
 decisions stay in `idea.md`, `plan/MVP.md`, `plan/STATUS.md` and the research docs.

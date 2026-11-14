@@ -8,28 +8,35 @@
     <meta name="theme-color" content="#101016" />
     <!-- site:head -->
     <link rel="stylesheet" href="./src/styles/public.css" />
+    <link rel="stylesheet" href="./src/styles/landing.css" />
   </head>
   <body>
     <!-- site:header -->
     <main id="main">
       <section class="hero hero-home" aria-labelledby="title">
-        <div class="hero-glow" aria-hidden="true"></div>
-        <div class="container hero-copy">
-          <h1 id="title">Your music. Your decks.</h1>
-          <p class="lead">A local-first DJ library and two-deck prototype, built in Rust.</p>
-          <div class="actions">
-            <a class="button" href="#try-it">Try the CLI</a
-            ><a class="button button-quiet" href="./roadmap.html">See the roadmap</a>
+        <div class="container landing-hero">
+          <div class="hero-copy">
+            <p class="hero-index">Free software / Built in Rust / Pre-release</p>
+            <h1 id="title">Your USB stick deserves <span>fewer trust issues.</span></h1>
+            <p class="lead">
+              OxiDJ is a free-software DJ library with two decks. Bring your own tracks.
+            </p>
+            <div class="actions">
+              <a class="button" href="#downloads">Get OxiDJ</a>
+              <a class="button button-quiet" href="#inside">See the prototype</a>
+            </div>
+            <p class="hero-footnote">Local files. No mandatory account. Work in progress.</p>
           </div>
-        </div>
-        <div class="hero-wave">
-          <!-- site:wave -->
-        </div>
-      </section>
-
-      <section class="stage" aria-label="Prototype screenshot">
-        <div class="container stage-frame">
-          <!-- site:stage -->
+          <div class="stage stage-frame" aria-label="Prototype screenshot">
+            <div class="hero-record" aria-hidden="true">
+              <div class="hero-record-disc"></div>
+              <div class="hero-record-needle"></div>
+            </div>
+            <div class="stage-heading">
+              <span>On the desk</span><span>Actual app / synthetic library</span>
+            </div>
+            <!-- site:stage -->
+          </div>
         </div>
       </section>
 
@@ -55,49 +62,15 @@
         >
       </nav>
 
-      <div class="container">
-        <!-- site:status -->
-      </div>
-
       <section class="section container" aria-labelledby="why">
         <div class="section-head reveal">
-          <h2 id="why">Your files stay yours.</h2>
+          <h2 id="why">Your files can stay right where they are.</h2>
           <p>
             Audio stays where it is. A local catalog keeps references and technical facts, so
             organising a library never means copying or rewriting your music. No cloud account.
           </p>
         </div>
         <figure class="flow" aria-labelledby="flow-caption">
-          <svg class="flow-art" viewBox="0 0 960 200" aria-hidden="true" focusable="false">
-            <path
-              id="flow-a"
-              class="flow-wire"
-              pathLength="1"
-              d="M176 100C250 100 300 100 374 100"
-            />
-            <path
-              id="flow-b"
-              class="flow-wire"
-              pathLength="1"
-              d="M586 100C660 100 710 100 782 100"
-            />
-            <g class="flow-node flow-files">
-              <rect class="flow-back" x="56" y="58" width="96" height="112" rx="10" />
-              <rect x="72" y="40" width="96" height="112" rx="10" />
-              <path d="M92 72h56M92 92h56M92 112h36" />
-            </g>
-            <g class="flow-node flow-catalog">
-              <ellipse cx="480" cy="54" rx="98" ry="20" />
-              <path d="M382 54v92c0 11 44 20 98 20s98-9 98-20V54" />
-              <path d="M382 100c0 11 44 20 98 20s98-9 98-20" />
-            </g>
-            <g class="flow-node flow-viewer">
-              <rect x="790" y="40" width="134" height="120" rx="10" />
-              <path d="M790 66h134M810 88h94M810 106h94M810 124h58" />
-            </g>
-            <circle class="flow-pulse flow-pulse-a" r="5" />
-            <circle class="flow-pulse flow-pulse-b" r="5" />
-          </svg>
           <ol class="flow-stages">
             <li><strong>Audio files</strong><span>Stay in place, unchanged.</span></li>
             <li><strong>Local catalog</strong><span>References and technical facts.</span></li>
@@ -134,9 +107,41 @@
         </figure>
       </section>
 
+      <section class="section container sleeve-section" aria-labelledby="sleeve-title">
+        <div class="section-head">
+          <h2 id="sleeve-title">Two sides. One record.</h2>
+          <p>
+            Flip the sleeve for the liner notes: what OxiDJ does today, and what still needs work.
+          </p>
+        </div>
+        <div class="sleeve-view">
+          <input type="checkbox" id="sleeve-flip" class="sleeve-toggle" />
+          <label for="sleeve-flip" class="sleeve-control"
+            ><span class="show-side-b">Flip to side B</span
+            ><span class="show-side-a">Flip to side A</span></label
+          >
+          <div class="sleeve-scene">
+            <div class="sleeve-card">
+              <div class="sleeve-face sleeve-front">
+                <span>OxiDJ / Side A</span
+                ><strong>Your USB stick deserves fewer trust issues.</strong>
+                <p>Free software for the music you already own.</p>
+              </div>
+              <div class="sleeve-face sleeve-back">
+                <span>OxiDJ / Side B</span><strong>The liner notes.</strong>
+                <p>
+                  A local library and two prototype decks. Hardware compatibility and broader
+                  interchange are still being tested.
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
       <section class="section container" aria-labelledby="shared-time-title">
         <div class="section-head">
-          <h2 id="shared-time-title">Two tracks. One timeline.</h2>
+          <h2 id="shared-time-title">Two tracks.<br />One shared time.</h2>
           <p>
             Each overview fits its track to a shared playback-time scale. One aligned playhead makes
             their positions easy to compare, even when tracks have different lengths or tempos.
@@ -161,7 +166,7 @@
 
       <section class="section container" aria-labelledby="inside">
         <div class="section-head reveal">
-          <h2 id="inside">Inside the prototype.</h2>
+          <h2 id="inside">Closer to the controls.</h2>
           <p>
             A closer look at the prototype and earlier development captures: imported nested
             playlists with explicit Load A/B controls, two decks in one merged 3-band waveform, SYNC
@@ -213,7 +218,7 @@
 
       <section class="section container" aria-labelledby="path">
         <div class="section-head reveal">
-          <h2 id="path">Where the project stands.</h2>
+          <h2 id="path">Built in the open.<br />Rough edges included.</h2>
           <p>
             Development stages, not release dates. The local library is in place; exchange,
             analysis, the real-library proof and the first two decks are in progress.
@@ -223,6 +228,10 @@
           <!-- roadmap:rail -->
         </ol>
       </section>
+
+      <div class="container status-placement">
+        <!-- site:status -->
+      </div>
 
       <section class="section container split" aria-labelledby="exchange">
         <h2 id="exchange" class="reveal">XML first. Hardware exchange later.</h2>
