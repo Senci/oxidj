@@ -108,6 +108,25 @@ mod wheel_tests {
             let (_, after_offset, after_value) = frame(wheel(p), true, rotary);
             assert_eq!(after_offset, before_offset);
             assert!(after_value < before_value);
+            let (_, _, before_shift) = frame(vec![egui::Event::PointerMoved(p)], true, rotary);
+            let (_, _, after_shift) = frame(
+                vec![egui::Event::MouseWheel {
+                    phase: egui::TouchPhase::Move,
+                    source: egui::MouseWheelSource::Unknown,
+                    unit: egui::MouseWheelUnit::Point,
+                    delta: vec2(0.0, -4.0),
+                    modifiers: egui::Modifiers {
+                        shift: true,
+                        ..Default::default()
+                    },
+                }],
+                true,
+                rotary,
+            );
+            assert_eq!(
+                before_shift, after_shift,
+                "shift-wheel must not change a mixer control"
+            );
             let (_, tail_start, _) = frame(
                 vec![
                     egui::Event::PointerMoved(p),
@@ -176,7 +195,12 @@ pub(crate) fn raw_wheel_y(input: &egui::InputState) -> f32 {
         .events
         .iter()
         .map(|event| match event {
-            egui::Event::MouseWheel { unit, delta, .. } => {
+            egui::Event::MouseWheel {
+                unit,
+                delta,
+                modifiers,
+                ..
+            } if !modifiers.shift => {
                 delta.y
                     * match unit {
                         egui::MouseWheelUnit::Point => 1.0,
@@ -222,11 +246,17 @@ pub(crate) fn mixer_wheel(
     let delta = ui.input_mut(|input| {
         let delta = raw_wheel_y(input);
         for event in &mut input.raw.events {
-            if let egui::Event::MouseWheel { delta, .. } = event {
+            if let egui::Event::MouseWheel {
+                delta, modifiers, ..
+            } = event
+                && !modifiers.shift
+            {
                 delta.y = 0.0;
             }
         }
-        input.smooth_scroll_delta.y = 0.0;
+        if delta != 0.0 {
+            input.smooth_scroll_delta.y = 0.0;
+        }
         delta / 40.0
     });
     if delta != 0.0 {

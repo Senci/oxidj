@@ -682,6 +682,23 @@ fn zoom_by_keys_and_wheel_uses_bars_or_seconds_and_drag_scrubs() {
     );
     h.settle();
     assert_eq!(h.app.settings.zoom_bars, 4, "wheel up zooms in one step");
+    h.frame_with(
+        vec![egui::Event::MouseWheel {
+            phase: egui::TouchPhase::Move,
+            source: egui::MouseWheelSource::Unknown,
+            unit: egui::MouseWheelUnit::Line,
+            delta: egui::vec2(0.0, 1.0),
+            modifiers: egui::Modifiers {
+                shift: true,
+                ..Default::default()
+            },
+        }],
+        egui::Modifiers {
+            shift: true,
+            ..Default::default()
+        },
+    );
+    assert_eq!(h.app.settings.zoom_bars, 4, "shift-wheel must not zoom");
     // Without a grid: 2 s per bar (deck B active with a no-grid track).
     h.select_and_load("c-nogrid.wav", egui::Key::B);
     h.app.decks.decks[0].track = None;
