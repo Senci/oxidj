@@ -33,6 +33,85 @@ mod wheel_tests {
     use super::*;
 
     #[test]
+    fn stationary_pointer_wheel_tail_does_not_scroll_parent() {
+        for rotary in [true, false] {
+            let ctx = egui::Context::default();
+            let mut value = 0.5;
+            let mut frame = |events: Vec<egui::Event>| {
+                let mut pos = egui::Pos2::ZERO;
+                let mut offset = 0.0;
+                let input = egui::RawInput {
+                    screen_rect: Some(Rect::from_min_size(egui::Pos2::ZERO, vec2(400.0, 300.0))),
+                    events,
+                    ..Default::default()
+                };
+                let _ = crate::test_frame(&ctx, input, |root_ui| {
+                    let ctx = root_ui.ctx().clone();
+                    egui::CentralPanel::default().show(root_ui, |ui| {
+                        let output =
+                            egui::ScrollArea::vertical()
+                                .max_height(100.0)
+                                .show(ui, |ui| {
+                                    let (cell, _) =
+                                        ui.allocate_exact_size(vec2(180.0, 28.0), Sense::hover());
+                                    let tokens = crate::theme::current_tokens(&ctx);
+                                    let response = if rotary {
+                                        mixer_rotary(
+                                            ui,
+                                            cell,
+                                            "FILTER",
+                                            &mut value,
+                                            "filter",
+                                            String::new(),
+                                            tokens.primary,
+                                            tokens,
+                                        )
+                                    } else {
+                                        mixer_knob(
+                                            ui,
+                                            cell,
+                                            "VOL",
+                                            &mut value,
+                                            0.0..=1.0,
+                                            FADER_STEP,
+                                            1.0,
+                                            "volume",
+                                            String::new(),
+                                            tokens.primary,
+                                            tokens,
+                                        )
+                                    };
+                                    pos = response.rect.center();
+                                    ui.add_space(500.0);
+                                });
+                        offset = output.state.offset().y;
+                    });
+                });
+                (pos, offset, value)
+            };
+            let (p, _, _) = frame(vec![]);
+            let (_, offset_before, value_before) = frame(vec![egui::Event::PointerMoved(p)]);
+            let (_, offset_after, value_after) = frame(vec![egui::Event::MouseWheel {
+                phase: egui::TouchPhase::Move,
+                source: egui::MouseWheelSource::Unknown,
+                unit: egui::MouseWheelUnit::Line,
+                delta: vec2(0.0, -1.0),
+                modifiers: Default::default(),
+            }]);
+            assert!(value_after < value_before, "wheel must change control");
+            assert_eq!(offset_after, offset_before, "wheel must not scroll parent");
+            for _ in 0..10 {
+                let (_, offset, value) = frame(vec![]);
+                assert_eq!(value, value_after, "tail must not change control again");
+                assert_eq!(
+                    offset, offset_before,
+                    "stationary wheel tail must not scroll parent, rotary={rotary}"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn mixer_wheel_respects_parent_scroll_and_disabled_controls() {
         let ctx = egui::Context::default();
         let mut value = 0.5;
@@ -243,8 +322,9 @@ pub(crate) fn mixer_wheel(
         }
         return false;
     }
-    let delta = ui.input_mut(|input| {
+    let (delta, smooth, shifted_wheel) = ui.input_mut(|input| {
         let delta = raw_wheel_y(input);
+        let smooth = input.smooth_scroll_delta.y;
         for event in &mut input.raw.events {
             if let egui::Event::MouseWheel {
                 delta, modifiers, ..
@@ -254,13 +334,18 @@ pub(crate) fn mixer_wheel(
                 delta.y = 0.0;
             }
         }
-        if delta != 0.0 {
+        let shifted_wheel = input.raw.events.iter().any(
+            |event| matches!(event, egui::Event::MouseWheel { modifiers, .. } if modifiers.shift),
+        );
+        if delta != 0.0 || (pending && !shifted_wheel) {
             input.smooth_scroll_delta.y = 0.0;
         }
-        delta / 40.0
+        (delta / 40.0, smooth, shifted_wheel)
     });
     if delta != 0.0 {
         ui.ctx().data_mut(|data| data.insert_temp(pending_id, true));
+    } else if shifted_wheel || smooth == 0.0 {
+        ui.ctx().data_mut(|data| data.remove::<bool>(pending_id));
     }
     let before = *value;
     *value = (*value + delta * step as f32).clamp(*range.start(), *range.end());
