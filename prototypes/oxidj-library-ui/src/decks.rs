@@ -745,7 +745,10 @@ pub(crate) struct DeckLayout {
 }
 
 /// Measured callback statistics, only for an active device with callbacks.
-pub(crate) fn audio_metrics(output: &oxidj_audio::OutputKind, stats: oxidj_audio::StatsSnapshot) -> Option<String> {
+pub(crate) fn audio_metrics(
+    output: &oxidj_audio::OutputKind,
+    stats: oxidj_audio::StatsSnapshot,
+) -> Option<String> {
     if !matches!(output, oxidj_audio::OutputKind::Device { .. }) || stats.callbacks == 0 {
         return None;
     }
@@ -754,7 +757,10 @@ pub(crate) fn audio_metrics(output: &oxidj_audio::OutputKind, stats: oxidj_audio
     } else {
         format!("latency {:.1} ms", stats.latency_ns as f64 / 1_000_000.0)
     };
-    Some(format!("{latency} · peak DSP {:.1}%", f64::from(stats.max_load_permille) / 10.0))
+    Some(format!(
+        "{latency} · peak DSP {:.1}%",
+        f64::from(stats.max_load_permille) / 10.0
+    ))
 }
 
 /// The whole deck area's state.
@@ -1669,7 +1675,7 @@ impl LibraryApp {
         let guarded = !self.show_decks
             || self.settings_ui.open
             || ctx.memory(|m| m.focused()).is_some()
-            || ctx.wants_keyboard_input();
+            || ctx.egui_wants_keyboard_input();
         for (d, key) in cue_keys.into_iter().enumerate() {
             if self.decks.decks[d].cue_held
                 && (guarded || ctx.input(|i| !i.key_down(key) || !i.focused))
@@ -1703,7 +1709,7 @@ impl LibraryApp {
                 self.settings.crossfader = !self.settings.crossfader;
             }
         });
-        if ctx.memory(|m| m.focused()).is_some() || ctx.wants_keyboard_input() {
+        if ctx.memory(|m| m.focused()).is_some() || ctx.egui_wants_keyboard_input() {
             return;
         }
         let none = egui::Modifiers::NONE;
@@ -1900,11 +1906,7 @@ pub(crate) fn band_height(avail: f32, column: f32, cover: bool) -> f32 {
 
 /// Height of the detail + overview stack (0 when both are hidden).
 pub(crate) fn wave_height(sections: DeckSections, detail: f32) -> f32 {
-    let detail = if sections.detail {
-        detail
-    } else {
-        0.0
-    };
+    let detail = if sections.detail { detail } else { 0.0 };
     let overviews = if sections.overviews {
         2.0 * OVERVIEW_HEIGHT + 2.0
     } else {
@@ -2004,11 +2006,14 @@ impl LibraryApp {
     pub(crate) fn deck_area(&mut self, ui: &mut Ui, tokens: ColorTokens) {
         let mut layout = DeckLayout::default();
         let width = ui.available_width();
-        let screen = ui.ctx().screen_rect();
+        let screen = ui.ctx().content_rect();
         let sections = self.settings.sections;
         let mixer_h = crate::mixer_view::mixer_height(self.settings.mixer);
         let arrangement = self.settings.arrangement;
-        let budget = deck_budget(screen.height(), self.shell.toolbar.map_or(40.0, |t| t.height()));
+        let budget = deck_budget(
+            screen.height(),
+            self.shell.toolbar.map_or(40.0, |t| t.height()),
+        );
         let detail = fitted_detail(arrangement, sections, mixer_h, screen.height(), budget);
         let height = area_height(arrangement, sections, mixer_h, detail);
         let (area, _) = ui.allocate_exact_size(vec2(width, height), Sense::hover());
@@ -2192,9 +2197,9 @@ impl LibraryApp {
             rects[i] = r;
             let expanded = self.settings.sections.get(i);
             let name = format!("{} section", DeckSections::NAMES[i]);
-            let response = ui.interact(r, ui.id().with(("deck-section", i)), Sense::click());
+            let response = ui.interact(r, ui.scope_id().with(("deck-section", i)), Sense::click());
             response.widget_info(|| {
-                egui::WidgetInfo::selected(egui::WidgetType::Checkbox, true, expanded, &name)
+                egui::WidgetInfo::selected(egui::Role::CheckBox, true, expanded, &name)
             });
             if response.hovered() || response.has_focus() {
                 painter.rect_filled(r, 3.0, tokens.surface);
@@ -2257,10 +2262,14 @@ impl LibraryApp {
         colours: [DeckColours; 2],
         layout: &mut DeckLayout,
     ) {
-        let response = ui.interact(rect, ui.id().with("merged-detail"), Sense::click_and_drag());
+        let response = ui.interact(
+            rect,
+            ui.scope_id().with("merged-detail"),
+            Sense::click_and_drag(),
+        );
         response.widget_info(|| {
             egui::WidgetInfo::labeled(
-                egui::WidgetType::Other,
+                egui::Role::Unknown,
                 true,
                 "Merged deck waveform: deck A above, deck B below",
             )
@@ -2279,7 +2288,7 @@ impl LibraryApp {
         let mpp = window_real / f64::from(rect.width().max(1.0));
         // Zoom: wheel over the view (one step per wheel frame).
         if response.hovered() {
-            let scroll = ui.input(|i| i.raw_scroll_delta.y);
+            let scroll = ui.input(|i| crate::mixer_view::raw_wheel_y(i));
             if scroll != 0.0 {
                 self.settings.zoom_bars =
                     zoom_step(self.settings.zoom_bars, if scroll > 0.0 { -1 } else { 1 });
@@ -2324,7 +2333,7 @@ impl LibraryApp {
                 paint_meshes(
                     ui,
                     &painter,
-                    ui.id().with(("deck-half", d)),
+                    ui.scope_id().with(("deck-half", d)),
                     |layers, lines| {
                         match &track.peaks {
                             Some(peaks) => build_half(
@@ -2970,7 +2979,7 @@ impl LibraryApp {
                     ui.spacing_mut().interact_size.y = FADER_W;
                     ui.put(
                         fader_r,
-                        egui::Slider::new(&mut tempo, -range..=range)
+                        egui::Slider::new(&mut tempo, range..=-range)
                             .vertical()
                             .handle_shape(egui::style::HandleShape::Rect { aspect_ratio: 0.5 })
                             .show_value(false)
@@ -3002,6 +3011,22 @@ impl LibraryApp {
             }
             slider.widget_info(|| {
                 egui::WidgetInfo::slider(true, f64::from(tempo), format!("Deck {letter} tempo"))
+            });
+            // The reversed rail preserves CDJ direction (down = faster).
+            // egui 0.37 reports reversed range endpoints verbatim to AccessKit;
+            // expose numeric bounds and actions in value order instead.
+            ui.ctx().accesskit_node_builder(slider.id, |node| {
+                use egui::accesskit::Action;
+                node.set_min_numeric_value(f64::from(-range));
+                node.set_max_numeric_value(f64::from(range));
+                node.remove_action(Action::Increment);
+                node.remove_action(Action::Decrement);
+                if tempo < range {
+                    node.add_action(Action::Increment);
+                }
+                if tempo > -range {
+                    node.add_action(Action::Decrement);
+                }
             });
             let slider = slider.on_hover_text(format!(
                 "Deck {letter} tempo (±{range:.0} %, Settings → Decks); double-click resets"
@@ -3072,7 +3097,7 @@ impl LibraryApp {
         let letter = DECKS[d];
         let response = ui.interact(
             rect,
-            ui.id().with(("deck-overview", d)),
+            ui.scope_id().with(("deck-overview", d)),
             Sense::click_and_drag(),
         );
         let deck = &mut self.decks.decks[d];
@@ -3089,7 +3114,7 @@ impl LibraryApp {
         // The mapping is frozen at the press: the seek itself rescales the
         // strip, so a held pointer must keep resolving against the scale it
         // pressed on instead of chasing the moving needle.
-        let grab_id = ui.id().with(("deck-overview-grab", d));
+        let grab_id = ui.scope_id().with(("deck-overview-grab", d));
         type Grab = Option<(
             crate::overview_scale::SharedScale,
             crate::overview_scale::DeckSpan,
@@ -3135,7 +3160,7 @@ impl LibraryApp {
                         paint_meshes(
                             ui,
                             &painter,
-                            ui.id().with(("deck-overview-mesh", d, k)),
+                            ui.scope_id().with(("deck-overview-mesh", d, k)),
                             |layers, lines| {
                                 build_half(
                                     peaks,
@@ -3288,10 +3313,8 @@ pub(crate) fn deck_button(
     } else {
         Sense::hover()
     };
-    let response = ui.interact(rect, ui.id().with(("deck-button", name)), sense);
-    response.widget_info(|| {
-        egui::WidgetInfo::selected(egui::WidgetType::Button, enabled, active, name)
-    });
+    let response = ui.interact(rect, ui.scope_id().with(("deck-button", name)), sense);
+    response.widget_info(|| egui::WidgetInfo::selected(egui::Role::Button, enabled, active, name));
     let painter = ui.painter_at(rect);
     let dark = rgb(0x10, 0x10, 0x18);
     let (fill, ink) = if active {
@@ -3402,15 +3425,14 @@ fn pad_button(
 ) -> egui::Response {
     let response = ui.interact(
         rect,
-        ui.id().with(("pad", name)),
+        ui.scope_id().with(("pad", name)),
         if enabled {
             Sense::click()
         } else {
             Sense::hover()
         },
     );
-    response
-        .widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, enabled, set, name));
+    response.widget_info(|| egui::WidgetInfo::selected(egui::Role::Button, enabled, set, name));
     let painter = ui.painter_at(rect);
     let dark = rgb(0x10, 0x10, 0x18);
     let (fill, ink) = if set {

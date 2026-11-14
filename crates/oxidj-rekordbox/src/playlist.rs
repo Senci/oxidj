@@ -246,7 +246,7 @@ pub fn prepare_playlist_rename(
             .read_event_into(&mut buf)
             .map_err(|e| Error(format!("malformed XML: {e}")))?;
         match ev {
-            Event::Start(e) if e.name().as_ref() == b"NODE" => {
+            Event::Start(e) if e.name().as_ref().as_bytes() == b"NODE" => {
                 let ty = attr(&e, "Type")?;
                 let name = attr(&e, "Name")?;
                 let parent = node_path.iter().skip(1).cloned().collect();
@@ -265,7 +265,7 @@ pub fn prepare_playlist_rename(
                 node_path.push(name);
                 stack.push("NODE".into());
             }
-            Event::Empty(e) if e.name().as_ref() == b"NODE" => {
+            Event::Empty(e) if e.name().as_ref().as_bytes() == b"NODE" => {
                 let ty = attr(&e, "Type")?;
                 let name = attr(&e, "Name")?;
                 let parent = node_path.iter().skip(1).cloned().collect();
@@ -282,9 +282,11 @@ pub fn prepare_playlist_rename(
                     playlist_no += 1;
                 }
             }
-            Event::Start(e) => stack.push(String::from_utf8_lossy(e.name().as_ref()).into_owned()),
+            Event::Start(e) => {
+                stack.push(String::from_utf8_lossy(e.name().as_ref().as_bytes()).into_owned())
+            }
             Event::End(e) => {
-                if e.name().as_ref() == b"NODE" {
+                if e.name().as_ref().as_bytes() == b"NODE" {
                     node_path.pop();
                 }
                 stack.pop();
@@ -369,7 +371,7 @@ pub fn prepare_playlist_delete(
             .map_err(|e| Error(format!("malformed XML: {e}")))?;
         let end = reader.buffer_position() as usize;
         match ev {
-            Event::Start(e) if e.name().as_ref() == b"NODE" => {
+            Event::Start(e) if e.name().as_ref().as_bytes() == b"NODE" => {
                 let ty = attr(&e, "Type")?;
                 let count_field = if ty == "0" { "Count" } else { "Entries" };
                 let raw_count = attr(&e, count_field)?;
@@ -403,7 +405,7 @@ pub fn prepare_playlist_delete(
                 };
                 nodes.push((ty, count_range, declared_count));
             }
-            Event::Empty(e) if e.name().as_ref() == b"NODE" => {
+            Event::Empty(e) if e.name().as_ref().as_bytes() == b"NODE" => {
                 let ty = attr(&e, "Type")?;
                 if ty == "1" {
                     if ordinal == request.playlist_index {
@@ -425,7 +427,7 @@ pub fn prepare_playlist_delete(
                     ordinal += 1;
                 }
             }
-            Event::End(e) if e.name().as_ref() == b"NODE" => {
+            Event::End(e) if e.name().as_ref().as_bytes() == b"NODE" => {
                 if target_depth == Some(nodes.len()) {
                     let r = target_range
                         .as_mut()
@@ -523,11 +525,11 @@ pub fn prepare_track_delete(
         let eof = matches!(&event, Event::Eof);
         let end = reader.buffer_position() as usize;
         match event {
-            Event::Start(e) if e.name().as_ref() == b"COLLECTION" => {
+            Event::Start(e) if e.name().as_ref().as_bytes() == b"COLLECTION" => {
                 collection_tag_span = Some(start..end);
                 stack.push("COLLECTION".into());
             }
-            Event::Start(e) if e.name().as_ref() == b"NODE" => {
+            Event::Start(e) if e.name().as_ref().as_bytes() == b"NODE" => {
                 let ty = attr(&e, "Type")?;
                 if ty == "1" {
                     playlist_index = Some(next_playlist);
@@ -536,14 +538,14 @@ pub fn prepare_track_delete(
                 }
                 stack.push("NODE".into());
             }
-            Event::Empty(e) if e.name().as_ref() == b"NODE" => {
+            Event::Empty(e) if e.name().as_ref().as_bytes() == b"NODE" => {
                 if attr(&e, "Type")? == "1" {
                     playlist_tag_spans.push((next_playlist, start..end));
                     next_playlist += 1;
                 }
             }
             Event::Start(e)
-                if e.name().as_ref() == b"TRACK"
+                if e.name().as_ref().as_bytes() == b"TRACK"
                     && stack.iter().any(|p| p == "COLLECTION")
                     && attr(&e, "TrackID")? == request.track_id =>
             {
@@ -551,32 +553,32 @@ pub fn prepare_track_delete(
                 stack.push("TRACK".into());
             }
             Event::Empty(e)
-                if e.name().as_ref() == b"TRACK"
+                if e.name().as_ref().as_bytes() == b"TRACK"
                     && stack.iter().any(|p| p == "COLLECTION")
                     && attr(&e, "TrackID")? == request.track_id =>
             {
                 collection_spans.push(start..end)
             }
             Event::Empty(e)
-                if e.name().as_ref() == b"TRACK"
+                if e.name().as_ref().as_bytes() == b"TRACK"
                     && playlist_index.is_some()
                     && attr(&e, "Key")? == request.track_id =>
             {
                 membership_spans.push((playlist_index.unwrap(), start..end))
             }
             Event::End(e) => {
-                if e.name().as_ref() == b"TRACK"
+                if e.name().as_ref().as_bytes() == b"TRACK"
                     && let Some(open) = target_open.take()
                 {
                     collection_spans.push(open..end);
                 }
-                if e.name().as_ref() == b"NODE" {
+                if e.name().as_ref().as_bytes() == b"NODE" {
                     playlist_index = None;
                 }
                 stack.pop();
             }
             Event::Start(e) => {
-                let name = std::str::from_utf8(e.name().as_ref())
+                let name = std::str::from_utf8(e.name().as_ref().as_bytes())
                     .map_err(|_| Error("invalid element name".into()))?
                     .to_owned();
                 stack.push(name);
@@ -726,7 +728,7 @@ pub fn prepare_playlist_member_delete(
             .map_err(|e| Error(format!("malformed XML: {e}")))?;
         let end = reader.buffer_position() as usize;
         match event {
-            Event::Start(e) if e.name().as_ref() == b"NODE" => {
+            Event::Start(e) if e.name().as_ref().as_bytes() == b"NODE" => {
                 let ty = attr(&e, "Type")?;
                 if ty == "1" {
                     target = playlist_no == request.playlist_index;
@@ -737,7 +739,7 @@ pub fn prepare_playlist_member_delete(
                     node_tag = Some(start..end);
                 }
             }
-            Event::Empty(e) if e.name().as_ref() == b"NODE" => {
+            Event::Empty(e) if e.name().as_ref().as_bytes() == b"NODE" => {
                 if attr(&e, "Type")? == "1" {
                     if playlist_no == request.playlist_index {
                         target = true;
@@ -750,7 +752,7 @@ pub fn prepare_playlist_member_delete(
                 }
             }
             Event::Empty(e)
-                if e.name().as_ref() == b"TRACK"
+                if e.name().as_ref().as_bytes() == b"TRACK"
                     && target
                     && attr(&e, "Key")? == request.track_id =>
             {
@@ -758,7 +760,7 @@ pub fn prepare_playlist_member_delete(
                     return Err(Error("membership is ambiguous".into()));
                 }
             }
-            Event::End(e) if e.name().as_ref() == b"NODE" => {
+            Event::End(e) if e.name().as_ref().as_bytes() == b"NODE" => {
                 node_stack.pop();
                 if node_stack.is_empty() {
                     target = false;
@@ -835,29 +837,30 @@ pub fn prepare_playlist_clear(
         let end = reader.buffer_position() as usize;
         match event {
             Event::Start(element) => {
-                if element.name().as_ref() == b"NODE" && attr(&element, "Type")? == "1" {
+                if element.name().as_ref().as_bytes() == b"NODE" && attr(&element, "Type")? == "1" {
                     if next_playlist == request.playlist_index {
                         selected_tag = Some(start..end);
                         selected_depth = Some(stack.len() + 1);
                     }
                     next_playlist += 1;
                 }
-                if element.name().as_ref() == b"TRACK"
+                if element.name().as_ref().as_bytes() == b"TRACK"
                     && stack.last().is_some_and(|tag| tag == "NODE")
                     && selected_depth == Some(stack.len())
                 {
                     member_ids.push(attr(&element, "Key")?);
                     member_start = Some(start);
                 }
-                stack.push(String::from_utf8_lossy(element.name().as_ref()).into_owned());
+                stack
+                    .push(String::from_utf8_lossy(element.name().as_ref().as_bytes()).into_owned());
             }
             Event::Empty(element) => {
-                if element.name().as_ref() == b"NODE" && attr(&element, "Type")? == "1" {
+                if element.name().as_ref().as_bytes() == b"NODE" && attr(&element, "Type")? == "1" {
                     if next_playlist == request.playlist_index {
                         selected_tag = Some(start..end);
                     }
                     next_playlist += 1;
-                } else if element.name().as_ref() == b"TRACK"
+                } else if element.name().as_ref().as_bytes() == b"TRACK"
                     && stack.last().is_some_and(|tag| tag == "NODE")
                     && selected_depth == Some(stack.len())
                 {
@@ -866,12 +869,14 @@ pub fn prepare_playlist_clear(
                 }
             }
             Event::End(element) => {
-                if element.name().as_ref() == b"TRACK"
+                if element.name().as_ref().as_bytes() == b"TRACK"
                     && let Some(member_start) = member_start.take()
                 {
                     member_spans.push(member_start..end);
                 }
-                if element.name().as_ref() == b"NODE" && selected_depth == Some(stack.len()) {
+                if element.name().as_ref().as_bytes() == b"NODE"
+                    && selected_depth == Some(stack.len())
+                {
                     selected_depth = None;
                 }
                 stack.pop();
@@ -955,7 +960,7 @@ pub fn prepare_playlist_member_append(
             .map_err(|error| Error(format!("malformed XML: {error}")))?;
         match event {
             Event::Start(element) => {
-                if element.name().as_ref() == b"TRACK"
+                if element.name().as_ref().as_bytes() == b"TRACK"
                     && stack.last().is_some_and(|parent| parent == "COLLECTION")
                     && attr(&element, "TrackID")? == request.track_id
                 {
@@ -966,10 +971,11 @@ pub fn prepare_playlist_member_append(
                         attribute_value_range(&element, start, "TrackID", &request.track_id)?;
                     track_key_value = Some(bytes[range].to_vec());
                 }
-                stack.push(String::from_utf8_lossy(element.name().as_ref()).into_owned());
+                stack
+                    .push(String::from_utf8_lossy(element.name().as_ref().as_bytes()).into_owned());
             }
             Event::Empty(element) => {
-                if element.name().as_ref() == b"TRACK"
+                if element.name().as_ref().as_bytes() == b"TRACK"
                     && stack.last().is_some_and(|parent| parent == "COLLECTION")
                     && attr(&element, "TrackID")? == request.track_id
                 {
@@ -1006,7 +1012,7 @@ pub fn prepare_playlist_member_append(
             .map_err(|error| Error(format!("malformed XML: {error}")))?;
         let end = reader.buffer_position() as usize;
         match event {
-            Event::Start(element) if element.name().as_ref() == b"NODE" => {
+            Event::Start(element) if element.name().as_ref().as_bytes() == b"NODE" => {
                 let playlist = if attr(&element, "Type")? == "1" {
                     let current = next_playlist;
                     next_playlist += 1;
@@ -1019,7 +1025,7 @@ pub fn prepare_playlist_member_append(
                 }
                 node_stack.push(playlist);
             }
-            Event::Empty(element) if element.name().as_ref() == b"NODE" => {
+            Event::Empty(element) if element.name().as_ref().as_bytes() == b"NODE" => {
                 if attr(&element, "Type")? == "1" {
                     if next_playlist == request.playlist_index {
                         target_tag = Some((start..end, true));
@@ -1027,7 +1033,7 @@ pub fn prepare_playlist_member_append(
                     next_playlist += 1;
                 }
             }
-            Event::End(element) if element.name().as_ref() == b"NODE" => {
+            Event::End(element) if element.name().as_ref().as_bytes() == b"NODE" => {
                 if node_stack.pop().flatten() == Some(request.playlist_index) {
                     target_close = Some(start);
                 }
@@ -1198,7 +1204,7 @@ pub fn prepare_playlist_reorder(
             .map_err(|e| Error(format!("malformed XML: {e}")))?;
         let end = reader.buffer_position() as usize;
         match event {
-            Event::Start(e) if e.name().as_ref() == b"NODE" => {
+            Event::Start(e) if e.name().as_ref().as_bytes() == b"NODE" => {
                 let ty = attr(&e, "Type")?;
                 let name = attr(&e, "Name")?;
                 let this_node = node_ordinal;
@@ -1213,7 +1219,7 @@ pub fn prepare_playlist_reorder(
                 }
                 stack.push("NODE".into());
             }
-            Event::Empty(e) if e.name().as_ref() == b"NODE" => {
+            Event::Empty(e) if e.name().as_ref().as_bytes() == b"NODE" => {
                 if attr(&e, "Type")? == "1" {
                     let this_node = node_ordinal;
                     node_ordinal += 1;
@@ -1226,13 +1232,13 @@ pub fn prepare_playlist_reorder(
                 }
             }
             Event::Empty(e)
-                if e.name().as_ref() == b"TRACK"
+                if e.name().as_ref().as_bytes() == b"TRACK"
                     && target_node.is_some_and(|target| node_ids.last() == Some(&target)) =>
             {
                 spans.push((attr(&e, "Key")?, start..end));
             }
             Event::End(e) => {
-                if e.name().as_ref() == b"NODE" {
+                if e.name().as_ref().as_bytes() == b"NODE" {
                     node_path.pop();
                     node_ids.pop();
                 }
@@ -1294,7 +1300,7 @@ pub fn prepare_sibling_playlist_reorder(
             .map_err(|e| Error(format!("malformed XML: {e}")))?;
         let end = reader.buffer_position() as usize;
         match event {
-            Event::Start(e) if e.name().as_ref() == b"NODE" => {
+            Event::Start(e) if e.name().as_ref().as_bytes() == b"NODE" => {
                 let ty = attr(&e, "Type")?;
                 let name = attr(&e, "Name")?;
                 if ty == "0" && !stack.is_empty() {
@@ -1316,7 +1322,7 @@ pub fn prepare_sibling_playlist_reorder(
                 }
                 stack.push((ty, name, start));
             }
-            Event::Empty(e) if e.name().as_ref() == b"NODE" => {
+            Event::Empty(e) if e.name().as_ref().as_bytes() == b"NODE" => {
                 let ty = attr(&e, "Type")?;
                 let name = attr(&e, "Name")?;
                 if ty == "0" && !stack.is_empty() {
@@ -1329,7 +1335,7 @@ pub fn prepare_sibling_playlist_reorder(
                     playlists.push((name, start..end));
                 }
             }
-            Event::End(e) if e.name().as_ref() == b"NODE" => {
+            Event::End(e) if e.name().as_ref().as_bytes() == b"NODE" => {
                 let (ty, name, node_start) = stack
                     .pop()
                     .ok_or_else(|| Error("unexpected closing NODE".into()))?;
@@ -1394,7 +1400,7 @@ pub fn prepare_sibling_playlist_reorder(
             .read_event_into(&mut vbuf)
             .map_err(|e| Error(format!("malformed XML: {e}")))?
         {
-            Event::Start(e) if e.name().as_ref() == b"NODE" => {
+            Event::Start(e) if e.name().as_ref().as_bytes() == b"NODE" => {
                 let ty = attr(&e, "Type")?;
                 let name = attr(&e, "Name")?;
                 if ty == "0" && !vstack.is_empty() {
@@ -1408,7 +1414,7 @@ pub fn prepare_sibling_playlist_reorder(
                 }
                 vstack.push((ty, name));
             }
-            Event::Empty(e) if e.name().as_ref() == b"NODE" => {
+            Event::Empty(e) if e.name().as_ref().as_bytes() == b"NODE" => {
                 let ty = attr(&e, "Type")?;
                 if ty == "0" && !vstack.is_empty() {
                     if ordinal == request.parent_index {
@@ -1420,7 +1426,7 @@ pub fn prepare_sibling_playlist_reorder(
                     observed.push(attr(&e, "Name")?);
                 }
             }
-            Event::End(e) if e.name().as_ref() == b"NODE" => {
+            Event::End(e) if e.name().as_ref().as_bytes() == b"NODE" => {
                 let (ty, _) = vstack
                     .pop()
                     .ok_or_else(|| Error("unexpected closing NODE".into()))?;
@@ -1459,7 +1465,7 @@ pub fn prepare_sibling_folder_reorder(
             .map_err(|e| Error(format!("malformed XML: {e}")))?;
         let end = reader.buffer_position() as usize;
         match event {
-            Event::Start(e) if e.name().as_ref() == b"NODE" => {
+            Event::Start(e) if e.name().as_ref().as_bytes() == b"NODE" => {
                 let ty = attr(&e, "Type")?;
                 let name = attr(&e, "Name")?;
                 if ty == "0" && !stack.is_empty() {
@@ -1481,7 +1487,7 @@ pub fn prepare_sibling_folder_reorder(
                 }
                 stack.push((ty, name, start));
             }
-            Event::Empty(e) if e.name().as_ref() == b"NODE" => {
+            Event::Empty(e) if e.name().as_ref().as_bytes() == b"NODE" => {
                 let ty = attr(&e, "Type")?;
                 let name = attr(&e, "Name")?;
                 if ty == "0" && !stack.is_empty() {
@@ -1494,7 +1500,7 @@ pub fn prepare_sibling_folder_reorder(
                     folders.push((name, start..end));
                 }
             }
-            Event::End(e) if e.name().as_ref() == b"NODE" => {
+            Event::End(e) if e.name().as_ref().as_bytes() == b"NODE" => {
                 let (ty, name, node_start) = stack
                     .pop()
                     .ok_or_else(|| Error("unexpected closing NODE".into()))?;
@@ -1576,7 +1582,7 @@ pub fn prepare_sibling_folder_reorder(
             .read_event_into(&mut vbuf)
             .map_err(|e| Error(format!("malformed XML: {e}")))?
         {
-            Event::Start(e) if e.name().as_ref() == b"NODE" => {
+            Event::Start(e) if e.name().as_ref().as_bytes() == b"NODE" => {
                 let ty = attr(&e, "Type")?;
                 let name = attr(&e, "Name")?;
                 if ty == "0" && !vstack.is_empty() {
@@ -1590,7 +1596,7 @@ pub fn prepare_sibling_folder_reorder(
                 }
                 vstack.push((ty, name));
             }
-            Event::Empty(e) if e.name().as_ref() == b"NODE" => {
+            Event::Empty(e) if e.name().as_ref().as_bytes() == b"NODE" => {
                 let ty = attr(&e, "Type")?;
                 if ty == "0" && !vstack.is_empty() {
                     if ordinal == request.parent_index {
@@ -1602,7 +1608,7 @@ pub fn prepare_sibling_folder_reorder(
                     observed.push(attr(&e, "Name")?);
                 }
             }
-            Event::End(e) if e.name().as_ref() == b"NODE" => {
+            Event::End(e) if e.name().as_ref().as_bytes() == b"NODE" => {
                 let (ty, _) = vstack
                     .pop()
                     .ok_or_else(|| Error("unexpected closing NODE".into()))?;
@@ -1654,7 +1660,7 @@ pub fn prepare_folder_move(
                 .map_err(|error| Error(format!("malformed XML: {error}")))?;
             let end = reader.buffer_position() as usize;
             match event {
-                Event::Start(element) if element.name().as_ref() == b"NODE" => {
+                Event::Start(element) if element.name().as_ref().as_bytes() == b"NODE" => {
                     let ty = attr(&element, "Type")?;
                     let name = attr(&element, "Name")?;
                     let parent = stack
@@ -1694,7 +1700,7 @@ pub fn prepare_folder_move(
                     };
                     stack.push(Frame { ty, folder });
                 }
-                Event::Empty(element) if element.name().as_ref() == b"NODE" => {
+                Event::Empty(element) if element.name().as_ref().as_bytes() == b"NODE" => {
                     let ty = attr(&element, "Type")?;
                     let name = attr(&element, "Name")?;
                     let parent = stack
@@ -1727,7 +1733,7 @@ pub fn prepare_folder_move(
                         });
                     }
                 }
-                Event::End(element) if element.name().as_ref() == b"NODE" => {
+                Event::End(element) if element.name().as_ref().as_bytes() == b"NODE" => {
                     let frame = stack
                         .pop()
                         .ok_or_else(|| Error("unexpected closing NODE".into()))?;
@@ -1979,7 +1985,7 @@ pub fn prepare_folder_rename(
             .read_event_into(&mut buf)
             .map_err(|e| Error(format!("malformed XML: {e}")))?;
         match ev {
-            Event::Start(e) if e.name().as_ref() == b"NODE" => {
+            Event::Start(e) if e.name().as_ref().as_bytes() == b"NODE" => {
                 let ty = attr(&e, "Type")?;
                 let name = attr(&e, "Name")?;
                 let parent = node_path.iter().skip(1).cloned().collect::<Vec<_>>();
@@ -2002,7 +2008,7 @@ pub fn prepare_folder_rename(
                 node_path.push(name);
                 stack.push("NODE".into());
             }
-            Event::Empty(e) if e.name().as_ref() == b"NODE" => {
+            Event::Empty(e) if e.name().as_ref().as_bytes() == b"NODE" => {
                 let ty = attr(&e, "Type")?;
                 let name = attr(&e, "Name")?;
                 let parent = node_path.iter().skip(1).cloned().collect::<Vec<_>>();
@@ -2023,9 +2029,11 @@ pub fn prepare_folder_rename(
                     folder_no += 1;
                 }
             }
-            Event::Start(e) => stack.push(String::from_utf8_lossy(e.name().as_ref()).into_owned()),
+            Event::Start(e) => {
+                stack.push(String::from_utf8_lossy(e.name().as_ref().as_bytes()).into_owned())
+            }
             Event::End(e) => {
-                if e.name().as_ref() == b"NODE" {
+                if e.name().as_ref().as_bytes() == b"NODE" {
                     node_path.pop();
                 }
                 stack.pop();
@@ -2101,7 +2109,7 @@ pub fn prepare_folder_delete(
             .map_err(|e| Error(format!("malformed XML: {e}")))?;
         let end = reader.buffer_position() as usize;
         match ev {
-            Event::Start(e) if e.name().as_ref() == b"NODE" => {
+            Event::Start(e) if e.name().as_ref().as_bytes() == b"NODE" => {
                 let ty = attr(&e, "Type")?;
                 let raw = attr(&e, if ty == "0" { "Count" } else { "Entries" })?;
                 let value = raw
@@ -2136,7 +2144,9 @@ pub fn prepare_folder_delete(
                 };
                 stack.push((ty, count_range, value));
             }
-            Event::Empty(e) if e.name().as_ref() == b"NODE" && attr(&e, "Type")? == "0" => {
+            Event::Empty(e)
+                if e.name().as_ref().as_bytes() == b"NODE" && attr(&e, "Type")? == "0" =>
+            {
                 let raw = attr(&e, "Count")?;
                 let count = raw
                     .parse::<usize>()
@@ -2163,7 +2173,7 @@ pub fn prepare_folder_delete(
                     ordinal += 1;
                 }
             }
-            Event::End(e) if e.name().as_ref() == b"NODE" => {
+            Event::End(e) if e.name().as_ref().as_bytes() == b"NODE" => {
                 if target_depth == Some(stack.len()) {
                     if target_range.as_ref().is_none_or(|r| r.end != start) {
                         return Err(Error("folder NODE has child elements".into()));
@@ -2233,7 +2243,7 @@ pub fn prepare_folder_create(
             .read_event_into(&mut buf)
             .map_err(|e| Error(format!("malformed XML: {e}")))?;
         match ev {
-            Event::Start(e) if e.name().as_ref() == b"NODE" => {
+            Event::Start(e) if e.name().as_ref().as_bytes() == b"NODE" => {
                 let ty = attr(&e, "Type")?;
                 let raw = attr(&e, if ty == "0" { "Count" } else { "Entries" })?;
                 let count = raw
@@ -2268,7 +2278,7 @@ pub fn prepare_folder_create(
                 };
                 stack.push((ty, range, count));
             }
-            Event::Empty(e) if e.name().as_ref() == b"NODE" => {
+            Event::Empty(e) if e.name().as_ref().as_bytes() == b"NODE" => {
                 let ty = attr(&e, "Type")?;
                 if selected.as_ref().is_some_and(|s| stack.len() == s.0 + 1) {
                     siblings.push(attr(&e, "Name")?);
@@ -2285,7 +2295,7 @@ pub fn prepare_folder_create(
                     }
                 }
             }
-            Event::End(e) if e.name().as_ref() == b"NODE" => {
+            Event::End(e) if e.name().as_ref().as_bytes() == b"NODE" => {
                 if let Some((depth, _, _, _, _)) = selected.as_ref()
                     && stack.len() == *depth + 1
                 {
@@ -2354,7 +2364,7 @@ pub fn prepare_playlist_create(
             .read_event_into(&mut buf)
             .map_err(|e| Error(format!("malformed XML: {e}")))?;
         match ev {
-            Event::Start(e) if e.name().as_ref() == b"NODE" => {
+            Event::Start(e) if e.name().as_ref().as_bytes() == b"NODE" => {
                 let ty = attr(&e, "Type")?;
                 let raw = attr(&e, if ty == "0" { "Count" } else { "Entries" })?;
                 let count = raw
@@ -2389,7 +2399,7 @@ pub fn prepare_playlist_create(
                 };
                 stack.push((ty, range, count));
             }
-            Event::Empty(e) if e.name().as_ref() == b"NODE" => {
+            Event::Empty(e) if e.name().as_ref().as_bytes() == b"NODE" => {
                 let ty = attr(&e, "Type")?;
                 if selected.as_ref().is_some_and(|s| stack.len() == s.0 + 1) {
                     siblings.push(attr(&e, "Name")?);
@@ -2406,7 +2416,7 @@ pub fn prepare_playlist_create(
                     }
                 }
             }
-            Event::End(e) if e.name().as_ref() == b"NODE" => {
+            Event::End(e) if e.name().as_ref().as_bytes() == b"NODE" => {
                 if let Some((depth, _, _, _, _)) = selected.as_ref()
                     && stack.len() == *depth + 1
                 {
@@ -2502,7 +2512,7 @@ pub fn prepare_playlist_move(
             .map_err(|e| Error(format!("malformed XML: {e}")))?;
         let end = reader.buffer_position() as usize;
         match event {
-            Event::Start(e) if e.name().as_ref() == b"NODE" => {
+            Event::Start(e) if e.name().as_ref().as_bytes() == b"NODE" => {
                 let kind = attr(&e, "Type")?;
                 let name = attr(&e, "Name")?;
                 let parent = stack
@@ -2567,7 +2577,7 @@ pub fn prepare_playlist_move(
                     return Err(Error(format!("unsupported playlist NODE Type={kind}")));
                 }
             }
-            Event::Empty(e) if e.name().as_ref() == b"NODE" => {
+            Event::Empty(e) if e.name().as_ref().as_bytes() == b"NODE" => {
                 let kind = attr(&e, "Type")?;
                 let name = attr(&e, "Name")?;
                 let parent = stack
@@ -2615,7 +2625,7 @@ pub fn prepare_playlist_move(
                     return Err(Error(format!("unsupported playlist NODE Type={kind}")));
                 }
             }
-            Event::End(e) if e.name().as_ref() == b"NODE" => {
+            Event::End(e) if e.name().as_ref().as_bytes() == b"NODE" => {
                 let frame = stack
                     .pop()
                     .ok_or_else(|| Error("unexpected closing NODE".into()))?;

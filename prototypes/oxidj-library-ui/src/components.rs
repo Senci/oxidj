@@ -122,19 +122,25 @@ impl StatusBadge<'_> {
     /// stale (wrapped) height from the previous frame.
     pub fn show_inline(self, ui: &mut egui::Ui, tokens: ColorTokens) -> egui::Response {
         let accent = self.kind.color(tokens);
-        let galley = egui::WidgetText::from(RichText::new(self.label).small().color(tokens.text)).into_galley(
-            ui,
-            Some(egui::TextWrapMode::Extend),
-            f32::INFINITY,
-            egui::TextStyle::Small,
-        );
+        let galley = egui::WidgetText::from(RichText::new(self.label).small().color(tokens.text))
+            .into_galley(
+                ui,
+                Some(egui::TextWrapMode::Extend),
+                f32::INFINITY,
+                egui::TextStyle::Small,
+            );
         let height = ui.text_style_height(&egui::TextStyle::Body);
         let size = egui::vec2(galley.size().x + 12.0, height);
         let (rect, response) = ui.allocate_exact_size(size, egui::Sense::hover());
-        response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, self.label));
+        response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Label, true, self.label));
         let painter = ui.painter();
         painter.rect_filled(rect, 3.0, accent.linear_multiply(0.16));
-        painter.rect_stroke(rect, 3.0, Stroke::new(1.0_f32, accent), egui::StrokeKind::Inside);
+        painter.rect_stroke(
+            rect,
+            3.0,
+            Stroke::new(1.0_f32, accent),
+            egui::StrokeKind::Inside,
+        );
         painter.galley(rect.center() - galley.size() / 2.0, galley, tokens.text);
         response.on_hover_text(self.label)
     }
@@ -184,16 +190,13 @@ pub fn segmented_toggles(
     let last = cells.len().saturating_sub(1);
     let mut x = group.left();
     let mut responses = Vec::with_capacity(cells.len());
-    for (index, (((label, on), galley), width)) in
-        cells.iter().zip(galleys).zip(widths).enumerate()
+    for (index, (((label, on), galley), width)) in cells.iter().zip(galleys).zip(widths).enumerate()
     {
         let rect = egui::Rect::from_min_size(egui::pos2(x, group.top()), egui::vec2(width, height));
         x += width + 1.0;
         let id = base.with(("segment", index));
         let response = ui.interact(rect, id, egui::Sense::click());
-        response.widget_info(|| {
-            egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, true, *on, *label)
-        });
+        response.widget_info(|| egui::WidgetInfo::selected(egui::Role::Button, true, *on, *label));
         let r = CONTROL_RADIUS as u8;
         let radius = egui::CornerRadius {
             nw: if index == 0 { r } else { 0 },
@@ -204,18 +207,33 @@ pub fn segmented_toggles(
         let painter = ui.painter();
         if *on {
             painter.rect_filled(rect, radius, crate::theme::selection_fill(tokens));
-            let bar = egui::Rect::from_x_y_ranges(rect.x_range(), rect.bottom() - 2.0..=rect.bottom());
+            let bar =
+                egui::Rect::from_x_y_ranges(rect.x_range(), rect.bottom() - 2.0..=rect.bottom());
             painter.rect_filled(bar, 0.0, tokens.primary);
         } else if response.hovered() {
             painter.rect_filled(rect, radius, tokens.surface);
         }
         if response.has_focus() {
-            painter.rect_stroke(rect, radius, Stroke::new(2.0_f32, tokens.focus), egui::StrokeKind::Inside);
+            painter.rect_stroke(
+                rect,
+                radius,
+                Stroke::new(2.0_f32, tokens.focus),
+                egui::StrokeKind::Inside,
+            );
         } else if response.hovered() {
-            painter.rect_stroke(rect, radius, Stroke::new(1.0_f32, tokens.focus), egui::StrokeKind::Inside);
+            painter.rect_stroke(
+                rect,
+                radius,
+                Stroke::new(1.0_f32, tokens.focus),
+                egui::StrokeKind::Inside,
+            );
         }
         if index < last {
-            painter.vline(rect.right() + 0.5, group.y_range(), Stroke::new(1.0_f32, tokens.border));
+            painter.vline(
+                rect.right() + 0.5,
+                group.y_range(),
+                Stroke::new(1.0_f32, tokens.border),
+            );
         }
         let pos = rect.center() - galley.size() / 2.0;
         painter.galley(pos, galley, tokens.text);
@@ -253,7 +271,9 @@ pub fn setting_row<R>(
                 egui::Layout::left_to_right(egui::Align::Center),
                 |ui| {
                     ui.set_min_width(SETTING_LABEL_WIDTH);
-                    ui.add(egui::Label::new(RichText::new(label).color(tokens.muted_text)).truncate())
+                    ui.add(
+                        egui::Label::new(RichText::new(label).color(tokens.muted_text)).truncate(),
+                    )
                 },
             )
             .inner;
@@ -274,7 +294,11 @@ pub fn segmented_row(
     selected: &mut usize,
 ) -> Vec<egui::Response> {
     let (_, responses) = setting_row(ui, tokens, label, |ui| {
-        let cells: Vec<_> = options.iter().enumerate().map(|(i, o)| (*o, i == *selected)).collect();
+        let cells: Vec<_> = options
+            .iter()
+            .enumerate()
+            .map(|(i, o)| (*o, i == *selected))
+            .collect();
         segmented_toggles(ui, tokens, &cells)
     });
     if let Some(i) = responses.iter().position(egui::Response::clicked) {
@@ -287,7 +311,12 @@ pub fn segmented_row(
 /// click flips `value`; AccessKit checkbox with its checked state). On: the
 /// selection tint with the knob in primary at the right; off: surface with
 /// a muted knob at the left. The painted shapes stay inside the response rect.
-pub fn toggle_row(ui: &mut egui::Ui, tokens: ColorTokens, label: &str, value: &mut bool) -> egui::Response {
+pub fn toggle_row(
+    ui: &mut egui::Ui,
+    tokens: ColorTokens,
+    label: &str,
+    value: &mut bool,
+) -> egui::Response {
     let (label_response, response) = setting_row(ui, tokens, label, |ui| {
         let (rect, mut response) = ui.allocate_exact_size(SWITCH_SIZE, egui::Sense::click());
         if response.clicked() {
@@ -295,12 +324,19 @@ pub fn toggle_row(ui: &mut egui::Ui, tokens: ColorTokens, label: &str, value: &m
             response.mark_changed();
         }
         let on = *value;
-        response.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Checkbox, true, on, label));
+        response.widget_info(|| egui::WidgetInfo::selected(egui::Role::CheckBox, true, on, label));
         let t = ui.ctx().animate_bool_responsive(response.id, on);
         let painter = ui.painter();
-        let rect = egui::Rect::from_center_size(rect.center(), egui::vec2(rect.width(), SWITCH_TRACK_HEIGHT));
+        let rect = egui::Rect::from_center_size(
+            rect.center(),
+            egui::vec2(rect.width(), SWITCH_TRACK_HEIGHT),
+        );
         let radius = rect.height() / 2.0;
-        let fill = if on { crate::theme::selection_fill(tokens) } else { tokens.surface };
+        let fill = if on {
+            crate::theme::selection_fill(tokens)
+        } else {
+            tokens.surface
+        };
         painter.rect_filled(rect, radius, fill);
         let outline = if response.has_focus() {
             Stroke::new(2.0_f32, tokens.focus)
@@ -312,7 +348,11 @@ pub fn toggle_row(ui: &mut egui::Ui, tokens: ColorTokens, label: &str, value: &m
         painter.rect_stroke(rect, radius, outline, egui::StrokeKind::Inside);
         let knob_r = radius - 4.0;
         let x = egui::lerp((rect.left() + radius)..=(rect.right() - radius), t);
-        let knob = if on { tokens.primary } else { tokens.muted_text };
+        let knob = if on {
+            tokens.primary
+        } else {
+            tokens.muted_text
+        };
         painter.circle_filled(egui::pos2(x, rect.center().y), knob_r, knob);
         response
     });
@@ -326,7 +366,7 @@ pub fn text_field(ui: &mut egui::Ui, text: &mut String) -> egui::Response {
     ui.add(
         egui::TextEdit::singleline(text)
             .min_size(egui::vec2(0.0, crate::theme::CONTROL_HEIGHT))
-            .vertical_align(egui::Align::Center),
+            .align(egui::Align2::LEFT_CENTER),
     )
 }
 
@@ -350,8 +390,9 @@ mod tests {
     fn components_render_without_panicking_in_both_presets() {
         for mode in [ThemeMode::TokyoNight, ThemeMode::TokyoDay] {
             let ctx = egui::Context::default();
-            let _ = ctx.run(egui::RawInput::default(), |ctx| {
-                egui::CentralPanel::default().show(ctx, |ui| {
+            let _ = crate::test_frame(&ctx, egui::RawInput::default(), |root_ui| {
+                let _ctx = &root_ui.ctx().clone();
+                egui::CentralPanel::default().show(root_ui, |ui| {
                     let tokens = mode.tokens();
                     SectionHeading {
                         title: "Track details",
@@ -379,13 +420,15 @@ mod tests {
         let ctx = egui::Context::default();
         let tokens = ThemeMode::TokyoNight.tokens();
         let mut button_rect = egui::Rect::NOTHING;
-        let _ = ctx.run(
+        let _ = crate::test_frame(
+            &ctx,
             egui::RawInput {
                 time: Some(0.0),
                 ..Default::default()
             },
-            |ctx| {
-                egui::CentralPanel::default().show(ctx, |ui| {
+            |root_ui| {
+                let _ctx = &root_ui.ctx().clone();
+                egui::CentralPanel::default().show(root_ui, |ui| {
                     button_rect = PrimaryActionButton { label: "Import" }
                         .show(ui, tokens)
                         .rect;
@@ -393,14 +436,16 @@ mod tests {
             },
         );
         let pos = button_rect.center();
-        let output = ctx.run(
+        let output = crate::test_frame(
+            &ctx,
             egui::RawInput {
                 time: Some(1.0),
                 events: vec![egui::Event::PointerMoved(pos)],
                 ..Default::default()
             },
-            |ctx| {
-                egui::CentralPanel::default().show(ctx, |ui| {
+            |root_ui| {
+                let _ctx = &root_ui.ctx().clone();
+                egui::CentralPanel::default().show(root_ui, |ui| {
                     button_rect = PrimaryActionButton { label: "Import" }
                         .show(ui, tokens)
                         .rect;
@@ -433,13 +478,21 @@ mod tests {
         let mut choice = 0usize;
         let rects = std::cell::RefCell::new((egui::Rect::NOTHING, Vec::new()));
         let run = |events: Vec<egui::Event>, value: &mut bool, choice: &mut usize| {
-            ctx.run(egui::RawInput { events, ..Default::default() }, |ctx| {
-                egui::CentralPanel::default().show(ctx, |ui| {
-                    let switch = toggle_row(ui, tokens, "Smooth edges", value).rect;
-                    let cells = segmented_row(ui, tokens, "Style", &["Mono", "3-band", "RGB"], choice);
-                    *rects.borrow_mut() = (switch, cells.iter().map(|c| c.rect).collect());
-                });
-            })
+            crate::test_frame(
+                &ctx,
+                egui::RawInput {
+                    events,
+                    ..Default::default()
+                },
+                |root_ui| {
+                    egui::CentralPanel::default().show(root_ui, |ui| {
+                        let switch = toggle_row(ui, tokens, "Smooth edges", value).rect;
+                        let cells =
+                            segmented_row(ui, tokens, "Style", &["Mono", "3-band", "RGB"], choice);
+                        *rects.borrow_mut() = (switch, cells.iter().map(|c| c.rect).collect());
+                    });
+                },
+            )
         };
         for _ in 0..2 {
             run(vec![], &mut value, &mut choice);
@@ -464,9 +517,20 @@ mod tests {
                 _ => None,
             });
             let knob = knob.expect("knob painted");
-            let bounds = egui::Rect::from_center_size(knob.center, egui::Vec2::splat(2.0 * knob.radius));
-            assert!(switch.contains_rect(bounds), "knob inside the switch: {bounds:?}");
-            assert_eq!(knob.fill, if expect { tokens.primary } else { tokens.muted_text });
+            let bounds =
+                egui::Rect::from_center_size(knob.center, egui::Vec2::splat(2.0 * knob.radius));
+            assert!(
+                switch.contains_rect(bounds),
+                "knob inside the switch: {bounds:?}"
+            );
+            assert_eq!(
+                knob.fill,
+                if expect {
+                    tokens.primary
+                } else {
+                    tokens.muted_text
+                }
+            );
         }
         run(click(cells[2].center()), &mut value, &mut choice);
         assert_eq!(choice, 2);
@@ -478,8 +542,9 @@ mod tests {
             let ctx = egui::Context::default();
             let tokens = mode.tokens();
             let mut rect = egui::Rect::NOTHING;
-            let _ = ctx.run(egui::RawInput::default(), |ctx| {
-                egui::CentralPanel::default().show(ctx, |ui| {
+            let _ = crate::test_frame(&ctx, egui::RawInput::default(), |root_ui| {
+                let _ctx = &root_ui.ctx().clone();
+                egui::CentralPanel::default().show(root_ui, |ui| {
                     rect = PrimaryActionButton {
                         label: "Import references",
                     }
@@ -489,7 +554,8 @@ mod tests {
             });
             let pos = rect.center();
             let mut clicked = false;
-            let _ = ctx.run(
+            let _ = crate::test_frame(
+                &ctx,
                 egui::RawInput {
                     events: vec![
                         egui::Event::PointerMoved(pos),
@@ -508,8 +574,8 @@ mod tests {
                     ],
                     ..Default::default()
                 },
-                |ctx| {
-                    egui::CentralPanel::default().show(ctx, |ui| {
+                |root_ui| {
+                    egui::CentralPanel::default().show(root_ui, |ui| {
                         clicked = PrimaryActionButton {
                             label: "Import references",
                         }

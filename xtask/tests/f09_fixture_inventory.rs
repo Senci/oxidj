@@ -135,7 +135,7 @@ const PROVENANCE_SHA256: &[(&str, &str)] = &[
     ),
     (
         "rekordbox-a1/F-02",
-        "59c2341e7d95dbccc71fb7ac244ee41eacbdd4bf1c764e118a8af85adb5f3ffb",
+        "510ed3b41b209a304788423eb3fa5dbab46e450e341ecd306654fb9327705d09",
     ),
     (
         "f03-logical",
@@ -171,7 +171,7 @@ const PROVENANCE_SHA256: &[(&str, &str)] = &[
     ),
     (
         "rekordbox-a1/F-07",
-        "8e477a96588d0c33b8b1094c8d707f5442bf43afc2d949be57bc2d63241af2c7",
+        "860f0f007ea620936bc9ef185340af5967b0a1082c84f5ee016eda7642f2ba73",
     ),
     (
         "f08-logical",
@@ -183,7 +183,7 @@ const PROVENANCE_SHA256: &[(&str, &str)] = &[
     ),
     (
         "rekordbox-a1/F-10",
-        "d58d715196baeff9bed63e5eab47bd08c5d91c76d8d41e1346e37333e89b07b2",
+        "a06bcb0bfd34e8b3974ef87afe584d48be66bf7f372c3fa25145d0b0398e916b",
     ),
     (
         "f11-logical",

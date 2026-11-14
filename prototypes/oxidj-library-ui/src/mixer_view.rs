@@ -44,8 +44,9 @@ mod wheel_tests {
                 events,
                 ..Default::default()
             };
-            let _ = ctx.run(input, |ctx| {
-                egui::CentralPanel::default().show(ctx, |ui| {
+            let _ = crate::test_frame(&ctx, input, |root_ui| {
+                let ctx = &root_ui.ctx().clone();
+                egui::CentralPanel::default().show(root_ui, |ui| {
                     let output = egui::ScrollArea::vertical()
                         .max_height(100.0)
                         .show(ui, |ui| {
@@ -83,7 +84,7 @@ mod wheel_tests {
                             });
                             ui.add_space(500.0);
                         });
-                    offset = output.state.offset.y;
+                    offset = output.state.offset().y;
                 });
             });
             (pos, offset, value)
@@ -94,6 +95,8 @@ mod wheel_tests {
                 vec![
                     egui::Event::PointerMoved(p),
                     egui::Event::MouseWheel {
+                        phase: egui::TouchPhase::Move,
+                        source: egui::MouseWheelSource::Unknown,
                         unit: egui::MouseWheelUnit::Point,
                         delta: vec2(0.0, -4.0),
                         modifiers: Default::default(),
@@ -109,6 +112,8 @@ mod wheel_tests {
                 vec![
                     egui::Event::PointerMoved(p),
                     egui::Event::MouseWheel {
+                        phase: egui::TouchPhase::Move,
+                        source: egui::MouseWheelSource::Unknown,
                         unit: egui::MouseWheelUnit::Line,
                         delta: vec2(0.0, -1.0),
                         modifiers: Default::default(),
@@ -163,6 +168,27 @@ pub(crate) const KNOB_DB_STEP: f64 = 1.0;
 /// Arrow-key step of the EQ knobs (position), filter, faders and crossfader.
 pub(crate) const FADER_STEP: f64 = 0.05;
 
+/// Unsmoothed wheel distance in egui points. Line ticks retain the existing
+/// 40-point control step; page events use the viewport height.
+pub(crate) fn raw_wheel_y(input: &egui::InputState) -> f32 {
+    input
+        .raw
+        .events
+        .iter()
+        .map(|event| match event {
+            egui::Event::MouseWheel { unit, delta, .. } => {
+                delta.y
+                    * match unit {
+                        egui::MouseWheelUnit::Point => 1.0,
+                        egui::MouseWheelUnit::Line => 40.0,
+                        egui::MouseWheelUnit::Page => input.content_rect().height(),
+                    }
+            }
+            _ => 0.0,
+        })
+        .sum()
+}
+
 /// Consume vertical wheel input while the pointer is over a mixer control.
 pub(crate) fn mixer_wheel(
     ui: &mut Ui,
@@ -180,7 +206,7 @@ pub(crate) fn mixer_wheel(
         // their tail scroll an ancestor after the pointer leaves the control.
         if pending {
             let (raw, smooth) = ui.input_mut(|input| {
-                let raw = input.raw_scroll_delta.y;
+                let raw = raw_wheel_y(input);
                 let smooth = input.smooth_scroll_delta.y;
                 if raw == 0.0 {
                     input.smooth_scroll_delta.y = 0.0;
@@ -194,8 +220,12 @@ pub(crate) fn mixer_wheel(
         return false;
     }
     let delta = ui.input_mut(|input| {
-        let delta = input.raw_scroll_delta.y;
-        input.raw_scroll_delta.y = 0.0;
+        let delta = raw_wheel_y(input);
+        for event in &mut input.raw.events {
+            if let egui::Event::MouseWheel { delta, .. } = event {
+                delta.y = 0.0;
+            }
+        }
         input.smooth_scroll_delta.y = 0.0;
         delta / 40.0
     });
@@ -302,7 +332,7 @@ pub(crate) fn mixer_vertical_fader(
     // Slider track area: above the label, full cell width, minimum SLIDER_MIN_W height.
     let slider_h = (label_y - cell.top() - 4.0).max(SLIDER_MIN_W);
     let slider_r = Rect::from_min_size(pos2(cell.left(), cell.top()), vec2(cell.width(), slider_h));
-    let id = ui.id().with(("mixer-vertical-fader", name));
+    let id = ui.scope_id().with(("mixer-vertical-fader", name));
     let mut v = *value;
     let min = *range.start();
     let max = *range.end();
@@ -459,7 +489,7 @@ pub(crate) fn mixer_horizontal_fader(
     // Slider track area: right of the label, full cell height, minimum SLIDER_MIN_W width.
     let slider_w = (cell.right() - label_x - 4.0).max(SLIDER_MIN_W);
     let slider_r = Rect::from_min_size(pos2(label_x, cell.top()), vec2(slider_w, cell.height()));
-    let id = ui.id().with(("mixer-horizontal-fader", name));
+    let id = ui.scope_id().with(("mixer-horizontal-fader", name));
     let mut v = *value;
     let min = *range.start();
     let max = *range.end();
@@ -695,7 +725,7 @@ fn mixer_rotary_styled(
             rect
         }
     };
-    let id = ui.id().with(("mixer-rotary", name));
+    let id = ui.scope_id().with(("mixer-rotary", name));
     let mut response = ui.interact(rect, id, Sense::click_and_drag());
     if response.clicked() {
         response.request_focus();
@@ -905,15 +935,17 @@ fn level_meter_padded(
     tokens: ColorTokens,
     pad: f32,
 ) {
-    let response = ui.interact(rect, ui.id().with(("level-meter", name)), Sense::hover());
+    let response = ui.interact(
+        rect,
+        ui.scope_id().with(("level-meter", name)),
+        Sense::hover(),
+    );
     let text = format!(
         "{name}: {}{}",
         db_text(meter.level),
         if meter.clipping() { ", clip" } else { "" }
     );
-    response.widget_info(|| {
-        egui::WidgetInfo::labeled(egui::WidgetType::ProgressIndicator, true, &text)
-    });
+    response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::ProgressIndicator, true, &text));
     let painter = ui.painter_at(rect);
     let bar = Rect::from_min_max(
         rect.min + vec2(0.0, pad),
@@ -971,15 +1003,17 @@ pub(crate) fn level_meter_v(
     name: &str,
     tokens: ColorTokens,
 ) {
-    let response = ui.interact(rect, ui.id().with(("level-meter", name)), Sense::hover());
+    let response = ui.interact(
+        rect,
+        ui.scope_id().with(("level-meter", name)),
+        Sense::hover(),
+    );
     let text = format!(
         "{name}: {}{}",
         db_text(meter.level),
         if meter.clipping() { ", clip" } else { "" }
     );
-    response.widget_info(|| {
-        egui::WidgetInfo::labeled(egui::WidgetType::ProgressIndicator, true, &text)
-    });
+    response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::ProgressIndicator, true, &text));
     let painter = ui.painter_at(rect);
     let clip = Rect::from_min_size(rect.min, vec2(rect.width(), CLIP_H));
     let bar = Rect::from_min_max(pos2(rect.left(), clip.bottom() + 1.0), rect.max);
@@ -1157,7 +1191,7 @@ impl LibraryApp {
         layout: &mut DeckLayout,
     ) {
         let prefs = self.settings.mixer;
-        let screen_w = ui.ctx().screen_rect().width();
+        let screen_w = ui.ctx().content_rect().width();
         // The strip placements split `r` into the strip and the mixer block.
         let side = if prefs.monitor == MonitorPlacement::Beside {
             MON_W + SPLIT
@@ -1695,9 +1729,13 @@ impl LibraryApp {
         );
         let assign_y = rail_row.bottom() + 2.0;
         let icon_r = Rect::from_min_size(label_row.min, vec2(ICON_W - 6.0, 14.0));
-        let response = ui.interact(icon_r, ui.id().with("crossfader-toggle"), Sense::click());
+        let response = ui.interact(
+            icon_r,
+            ui.scope_id().with("crossfader-toggle"),
+            Sense::click(),
+        );
         response.widget_info(|| {
-            egui::WidgetInfo::selected(egui::WidgetType::Checkbox, true, on, "Crossfader section")
+            egui::WidgetInfo::selected(egui::Role::CheckBox, true, on, "Crossfader section")
         });
         let painter = ui.painter_at(icon_r);
         if response.hovered() || response.has_focus() {

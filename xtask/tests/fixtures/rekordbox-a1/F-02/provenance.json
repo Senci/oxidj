@@ -10,7 +10,7 @@
   "checker_identity": {
     "path": "xtask/tests/rekordbox_xml_a1.rs",
     "version": "rekordbox-xml-a1-checker-v1",
-    "sha256": "0f43c4300af9bfdb2b892876ee87cce49ef5b4420944b3f661a951e1779e22ce"
+    "sha256": "effc1fbe44b20d8a7ed030771b6c26cf90df7e18fd66828991f75a511a0d140f"
   },
   "artifacts": {
     "case.json": {

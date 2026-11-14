@@ -2,6 +2,19 @@
 
 Condensed 2026-11-02. Full prior text (per-increment evidence, M0-09 verification, decisions, risks, F-09 oracle notes): [docs/history/status-2026-11-02.md](../docs/history/status-2026-11-02.md). Milestone contract: [plan/MVP.md](MVP.md). Live work: Kanban; this file records stages and gates only.
 
+## Dependency refresh — 2026-11-14, implementation awaiting admission/review
+
+Task `t_bf244c1b` migrates both prototypes to eframe 0.37.0 and all direct
+quick-xml uses to 0.42.0, alongside the earlier compatible Rust/Bun updates.
+The migrated tree passes `cargo xtask ci-full` and site checks; UI tests report
+351 passed / 2 ignored, GUI probe 14 passed, retained isolated reader 13 passed.
+This is **not full dependency-update completion**: separate prototype license
+checks fail the unchanged allowlist, reader rusqlite 0.42 needs a license
+policy decision, root rusqlite and site TypeScript have upstream compatibility
+constraints, and independent review/install remain pending. Eframe includes
+Wayland fix #8631; actual hide/show runtime behavior is NOT TESTED. See the
+[exact inventory, exceptions and gate scopes](../docs/dependency-update-2026-11.md).
+
 ## Current snapshot — 2026-11-12
 
 Reviewed local master includes audio output selection, restart-only device and buffer preferences, limiter and status, JACK support, recovery and loop-seam fixes through `b80a1db`. Muted synthetic JACK at 48 kHz/256 frames ran 600.1 s with 0 reported xruns/errors; the virtual four-channel cue check is not physical hardware evidence. USB reconnect and physical four-channel cue, Windows ASIO and macOS audio remain NOT RUN; see [audio handoff](AUDIO.md). Imported root-playlist occurrence moves were reviewed at `b4916d8`; synthetic UI/export evidence is not native hardware qualification. The older pending-review sections below are historical snapshots and do not override later card approvals.

@@ -185,7 +185,7 @@ pub(crate) fn track_attribute_range(
             .map_err(|e| Error(format!("malformed XML: {e}")))?
         {
             Event::Start(e)
-                if e.name().as_ref() == b"TRACK"
+                if e.name().as_ref().as_bytes() == b"TRACK"
                     && stack.last().is_some_and(|p| p == "COLLECTION") =>
             {
                 if attr(&e, "TrackID")? == id {
@@ -194,14 +194,16 @@ pub(crate) fn track_attribute_range(
                 stack.push("TRACK".into());
             }
             Event::Empty(e)
-                if e.name().as_ref() == b"TRACK"
+                if e.name().as_ref().as_bytes() == b"TRACK"
                     && stack.last().is_some_and(|p| p == "COLLECTION") =>
             {
                 if attr(&e, "TrackID")? == id {
                     result = Some(attribute_value_range(&e, start, attribute, expected)?);
                 }
             }
-            Event::Start(e) => stack.push(String::from_utf8_lossy(e.name().as_ref()).into_owned()),
+            Event::Start(e) => {
+                stack.push(String::from_utf8_lossy(e.name().as_ref().as_bytes()).into_owned())
+            }
             Event::End(_) => {
                 stack.pop();
             }
@@ -429,7 +431,7 @@ pub(crate) fn tempo_bpm_range(
             .map_err(|error| Error(format!("malformed XML: {error}")))?;
         match event {
             Event::Start(element) => {
-                let name = String::from_utf8_lossy(element.name().as_ref()).into_owned();
+                let name = String::from_utf8_lossy(element.name().as_ref().as_bytes()).into_owned();
                 if name == "TRACK" && stack.last().is_some_and(|parent| parent == "COLLECTION") {
                     track_id = Some(attr(&element, "TrackID")?);
                     tempo_index = 0;
@@ -446,7 +448,7 @@ pub(crate) fn tempo_bpm_range(
                 stack.push(name);
             }
             Event::Empty(element) => {
-                let name = String::from_utf8_lossy(element.name().as_ref()).into_owned();
+                let name = String::from_utf8_lossy(element.name().as_ref().as_bytes()).into_owned();
                 if name == "TEMPO" && track_id.as_deref() == Some(&request.track_id) {
                     if tempo_index == request.tempo_index {
                         value_range = Some(bpm_attribute_range(
@@ -459,7 +461,7 @@ pub(crate) fn tempo_bpm_range(
                 }
             }
             Event::End(element) => {
-                let name = String::from_utf8_lossy(element.name().as_ref()).into_owned();
+                let name = String::from_utf8_lossy(element.name().as_ref().as_bytes()).into_owned();
                 if name == "TRACK" && stack.last().is_some_and(|parent| parent == "TRACK") {
                     track_id = None;
                 }
@@ -499,7 +501,7 @@ pub(crate) fn tempo_attribute_range(
             .map_err(|error| Error(format!("malformed XML: {error}")))?;
         match event {
             Event::Start(element) => {
-                let name = String::from_utf8_lossy(element.name().as_ref()).into_owned();
+                let name = String::from_utf8_lossy(element.name().as_ref().as_bytes()).into_owned();
                 if name == "TRACK" && stack.last().is_some_and(|parent| parent == "COLLECTION") {
                     current_track_id = Some(attr(&element, "TrackID")?);
                     current_tempo_index = 0;
@@ -518,7 +520,7 @@ pub(crate) fn tempo_attribute_range(
                 stack.push(name);
             }
             Event::Empty(element) => {
-                let name = String::from_utf8_lossy(element.name().as_ref()).into_owned();
+                let name = String::from_utf8_lossy(element.name().as_ref().as_bytes()).into_owned();
                 if name == "TEMPO" && current_track_id.as_deref() == Some(expected_track_id) {
                     if current_tempo_index == expected_tempo_index {
                         value_range = Some(tempo_attribute_value_range(
@@ -532,7 +534,7 @@ pub(crate) fn tempo_attribute_range(
                 }
             }
             Event::End(element) => {
-                let name = String::from_utf8_lossy(element.name().as_ref()).into_owned();
+                let name = String::from_utf8_lossy(element.name().as_ref().as_bytes()).into_owned();
                 if name == "TRACK" && stack.last().is_some_and(|parent| parent == "TRACK") {
                     current_track_id = None;
                 }
@@ -558,9 +560,9 @@ pub(crate) fn tempo_attribute_value_range(
 ) -> Result<std::ops::Range<usize>, Error> {
     for attribute in element.attributes().with_checks(true) {
         let attribute = attribute.map_err(|error| Error(error.to_string()))?;
-        if attribute.key.as_ref() == key.as_bytes() {
+        if attribute.key.as_ref().as_bytes() == key.as_bytes() {
             let actual = attribute
-                .decoded_and_normalized_value(quick_xml::XmlVersion::Explicit1_0, element.decoder())
+                .normalized_value(quick_xml::XmlVersion::Explicit1_0)
                 .map_err(|error| Error(error.to_string()))?;
             if actual != expected {
                 return Err(Error(format!(
@@ -620,7 +622,7 @@ pub(crate) fn position_mark_start_range(
             .map_err(|error| Error(format!("malformed XML: {error}")))?;
         match event {
             Event::Start(element) => {
-                let name = String::from_utf8_lossy(element.name().as_ref()).into_owned();
+                let name = String::from_utf8_lossy(element.name().as_ref().as_bytes()).into_owned();
                 if name == "TRACK" && stack.last().is_some_and(|parent| parent == "COLLECTION") {
                     track_id = Some(attr(&element, "TrackID")?);
                     mark_index = 0;
@@ -639,7 +641,7 @@ pub(crate) fn position_mark_start_range(
                 stack.push(name);
             }
             Event::Empty(element) => {
-                let name = String::from_utf8_lossy(element.name().as_ref()).into_owned();
+                let name = String::from_utf8_lossy(element.name().as_ref().as_bytes()).into_owned();
                 if name == "POSITION_MARK" && track_id.as_deref() == Some(&request.track_id) {
                     if mark_index == request.mark_index {
                         value_range = Some(attribute_value_range(
@@ -653,7 +655,7 @@ pub(crate) fn position_mark_start_range(
                 }
             }
             Event::End(element) => {
-                let name = String::from_utf8_lossy(element.name().as_ref()).into_owned();
+                let name = String::from_utf8_lossy(element.name().as_ref().as_bytes()).into_owned();
                 if name == "TRACK" && stack.last().is_some_and(|open| open == "TRACK") {
                     track_id = None;
                 }
@@ -690,7 +692,7 @@ pub(crate) fn position_mark_end_range(
             .map_err(|e| Error(format!("malformed XML: {e}")))?;
         match event {
             Event::Start(element) => {
-                let name = String::from_utf8_lossy(element.name().as_ref()).into_owned();
+                let name = String::from_utf8_lossy(element.name().as_ref().as_bytes()).into_owned();
                 if name == "TRACK" && stack.last().is_some_and(|parent| parent == "COLLECTION") {
                     track_id = Some(attr(&element, "TrackID")?);
                     index = 0;
@@ -709,7 +711,7 @@ pub(crate) fn position_mark_end_range(
                 stack.push(name);
             }
             Event::Empty(element) => {
-                let name = String::from_utf8_lossy(element.name().as_ref()).into_owned();
+                let name = String::from_utf8_lossy(element.name().as_ref().as_bytes()).into_owned();
                 if name == "POSITION_MARK" && track_id.as_deref() == Some(&request.track_id) {
                     if index == request.mark_index {
                         range = Some(attribute_value_range(
@@ -723,7 +725,7 @@ pub(crate) fn position_mark_end_range(
                 }
             }
             Event::End(element) => {
-                let name = String::from_utf8_lossy(element.name().as_ref()).into_owned();
+                let name = String::from_utf8_lossy(element.name().as_ref().as_bytes()).into_owned();
                 if name == "TRACK" && stack.last().is_some_and(|open| open == "TRACK") {
                     track_id = None;
                 }
@@ -901,7 +903,7 @@ pub fn prepare_position_mark_name_edit(
             .map_err(|e| Error(e.to_string()))?
         {
             Event::Start(e) => {
-                let tag = String::from_utf8_lossy(e.name().as_ref()).into_owned();
+                let tag = String::from_utf8_lossy(e.name().as_ref().as_bytes()).into_owned();
                 if tag == "TRACK" && stack.last().is_some_and(|x| x == "COLLECTION") {
                     tid = Some(attr(&e, "TrackID")?);
                     index = 0;
@@ -919,7 +921,7 @@ pub fn prepare_position_mark_name_edit(
                 stack.push(tag);
             }
             Event::Empty(e) => {
-                if e.name().as_ref() == b"POSITION_MARK"
+                if e.name().as_ref().as_bytes() == b"POSITION_MARK"
                     && tid.as_deref() == Some(&request.track_id)
                 {
                     if index == request.mark_index {
@@ -934,7 +936,9 @@ pub fn prepare_position_mark_name_edit(
                 }
             }
             Event::End(e) => {
-                if e.name().as_ref() == b"TRACK" && stack.last().is_some_and(|x| x == "TRACK") {
+                if e.name().as_ref().as_bytes() == b"TRACK"
+                    && stack.last().is_some_and(|x| x == "TRACK")
+                {
                     tid = None;
                 }
                 stack.pop();
@@ -1013,7 +1017,7 @@ pub fn prepare_position_mark_delete(
         let end = reader.buffer_position() as usize;
         match event {
             Event::Start(e) => {
-                let tag = String::from_utf8_lossy(e.name().as_ref()).into_owned();
+                let tag = String::from_utf8_lossy(e.name().as_ref().as_bytes()).into_owned();
                 if tag == "TRACK" && stack.last().is_some_and(|x| x == "COLLECTION") {
                     tid = Some(attr(&e, "TrackID")?);
                     index = 0;
@@ -1043,7 +1047,7 @@ pub fn prepare_position_mark_delete(
                 stack.push(tag);
             }
             Event::Empty(e) => {
-                if e.name().as_ref() == b"POSITION_MARK"
+                if e.name().as_ref().as_bytes() == b"POSITION_MARK"
                     && tid.as_deref() == Some(&request.track_id)
                 {
                     if index == request.mark_index {
@@ -1071,12 +1075,14 @@ pub fn prepare_position_mark_delete(
             Event::End(e) => {
                 if let Some(depth) = remove_depth
                     && stack.len() == depth + 1
-                    && e.name().as_ref() == b"POSITION_MARK"
+                    && e.name().as_ref().as_bytes() == b"POSITION_MARK"
                 {
                     range = Some(removal_start..end);
                     remove_depth = None;
                 }
-                if e.name().as_ref() == b"TRACK" && stack.last().is_some_and(|x| x == "TRACK") {
+                if e.name().as_ref().as_bytes() == b"TRACK"
+                    && stack.last().is_some_and(|x| x == "TRACK")
+                {
                     tid = None;
                 }
                 stack.pop();
@@ -1122,9 +1128,9 @@ pub(crate) fn bpm_attribute_range(
 ) -> Result<std::ops::Range<usize>, Error> {
     for attribute in element.attributes().with_checks(true) {
         let attribute = attribute.map_err(|error| Error(error.to_string()))?;
-        if attribute.key.as_ref() == b"Bpm" {
+        if attribute.key.as_ref().as_bytes() == b"Bpm" {
             let actual = attribute
-                .decoded_and_normalized_value(quick_xml::XmlVersion::Explicit1_0, element.decoder())
+                .normalized_value(quick_xml::XmlVersion::Explicit1_0)
                 .map_err(|error| Error(error.to_string()))?;
             if actual != expected_old_bpm {
                 return Err(Error(format!(

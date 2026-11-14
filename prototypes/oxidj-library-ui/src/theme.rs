@@ -295,7 +295,7 @@ impl ThemeMode {
 
 /// Shared sizing: control height, padding, spacing rhythm and the type scale.
 pub fn apply_metrics(ctx: &egui::Context) {
-    ctx.style_mut(|style| {
+    ctx.global_style_mut(|style| {
         let spacing = &mut style.spacing;
         spacing.interact_size.y = CONTROL_HEIGHT;
         spacing.button_padding = egui::vec2(8.0, 3.0);
@@ -422,6 +422,9 @@ mod tests {
         }
         fn set_string(&mut self, key: &str, value: String) {
             self.0.insert(key.to_owned(), value);
+        }
+        fn remove_string(&mut self, key: &str) {
+            self.0.remove(key);
         }
         fn flush(&mut self) {}
     }
@@ -570,7 +573,7 @@ mod tests {
     fn applied_metrics_give_controls_target_size_and_readable_small_text() {
         let ctx = egui::Context::default();
         ThemeMode::TokyoNight.apply(ThemeMode::TokyoNight.tokens(), &ctx);
-        let style = ctx.style();
+        let style = ctx.global_style();
         assert!(style.spacing.interact_size.y >= 24.0);
         assert_eq!(style.visuals.widgets.inactive.bg_stroke.width, 1.0);
         let small = &style.text_styles[&egui::TextStyle::Small];
@@ -595,7 +598,7 @@ mod tests {
         for mode in ThemeMode::ALL {
             let ctx = egui::Context::default();
             mode.apply(mode.tokens(), &ctx);
-            let style = ctx.style();
+            let style = ctx.global_style();
             let visuals = &style.visuals;
             let tokens = mode.tokens();
             assert_eq!(visuals.panel_fill, tokens.background);
@@ -629,7 +632,10 @@ mod tests {
         let ctx = egui::Context::default();
         mode.apply(custom, &ctx);
         assert_eq!(current_tokens(&ctx), mode.tokens());
-        assert_eq!(ctx.style().visuals.panel_fill, mode.tokens().background);
+        assert_eq!(
+            ctx.global_style().visuals.panel_fill,
+            mode.tokens().background
+        );
     }
 
     #[test]

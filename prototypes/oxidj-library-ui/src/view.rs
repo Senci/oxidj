@@ -11,8 +11,8 @@ impl eframe::App for LibraryApp {
         }
     }
 
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        self.ui(ctx);
+    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        self.ui(ui);
     }
 
     fn raw_input_hook(&mut self, ctx: &egui::Context, raw_input: &mut egui::RawInput) {
@@ -52,7 +52,8 @@ impl LibraryApp {
     /// One frame of the whole library UI (the production `update` body):
     /// one-row toolbar, status bar, optional nav/details/decks panels and the
     /// track table filling whatever space the visible panels leave.
-    pub(crate) fn ui(&mut self, ctx: &egui::Context) {
+    pub(crate) fn ui(&mut self, root_ui: &mut egui::Ui) {
+        let ctx = &root_ui.ctx().clone();
         self.handle_settings_shortcuts(ctx);
         self.handle_theme_shortcuts(ctx);
         self.handle_panel_shortcuts(ctx);
@@ -65,23 +66,23 @@ impl LibraryApp {
         self.theme.apply(self.custom_tokens, ctx);
         let tokens = self.active_tokens();
         self.shell = ShellLayout::default();
-        let style = ctx.style();
+        let style = ctx.global_style();
         let bar = egui::Frame::side_top_panel(&style).inner_margin(theme::BAR_MARGIN);
         let status_frame = egui::Frame::side_top_panel(&style).inner_margin(theme::STATUS_MARGIN);
         let panel = egui::Frame::side_top_panel(&style).inner_margin(theme::PANEL_MARGIN);
-        let toolbar = egui::TopBottomPanel::top("toolbar")
+        let toolbar = egui::Panel::top("toolbar")
             .frame(bar)
-            .show(ctx, |ui| self.toolbar(ui, ctx, tokens));
+            .show(root_ui, |ui| self.toolbar(ui, ctx, tokens));
         self.shell.toolbar = Some(toolbar.response.rect);
         // D1: the deck area sits under the toolbar, the library below it.
         if self.show_decks {
-            let decks = egui::TopBottomPanel::top("decks")
+            let decks = egui::Panel::top("decks")
                 .frame(panel)
                 .resizable(false)
-                .show(ctx, |ui| {
+                .show(root_ui, |ui| {
                     // Tall mixer faders must remain reachable on short displays.
                     // The library table keeps `LIBRARY_MIN_H` below the decks.
-                    let screen = ctx.screen_rect();
+                    let screen = ctx.content_rect();
                     let max_height = decks::deck_budget(
                         screen.height(),
                         self.shell.toolbar.map_or(40.0, |t| t.height()),
@@ -104,7 +105,7 @@ impl LibraryApp {
                         egui::ScrollArea::vertical()
                             .id_salt("deck-area-scroll")
                             .scroll_source(egui::scroll_area::ScrollSource {
-                                drag: false,
+                                drag: egui::scroll_area::DragScroll::Never,
                                 ..Default::default()
                             })
                             // Content is taller than `max_height` here, so take
@@ -140,17 +141,17 @@ impl LibraryApp {
         self.catalog_remove_window(ctx);
         self.catalog_append_window(ctx);
         self.catalog_create_window(ctx);
-        let status = egui::TopBottomPanel::bottom("status-bar")
+        let status = egui::Panel::bottom("status-bar")
             .frame(status_frame)
-            .show(ctx, |ui| self.status_bar(ui, tokens));
+            .show(root_ui, |ui| self.status_bar(ui, tokens));
         self.shell.status = Some(status.response.rect);
         if self.show_nav {
-            let nav = egui::SidePanel::left("library-navigation")
+            let nav = egui::Panel::left("library-navigation")
                 .frame(panel)
-                .default_width(168.0)
-                .width_range(140.0..=280.0)
+                .default_size(168.0)
+                .size_range(140.0..=280.0)
                 .resizable(true)
-                .show(ctx, |ui| {
+                .show(root_ui, |ui| {
                     egui::ScrollArea::vertical()
                         .id_salt("navigation-scroll")
                         .show(ui, |ui| self.navigation(ui, tokens));
@@ -163,13 +164,13 @@ impl LibraryApp {
             // at most 40% of a narrow window so the track table keeps room.
             // W9: the minimum is the content's real minimum (the two-line
             // SHA-256 row is ~296 px), so the panel never silently widens.
-            let details = egui::SidePanel::right("details")
+            let details = egui::Panel::right("details")
                 .frame(panel)
-                .default_width(380.0)
-                .min_width(DETAILS_MIN_WIDTH)
-                .max_width((ctx.screen_rect().width() * 0.4).clamp(DETAILS_MIN_WIDTH, 480.0))
+                .default_size(380.0)
+                .min_size(DETAILS_MIN_WIDTH)
+                .max_size((ctx.content_rect().width() * 0.4).clamp(DETAILS_MIN_WIDTH, 480.0))
                 .resizable(true)
-                .show(ctx, |ui| {
+                .show(root_ui, |ui| {
                     // No auto-shrink: the panel keeps its width with or without
                     // a selection instead of jumping to the content width.
                     egui::ScrollArea::vertical()
@@ -183,13 +184,13 @@ impl LibraryApp {
             // Re-opening the panel re-lays the facts grid like a new
             // selection does (W11: the first opened frame showed rows sized
             // from a stale grid until the next input).
-            ctx.data_mut(|d| d.remove::<u64>(egui::Id::new(TRACK_FACTS_SHOWN)));
+            ctx.data_mut(|d| d.remove::<u64>(egui::Id::unique(TRACK_FACTS_SHOWN)));
         }
         // No inner margin: the table runs edge to edge between the panels'
         // hairline separators.
         egui::CentralPanel::default()
             .frame(egui::Frame::central_panel(&style).inner_margin(0))
-            .show(ctx, |ui| self.track_table(ui, tokens));
+            .show(root_ui, |ui| self.track_table(ui, tokens));
         self.finish_track_drop(ctx, tokens);
         // D2: this frame's deck controls go to the audio engine; D4: the
         // mixer is in the path only while visible (else exact unity bypass).
@@ -236,7 +237,7 @@ impl LibraryApp {
                         target = Some(d);
                         ctx.layer_painter(egui::LayerId::new(
                             egui::Order::Foreground,
-                            egui::Id::new("track-drop-highlight"),
+                            egui::Id::unique("track-drop-highlight"),
                         ))
                         .rect_stroke(
                             rect.shrink(1.0),
@@ -341,7 +342,7 @@ impl LibraryApp {
                     ui.style().interact(&gear).fg_stroke.color,
                 );
                 gear.widget_info(|| {
-                    egui::WidgetInfo::labeled(egui::WidgetType::Button, true, "Settings")
+                    egui::WidgetInfo::labeled(egui::Role::Button, true, "Settings")
                 });
                 if gear.clicked() {
                     let open = !self.settings_ui.open;
@@ -435,7 +436,7 @@ impl LibraryApp {
                     [field, height],
                     egui::TextEdit::singleline(&mut self.import_root)
                         .hint_text("Folder path")
-                        .vertical_align(egui::Align::Center),
+                        .align(egui::Align2::LEFT_CENTER),
                 );
                 let import = ui
                     .add_enabled_ui(self.waveform_job.is_none(), |ui| {
@@ -457,7 +458,7 @@ impl LibraryApp {
                         [field, height],
                         egui::TextEdit::singleline(&mut self.xml_path)
                             .hint_text("XML file path (read-only)")
-                            .vertical_align(egui::Align::Center),
+                            .align(egui::Align2::LEFT_CENTER),
                     )
                     .changed();
                 if source_changed {
@@ -966,11 +967,11 @@ impl LibraryApp {
             egui::TextEdit::singleline(&mut self.search)
                 .id_salt("track-search")
                 .hint_text("Search tracks")
-                .frame(false)
+                .frame(egui::Frame::NONE)
                 .margin(egui::Margin::symmetric(0, 2))
                 .desired_width(field.width())
                 .min_size(egui::vec2(0.0, h))
-                .vertical_align(egui::Align::Center),
+                .align(egui::Align2::LEFT_CENTER),
         );
         let stroke = if edit.has_focus() {
             egui::Stroke::new(2.0_f32, tokens.focus)
@@ -998,9 +999,13 @@ impl LibraryApp {
         self.shell.search = Some(edit.rect);
         self.shell.search_clear = None;
         if !self.search.is_empty() {
-            let response = ui.interact(clear, ui.id().with("clear-search"), egui::Sense::click());
+            let response = ui.interact(
+                clear,
+                ui.scope_id().with("clear-search"),
+                egui::Sense::click(),
+            );
             response.widget_info(|| {
-                egui::WidgetInfo::labeled(egui::WidgetType::Button, true, "Clear search")
+                egui::WidgetInfo::labeled(egui::Role::Button, true, "Clear search")
             });
             let color = if response.hovered() || response.has_focus() {
                 tokens.text
@@ -1081,10 +1086,11 @@ impl LibraryApp {
         if self.show_xml_preview {
             let mut open = self.show_xml_preview;
             egui::Window::new("Rekordbox XML preview · guarded edits")
+                .id(egui::Id::unique("Rekordbox XML preview · guarded edits"))
                 .open(&mut open)
                 .default_width(720.0)
                 .vscroll(true)
-                .max_height(ctx.screen_rect().height() - 96.0)
+                .max_height(ctx.content_rect().height() - 96.0)
                 .show(ctx, |ui| match self.xml_preview.clone() {
                     Some(Err(error)) => {
                         StatusBadge {
@@ -1866,7 +1872,7 @@ impl LibraryApp {
         };
         // The facts grid sizes rows from the previous frame; re-run the
         // frame when the selection changes so it never paints overlapped.
-        let shown = egui::Id::new(TRACK_FACTS_SHOWN);
+        let shown = egui::Id::unique(TRACK_FACTS_SHOWN);
         let previous = ui.ctx().data_mut(|d| {
             let previous = d.get_temp::<u64>(shown);
             d.insert_temp(shown, id);
@@ -2157,7 +2163,7 @@ impl LibraryApp {
                                     let selected = self.imported_member == Some(position);
                                     response.widget_info(|| {
                                         egui::WidgetInfo::selected(
-                                            egui::WidgetType::SelectableLabel,
+                                            egui::Role::Button,
                                             true,
                                             selected,
                                             &track.title,
@@ -2437,11 +2443,11 @@ fn table_header(
         if let Some(sort) = sort {
             let response = ui.interact(
                 cell,
-                ui.id().with(("sort-header", title)),
+                ui.scope_id().with(("sort-header", title)),
                 egui::Sense::click(),
             );
             response.widget_info(|| {
-                egui::WidgetInfo::selected(egui::WidgetType::Button, true, active, &name)
+                egui::WidgetInfo::selected(egui::Role::Button, true, active, &name)
             });
             if response.hovered() || response.has_focus() {
                 let stroke: f32 = if response.has_focus() { 2.0 } else { 1.0 };
@@ -2513,9 +2519,8 @@ fn track_row(
         egui::vec2(total, theme::ROW_HEIGHT),
         egui::Sense::click_and_drag(),
     );
-    response.widget_info(|| {
-        egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, true, selected, &filename)
-    });
+    response
+        .widget_info(|| egui::WidgetInfo::selected(egui::Role::Button, true, selected, &filename));
     let painter = ui.painter();
     if selected {
         painter.rect_filled(rect, 0.0, theme::selection_fill(tokens));
@@ -2697,9 +2702,7 @@ fn nav_row(
         egui::Sense::click(),
     );
     let name = format!("{label} · {count}");
-    response.widget_info(|| {
-        egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, true, selected, &name)
-    });
+    response.widget_info(|| egui::WidgetInfo::selected(egui::Role::Button, true, selected, &name));
     let painter = ui.painter();
     if selected {
         painter.rect_filled(rect, 2.0, theme::selection_fill(tokens));

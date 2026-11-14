@@ -398,8 +398,8 @@ fn attrs(e: &quick_xml::events::BytesStart<'_>) -> Vec<(String, String)> {
         .map(|a| {
             let a = a.unwrap();
             (
-                String::from_utf8(a.key.as_ref().to_vec()).unwrap(),
-                a.decoded_and_normalized_value(quick_xml::XmlVersion::Explicit1_0, e.decoder())
+                String::from_utf8(a.key.as_ref().as_bytes().to_vec()).unwrap(),
+                a.normalized_value(quick_xml::XmlVersion::Explicit1_0)
                     .unwrap()
                     .into_owned(),
             )
@@ -427,7 +427,7 @@ fn decode(bytes: &[u8]) -> Decoded {
         match event {
             Event::Start(ref e) | Event::Empty(ref e) => {
                 let a = attrs(e);
-                match e.name().as_ref() {
+                match e.name().as_ref().as_bytes() {
                     b"COLLECTION" => {
                         entries = get(&a, "Entries");
                         in_collection = !empty;
@@ -462,7 +462,7 @@ fn decode(bytes: &[u8]) -> Decoded {
                     _ => {}
                 }
             }
-            Event::End(ref e) => match e.name().as_ref() {
+            Event::End(ref e) => match e.name().as_ref().as_bytes() {
                 b"COLLECTION" => in_collection = false,
                 b"NODE" => {
                     let node = stack.pop().unwrap();

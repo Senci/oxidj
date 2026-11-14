@@ -3,11 +3,12 @@ name = "oxidj-gui-probe"
 version = "0.1.0"
 edition = "2024"
 publish = false
+license = "MIT"
 
 [workspace]
 
 [dependencies]
-eframe = { version = "=0.32.3", features = ["accesskit"] }
+eframe = { version = "=0.37.0", default-features = false, features = ["accesskit", "clipboard", "default_fonts", "glow", "links", "wayland", "x11"] }
 raw-window-handle = "=0.6.2"
 wayland-client = { version = "=0.31.15", features = ["system"] }
 wayland-protocols = { version = "=0.32.13", features = ["client", "staging"] }

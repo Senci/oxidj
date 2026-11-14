@@ -524,7 +524,7 @@ impl LibraryApp {
             let response = ui
                 .add(
                     egui::TextEdit::singleline(&mut self.primary_hex)
-                        .id(egui::Id::new("primary-hex"))
+                        .id(egui::Id::unique("primary-hex"))
                         .desired_width(90.0)
                         .hint_text("#RRGGBB"),
                 )
@@ -547,7 +547,7 @@ impl LibraryApp {
             let response = ui
                 .add(
                     egui::TextEdit::singleline(&mut self.secondary_hex)
-                        .id(egui::Id::new("secondary-hex"))
+                        .id(egui::Id::unique("secondary-hex"))
                         .desired_width(90.0)
                         .hint_text("#RRGGBB"),
                 )

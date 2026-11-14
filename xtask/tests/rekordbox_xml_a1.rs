@@ -19,18 +19,18 @@ struct Element {
 }
 
 impl Element {
-    fn from_start(start: &BytesStart<'_>, reader: &Reader<&[u8]>) -> Result<Self, String> {
-        let name = std::str::from_utf8(start.local_name().as_ref())
+    fn from_start(start: &BytesStart<'_>, _reader: &Reader<&[u8]>) -> Result<Self, String> {
+        let name = std::str::from_utf8(start.local_name().as_ref().as_bytes())
             .map_err(|error| error.to_string())?
             .to_owned();
         let mut attributes = BTreeMap::new();
         for attribute in start.attributes().with_checks(true) {
             let attribute = attribute.map_err(|error| error.to_string())?;
-            let key = std::str::from_utf8(attribute.key.local_name().as_ref())
+            let key = std::str::from_utf8(attribute.key.local_name().as_ref().as_bytes())
                 .map_err(|error| error.to_string())?
                 .to_owned();
             let value = attribute
-                .decoded_and_normalized_value(XmlVersion::Explicit1_0, reader.decoder())
+                .normalized_value(XmlVersion::Explicit1_0)
                 .map_err(|error| error.to_string())?
                 .into_owned();
             if attributes.insert(key.clone(), value).is_some() {
@@ -80,10 +80,10 @@ fn parse(source: &[u8]) -> Result<Element, String> {
                 let element = stack.pop().ok_or("unexpected closing element")?;
                 let open_name = element.name.as_bytes();
                 let close_name = end.name();
-                if close_name.as_ref() != open_name {
+                if close_name.as_ref().as_bytes() != open_name {
                     return Err(format!(
                         "closing element {} does not match open element {}",
-                        String::from_utf8_lossy(end.name().as_ref()),
+                        String::from_utf8_lossy(end.name().as_ref().as_bytes()),
                         element.name
                     ));
                 }

@@ -414,9 +414,9 @@ fn show_tracks(ui: &mut egui::Ui, count: usize, table: &mut TableState) -> f32 {
         );
     }
     finish_row_drag(table, &row_rects, released, release_pos);
-    table.scroll_offset = output.state.offset.y;
+    table.scroll_offset = output.state.clamped_offset().y;
     table.scroll_to_focused = false;
-    output.state.offset.y
+    output.state.clamped_offset().y
 }
 
 fn render_tracks(ui: &mut egui::Ui, count: usize, table: &mut TableState) -> f32 {
@@ -451,7 +451,8 @@ struct Probe {
 }
 
 impl eframe::App for Probe {
-    fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+    fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
+        let ctx = ui.ctx().clone();
         if self.presentation_observer_enabled {
             if self.presentation.is_none() && self.presentation_error.is_none() {
                 match PresentationObserver::from_frame(frame) {
@@ -513,7 +514,7 @@ impl eframe::App for Probe {
                 }
             }
         }
-        egui::CentralPanel::default().show(ctx, |ui| {
+        egui::CentralPanel::default().show(ui, |ui| {
             self.scroll_offset = render_tracks(ui, self.count, &mut self.table);
         });
         if !self.reported && self.started.elapsed() >= Duration::from_secs(15) {
@@ -582,6 +583,16 @@ mod tests {
     use eframe::egui::{self, Event, Key, PointerButton, Pos2, RawInput, Rect, Vec2};
     use std::time::Duration;
 
+    fn run_frame(
+        ctx: &egui::Context,
+        input: RawInput,
+        f: impl FnMut(&mut egui::Ui),
+    ) -> egui::FullOutput {
+        let mut output = ctx.run_ui(input, f);
+        output.textures_delta.clear();
+        output
+    }
+
     #[test]
     fn auto_scroll_advances_every_100ms_and_wraps() {
         assert_eq!(auto_scroll_row(Duration::from_millis(0), 3), Some(0));
@@ -610,9 +621,9 @@ mod tests {
             events,
             ..Default::default()
         };
-        ctx.run(input, |ctx| {
+        run_frame(&ctx, input, |ui| {
             table.ensure_order(2);
-            egui::CentralPanel::default().show(ctx, |ui| {
+            egui::CentralPanel::default().show(ui, |ui| {
                 rects.clear();
                 for index in 0..2 {
                     rects.push(track_row(ui, index, table));
@@ -900,8 +911,8 @@ mod tests {
             ..Default::default()
         };
         let mut scroll_offset = 0.0;
-        let _ = ctx.run(input, |ctx| {
-            egui::CentralPanel::default().show(ctx, |ui| {
+        let _ = run_frame(&ctx, input, |ui| {
+            egui::CentralPanel::default().show(ui, |ui| {
                 scroll_offset = show_tracks(ui, 200, &mut table);
             });
         });
@@ -926,8 +937,8 @@ mod tests {
             ..Default::default()
         };
         table.widget_focused = None;
-        let _ = ctx.run(input, |ctx| {
-            egui::CentralPanel::default().show(ctx, |ui| {
+        let _ = run_frame(&ctx, input, |ui| {
+            egui::CentralPanel::default().show(ui, |ui| {
                 let _ = render_tracks(ui, 200, &mut table);
             });
         });
@@ -950,8 +961,8 @@ mod tests {
                 ..Default::default()
             };
             let mut scroll_offset = 0.0;
-            let _ = ctx.run(input, |ctx| {
-                egui::CentralPanel::default().show(ctx, |ui| {
+            let _ = run_frame(&ctx, input, |ui| {
+                egui::CentralPanel::default().show(ui, |ui| {
                     scroll_offset = render_tracks(ui, count, &mut table);
                 });
             });

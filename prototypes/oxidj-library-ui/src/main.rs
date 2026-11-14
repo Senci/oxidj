@@ -46,6 +46,18 @@ use track_edit::*;
 use widgets::*;
 use xml_order::*;
 
+/// Headless frames have no renderer: explicitly consume the GPU texture work.
+#[cfg(test)]
+fn test_frame(
+    ctx: &egui::Context,
+    input: egui::RawInput,
+    ui: impl FnMut(&mut egui::Ui),
+) -> egui::FullOutput {
+    let mut output = ctx.run_ui(input, ui);
+    output.textures_delta.clear();
+    output
+}
+
 fn main() -> eframe::Result<()> {
     let mut args = std::env::args().skip(1);
     let db = match (args.next().as_deref(), args.next()) {
@@ -61,7 +73,9 @@ fn main() -> eframe::Result<()> {
             let mut app = LibraryApp::new(db, theme, custom_tokens);
             app.settings = settings::Settings::load(cc.storage);
             app.settings_ui.geom = settings::WindowGeom::load(cc.storage);
-            let output = app.settings.output_config(oxidj_audio::OutputConfig::from_env());
+            let output = app
+                .settings
+                .output_config(oxidj_audio::OutputConfig::from_env());
             app.decks.attach(oxidj_audio::Engine::start_with(output));
             Ok(Box::new(app))
         }),
