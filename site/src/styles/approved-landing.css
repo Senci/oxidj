@@ -11,6 +11,7 @@
 }
 .tripbar {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   padding: 22px 5%;
@@ -570,7 +571,13 @@
 }
 .tripbar nav {
   display: flex;
+  flex-wrap: wrap;
   gap: 16px;
+}
+.video-fallback {
+  display: inline-block;
+  margin-left: 12px;
+  color: #d5f769;
 }
 .tripbrand {
   font-weight: 700;

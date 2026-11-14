@@ -113,5 +113,10 @@ describe('screenshots', () => {
     expect(home).toContain('https://s3nci.bandcamp.com/music');
     expect(home).toContain('id="sleeve-flip"');
     expect(home).toContain('class="disc"');
+    expect(home).toContain('id="why"');
+    expect(home.match(/<div class="recordshot">[\s\S]*?<\/figure>/)?.[0]).toContain(
+      `./images/${screenshots.deckMixerV2.id}.webp`,
+    );
+    expect(home).toContain('class="video-fallback"');
   });
 });
