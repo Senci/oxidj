@@ -15,10 +15,10 @@ nanomp3 = { version = "=0.2.0", default-features = false }
 # Embedded/cover artwork metadata (no audio decoding; see docs/layers-policy.md).
 lofty = "=0.25.5"
 # Decodes the extracted artwork to RGBA for the deck cache and the UI texture.
-image = { version = "=0.25.8", default-features = false, features = ["jpeg", "png", "bmp", "gif", "webp", "tiff"] }
-rusqlite = { version = "0.40.0", default-features = false, features = ["bundled", "backup"] }
-rusqlite_migration = "2.6.0"
-sha2 = "0.10.9"
+image = { version = "=0.25.10", default-features = false, features = ["jpeg", "png", "bmp", "gif", "webp", "tiff"] }
+rusqlite = { version = "0.41.0", default-features = false, features = ["bundled", "backup"] }
+rusqlite_migration = "2.7.0"
+sha2 = "0.11.1"
 
 [lints]
 workspace = true
