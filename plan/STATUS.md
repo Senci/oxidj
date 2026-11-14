@@ -9,8 +9,9 @@ quick-xml uses to 0.42.0, alongside the earlier compatible Rust/Bun updates.
 The migrated tree passes `cargo xtask ci-full` and site checks; UI tests report
 351 passed / 2 ignored, GUI probe 14 passed, retained isolated reader 13 passed.
 This is **not full dependency-update completion**: separate prototype license
-checks fail the unchanged allowlist, reader rusqlite 0.42 needs a license
-policy decision, root rusqlite and site TypeScript have upstream compatibility
+checks now pass using owner-approved package-scoped clipboard/font exceptions;
+reader rusqlite 0.42 still needs a separate license policy decision, while root
+rusqlite and site TypeScript have upstream compatibility
 constraints, and independent review/install remain pending. Eframe includes
 Wayland fix #8631; actual hide/show runtime behavior is NOT TESTED. See the
 [exact inventory, exceptions and gate scopes](../docs/dependency-update-2026-11.md).

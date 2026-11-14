@@ -16,7 +16,7 @@ path/workspace dependencies are excluded. No prerelease was selected.
 |---|---|---|---|
 | claxon | 0.4.3 | 0.4.3 | unchanged |
 | cpal | 0.18.2 | 0.18.2 | unchanged |
-| eframe | 0.32.3 | 0.37.0 | both prototypes migrated; license admission **FAIL**, see below |
+| eframe | 0.32.3 | 0.37.0 | both prototypes migrated; package-scoped license exceptions, see below |
 | hound | 3.5.1 | 3.5.1 | unchanged |
 | image | 0.25.8 | 0.25.10 | updated library and UI |
 | lofty | 0.25.5 | 0.25.5 | unchanged |
@@ -97,22 +97,22 @@ normalization API and explicit UTF-8 byte views where byte offsets/comparisons
 are required. Source-based checker identity/provenance pins were refreshed only
 for modified checker source; frozen vendor fixtures were not replaced.
 
-## License admission — not waived
+## License admission — scoped exceptions
 
-Both eframe 0.37 prototype graphs fail explicit standalone checks under the
-unchanged `deny.toml`:
+Both eframe 0.37 prototype graphs initially failed explicit standalone checks
+under the previous `deny.toml`:
 
 - `clipboard-win` 5.4.3 and `error-code` 3.4.0: **BSL-1.0**, via
   eframe → egui-winit → arboard (Windows clipboard).
 - `epaint_default_fonts` 0.37.0: **OFL-1.1** and **Ubuntu-font-1.0**
   alongside MIT/Apache-2.0, via epaint default fonts.
 
-The prototype packages now declare the repository's MIT license. That does
-not admit their third-party graphs. Removing clipboard/fonts would change
-functionality and is not a silent workaround. An explicit policy decision is
-needed before admission/installation; exact package-scoped exceptions are
-preferable to a blanket allowlist expansion if these licenses are approved.
-The reader's distinct SQLCipher decision is described above.
+The owner approved exceptions for precisely these three package names on
+2026-11-14. The global license allowlist remains unchanged; clipboard and fonts
+remain enabled. Both standalone graphs pass `cargo deny --locked --offline
+--config deny.toml --manifest-path <prototype>/Cargo.toml check licenses` with
+the scoped exceptions. This does not approve the reader's distinct SQLCipher
+licenses or constitute independent review or installation approval.
 
 ## Wayland hidden-window fix
 
@@ -148,11 +148,12 @@ personal database was used for this work.
   (probe 4 diagnostics; UI 68 diagnostics, including existing style lints and
   migration-related needless borrows). These are not part of the root gate;
   they are not reported as passing or suppressed.
-- Standalone `cargo deny --locked check licenses`: **exit 4** for both eframe
-  graphs. The attempted reader 0.42 graph also exited 4; the retained reader
-  graph passes the repository's layers/license boundary check.
+- Standalone license checks initially exited 4 for both eframe graphs; after
+  the owner-approved package-scoped exceptions, both exit 0 (`licenses ok`).
+  The attempted reader 0.42 graph exited 4; the retained reader graph passes
+  the repository's layers/license boundary check.
 
 Independent review remains required. A bounded delegated technical assessment
 failed with provider HTTP 400 and supplied no verdict; it is not an approval.
-License decisions and the three latest-stable exceptions above remain open;
+The reader license decision and three latest-stable exceptions remain open;
 this task is **not complete**. No push or installation has been performed.
