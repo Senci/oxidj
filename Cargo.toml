@@ -64,7 +64,7 @@ oxidj-application = { path = "crates/oxidj-application", version = "0.1.0" }
 rekordbox-pdb = { git = "https://github.com/fragmede/rekordbox-pdb-rs", rev = "b9896c4e279f2ffd5a8eee1f05a7a0282fe44f35" }
 serde = { version = "=1.0.229", features = ["derive"] }
 serde_json = "=1.0.154"
-zeroize = { version = "=1.8.2", default-features = false, features = ["alloc"] }
+zeroize = { version = "=1.9.1", default-features = false, features = ["alloc"] }
 
 # --- In-repo lint policy (reproducible on a fresh clone; M0-10 §0.2 / §0.4) ---
 # `cargo::` lints (emitted by Cargo itself) are nightly-only on the 1.99 stable

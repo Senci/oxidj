@@ -34,7 +34,7 @@ other persistence dependencies remain forbidden. For the bounded M2 importer,
 explicit features. These decoders remain forbidden in core and CLI; other audio
 crates remain forbidden except for the metadata reader `lofty =0.25.5` in
 `oxidj-library`. `nanomp3-core` is not a separate direct-dependency exception.
-Deck artwork also uses `image =0.25.8` in the library to decode images, not
+Deck artwork also uses `image =0.25.10` in the library to decode images, not
 sound. The UI consumes decoded artwork through the library, not the realtime
 engine. `xtask` is outside the product dependency graph.
 

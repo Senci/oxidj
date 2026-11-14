@@ -83,14 +83,15 @@ describe('screenshots', () => {
     expect(html).not.toContain('srcset');
   });
 
-  it('places the stage, gallery and waveform art on the home page only', () => {
+  it('places the real application stage and gallery on the home page without a synthetic hero waveform', () => {
     const home = renderSite(
       renderRoadmap(readFileSync(new URL('../../index.html', import.meta.url), 'utf8')),
       'index.html',
     );
     expect(home.match(/data-lightbox/g)).toHaveLength(17);
     expect(home).not.toContain('senci-owner-library-record');
-    expect(home).toContain('class="wave"');
+    expect(home).not.toContain('class="wave"');
+    expect(home).toContain('Actual app / synthetic library');
     expect(home.match(/class="rail-stop /g)).toHaveLength(9);
     for (const shot of Object.values(screenshots)) {
       expect(shot.alt.length).toBeGreaterThan(20);

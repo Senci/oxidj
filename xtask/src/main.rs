@@ -380,7 +380,7 @@ fn check_layers(meta: &serde_json::Value) -> Result<(), Vec<String>> {
                 && dep.kind.is_none()
                 && matches!(
                     (dep_name.as_str(), dep.req.as_str(), dep.default_features),
-                    ("lofty", "=0.25.5", true) | ("image", "=0.25.8", false)
+                    ("lofty", "=0.25.5", true) | ("image", "=0.25.10", false)
                 );
             let accepted_rekordbox_pdb = name == "oxidj-rekordbox"
                 && dep_name == "rekordbox-pdb"
@@ -467,7 +467,7 @@ fn validate_onelibrary_graphs(
     for (name, expected) in [
         ("rusqlite", "0.40.2"),
         ("libsqlite3-sys", "0.38.2"),
-        ("zeroize", "1.8.2"),
+        ("zeroize", "1.9.1"),
         ("serde", "1.0.229"),
         ("serde_json", "1.0.154"),
     ] {
@@ -494,7 +494,7 @@ fn validate_onelibrary_graphs(
             "=0.40.2",
             vec!["bundled-sqlcipher-vendored-openssl", "hooks"],
         ),
-        ("zeroize", "=1.8.2", vec![]),
+        ("zeroize", "=1.9.1", vec![]),
         ("serde", "=1.0.229", vec![]),
         ("serde_json", "=1.0.154", vec![]),
     ] {
@@ -792,7 +792,7 @@ mod tests {
         let pkgs = [
             ("rusqlite", "0.40.2"),
             ("libsqlite3-sys", "0.38.2"),
-            ("zeroize", "1.8.2"),
+            ("zeroize", "1.9.1"),
             ("serde", "1.0.229"),
             ("serde_json", "1.0.154"),
         ];
@@ -802,7 +802,7 @@ mod tests {
             .collect();
         packages.push(json!({"name":"oxidj-onelibrary-reader","version":"0.1.0","dependencies":[
             {"name":"rusqlite","req":"=0.40.2","kind":null,"uses_default_features":false,"features":["bundled-sqlcipher-vendored-openssl","hooks"]},
-            {"name":"zeroize","req":"=1.8.2","kind":null,"uses_default_features":false,"features":[]},
+            {"name":"zeroize","req":"=1.9.1","kind":null,"uses_default_features":false,"features":[]},
             {"name":"serde","req":"=1.0.229","kind":null,"uses_default_features":false,"features":[]},
             {"name":"serde_json","req":"=1.0.154","kind":null,"uses_default_features":true,"features":[]}
         ]}));

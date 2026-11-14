@@ -21,4 +21,4 @@ oxidj-analysis = { path = "../../crates/oxidj-analysis" }
 serde_json = "1"
 sha2 = "=0.10.9"
 oxidj-rekordbox = { path = "../../crates/oxidj-rekordbox" }
-image = { version = "=0.25.8", default-features = false, features = ["jpeg"] }
+image = { version = "=0.25.10", default-features = false, features = ["jpeg"] }
