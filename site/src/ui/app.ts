@@ -86,6 +86,32 @@ function initCopy(): void {
 }
 
 export function initApp(root: HTMLElement): void {
+  const videoDialog = root.querySelector<HTMLDialogElement>('#freedom-dialog');
+  const videoOpen = root.querySelector<HTMLButtonElement>('#freedom-open');
+  const videoClose = root.querySelector<HTMLButtonElement>('#freedom-close');
+  const videoContainer = root.querySelector<HTMLElement>('#freedom-video');
+  if (videoDialog && videoOpen && videoClose && videoContainer) {
+    videoOpen.addEventListener('click', () => {
+      const frame = document.createElement('iframe');
+      frame.src = 'https://www.youtube-nocookie.com/embed/9sJUDx7iEJw';
+      frame.title = 'Free software song on YouTube';
+      frame.allow =
+        'accelerometer; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share';
+      frame.allowFullscreen = true;
+      videoContainer.replaceChildren(frame);
+      videoDialog.showModal();
+      videoClose.focus();
+    });
+    videoClose.addEventListener('click', () => videoDialog.close());
+    videoDialog.addEventListener('click', (event) => {
+      if (event.target === videoDialog) videoDialog.close();
+    });
+    videoDialog.addEventListener('close', () => {
+      videoContainer.replaceChildren();
+      videoOpen.focus();
+    });
+    videoOpen.hidden = false;
+  }
   const sleeve = root.querySelector<HTMLInputElement>('#sleeve-flip');
   const front = root.querySelector<HTMLElement>('.sleeve-front');
   const back = root.querySelector<HTMLElement>('.sleeve-back');
