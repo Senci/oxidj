@@ -2,14 +2,14 @@
 
 M0-08. rust-analyzer ships as a rustup component (`rust-analyzer`), which is
 normally an editor LSP server. Agents do not have an editor LSP client, so this
-document records the **command-line** invocations that work on the pinned
+document records the **command-line** invocations tested on the historical
 **stable 1.99.0** toolchain. Every command below was executed on 1.99.0 and its
 observed output is summarised — none is assumed.
 
-The toolchain pin is `rust-toolchain.toml` (`channel = "1.99.0"`). rust-analyzer
+The historical toolchain pin for this evidence was `channel = "1.99.0"`; the current pin is `1.100.0`. rust-analyzer
 1.99.0 was installed via `rustup component add rust-analyzer` (plus `rust-src`
-so it can resolve std). `RUSTUP_TOOLCHAIN` is inherited, so it analyses under the
-same 1.99.0 toolchain as the gate.
+so it can resolve std). `RUSTUP_TOOLCHAIN` is inherited; those historical runs
+used the same 1.99.0 toolchain as the gate at the time.
 
 ## Verified CLI invocations (stable 1.99.0)
 

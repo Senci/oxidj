@@ -9,7 +9,7 @@ output, never a paraphrase. Current tier policy is defined by `AGENTS.md`, the
 repo-owned `cargo xtask` gates, and `.github/workflows/ci.yml`; the research gate
 report is background, not the current implementation spec.
 
-> Toolchain: **stable Rust/Cargo 1.99.0** (pinned by `rust-toolchain.toml`).
+> Toolchain: **stable Rust/Cargo 1.100.0** (pinned by `rust-toolchain.toml`).
 > Tier 1 (`cargo xtask ci`) uses the pinned stable components.
 > CI's `cargo xtask ci-full` includes tests and the mandatory `cargo-deny`
 > licence gate (pinned at 0.20.2). `cargo audit`, `cargo machete`, and `typos`
@@ -84,7 +84,7 @@ git clone <repo> && cd oxidj
 cargo xtask ci        # Tier 1 gate: layers + fmt + clippy + check
 ```
 
-- `rust-toolchain.toml` pins `channel = "1.99.0"` (profile minimal, components
+- `rust-toolchain.toml` pins `channel = "1.100.0"` (profile minimal, components
   rustfmt / clippy / rust-analyzer / rust-src), so rustup installs the exact
   tested toolchain automatically on the first `cargo` invocation. This is a
   compiler pin, not an MSRV assertion.

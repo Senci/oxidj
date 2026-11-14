@@ -28,7 +28,7 @@ rustup run stable rust-analyzer --version
 bash scripts/rust-toolchain-smoke.sh
 ```
 
-Stable is a moving channel, not reproducible by itself. The tested host toolchain is Rust/Cargo 1.99.0, x86_64-unknown-linux-gnu. To reproduce that compiler explicitly: `rustup toolchain install 1.99.0 --profile minimal --component rustfmt --component clippy --component rust-analyzer --component rust-src`, then run `RUSTUP_TOOLCHAIN=1.99.0 bash scripts/rust-toolchain-smoke.sh`. M0-08 committed a `rust-toolchain.toml` (`channel = "1.99.0"`, `profile = "minimal"`, components `rustfmt`/`clippy`/`rust-analyzer`/`rust-src`); refresh the pin intentionally with committed green-gate evidence. **MSRV declared (M0-10 §7.4):** the MSRV is `1.99.0`, declared as `rust-version` in the workspace `Cargo.toml` and `msrv` in `clippy.toml` — see [Quality gate: MSRV](#msrv).
+Stable is a moving channel, not reproducible by itself. The tested host toolchain is Rust/Cargo 1.100.0, x86_64-unknown-linux-gnu. To reproduce that compiler explicitly: `rustup toolchain install 1.100.0 --profile minimal --component rustfmt --component clippy --component rust-analyzer --component rust-src`, then run `RUSTUP_TOOLCHAIN=1.100.0 bash scripts/rust-toolchain-smoke.sh`. M0-08 committed a `rust-toolchain.toml` (`channel = "1.100.0"`, `profile = "minimal"`, components `rustfmt`/`clippy`/`rust-analyzer`/`rust-src`); refresh the pin intentionally with committed green-gate evidence. **MSRV declared (M0-10 §7.4):** the MSRV is `1.99.0`, declared as `rust-version` in the workspace `Cargo.toml` and `msrv` in `clippy.toml` — see [Quality gate: MSRV](#msrv).
 
 On Linux, `oxidj-audio` (CPAL, M8) also needs the ALSA development headers and `pkg-config` at build time (`libasound2-dev` on Debian/Ubuntu, `alsa-lib` on Arch); no audio device is opened by tests or CI. The CI workflow installs them before `cargo xtask ci-full`; a runner without them fails in `ci-full` with exit 101 while building `alsa-sys`.
 
@@ -113,7 +113,7 @@ cargo install cargo-deny --locked --version 0.20.2
 
 ### MSRV
 
-The **MSRV is declared as Rust 1.99.0**: `rust-version = "1.99.0"` in the workspace `Cargo.toml` and `msrv = "1.99.0"` in `clippy.toml` (§7.4). The `rust-toolchain.toml` pin (`channel = "1.99.0"`, profile `minimal`) reproduces the tested compiler; it is a reproducibility pin, not itself the MSRV assertion — declaring `rust-version` is what makes Clippy's `msrv` lint and the `[lints]` edition groups meaningful. Declaring *something* is the decision; revisit only with deliberate, evidence-backed change.
+The **MSRV is declared as Rust 1.99.0**: `rust-version = "1.99.0"` in the workspace `Cargo.toml` and `msrv = "1.99.0"` in `clippy.toml` (§7.4). The `rust-toolchain.toml` pin (`channel = "1.100.0"`, profile `minimal`) reproduces the tested compiler; it is a reproducibility pin, not itself the MSRV assertion — declaring `rust-version` is what makes Clippy's `msrv` lint and the `[lints]` edition groups meaningful. Declaring *something* is the decision; revisit only with deliberate, evidence-backed change.
 
 ### Agent diagnostics
 
