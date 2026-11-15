@@ -9,8 +9,11 @@ track table and status bar are excluded; the `-720` image is a responsive copy.
 Both decks are playing at 148 BPM, with SYNC enabled and the application
 reporting a 0 ms beat offset. The capture uses an isolated catalog with
 owner-confirmed zero anchors and estimated constant-tempo grids, not validated
-production metadata. The owner approved the preceding mix-point preview; the
-new capture is a separate performance. `owner-approved-overviews.svg` is an illustration derived from
+production metadata. The owner aligned the decks and approved this exact
+capture; the estimated grids do not independently verify the musical phrase.
+The full approved frame is stored privately, not in the repository;
+`scripts/restore-approved-mix.py` restores that saved frame on this machine,
+but does not recreate a live performance. `owner-approved-overviews.svg` is an illustration derived from
 two other local tracks; its tempo and transition positions are
 estimates, not verified phrase matching. The owner authorized publishing the
 capture and derived waveforms and confirmed rights for the latter. These two
