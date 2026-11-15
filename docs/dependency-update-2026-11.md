@@ -123,9 +123,12 @@ hidden-window ANR fix, is included in eframe **0.37.0**. Its changelog lists
 swap-interval change and redraw deadlines. Both migrated OxiDJ manifests now
 select that release (winit 0.30.13). Separate PR #8660/issue #8776 concern other
 suspended-window/hidden-viewport work; their status does not negate #8631.
-**Actual OxiDJ Wayland hide/show runtime behavior: NOT TESTED.** Unit tests or
-an X11 launch would not qualify this compositor-specific fix. No owner app or
-personal database was used for this work.
+**Isolated synthetic OxiDJ Wayland hide/show: PASS for both old and new
+executables; original warning NOT REPRODUCED and causal fix UNPROVEN.**
+The [runtime investigation](hidden-workspace-investigation.md) records real
+workspace switching, automatic ping/pong, restored surface commits and a
+stopped-owned-child negative control, plus the nested-compositor limitations.
+No owner app or personal database was used for these checks.
 
 ## Verification and remaining handoff
 
@@ -157,6 +160,8 @@ personal database was used for this work.
 Independent Sol review of the implemented migration at `b7d0195` approved its
 code scope; it did not approve completion of the all-latest task. Its `ci-full`
 exited 0, with UI 352 passed/2 ignored, reader 13, probe 14 and site 80 tests;
-both prototype license checks passed. Three latest-stable exceptions remain;
-Wayland runtime remains NOT TESTED and this task is **not complete**. No push
-or installation has been performed.
+both prototype license checks passed. Three latest-stable exceptions remain.
+At that dependency-review handoff, Wayland runtime was NOT TESTED and the
+all-latest task was **not complete**. Subsequent bounded runtime evidence is
+recorded [above](#wayland-hidden-window-fix); it does not establish a causal fix.
+No push or installation was performed by that dependency handoff.
