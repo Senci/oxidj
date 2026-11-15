@@ -296,9 +296,10 @@ export const projectUpdates: readonly ProjectUpdate[] = [
 export const screenshots = {
   realDecks: {
     id: 'owner-approved-decks',
-    width: 800,
-    height: 420,
-    alt: 'OxiDJ showing the owner’s Thundercrow and Weirder tracks loaded on two decks, with their waveforms.',
+    width: 1440,
+    height: 475,
+    halfWidth: 720,
+    alt: 'OxiDJ showing Thundercrow and Weirder with their cover art and cyan and purple waveforms on two decks.',
     caption:
       'Actual provisional application with tracks provided by Senči; tempos are not matched in this capture.',
   },

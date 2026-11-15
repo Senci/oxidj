@@ -92,6 +92,7 @@ describe('screenshots', () => {
     expect(home).not.toContain('senci-owner-library-record');
     expect(home).not.toContain('class="wave"');
     expect(home).toContain('tracks provided by Senči');
+    expect(home).toContain('cover art and cyan and purple waveforms');
     expect(home).toContain('phrase matching has not been verified');
     expect(home).toContain(
       'Track B starts later than A; their estimated transitions are aligned approximately',
