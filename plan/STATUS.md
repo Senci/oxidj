@@ -26,7 +26,9 @@ reader rusqlite remains at 0.40.2 under the existing license policy, while root
 rusqlite and site TypeScript have upstream compatibility constraints. Independent
 review approved the implemented migration at b7d0195, not all-latest completion;
 installation remains pending. Eframe includes
-Wayland fix #8631; actual hide/show runtime behavior is NOT TESTED. See the
+Wayland fix #8631; isolated synthetic hide/show now passes for both old and new
+executables, but the original warning/root cause remains unproven. See the
+[hidden-workspace investigation](../docs/hidden-workspace-investigation.md) and the
 [exact inventory, exceptions and gate scopes](../docs/dependency-update-2026-11.md).
 
 ## Current snapshot — 2026-11-12
