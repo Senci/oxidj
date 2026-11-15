@@ -54,7 +54,7 @@ assert.match(homeScripts[0], /type="module"/);
 assert.ok(homeScripts[0].includes('src="./assets/'));
 assert.doesNotMatch(home, /on(?:click|load|mouseover)=|javascript:/i);
 assert.ok(home.includes('<details>'));
-assert.ok(home.includes('Actual app / synthetic library'));
+assert.ok(home.includes('Synthetic tracks; provisional application.'));
 assert.ok(!home.includes('class="wave"'), 'hero must not imply a synthetic waveform is real audio');
 const lightboxLinks = [...home.matchAll(/<a class="shot-link" href="([^"]+)" data-lightbox/g)];
 assert.equal(lightboxLinks.length, 17, 'home has seventeen zoomable screenshots');

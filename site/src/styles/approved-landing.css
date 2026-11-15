@@ -579,6 +579,9 @@
   margin-left: 12px;
   color: #d5f769;
 }
+.video-fallback[hidden] {
+  display: none;
+}
 .tripbrand {
   font-weight: 700;
   text-decoration: none;
@@ -633,5 +636,220 @@
   }
   .freedom-trigger {
     margin-left: 0;
+  }
+}
+
+/* Refine the existing record-sleeve layout without changing its identity. */
+.triphero {
+  min-height: min(700px, calc(100svh - 64px));
+  max-width: 1800px;
+  margin-inline: auto;
+  grid-template-columns: minmax(0, 0.95fr) minmax(0, 1.05fr);
+  gap: clamp(24px, 3vw, 56px);
+  padding-block: clamp(40px, 5vw, 72px);
+}
+.tripcopy {
+  min-width: 0;
+}
+.tripcopy h1 {
+  max-width: 13ch;
+  margin: 24px 0;
+  font-size: clamp(42px, 5vw, 76px);
+  line-height: 0.98;
+  letter-spacing: -0.055em;
+  overflow-wrap: break-word;
+}
+.tripcopy .hero-status {
+  margin-top: 20px;
+  color: #c9c5d1;
+  font: 12px/1.5 var(--font-mono, monospace);
+}
+.recordshot {
+  width: min(100%, 680px);
+  transform: none;
+  animation: none;
+}
+.recordtag {
+  transform: none;
+}
+.tripbutton {
+  min-height: 48px;
+}
+.tripbutton:hover {
+  filter: brightness(1.1);
+}
+.trip :is(a, button, summary):focus-visible {
+  outline: 3px solid #80d8e8;
+  outline-offset: 4px;
+}
+.tripbar nav[aria-label='Main navigation'] a {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  min-height: 44px;
+}
+.tripbrand {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+}
+.punch details a {
+  display: flex;
+  align-items: center;
+  min-height: 44px;
+}
+.tripbar .artist-icon {
+  width: 44px;
+  height: 44px;
+}
+.trip-punches,
+.trip-sleeve,
+.tripbody {
+  padding-block: clamp(64px, 7vw, 110px);
+}
+.punch-grid {
+  gap: 2px;
+}
+.punch {
+  padding: clamp(24px, 2.5vw, 38px);
+}
+.punch p {
+  font-size: 16px;
+}
+@media (max-width: 850px) {
+  .triphero {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .tripcopy h1 {
+    font-size: clamp(38px, 8vw, 65px);
+  }
+  .recordshot {
+    width: 100%;
+  }
+}
+@media (max-width: 600px) {
+  .tripcopy h1 {
+    font-size: clamp(38px, 10vw, 60px);
+  }
+}
+
+/* Vinyl session: the rotating cue marks live on the record, not the sleeve. */
+.recordfield {
+  min-height: 560px;
+}
+.disc {
+  width: min(37vw, 510px);
+  animation-duration: 12s;
+}
+.record-sticker {
+  position: absolute;
+  z-index: 1;
+  width: 3%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: var(--acid);
+}
+.record-sticker-a {
+  top: 15%;
+  left: 61%;
+}
+.record-sticker-b {
+  bottom: 20%;
+  left: 27%;
+  background: var(--p);
+}
+.record-marker {
+  position: absolute;
+  top: 1%;
+  left: 49.5%;
+  width: 1%;
+  height: 28%;
+  background: #ece7f7;
+  opacity: 0.8;
+}
+.mock-needle {
+  width: 34%;
+  right: 3%;
+  top: 15%;
+  transform: rotate(-38deg);
+  animation: needle-drift 8s ease-in-out infinite alternate;
+}
+@keyframes needle-drift {
+  to {
+    transform: rotate(-34deg);
+  }
+}
+.recordshot {
+  align-self: end;
+  justify-self: end;
+  width: min(65%, 410px);
+  margin: 0 -2% 2% 0;
+  border: 0;
+  box-shadow: none;
+}
+.recordshot .shot-link {
+  border: 0;
+  box-shadow: none;
+}
+.trip-punches > h2 {
+  max-width: 24ch;
+  font-size: clamp(34px, 4.8vw, 70px);
+  line-height: 1.06;
+  text-wrap: balance;
+}
+.trip .trip-note {
+  margin-top: 32px;
+  padding: 18px 20px;
+  border-left: 3px solid var(--p);
+  background: #17131e;
+}
+.tripbar {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  gap: clamp(12px, 2vw, 28px);
+}
+.tripbar nav[aria-label='Main navigation'] {
+  flex-wrap: nowrap;
+}
+.tripbar nav[aria-label='Main navigation'] a {
+  white-space: nowrap;
+}
+@media (min-width: 1600px) {
+  .tripbar {
+    padding-inline: max(5%, calc((100% - 1800px) / 2));
+  }
+}
+@media (max-width: 1100px) {
+  .tripbar {
+    grid-template-columns: auto 1fr auto;
+  }
+  .tripbar > span {
+    display: none;
+  }
+}
+@media (max-width: 680px) {
+  .tripbar {
+    grid-template-columns: 1fr auto;
+    gap: 0 12px;
+  }
+  .tripbar nav[aria-label='Main navigation'] {
+    grid-column: 1 / -1;
+    justify-content: space-between;
+    gap: 4px;
+  }
+  .recordfield {
+    min-height: 390px;
+  }
+  .disc {
+    width: min(75vw, 400px);
+  }
+  .recordshot {
+    width: 68%;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .mock-needle {
+    animation: none;
   }
 }

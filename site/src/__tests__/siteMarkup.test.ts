@@ -91,7 +91,7 @@ describe('screenshots', () => {
     expect(home.match(/data-lightbox/g)).toHaveLength(17);
     expect(home).not.toContain('senci-owner-library-record');
     expect(home).not.toContain('class="wave"');
-    expect(home).toContain('Actual app / synthetic library');
+    expect(home).toContain('Synthetic tracks; provisional application.');
     expect(home.match(/class="rail-stop /g)).toHaveLength(9);
     for (const shot of Object.values(screenshots)) {
       expect(shot.alt.length).toBeGreaterThan(20);
@@ -116,7 +116,7 @@ describe('screenshots', () => {
     expect(home).toContain('class="disc"');
     expect(home).toContain('id="why"');
     expect(home.match(/<div class="recordshot">[\s\S]*?<\/figure>/)?.[0]).toContain(
-      `./images/${screenshots.deckMixerV2.id}.webp`,
+      `./images/${screenshots.overview.id}.webp`,
     );
     expect(home).toContain('class="video-fallback"');
   });

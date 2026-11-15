@@ -21,6 +21,35 @@ function initDossier(root: HTMLElement): void {
 
 const reducedMotion = (): boolean => window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
+/** Move the illustration's shared playhead and its detail windows with the scroll. */
+function initSharedTime(root: HTMLElement): void {
+  const diagram = root.querySelector<HTMLElement>('.shared-time-diagram');
+  const cursor = diagram?.querySelector<HTMLElement>('.shared-time-cursor');
+  if (!diagram || !cursor) return;
+  const preference = window.matchMedia('(prefers-reduced-motion: reduce)');
+  let frame = 0;
+  const update = (): void => {
+    if (frame) return;
+    frame = requestAnimationFrame(() => {
+      frame = 0;
+      if (preference.matches) {
+        cursor.style.removeProperty('transform');
+        return;
+      }
+      const rect = diagram.getBoundingClientRect();
+      const progress = Math.max(
+        0,
+        Math.min(1, (window.innerHeight - rect.top) / (window.innerHeight + rect.height)),
+      );
+      cursor.style.transform = `translateX(${(progress - 0.5) * 60}px)`;
+    });
+  };
+  window.addEventListener('scroll', update, { passive: true });
+  window.addEventListener('resize', update, { passive: true });
+  preference.addEventListener('change', update);
+  update();
+}
+
 /**
  * Scroll reveals. Browsers with CSS scroll-driven animations need nothing here.
  * Elsewhere an IntersectionObserver adds `is-in` once; `html.io-reveal` is only
@@ -111,6 +140,8 @@ export function initApp(root: HTMLElement): void {
       videoOpen.focus();
     });
     videoOpen.hidden = false;
+    const fallback = root.querySelector<HTMLElement>('.video-fallback');
+    if (fallback) fallback.hidden = true;
   }
   const sleeve = root.querySelector<HTMLInputElement>('#sleeve-flip');
   const front = root.querySelector<HTMLElement>('.sleeve-front');
@@ -124,6 +155,7 @@ export function initApp(root: HTMLElement): void {
     syncSleeve();
   }
   initDossier(root);
+  initSharedTime(root);
   initReveal();
   initGlow();
   initCopy();

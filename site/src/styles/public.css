@@ -532,22 +532,45 @@ code {
 .shared-time-a {
   margin-left: 12%;
   width: 50%;
-  background: var(--color-amber);
+  background: var(--color-accent);
 }
 .shared-time-b {
   margin-left: 4%;
   width: 79%;
   background: var(--color-secondary);
 }
-.shared-time-needle {
+.shared-time-cursor {
   position: absolute;
   z-index: 1;
   top: var(--space-sm);
   bottom: var(--space-sm);
   left: 42%;
   width: 2px;
+  pointer-events: none;
+}
+.shared-time-needle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 2px;
   background: var(--color-ink);
 }
+.shared-time-window {
+  position: absolute;
+  left: -12px;
+  width: 36px;
+  height: 22px;
+  border: 1px solid var(--color-ink-2);
+  background: #ffffff20;
+}
+.shared-time-window-a {
+  top: calc(var(--space-lg) - var(--space-sm));
+}
+.shared-time-window-b {
+  bottom: calc(var(--space-lg) - var(--space-sm));
+}
+
 .shared-time figcaption {
   margin-top: var(--space-sm);
   color: var(--color-muted);
