@@ -422,8 +422,8 @@ impl Default for Settings {
             auto_gain: true,
             beat_lines: true,
             zoom_bars: 4,
-            deck_palette: DeckPalette::WarmCool,
-            playhead: Playhead::Centre,
+            deck_palette: DeckPalette::Classic,
+            playhead: Playhead::LeftThird,
             show_phase: true,
             tempo_range: TempoRange::Ten,
             sections: DeckSections::default(),
@@ -1289,7 +1289,7 @@ mod tests {
         );
         assert_eq!(
             (d.deck_palette, d.playhead, d.tempo_range),
-            (DeckPalette::WarmCool, Playhead::Centre, TempoRange::Ten)
+            (DeckPalette::Classic, Playhead::LeftThird, TempoRange::Ten)
         );
     }
 

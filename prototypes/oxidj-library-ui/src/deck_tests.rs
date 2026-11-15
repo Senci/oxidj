@@ -561,10 +561,10 @@ fn merged_detail_halves_share_one_seam_playhead_and_paint_inside_the_clip() {
         assert!(a.top() == detail.top() && b.bottom() == detail.bottom() && a.width() == b.width());
         let ph = l.playhead_x.expect("playhead");
         assert!(
-            (ph - detail.center().x).abs() <= 1.0,
-            "{case}: centre playhead (default)"
+            (ph - (detail.left() + detail.width() / 3.0)).abs() <= 1.0,
+            "{case}: left-third playhead (default)"
         );
-        // Each half's window is centred on its deck position.
+        // Each half's window places its deck position beneath the shared playhead.
         for d in 0..2 {
             let (t0, t1) = l.windows[d].expect("window");
             let at_ph = t0 + (t1 - t0) * f64::from((ph - detail.left()) / detail.width());
@@ -1743,6 +1743,7 @@ fn replacing_a_playing_deck_unloads_old_audio_on_success_and_failure() {
 fn imported_cues_and_loops_draw_on_detail_and_overview() {
     let (root, mut h) = fresh("cues", 20.0);
     h.select_and_load("a-120.wav", egui::Key::A);
+    h.app.settings.playhead = crate::settings::Playhead::Centre;
     h.app.settings.zoom_bars = 8; // 16 s window around 8 s: every cue visible
     h.app.decks.decks[0].seek(8_000.0);
     let out = h.settle();
@@ -3836,6 +3837,7 @@ fn phrase_ticks_every_16_bars_inside_the_overview() {
 #[test]
 fn production_decks_paint_three_bands_and_readable_overview_cues_with_hover_names() {
     let (root, mut h) = fresh("bands", 20.0);
+    h.app.settings.deck_palette = DeckPalette::WarmCool;
     h.select_and_load("a-120.wav", egui::Key::A);
     h.select_and_load("c-nogrid.wav", egui::Key::B);
     h.app.decks.decks[0].seek(5_000.0);
@@ -4535,6 +4537,7 @@ fn assert_label(out: &Frame, text: &str, cell: Rect, above: bool) {
 #[test]
 fn mixer_v2_default_outside_knobs_full_height_faders_and_crossfader_line() {
     let (root, mut h) = fresh("mixv2", 5.0);
+    h.app.settings.deck_palette = DeckPalette::WarmCool;
     let tokens = ThemeMode::TokyoNight.tokens();
     for size in [(1440.0, 900.0), (1920.0, 1080.0)] {
         let out = mixer_v2_frame(&mut h, size, Default::default());

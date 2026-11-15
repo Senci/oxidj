@@ -71,7 +71,7 @@ AUDIT_JS = r"""
       clippedText.push(el.textContent.trim().slice(0, 60));
     }
   }
-  const clippedNavigation = [...document.querySelectorAll('.site-header nav a,.site-footer nav a')].filter(visible).filter(el => {
+  const clippedNavigation = [...document.querySelectorAll('.site-header nav a,.tripbar nav a,.site-footer nav a')].filter(visible).filter(el => {
     const r = el.getBoundingClientRect();
     return r.left < -1 || r.right > document.documentElement.clientWidth + 1;
   }).map(el => el.textContent.trim());
@@ -266,6 +266,24 @@ def main():
                     page.goto(BASE + route, wait_until="networkidle")
                     page.evaluate("document.fonts.ready")
                     tag = f"{name}-{width}"
+                    if name == "index":
+                        diagram = page.locator(".shared-time-diagram")
+                        cursor = page.locator(".shared-time-cursor")
+                        diagram.scroll_into_view_if_needed()
+                        page.wait_for_timeout(100)
+                        before = cursor.evaluate("el => getComputedStyle(el).transform")
+                        page.evaluate("window.scrollBy(0, 300)")
+                        page.wait_for_timeout(100)
+                        after = cursor.evaluate("el => getComputedStyle(el).transform")
+                        if (before != after) != (motion != "reduce"):
+                            failures.append(f"{tag}: shared-time cursor motion incorrect for {motion}")
+                        if motion != "reduce":
+                            page.emulate_media(reduced_motion="reduce")
+                            page.wait_for_timeout(100)
+                            if cursor.evaluate("el => getComputedStyle(el).transform") != "none":
+                                failures.append(f"{tag}: shared-time cursor did not stop when reduced motion was enabled")
+                            page.emulate_media(reduced_motion=motion)
+                        page.evaluate("window.scrollTo(0, 0)")
                     if motion == "reduce":
                         # The screenshot galleries live in closed disclosures: open them
                         # through their summaries before checking images and lightboxes.
@@ -285,7 +303,7 @@ def main():
                             failures.append(f"{tag}: clipped copy/navigation {audit['clippedText']} {audit['clippedNavigation']}")
                         if width == 390 and name == "index":
                             # Negative control: clipped copy/nav must fail even with root overflow clipped.
-                            probe = page.add_style_tag(content=".hero .lead { min-width: 600px !important; } .site-header nav { transform: translateX(200px) !important; }")
+                            probe = page.add_style_tag(content=".tripcopy > p:not(.hero-status) { white-space: nowrap !important; } .tripbar nav[aria-label='Main navigation'] { transform: translateX(400px) !important; }")
                             mutated = page.evaluate(AUDIT_JS)
                             probe.evaluate("el => el.remove()")
                             detected = bool(mutated["clippedText"] and mutated["clippedNavigation"])
