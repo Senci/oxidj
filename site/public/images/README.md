@@ -2,11 +2,14 @@
 
 ## Owner-authorized real-track material
 
-`owner-approved-decks.webp` is an 800 × 420 crop of an inspected Bot Screen
+`owner-approved-decks.webp` is a 1440 × 475 crop of an inspected Bot Screen
 capture of the provisional application, showing the owner's Thundercrow and
-Weirder tracks. The track table and status bar are excluded. The decks are not
-tempo-matched in this capture. `owner-approved-overviews.svg` is an illustration
-derived from two other local tracks; its tempo and transition positions are
+Weirder tracks, their embedded covers and the Classic cyan/purple palette. The
+track table and status bar are excluded; the `-720` image is a responsive copy.
+Both decks display 150 BPM, with Thundercrow near an estimated break and Weirder
+at its intro; the application reports a 6 ms beat offset. The phrase match is
+not verified. `owner-approved-overviews.svg` is an illustration derived from
+two other local tracks; its tempo and transition positions are
 estimates, not verified phrase matching. The owner authorized publishing the
 capture and derived waveforms and confirmed rights for the latter. These two
 assets are owner-authorized media, not a declaration that the underlying audio
