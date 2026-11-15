@@ -1,5 +1,17 @@
 # Public image provenance
 
+## Owner-authorized real-track material
+
+`owner-approved-decks.webp` is an 800 × 420 crop of an inspected Bot Screen
+capture of the provisional application, showing the owner's Thundercrow and
+Weirder tracks. The track table and status bar are excluded. The decks are not
+tempo-matched in this capture. `owner-approved-overviews.svg` is an illustration
+derived from two other local tracks; its tempo and transition positions are
+estimates, not verified phrase matching. The owner authorized publishing the
+capture and derived waveforms and confirmed rights for the latter. These two
+assets are owner-authorized media, not a declaration that the underlying audio
+is licensed under the site's MIT code license.
+
 ## Provisional v19 layout showcase
 
 `deck-mixer-v2.webp` is cropped from `app-deck-row-fit-1440x790.png` at
@@ -74,4 +86,5 @@ full-resolution file the lightbox opens. Earlier crops (`track-list.webp`,
 `decks-bar.webp`, the v12 overview and the v14–v16 deck crops) were replaced; the
 deployed site keeps them until the next Pages deployment.
 
-All images are project material under the repository's MIT licence.
+Except for the owner-authorized media described above, the listed images are
+project material under the repository's MIT licence.

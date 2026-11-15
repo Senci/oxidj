@@ -294,6 +294,14 @@ export const projectUpdates: readonly ProjectUpdate[] = [
  * 1440x900 Bot Screen). Provenance: public/images/README.md.
  */
 export const screenshots = {
+  realDecks: {
+    id: 'owner-approved-decks',
+    width: 800,
+    height: 420,
+    alt: 'OxiDJ showing the owner’s Thundercrow and Weirder tracks loaded on two decks, with their waveforms.',
+    caption:
+      'Actual provisional application with tracks provided by Senči; tempos are not matched in this capture.',
+  },
   deckMixerV2: {
     id: 'deck-mixer-v2',
     width: 1440,
