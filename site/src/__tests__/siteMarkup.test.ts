@@ -91,11 +91,18 @@ describe('screenshots', () => {
     expect(home.match(/data-lightbox/g)).toHaveLength(17);
     expect(home).not.toContain('senci-owner-library-record');
     expect(home).not.toContain('class="wave"');
-    expect(home).toContain('Synthetic tracks; provisional application.');
+    expect(home).toContain('tracks provided by Senči');
+    expect(home).toContain('phrase matching has not been verified');
+    expect(home).toContain(
+      'Track B starts later than A; their estimated transitions are aligned approximately',
+    );
+    expect(home).not.toContain('class="shared-time-diagram" aria-hidden="true"');
     expect(home.match(/class="rail-stop /g)).toHaveLength(9);
     for (const shot of Object.values(screenshots)) {
       expect(shot.alt.length).toBeGreaterThan(20);
-      expect(home).toContain(`./images/${shot.id}.webp`);
+      if (shot.id !== 'app-overview' && shot.id !== 'deck-mixer-v2') {
+        expect(home).toContain(`./images/${shot.id}.webp`);
+      }
     }
     expect(home).not.toMatch(
       /library-prototype|\/home\/|waveform-mono|waveform-3band|track-list\.webp|decks-bar\.webp/,
@@ -116,7 +123,7 @@ describe('screenshots', () => {
     expect(home).toContain('class="disc"');
     expect(home).toContain('id="why"');
     expect(home.match(/<div class="recordshot">[\s\S]*?<\/figure>/)?.[0]).toContain(
-      `./images/${screenshots.overview.id}.webp`,
+      `./images/${screenshots.realDecks.id}.webp`,
     );
     expect(home).toContain('class="video-fallback"');
   });

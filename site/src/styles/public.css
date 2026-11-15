@@ -508,43 +508,22 @@ code {
 }
 .shared-time-diagram {
   position: relative;
-  display: grid;
-  gap: var(--space-md);
-  padding: var(--space-lg);
+  overflow: hidden;
   border: 1px solid var(--color-rule);
   border-radius: var(--radius);
   background: var(--color-paper-2);
 }
-.shared-time-row {
-  display: flex;
-  align-items: center;
-  gap: var(--space-md);
-}
-.shared-time-row strong {
-  width: 20px;
-  color: var(--color-ink-2);
-}
-.shared-time-track {
+.shared-time-diagram img {
   display: block;
-  height: 20px;
-  border-radius: var(--radius-s);
-}
-.shared-time-a {
-  margin-left: 12%;
-  width: 50%;
-  background: var(--color-accent);
-}
-.shared-time-b {
-  margin-left: 4%;
-  width: 79%;
-  background: var(--color-secondary);
+  width: 100%;
+  height: auto;
 }
 .shared-time-cursor {
   position: absolute;
   z-index: 1;
-  top: var(--space-sm);
-  bottom: var(--space-sm);
-  left: 42%;
+  top: 10%;
+  bottom: 10%;
+  left: 44%;
   width: 2px;
   pointer-events: none;
 }
@@ -560,15 +539,15 @@ code {
   position: absolute;
   left: -12px;
   width: 36px;
-  height: 22px;
+  height: 30%;
   border: 1px solid var(--color-ink-2);
   background: #ffffff20;
 }
 .shared-time-window-a {
-  top: calc(var(--space-lg) - var(--space-sm));
+  top: 15%;
 }
 .shared-time-window-b {
-  bottom: calc(var(--space-lg) - var(--space-sm));
+  bottom: 15%;
 }
 
 .shared-time figcaption {
