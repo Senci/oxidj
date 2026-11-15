@@ -296,12 +296,12 @@ export const projectUpdates: readonly ProjectUpdate[] = [
 export const screenshots = {
   realDecks: {
     id: 'owner-approved-decks',
-    width: 1440,
-    height: 475,
+    width: 1920,
+    height: 671,
     halfWidth: 720,
     alt: 'OxiDJ showing Thundercrow and Weirder with their cover art and cyan and purple waveforms on two decks.',
     caption:
-      'Actual provisional application with tracks provided by Senči: both decks display 150 BPM; phrase alignment is an estimate.',
+      'Actual provisional application with tracks provided by Senči: both decks playing with SYNC at 148 BPM on estimated beat grids.',
   },
   deckMixerV2: {
     id: 'deck-mixer-v2',
