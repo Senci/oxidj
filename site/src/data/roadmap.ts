@@ -301,7 +301,7 @@ export const screenshots = {
     halfWidth: 720,
     alt: 'OxiDJ showing Thundercrow and Weirder with their cover art and cyan and purple waveforms on two decks.',
     caption:
-      'Actual provisional application with tracks provided by Senči; tempos are not matched in this capture.',
+      'Actual provisional application with tracks provided by Senči: both decks display 150 BPM; phrase alignment is an estimate.',
   },
   deckMixerV2: {
     id: 'deck-mixer-v2',
