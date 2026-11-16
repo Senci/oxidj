@@ -278,6 +278,28 @@ impl Catalog {
         decode_bytes: u64,
         side: u32,
     ) -> Result<Option<Artwork>, ArtworkError> {
+        self.load_display_artwork_impl(id, decode_bytes, side, true)
+    }
+
+    /// Display artwork without any catalog writes: no persistent insert, LRU
+    /// touch, budget update or eviction. Use with `Catalog::open_read_only`.
+    /// Embedded covers and cover-file fallback retain the normal decode limits.
+    pub fn load_display_artwork_read_only(
+        &mut self,
+        id: TrackId,
+        decode_bytes: u64,
+        side: u32,
+    ) -> Result<Option<Artwork>, ArtworkError> {
+        self.load_display_artwork_impl(id, decode_bytes, side, false)
+    }
+
+    fn load_display_artwork_impl(
+        &mut self,
+        id: TrackId,
+        decode_bytes: u64,
+        side: u32,
+        persist: bool,
+    ) -> Result<Option<Artwork>, ArtworkError> {
         if side == 0 {
             return Ok(None);
         }
@@ -290,7 +312,7 @@ impl Catalog {
             |row| row.get(0),
         ).optional().map_err(CatalogError::from)?;
         if cached_size.is_some_and(|size| size >= 0 && size as u64 <= retained)
-            && let Some(art) = self.read_artwork(id)?
+            && let Some(art) = self.read_artwork_with_touch(id, persist)?
         {
             return Ok(Some(art));
         }
@@ -335,12 +357,22 @@ impl Catalog {
             image
         };
         let art = dynamic_to_artwork(image);
-        self.store_artwork(id, track.sha256, &art)?;
+        if persist {
+            self.store_artwork(id, track.sha256, &art)?;
+        }
         Ok(Some(art))
     }
 
     /// Read the cached decoded artwork for `id`, marking it most-recently used.
     pub fn read_artwork(&mut self, id: TrackId) -> Result<Option<Artwork>, CatalogError> {
+        self.read_artwork_with_touch(id, true)
+    }
+
+    fn read_artwork_with_touch(
+        &self,
+        id: TrackId,
+        touch: bool,
+    ) -> Result<Option<Artwork>, CatalogError> {
         let key = track_key(id)?;
         let row = self
             .connection
@@ -359,10 +391,12 @@ impl Catalog {
         let Some((width, height, rgba)) = row else {
             return Ok(None);
         };
-        self.connection.execute(
-            "UPDATE track_artwork SET last_used=?1 WHERE track_id=?2",
-            rusqlite::params![now_nanos(), key],
-        )?;
+        if touch {
+            self.connection.execute(
+                "UPDATE track_artwork SET last_used=?1 WHERE track_id=?2",
+                rusqlite::params![now_nanos(), key],
+            )?;
+        }
         let width = u32::try_from(width)
             .map_err(|_| CatalogError::InvalidRecord("stored artwork width is invalid"))?;
         let height = u32::try_from(height)
@@ -772,6 +806,77 @@ mod tests {
         drop(catalog);
         remove_db(&database);
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn read_only_display_artwork_cache_hit_preserves_persistent_row() {
+        let root = scratch("read-only-hit");
+        let database = db(&root);
+        let source = root.join("source.flac");
+        std::fs::write(&source, b"synthetic source").unwrap();
+        let digest = [0x5a; 32];
+        let pixels = vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16];
+        let expected = Artwork::new(2, 2, pixels.clone()).unwrap();
+        let mut catalog = Catalog::open(&database).unwrap();
+        let track = catalog
+            .insert_track("read-only-hit", source.to_str().unwrap(), digest, 1)
+            .unwrap();
+        catalog.store_artwork(track.id, digest, &expected).unwrap();
+        catalog
+            .connection
+            .execute("UPDATE track_artwork SET last_used=123456789", [])
+            .unwrap();
+        drop(catalog);
+        std::fs::remove_file(&source).unwrap();
+        let before = std::fs::read(&database).unwrap();
+        let wal = database.with_extension("sqlite-wal");
+        assert!(!wal.exists());
+
+        let mut catalog = Catalog::open_read_only(&database).unwrap();
+        let snapshot = |catalog: &Catalog| {
+            let count: i64 = catalog
+                .connection
+                .query_row("SELECT count(*) FROM track_artwork", [], |row| row.get(0))
+                .unwrap();
+            let row: (i64, i64, i64, Vec<u8>, Vec<u8>, i64) = catalog
+                .connection
+                .query_row(
+                    "SELECT track_id,width,height,rgba,source_sha256,last_used FROM track_artwork",
+                    [],
+                    |row| {
+                        Ok((
+                            row.get(0)?,
+                            row.get(1)?,
+                            row.get(2)?,
+                            row.get(3)?,
+                            row.get(4)?,
+                            row.get(5)?,
+                        ))
+                    },
+                )
+                .unwrap();
+            (count, row)
+        };
+        let baseline = snapshot(&catalog);
+        assert_eq!(baseline.0, 1);
+        assert_eq!((baseline.1.1, baseline.1.2), (2, 2));
+        assert_eq!(baseline.1.3, pixels);
+        assert_eq!(baseline.1.4, digest);
+        assert_eq!(baseline.1.5, 123456789);
+        assert_eq!(
+            catalog
+                .load_display_artwork_read_only(track.id, 0, 2)
+                .unwrap(),
+            Some(expected)
+        );
+        assert_eq!(snapshot(&catalog), baseline);
+        // SQLite may create empty WAL/SHM sidecars for a read-only WAL database;
+        // only the disposable test directory is affected, and no WAL frames may be written.
+        assert!(!wal.exists() || std::fs::metadata(&wal).unwrap().len() == 0);
+        drop(catalog);
+        assert_eq!(std::fs::read(&database).unwrap(), before);
+        assert!(!wal.exists() || std::fs::metadata(&wal).unwrap().len() == 0);
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

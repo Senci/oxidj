@@ -14,8 +14,10 @@ pub(crate) enum Sort {
 }
 
 pub(crate) struct LibraryApp {
+    pub(crate) capture_preset: Option<crate::capture_preset::Preset>,
     pub(crate) db_path: PathBuf,
     pub(crate) catalog: Result<Catalog, String>,
+
     pub(crate) tracks: Vec<TrackDetails>,
     pub(crate) load_error: Option<String>,
     pub(crate) search: String,
@@ -234,8 +236,32 @@ impl LibraryApp {
         theme: ThemeMode,
         custom_tokens: theme::ColorTokens,
     ) -> Self {
-        let catalog = Catalog::open(&db_path).map_err(|e| e.to_string());
+        Self::new_with_catalog(db_path, theme, custom_tokens, false)
+    }
+
+    pub(crate) fn new_capture(
+        db_path: PathBuf,
+        theme: ThemeMode,
+        custom_tokens: theme::ColorTokens,
+    ) -> Self {
+        Self::new_with_catalog(db_path, theme, custom_tokens, true)
+    }
+
+    fn new_with_catalog(
+        db_path: PathBuf,
+        theme: ThemeMode,
+        custom_tokens: theme::ColorTokens,
+        readonly: bool,
+    ) -> Self {
+        let catalog = if readonly {
+            Catalog::open_read_only(&db_path)
+        } else {
+            Catalog::open(&db_path)
+        }
+        .map_err(|e| e.to_string());
         let mut app = Self {
+            capture_preset: None,
+
             db_path,
             catalog,
             tracks: vec![],
@@ -394,7 +420,11 @@ impl LibraryApp {
             dragging_track: None,
             imported_navigation: Err("Imported playlists have not been loaded".into()),
             decks: Default::default(),
-            artwork_cache: Default::default(),
+            artwork_cache: if readonly {
+                crate::artwork::Cache::read_only()
+            } else {
+                Default::default()
+            },
             show_nav: true,
             show_details: true,
             show_decks: true,
