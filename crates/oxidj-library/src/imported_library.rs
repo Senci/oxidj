@@ -121,6 +121,9 @@ pub struct NestedRenameGuard {
     members: Vec<usize>,
 }
 
+/// Navigation snapshot paired with the displayed identity chains of all playlists.
+pub type GuardedLibraryNavigation = (LibraryNavigation, Vec<(Vec<usize>, NestedRenameGuard)>);
+
 /// Aggregate counts of a snapshot (folders exclude the implicit root).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct LibraryCounts {
@@ -242,7 +245,60 @@ fn nested_members(tx: &rusqlite::Transaction<'_>, id: i64) -> Result<Vec<usize>,
 }
 
 impl Catalog {
-    /// Append a selected track to a nested playlist after transactional revalidation.
+    /// Capture navigation and all playlist identity chains in the same read transaction.
+    pub fn guarded_library_navigation(&self) -> Result<GuardedLibraryNavigation, CatalogError> {
+        fn collect(
+            tx: &rusqlite::Transaction<'_>,
+            nodes: &[LibraryNode],
+            path: &mut Vec<usize>,
+            names: &mut Vec<String>,
+            guards: &mut Vec<(Vec<usize>, NestedRenameGuard)>,
+        ) -> Result<(), CatalogError> {
+            for (index, node) in nodes.iter().enumerate() {
+                path.push(index);
+                match node {
+                    LibraryNode::Folder { name, children } => {
+                        names.push(name.clone());
+                        collect(tx, children, path, names, guards)?;
+                        names.pop();
+                    }
+                    LibraryNode::Playlist { name, members } => {
+                        names.push(name.clone());
+                        let chain = nested_chain(tx, path, names)?;
+                        if nested_members(tx, chain.last().unwrap().0)? != *members {
+                            return Err(CatalogError::InvalidRecord(
+                                "selected nested playlist is stale",
+                            ));
+                        }
+                        guards.push((
+                            path.clone(),
+                            NestedRenameGuard {
+                                chain,
+                                members: members.clone(),
+                            },
+                        ));
+                        names.pop();
+                    }
+                }
+                path.pop();
+            }
+            Ok(())
+        }
+        let tx = self.connection.unchecked_transaction()?;
+        let navigation = self.library_navigation()?;
+        let mut guards = Vec::new();
+        collect(
+            &tx,
+            &navigation.roots,
+            &mut Vec::new(),
+            &mut Vec::new(),
+            &mut guards,
+        )?;
+        tx.commit()?;
+        Ok((navigation, guards))
+    }
+
+    /// Append a selected track to a root or nested playlist after transactional revalidation.
     pub fn append_guarded_nested_playlist_member(
         &mut self,
         guard: &NestedRenameGuard,
@@ -254,15 +310,30 @@ impl Catalog {
             .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         let path: Vec<_> = guard.chain.iter().map(|n| n.2).collect();
         let names: Vec<_> = guard.chain.iter().map(|n| n.3.clone()).collect();
-        let chain = nested_chain(&tx, &path, &names)?;
+        let chain = nested_chain(&tx, &path, &names).map_err(|e| {
+            if path.len() == 1 && matches!(e, CatalogError::InvalidRecord(_)) {
+                CatalogError::InvalidRecord("selected root playlist is stale")
+            } else {
+                e
+            }
+        })?;
         let id = chain
             .last()
             .ok_or(CatalogError::InvalidRecord("invalid nested playlist path"))?
             .0;
-        if chain != guard.chain || nested_members(&tx, id)? != guard.members {
-            return Err(CatalogError::InvalidRecord(
-                "selected nested playlist is stale",
-            ));
+        if chain != guard.chain {
+            return Err(CatalogError::InvalidRecord(if path.len() == 1 {
+                "selected root playlist is stale"
+            } else {
+                "selected nested playlist is stale"
+            }));
+        }
+        if nested_members(&tx, id)? != guard.members {
+            return Err(CatalogError::InvalidRecord(if path.len() == 1 {
+                "playlist membership order is stale"
+            } else {
+                "selected nested playlist is stale"
+            }));
         }
         let row: Option<ImportedTrackRow> = tx.query_row(
             "SELECT i.token,t.title,t.location,t.artist,t.album,t.tempo_hundredths_bpm,t.duration_seconds,t.musical_key FROM library_tracks t JOIN library_track_identity i ON i.track_position=t.position WHERE t.position=?1",

@@ -73,7 +73,10 @@ impl LibraryApp {
         self.pump_capture_preset(ctx);
         if let Some(p) = &self.capture_preset {
             let ready = p.phase == crate::capture_preset::Phase::Ready;
-            if !matches!(p.phase, crate::capture_preset::Phase::Starting | crate::capture_preset::Phase::Running) {
+            if !matches!(
+                p.phase,
+                crate::capture_preset::Phase::Starting | crate::capture_preset::Phase::Running
+            ) {
                 egui::Panel::top("capture-handshake").show(root_ui, |ui| {
                     ui.horizontal(|ui| {
                         ui.label(&self.notice);
@@ -708,7 +711,7 @@ impl LibraryApp {
                             }
                             let mut choices = Vec::new();
                             collect(&nav.roots, &mut Vec::new(), &mut Vec::new(), &mut choices);
-                            for (path, names, members) in choices {
+                            for (path, names, _members) in choices {
                                 let selected = self
                                     .catalog_append_pending
                                     .as_ref()
@@ -722,18 +725,14 @@ impl LibraryApp {
                                     .clicked()
                                 {
                                     match self
-                                        .catalog
-                                        .as_ref()
-                                        .map_err(|_| "catalog unavailable".to_string())
-                                        .and_then(|db| {
-                                            if path.len() == 1 {
-                                                db.root_playlist_guard(path[0], &names[0], &members)
-                                                    .map(crate::app::AppendTarget::Root)
-                                            } else {
-                                                db.nested_rename_guard(&path, &names, &members)
-                                                    .map(crate::app::AppendTarget::Nested)
-                                            }
-                                            .map_err(|e| e.to_string())
+                                        .navigation_playlist_guards
+                                        .iter()
+                                        .find(|(guard_path, _)| *guard_path == path)
+                                        .map(|(_, guard)| {
+                                            crate::app::AppendTarget::Nested(guard.clone())
+                                        })
+                                        .ok_or_else(|| {
+                                            "displayed playlist identity unavailable".to_owned()
                                         }) {
                                         Ok(guard) => {
                                             self.catalog_append_pending.as_mut().unwrap().2 =
@@ -758,9 +757,6 @@ impl LibraryApp {
                             } else if let Some((path, guard)) = target {
                                 match &mut self.catalog {
                                     Ok(db) => match guard {
-                                        crate::app::AppendTarget::Root(guard) => db
-                                            .append_guarded_root_playlist_member(guard, track)
-                                            .map(|_| None),
                                         crate::app::AppendTarget::Nested(guard) => db
                                             .append_guarded_nested_playlist_member(guard, track)
                                             .map(|updated| Some((path.clone(), updated))),
@@ -1721,15 +1717,11 @@ impl LibraryApp {
             {
                 if ui.button("Add selected to playlist…").clicked() {
                     let target = self.imported_playlist.as_ref().and_then(|path| {
-                        let guard = if path.len() == 1 {
-                            self.imported_root_guard
-                                .clone()
-                                .map(crate::app::AppendTarget::Root)
-                        } else {
-                            self.imported_nested_guard
-                                .clone()
-                                .map(crate::app::AppendTarget::Nested)
-                        };
+                        let guard = self
+                            .navigation_playlist_guards
+                            .iter()
+                            .find(|(guard_path, _)| guard_path == path)
+                            .map(|(_, guard)| crate::app::AppendTarget::Nested(guard.clone()));
                         guard.map(|guard| (path.clone(), guard))
                     });
                     self.catalog_append_pending = Some((member, guard.clone(), target));
