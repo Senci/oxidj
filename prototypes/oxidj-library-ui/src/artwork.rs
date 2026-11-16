@@ -28,6 +28,7 @@ use std::sync::{
 pub(crate) struct Cache {
     state: Arc<Mutex<CacheState>>,
     decoder: Arc<Mutex<()>>,
+    read_only: bool,
 }
 struct CacheState {
     pixels: ArtworkMemoryCache,
@@ -43,10 +44,18 @@ impl Default for Cache {
                 generation: 0,
             })),
             decoder: Arc::new(Mutex::new(())),
+            read_only: false,
         }
     }
 }
 impl Cache {
+    pub(crate) fn read_only() -> Self {
+        Self {
+            read_only: true,
+            ..Self::default()
+        }
+    }
+
     /// Never takes the decoder lock: a Settings change cannot stall a UI frame.
     pub(crate) fn configure(&self, bytes: usize) -> bool {
         let mut state = self.state.lock().unwrap();
@@ -84,13 +93,18 @@ impl Cache {
         if side == 0 {
             return Ok(None);
         }
-        let mut catalog = Catalog::open(db).map_err(|e| e.to_string())?;
-        catalog
-            .set_artwork_cache_budget(budget as u64)
-            .map_err(|e| e.to_string())?;
-        let art = catalog
-            .load_display_artwork(id, (budget as u64 / 4).min(64 * 1024 * 1024), side)
-            .map_err(|e| e.to_string())?;
+        let decode_bytes = (budget as u64 / 4).min(64 * 1024 * 1024);
+        let art = if self.read_only {
+            let mut catalog = Catalog::open_read_only(db).map_err(|e| e.to_string())?;
+            catalog.load_display_artwork_read_only(id, decode_bytes, side)
+        } else {
+            let mut catalog = Catalog::open(db).map_err(|e| e.to_string())?;
+            catalog
+                .set_artwork_cache_budget(budget as u64)
+                .map_err(|e| e.to_string())?;
+            catalog.load_display_artwork(id, decode_bytes, side)
+        }
+        .map_err(|e| e.to_string())?;
         let mut state = self.state.lock().unwrap();
         if state.generation != generation || cancelled.load(Ordering::Relaxed) {
             return Ok(None);

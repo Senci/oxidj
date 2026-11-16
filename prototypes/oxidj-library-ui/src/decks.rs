@@ -928,6 +928,46 @@ impl DeckArea {
         }
     }
 
+    /// Capture-only SYNC: retry a full queue, and do not mutate the UI until
+    /// the real engine accepted the production grid plan. Both seeks must
+    /// already be acknowledged by the caller.
+    pub(crate) fn try_capture_sync(&mut self, d: usize) -> Result<bool, String> {
+        let plan = sync_plan(&self.decks, d, self.range)?;
+        let rate = |n: usize| match self.decks[n].audio {
+            DeckAudio::Ready { rate } => f64::from(rate),
+            _ => 0.0,
+        };
+        let to = |ms: f64, n: usize| ms * rate(n) / 1000.0;
+        if !self.engine.send(Command::Sync {
+            deck: d,
+            master: plan.master,
+            speed: plan.speed,
+            beat: to(plan.fit.beat_ms, d),
+            anchor: to(plan.fit.anchor_ms, d),
+            master_beat: to(plan.master_fit.beat_ms, plan.master),
+            master_anchor: to(plan.master_fit.anchor_ms, plan.master),
+        }) {
+            return Ok(false);
+        }
+        self.decks[d].sync = true;
+        self.decks[d].sync_speed = Some(plan.speed);
+        self.decks[d].sync_note = None;
+        Ok(true)
+    }
+
+    /// Drop the old callback and its queue instead of issuing ambiguous
+    /// toggles against possibly stale snapshots. No device may be opened.
+    pub(crate) fn abort_capture(&mut self, reason: &str) {
+        self.attach(Engine::silent("capture session failed"));
+        for deck in &mut self.decks {
+            deck.audio = DeckAudio::Failed(reason.into());
+            deck.playing = false;
+            deck.previewing = false;
+            deck.outbox.clear();
+            deck.sync_off(self.range);
+        }
+    }
+
     /// While SYNC is on, the follower's speed tracks the master's tempo
     /// (phase is aligned only on press); a master that can no longer be
     /// followed turns SYNC off with the reason.
@@ -1644,6 +1684,9 @@ impl LibraryApp {
     /// switches the active deck instead of starting focus traversal
     /// (Shift+Tab still enters the controls; Esc leaves them).
     pub(crate) fn deck_input_hook(&mut self, ctx: &egui::Context, raw: &mut egui::RawInput) {
+        if self.capture_preset.is_some() {
+            return;
+        }
         if !self.show_decks || self.settings_ui.open || ctx.memory(|m| m.focused()).is_some() {
             return;
         }

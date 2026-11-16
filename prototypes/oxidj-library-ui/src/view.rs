@@ -3,7 +3,14 @@
 use super::*;
 
 impl eframe::App for LibraryApp {
+    fn persist_egui_memory(&self) -> bool {
+        self.capture_preset.is_none()
+    }
+
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
+        if self.capture_preset.is_some() {
+            return;
+        }
         self.theme.save(self.custom_tokens, storage);
         self.settings.save(storage);
         if let Some(geom) = self.settings_ui.geom {
@@ -56,11 +63,35 @@ impl LibraryApp {
     /// track table filling whatever space the visible panels leave.
     pub(crate) fn ui(&mut self, root_ui: &mut egui::Ui) {
         let ctx = &root_ui.ctx().clone();
-        self.handle_settings_shortcuts(ctx);
-        self.handle_theme_shortcuts(ctx);
-        self.handle_panel_shortcuts(ctx);
-        self.handle_deck_keys(ctx);
+        if self.capture_preset.is_none() {
+            self.handle_settings_shortcuts(ctx);
+            self.handle_theme_shortcuts(ctx);
+            self.handle_panel_shortcuts(ctx);
+            self.handle_deck_keys(ctx);
+        }
         self.decks.pump();
+        self.pump_capture_preset(ctx);
+        if let Some(p) = &self.capture_preset {
+            let ready = p.phase == crate::capture_preset::Phase::Ready;
+            if !matches!(p.phase, crate::capture_preset::Phase::Starting | crate::capture_preset::Phase::Running) {
+                egui::Panel::top("capture-handshake").show(root_ui, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.label(&self.notice);
+                        if ui
+                            .add_enabled(ready, egui::Button::new("START silent capture"))
+                            .clicked()
+                        {
+                            self.request_capture_start();
+                        }
+                    });
+                });
+            }
+            // Lock interaction without applying egui's disabled-painter dimming
+            // to covers, waveform bands, and mixer graphics.
+            let opacity = root_ui.painter().opacity();
+            root_ui.disable();
+            root_ui.set_opacity(opacity);
+        }
         self.sync_artwork_settings();
         self.decks.pump_artwork(ctx);
         self.pump_waveform_job(ctx);
@@ -127,7 +158,9 @@ impl LibraryApp {
         }
         // Settings first, so an option changed this frame is what the
         // panels below render (theme changes apply from the next frame).
-        self.settings_window(ctx, tokens);
+        if self.capture_preset.is_none() {
+            self.settings_window(ctx, tokens);
+        }
         waveform_view::publish_smooth(ctx, self.settings.smooth);
         self.track_waveform.style = self.settings.waveform_style;
         self.track_waveform.prefs = track_waveform::WaveformPrefs {

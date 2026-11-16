@@ -86,7 +86,7 @@ pub(crate) fn write_loop_wav(path: &Path, seconds: f32, bpm: f32, level: f32) {
     std::fs::write(path, bytes).unwrap();
 }
 
-fn temp_root(tag: &str) -> PathBuf {
+pub(crate) fn temp_root(tag: &str) -> PathBuf {
     let root = std::env::temp_dir().join(format!(
         "oxidj-ui-d1-{tag}-{}-{}",
         std::process::id(),
@@ -136,6 +136,10 @@ fn memory(ms: u32) -> LibraryCue {
 /// two memory cues), `b-124` (imported 124 BPM grid, hot cue 1), `c-nogrid`
 /// (analysed, no grid, quiet master) and `d-pending` (not analysed).
 pub(crate) fn deck_catalog(root: &Path, seconds: f32) -> PathBuf {
+    deck_catalog_with_bpm(root, seconds, 124.0)
+}
+
+fn deck_catalog_with_bpm(root: &Path, seconds: f32, bpm: f64) -> PathBuf {
     let audio = root.join("audio");
     std::fs::create_dir_all(&audio).unwrap();
     write_loop_wav(&audio.join("a-120.wav"), seconds, 120.0, 0.9);
@@ -183,7 +187,7 @@ pub(crate) fn deck_catalog(root: &Path, seconds: f32) -> PathBuf {
                 ),
                 lib(
                     "b-124.wav",
-                    grid(124.0, s, 120.0),
+                    grid(bpm, s, 120.0),
                     vec![hot(1, 1_088, None, None)],
                 ),
             ],
@@ -5396,4 +5400,584 @@ fn deck_panels_and_mixer_fit_the_visible_deck_area_at_common_sizes() {
         }
         std::fs::remove_dir_all(root).unwrap();
     }
+}
+
+/// Build playable AIFF PCM with an embedded ID3v2.3 front-cover APIC frame.
+/// No sidecar image or pre-populated artwork cache can satisfy this fixture.
+fn capture_aiff_cover(path: &Path, width: u32, height: u32) {
+    let wav = path.with_extension("wav");
+    write_loop_wav(&wav, 4.0, 120.0, 0.8);
+    let wav_bytes = std::fs::read(&wav).unwrap();
+    std::fs::remove_file(wav).unwrap();
+    let pcm = &wav_bytes[44..];
+    let chunk = |id: &[u8; 4], data: &[u8]| {
+        let mut out = id.to_vec();
+        out.extend_from_slice(&(data.len() as u32).to_be_bytes());
+        out.extend_from_slice(data);
+        if data.len() % 2 == 1 {
+            out.push(0);
+        }
+        out
+    };
+    let mut comm = 1u16.to_be_bytes().to_vec();
+    comm.extend_from_slice(&((pcm.len() / 2) as u32).to_be_bytes());
+    comm.extend_from_slice(&16u16.to_be_bytes());
+    comm.extend_from_slice(&[0x40, 0x0e, 0xac, 0x44, 0, 0, 0, 0, 0, 0]); // 44100 Hz
+    let mut ssnd = vec![0; 8];
+    for sample in pcm.chunks_exact(2) {
+        ssnd.extend_from_slice(&[sample[1], sample[0]]);
+    }
+    let mut apic = b"\0image/jpeg\0\x03\0".to_vec();
+    apic.extend_from_slice(&artwork_jpeg(width, height));
+    let mut frame = b"APIC".to_vec();
+    frame.extend_from_slice(&(apic.len() as u32).to_be_bytes());
+    frame.extend_from_slice(&[0, 0]);
+    frame.extend_from_slice(&apic);
+    let size = frame.len();
+    let mut id3 = b"ID3\x03\0\0".to_vec();
+    for shift in [21, 14, 7, 0] {
+        id3.push(((size >> shift) & 0x7f) as u8);
+    }
+    id3.extend_from_slice(&frame);
+    let mut body = b"AIFF".to_vec();
+    body.extend(chunk(b"COMM", &comm));
+    body.extend(chunk(b"SSND", &ssnd));
+    body.extend(chunk(b"ID3 ", &id3));
+    let mut out = b"FORM".to_vec();
+    out.extend_from_slice(&(body.len() as u32).to_be_bytes());
+    out.extend(body);
+    std::fs::write(path, out).unwrap();
+}
+
+#[test]
+fn capture_embedded_covers_on_both_decks_leave_original_and_copy_unchanged() {
+    use crate::capture_preset::{Phase, Preset};
+    let root = temp_root("capture-embedded");
+    let audio = root.join("audio");
+    let paths = [audio.join("a.aiff"), audio.join("b.aiff")];
+    for (path, (w, h)) in paths.iter().zip([(40, 20), (20, 40)]) {
+        capture_aiff_cover(path, w, h);
+    }
+    let original = root.join("original.sqlite");
+    let ids = {
+        let mut cat = Catalog::open(&original).unwrap();
+        cat.import_audio_directory(audio.to_str().unwrap()).unwrap();
+        let tracks = cat.list_track_details().unwrap();
+        for t in &tracks {
+            oxidj_application::analyze_track_waveform(&mut cat, t.track.id, false).unwrap();
+        }
+        cat.import_library(&LibrarySnapshot {
+            tracks: tracks
+                .iter()
+                .map(|t| LibraryTrack {
+                    title: t.track.path.clone(),
+                    location: oxidj_application::location_uri(&t.track.path).0,
+                    beat_grid: grid(120.0, 4.0, 0.0),
+                    ..LibraryTrack::default()
+                })
+                .collect(),
+            roots: vec![],
+        })
+        .unwrap();
+        assert_eq!(cat.artwork_cache_bytes().unwrap(), 0);
+        [tracks[0].track.id.as_u64(), tracks[1].track.id.as_u64()]
+    };
+    // Closed, checkpointed synthetic original: a byte copy is safe here.
+    let copy = root.join("disposable.sqlite");
+    std::fs::copy(&original, &copy).unwrap();
+    let before = std::fs::read(&original).unwrap();
+    let media_before: Vec<_> = paths.iter().map(|p| std::fs::read(p).unwrap()).collect();
+    let app = LibraryApp::new_capture(
+        copy.clone(),
+        ThemeMode::TokyoNight,
+        ThemeMode::TokyoNight.tokens(),
+    );
+    let ctx = egui::Context::default();
+    ctx.enable_accesskit();
+    let mut h = Harness {
+        ctx,
+        app,
+        viewport: egui::vec2(1440.0, 900.0),
+        time: 0.0,
+    };
+    h.app
+        .decks
+        .attach(oxidj_audio::Engine::silent("capture artwork test"));
+    h.app
+        .start_capture_preset(Preset::parse(&capture_json(ids, 1, [1000.0, 1000.0])).unwrap())
+        .unwrap();
+    capture_wait(&mut h, Phase::Ready);
+    for d in 0..2 {
+        wait_artwork(&mut h, d);
+        let track = h.deck(d).track.as_ref().unwrap();
+        let expected = if track.name.ends_with("a.aiff") {
+            [40, 20]
+        } else {
+            [20, 40]
+        };
+        assert_eq!(h.deck(d).art.size(), expected, "deck {d}: embedded cover");
+        assert!(h.deck(d).art.texture().is_some(), "deck {d}: ready texture");
+        assert!(
+            h.layout().artwork[d].is_some(),
+            "deck {d}: cover is visible"
+        );
+    }
+    // Actual egui paint output must reference each loaded texture.
+    let output = h.settle();
+    for d in 0..2 {
+        let id = h.deck(d).art.texture().unwrap().id();
+        let meshes = h
+            .ctx
+            .tessellate(output.shapes.clone(), output.pixels_per_point);
+        assert!(meshes.iter().any(
+            |p| matches!(&p.primitive, egui::epaint::Primitive::Mesh(m) if m.texture_id == id)
+        ));
+    }
+    // Compare actual cover mesh vertex colors with the equivalent normal UI.
+    // Texture presence alone does not detect egui's disabled-painter dimming.
+    let capture_layout = h.layout();
+    let capture_meshes = h
+        .ctx
+        .tessellate(output.shapes.clone(), output.pixels_per_point);
+    let preset = h.app.capture_preset.take();
+    let normal = h.settle();
+    let normal_layout = h.layout();
+    let normal_meshes = h.ctx.tessellate(normal.shapes, normal.pixels_per_point);
+    let texture_colors = |meshes: &[egui::ClippedPrimitive], id| -> Vec<_> {
+        meshes
+            .iter()
+            .flat_map(|p| match &p.primitive {
+                egui::epaint::Primitive::Mesh(m) if m.texture_id == id => {
+                    m.vertices.iter().map(|v| v.color).collect::<Vec<_>>()
+                }
+                _ => vec![],
+            })
+            .collect()
+    };
+    for d in 0..2 {
+        let id = h.deck(d).art.texture().unwrap().id();
+        let expected = texture_colors(&normal_meshes, id);
+        assert!(!expected.is_empty());
+        assert_eq!(
+            texture_colors(&capture_meshes, id),
+            expected,
+            "cover {d} must not dim"
+        );
+    }
+    let region_colors = |meshes: &[egui::ClippedPrimitive], rect: Rect| {
+        meshes
+            .iter()
+            .flat_map(|p| match &p.primitive {
+                egui::epaint::Primitive::Mesh(m) if m.texture_id == egui::TextureId::default() => m
+                    .vertices
+                    .iter()
+                    .filter(|v| rect.contains(v.pos))
+                    .map(|v| v.color.to_array())
+                    .collect::<Vec<_>>(),
+                _ => vec![],
+            })
+            .collect::<std::collections::BTreeSet<_>>()
+    };
+    let normal_wave = region_colors(&normal_meshes, normal_layout.detail.unwrap());
+    let capture_wave = region_colors(&capture_meshes, capture_layout.detail.unwrap());
+    // Waveform bands (not text or an inactive widget) must retain their RGB/alpha.
+    let bands: Vec<_> = normal_wave
+        .iter()
+        .filter(|c| c[3] == 255 && c[..3].iter().max().unwrap() - c[..3].iter().min().unwrap() > 80)
+        .collect();
+    assert!(!bands.is_empty(), "normal waveform has colored bands");
+    for color in bands {
+        assert!(
+            capture_wave.contains(color),
+            "waveform color {color:?} must not dim"
+        );
+    }
+    let border = h.app.active_tokens().border.to_array();
+    assert!(region_colors(&normal_meshes, normal_layout.mixer.unwrap()).contains(&border));
+    assert!(
+        region_colors(&capture_meshes, capture_layout.mixer.unwrap()).contains(&border),
+        "mixer rails must not dim"
+    );
+    h.app.capture_preset = preset;
+    h.settle();
+    let locked = (
+        h.app.decks.crossfader,
+        h.deck(0).channel.eq_db,
+        h.deck(0).volume,
+        h.app.settings.zoom_bars,
+        h.app.show_decks,
+        h.app.decks.active,
+    );
+    h.click(h.layout().play[0].unwrap().center());
+    let fader = h.layout().crossfader.unwrap();
+    h.drag(fader.center(), fader.right_center());
+    let filter = h.layout().filter[0].unwrap().center();
+    h.frame_with(
+        vec![
+            egui::Event::PointerMoved(filter),
+            egui::Event::MouseWheel {
+                phase: egui::TouchPhase::Move,
+                source: egui::MouseWheelSource::Unknown,
+                unit: egui::MouseWheelUnit::Line,
+                delta: egui::vec2(0.0, 3.0),
+                modifiers: Default::default(),
+            },
+        ],
+        Default::default(),
+    );
+    h.tap(egui::Key::Space);
+    h.tap(egui::Key::Tab);
+    h.key(egui::Key::D, egui::Modifiers::CTRL);
+    assert_eq!(
+        (
+            h.app.decks.crossfader,
+            h.deck(0).channel.eq_db,
+            h.deck(0).volume,
+            h.app.settings.zoom_bars,
+            h.app.show_decks,
+            h.app.decks.active
+        ),
+        locked
+    );
+    assert_eq!(h.deck(0).channel.filter, -0.5);
+    assert!(h.app.decks.decks.iter().all(|d| !d.playing));
+    assert_eq!(h.app.decks.engine.output(), oxidj_audio::OutputKind::Silent);
+    let mut store = MemStore::default();
+    store.0.insert("sentinel".into(), "unchanged".into());
+    let saved = store.0.clone();
+    eframe::App::save(&mut h.app, &mut store);
+    assert_eq!(store.0, saved);
+    drop(h);
+    assert_eq!(
+        std::fs::read(&original).unwrap(),
+        before,
+        "original catalog bytes"
+    );
+    assert_eq!(
+        std::fs::read(&copy).unwrap(),
+        before,
+        "capture catalog bytes"
+    );
+    for (path, bytes) in paths.iter().zip(media_before) {
+        assert_eq!(std::fs::read(path).unwrap(), bytes);
+    }
+    // SQLite may create empty WAL/SHM sidecars for a read-only connection to
+    // the disposable copy. The original must never be opened by capture, and
+    // an existing copy WAL must not contain uncheckpointed writes.
+    for suffix in ["-wal", "-shm", "-journal"] {
+        assert!(
+            !PathBuf::from(format!("{}{suffix}", original.display())).exists(),
+            "original sidecar: {suffix}"
+        );
+    }
+    let wal = PathBuf::from(format!("{}-wal", copy.display()));
+    assert!(
+        !wal.exists() || std::fs::metadata(wal).unwrap().len() == 0,
+        "capture must not write WAL frames"
+    );
+    assert!(!PathBuf::from(format!("{}-journal", copy.display())).exists());
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+fn capture_json(ids: [u64; 2], follower: usize, positions: [f64; 2]) -> String {
+    format!(
+        r#"{{"track_ids":[{},{}],"positions_ms":[{},{}],"crossfader":0.3,"master":0.7,"sync_deck":{},"faders":[0.4,0.8],"filters":[-0.5,0.6],"eq_db":[[-5,2,3],[1,-6,0]],"palette":"classic","sections":[true,true,true,true]}}"#,
+        ids[0], ids[1], positions[0], positions[1], follower
+    )
+}
+
+fn capture_wait(h: &mut Harness, target: crate::capture_preset::Phase) {
+    let start = std::time::Instant::now();
+    loop {
+        let phase = h.app.capture_preset.as_ref().unwrap().phase;
+        if phase == target {
+            break;
+        }
+        assert_ne!(
+            phase,
+            crate::capture_preset::Phase::Failed,
+            "{}",
+            h.app.notice
+        );
+        assert!(
+            start.elapsed().as_secs() < 15,
+            "phase {phase:?}: {}",
+            h.app.notice
+        );
+        h.settle();
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+}
+
+#[test]
+fn capture_preset_documented_example_parses() {
+    let document = include_str!("../CAPTURE-PRESET.md");
+    let example = document
+        .split_once("```json\n")
+        .and_then(|(_, rest)| rest.split_once("\n```"))
+        .map(|(json, _)| json)
+        .expect("documented JSON example");
+    assert!(crate::capture_preset::Preset::parse(example).is_ok());
+}
+
+#[test]
+fn capture_preset_tempo_range_controls_large_sync_adjustment() {
+    use crate::capture_preset::{Phase, Preset};
+    for (range, expected) in [(16, Phase::Ready), (10, Phase::Failed)] {
+        let root = temp_root("capture-tempo-range");
+        let mut h = Harness::new(deck_catalog_with_bpm(&root, 12.0, 107.0));
+        let ids = [h.id_of("a-120.wav"), h.id_of("b-124.wav")];
+        h.app.decks.attach(oxidj_audio::Engine::silent("test"));
+        let json = capture_json(ids, 1, [1000.0, 1000.0]).replace(
+            "\"sync_deck\":1",
+            &format!("\"sync_deck\":1,\"tempo_range\":{range}"),
+        );
+        h.app
+            .start_capture_preset(Preset::parse(&json).unwrap())
+            .unwrap();
+        capture_wait(&mut h, expected);
+        assert_eq!(h.app.decks.range, range as f32);
+        assert!(h.app.decks.decks.iter().all(|d| !d.playing));
+        if expected == Phase::Failed {
+            assert!(!h.app.request_capture_start());
+        } else {
+            assert!(h.app.decks.decks[1].sync);
+        }
+        drop(h);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+}
+
+#[test]
+fn capture_preset_both_followers_require_one_shot_start() {
+    use crate::capture_preset::{Phase, Preset};
+    for follower in 0..2 {
+        let root = temp_root("capture-preset");
+        let mut h = Harness::new(deck_catalog(&root, 20.0));
+        h.app.decks.attach(oxidj_audio::Engine::silent("test"));
+        let ids: Vec<_> = ["a-120.wav", "b-124.wav"]
+            .iter()
+            .map(|name| {
+                h.app
+                    .tracks
+                    .iter()
+                    .find(|t| t.track.path.ends_with(name))
+                    .unwrap()
+                    .track
+                    .id
+                    .as_u64()
+            })
+            .collect();
+        let preset =
+            Preset::parse(&capture_json([ids[0], ids[1]], follower, [4000.25, 5000.5])).unwrap();
+        h.app.start_capture_preset(preset).unwrap();
+        assert!(!h.app.request_capture_start());
+        let mut store = MemStore::default();
+        store.0.insert("sentinel".into(), "unchanged".into());
+        let before = store.0.clone();
+        eframe::App::save(&mut h.app, &mut store);
+        assert_eq!(store.0, before);
+        capture_wait(&mut h, Phase::Ready);
+        assert!(h.app.decks.decks.iter().all(|d| !d.playing));
+        assert!(h.app.decks.decks[follower].sync);
+        assert!(h.app.request_capture_start());
+        assert!(!h.app.request_capture_start());
+        capture_wait(&mut h, Phase::Running);
+        assert!(h.app.decks.decks.iter().all(|d| d.playing));
+        assert!(!h.app.request_capture_start());
+        assert_eq!(h.app.decks.engine.output(), oxidj_audio::OutputKind::Silent);
+        assert_eq!(h.app.decks.crossfader, 0.3);
+        assert_eq!(h.app.decks.decks[0].channel.eq_db, [-5.0, 2.0, 3.0]);
+        drop(h);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+}
+
+#[test]
+fn capture_preset_refuses_missing_grid_and_invalid_position() {
+    use crate::capture_preset::{Phase, Preset};
+    for invalid_position in [false, true] {
+        let root = temp_root("capture-invalid");
+        let mut h = Harness::new(deck_catalog(&root, 12.0));
+        h.app.decks.attach(oxidj_audio::Engine::silent("test"));
+        let id = |name: &str| {
+            h.app
+                .tracks
+                .iter()
+                .find(|t| t.track.path.ends_with(name))
+                .unwrap()
+                .track
+                .id
+                .as_u64()
+        };
+        let ids = [
+            id("a-120.wav"),
+            id(if invalid_position {
+                "b-124.wav"
+            } else {
+                "c-nogrid.wav"
+            }),
+        ];
+        let positions = if invalid_position {
+            [12000.0, 1000.0]
+        } else {
+            [1000.0, 1000.0]
+        };
+        h.app
+            .start_capture_preset(Preset::parse(&capture_json(ids, 1, positions)).unwrap())
+            .unwrap();
+        capture_wait(&mut h, Phase::Failed);
+        assert!(
+            h.app.notice.contains(if invalid_position {
+                "position outside"
+            } else {
+                "no beat grid"
+            }),
+            "{}",
+            h.app.notice
+        );
+        assert!(!h.app.request_capture_start());
+        assert!(h.app.decks.decks.iter().all(|d| !d.playing));
+        drop(h);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+}
+
+#[test]
+fn capture_preset_rejects_invalid_values_and_malformed_cli() {
+    let valid = capture_json([1, 2], 1, [0.0, 1.0]);
+    for bad in [
+        valid.replace("[1,2]", "[0,2]"),
+        valid.replace("[0,1]", "[-1,1]"),
+        valid.replace("\"sync_deck\":1", "\"sync_deck\":2"),
+        valid.replace("\"classic\"", "\"other\""),
+        valid.replace("\"sync_deck\":1", "\"sync_deck\":1,\"tempo_range\":12"),
+        valid.replace("\"sync_deck\":1", "\"sync_deck\":1,\"tempo_range\":\"16\""),
+    ] {
+        assert!(crate::capture_preset::Preset::parse(&bad).is_err(), "{bad}");
+    }
+    let args: Vec<std::ffi::OsString> = ["--captur-preset", "foo"]
+        .into_iter()
+        .map(Into::into)
+        .collect();
+    assert!(crate::capture_preset::cli(&args).is_err());
+}
+
+#[test]
+fn capture_catalog_rejects_writes() {
+    let root = temp_root("capture-readonly");
+    let db = deck_catalog(&root, 12.0);
+    let mut app =
+        LibraryApp::new_capture(db, ThemeMode::TokyoNight, ThemeMode::TokyoNight.tokens());
+    let err = app
+        .catalog
+        .as_mut()
+        .unwrap()
+        .create_library_playlist("must-not-write", &[0]);
+    assert!(err.is_err());
+    drop(app);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn capture_framework_persistence_policy_is_not_normal_startup() {
+    use eframe::App as _;
+    let root = temp_root("capture-persistence");
+    let mut h = Harness::new(deck_catalog(&root, 10.0));
+    assert!(h.app.persist_egui_memory());
+    let ids = [h.id_of("a-120.wav"), h.id_of("b-124.wav")];
+    h.app.decks.attach(oxidj_audio::Engine::silent("test"));
+    h.app
+        .start_capture_preset(
+            crate::capture_preset::Preset::parse(&capture_json(ids, 1, [0.0, 0.0])).unwrap(),
+        )
+        .unwrap();
+    assert!(
+        !h.app.persist_egui_memory(),
+        "eframe saves egui memory independently of App::save"
+    );
+    drop(h);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn capture_start_button_restores_normal_layout_while_playing() {
+    use crate::capture_preset::{Phase, Preset};
+    let root = temp_root("capture-start-layout");
+    let mut h = Harness::new(deck_catalog(&root, 20.0));
+    let ids = [h.id_of("a-120.wav"), h.id_of("b-124.wav")];
+    h.app.decks.attach(oxidj_audio::Engine::silent("test"));
+    h.app
+        .start_capture_preset(Preset::parse(&capture_json(ids, 1, [1000.0, 1000.0])).unwrap())
+        .unwrap();
+    capture_wait(&mut h, Phase::Ready);
+    let out = h.settle();
+    let bounds = node(&out, "START silent capture").bounds().unwrap();
+    let position = egui::pos2(
+        ((bounds.x0 + bounds.x1) / 2.0) as f32,
+        ((bounds.y0 + bounds.y1) / 2.0) as f32,
+    );
+    h.click(position);
+    capture_wait(&mut h, Phase::Running);
+    let out = h.settle();
+    assert!(h.app.decks.decks.iter().all(|d| d.playing));
+    assert!(
+        !texts(&out)
+            .iter()
+            .any(|(s, _)| s.contains("START silent capture")),
+        "handshake is not part of capture geometry"
+    );
+    assert!(
+        texts(&out)
+            .iter()
+            .any(|(s, _)| s.contains("capture: RUNNING")),
+        "status stays in existing status bar"
+    );
+    let capture_shell = h.app.shell;
+    let capture_decks = h.layout();
+    let preset = h.app.capture_preset.take();
+    h.settle();
+    let normal_shell = h.app.shell;
+    let normal_decks = h.layout();
+    assert_eq!(capture_shell.toolbar, normal_shell.toolbar);
+    assert_eq!(capture_shell.decks, normal_shell.decks);
+    assert_eq!(capture_shell.table, normal_shell.table);
+    assert_eq!(capture_shell.details, normal_shell.details);
+    assert_eq!(capture_shell.status, normal_shell.status);
+    assert_eq!(capture_decks.detail, normal_decks.detail);
+    assert_eq!(capture_decks.overviews, normal_decks.overviews);
+    assert_eq!(capture_decks.mixer, normal_decks.mixer);
+    h.app.capture_preset = preset;
+    assert!(h.app.decks.decks.iter().all(|d| d.playing));
+    drop(h);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn capture_preset_fails_closed_when_audio_disappears() {
+    use crate::capture_preset::{Phase, Preset};
+    let root = temp_root("capture-missing-audio");
+    let db = deck_catalog(&root, 12.0);
+    let mut h = Harness::new(db);
+    h.app.decks.attach(oxidj_audio::Engine::silent("test"));
+    let id = |name: &str| {
+        h.app
+            .tracks
+            .iter()
+            .find(|t| t.track.path.ends_with(name))
+            .unwrap()
+            .track
+            .id
+            .as_u64()
+    };
+    let ids = [id("a-120.wav"), id("b-124.wav")];
+    std::fs::remove_file(root.join("audio/a-120.wav")).unwrap();
+    h.app
+        .start_capture_preset(Preset::parse(&capture_json(ids, 1, [1000.0, 1000.0])).unwrap())
+        .unwrap();
+    capture_wait(&mut h, Phase::Failed);
+    assert!(!h.app.request_capture_start());
+    assert!(h.app.decks.decks.iter().all(|d| !d.playing));
+    drop(h);
+    std::fs::remove_dir_all(root).unwrap();
 }
