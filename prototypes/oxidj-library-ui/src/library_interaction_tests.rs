@@ -745,6 +745,224 @@ fn nested_append_disambiguates_identical_paths_and_repeats_without_reselection()
 }
 
 #[test]
+fn cached_append_picker_rejects_replaced_target_before_click() {
+    let (root, db) = catalog_root("cached-append-replaced-target");
+    let fixture = LibrarySnapshot {
+        tracks: vec![LibraryTrack {
+            title: "Track".into(),
+            location: "file://localhost/test.mp3".into(),
+            ..Default::default()
+        }],
+        roots: ["Source", "Target"]
+            .into_iter()
+            .map(|name| oxidj_library::LibraryNode::Folder {
+                name: name.into(),
+                children: vec![oxidj_library::LibraryNode::Playlist {
+                    name: "Mix".into(),
+                    members: vec![0],
+                }],
+            })
+            .collect(),
+    };
+    Catalog::open(&db)
+        .unwrap()
+        .import_library(&fixture)
+        .unwrap();
+    let mut shell = Shell::new(&db, 1440.0);
+    let rows: Vec<_> = texts(&shell.settle())
+        .into_iter()
+        .filter(|(s, _)| s == "♫ Mix")
+        .collect();
+    shell.click(rows[0].1.center());
+    let row = text_rect(&mut shell, "1 · Track");
+    shell.click(row.center());
+    let out = shell.settle();
+    shell.click(find(&nodes(&out), "Add selected to playlist…").2.center());
+    let out = shell.settle();
+    let target = find(&nodes(&out), "Target: [1, 0] [\"Target\", \"Mix\"]")
+        .2
+        .center();
+    let sql = "UPDATE library_node_identity SET token=randomblob(16) WHERE node_id=(SELECT id FROM library_nodes WHERE name='Target')";
+    let result = std::process::Command::new("python3")
+        .args(["-c", "import sqlite3,sys; c=sqlite3.connect(sys.argv[1]); old=c.execute(sys.argv[2].replace('UPDATE library_node_identity SET token=randomblob(16)', 'SELECT hex(token) FROM library_node_identity')).fetchone(); c.execute(sys.argv[2]); new=c.execute(sys.argv[2].replace('UPDATE library_node_identity SET token=randomblob(16)', 'SELECT hex(token) FROM library_node_identity')).fetchone(); assert old and new and old != new; c.commit()"])
+        .arg(&db).arg(sql).output().unwrap();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    assert_eq!(
+        Catalog::open_read_only(&db)
+            .unwrap()
+            .library_snapshot()
+            .unwrap(),
+        fixture
+    );
+    shell.click(target);
+    let out = shell.settle();
+    shell.click(find(&nodes(&out), "Confirm addition").2.center());
+    let after = Catalog::open_read_only(&db)
+        .unwrap()
+        .library_snapshot()
+        .unwrap();
+    assert!(
+        shell
+            .app
+            .notice
+            .contains("selected nested playlist is stale"),
+        "{}",
+        shell.app.notice
+    );
+    assert_eq!(
+        after, fixture,
+        "replacement was modified; notice: {}",
+        shell.app.notice
+    );
+    drop(shell);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn cached_append_picker_rejects_replaced_root_before_click() {
+    let (root, db) = catalog_root("cached-append-replaced-root");
+    let fixture = LibrarySnapshot {
+        tracks: vec![LibraryTrack {
+            title: "Track".into(),
+            location: "file://localhost/test.mp3".into(),
+            ..Default::default()
+        }],
+        roots: ["Source", "Target"]
+            .into_iter()
+            .map(|name| oxidj_library::LibraryNode::Playlist {
+                name: name.into(),
+                members: vec![0],
+            })
+            .collect(),
+    };
+    Catalog::open(&db)
+        .unwrap()
+        .import_library(&fixture)
+        .unwrap();
+    let mut shell = Shell::new(&db, 1440.0);
+    let row = text_rect(&mut shell, "♫ Source");
+    shell.click(row.center());
+    let row = text_rect(&mut shell, "1 · Track");
+    shell.click(row.center());
+    let out = shell.settle();
+    shell.click(find(&nodes(&out), "Add selected to playlist…").2.center());
+    let out = shell.settle();
+    let target = find(&nodes(&out), "Target: [1] [\"Target\"]").2.center();
+    let sql = "UPDATE library_node_identity SET token=randomblob(16) WHERE node_id=(SELECT id FROM library_nodes WHERE name='Target')";
+    let result = std::process::Command::new("python3")
+        .args(["-c", "import sqlite3,sys; c=sqlite3.connect(sys.argv[1]); old=c.execute(sys.argv[2].replace('UPDATE library_node_identity SET token=randomblob(16)', 'SELECT hex(token) FROM library_node_identity')).fetchone(); c.execute(sys.argv[2]); new=c.execute(sys.argv[2].replace('UPDATE library_node_identity SET token=randomblob(16)', 'SELECT hex(token) FROM library_node_identity')).fetchone(); assert old and new and old != new; c.commit()"])
+        .arg(&db).arg(sql).output().unwrap();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    assert_eq!(
+        Catalog::open_read_only(&db)
+            .unwrap()
+            .library_snapshot()
+            .unwrap(),
+        fixture
+    );
+    shell.click(target);
+    let out = shell.settle();
+    shell.click(find(&nodes(&out), "Confirm addition").2.center());
+    let after = Catalog::open_read_only(&db)
+        .unwrap()
+        .library_snapshot()
+        .unwrap();
+    assert!(
+        shell.app.notice.contains("selected root playlist is stale"),
+        "{}",
+        shell.app.notice
+    );
+    assert_eq!(
+        after, fixture,
+        "replacement was modified; notice: {}",
+        shell.app.notice
+    );
+    drop(shell);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+// Default targets must use the displayed snapshot too, even when navigation selection
+// itself obtained a fresh identity after replacement. Also exercise the nested leaf.
+#[test]
+fn cached_append_default_rejects_replacement_before_selection() {
+    for nested in [false, true] {
+        for replace_leaf in [false, true] {
+            let (root, db) = catalog_root("append-default-replacement");
+            let playlist = oxidj_library::LibraryNode::Playlist {
+                name: "Mix".into(),
+                members: vec![0, 0],
+            };
+            let fixture = LibrarySnapshot {
+                tracks: vec![LibraryTrack {
+                    title: "Track".into(),
+                    artist: Some("Synthetic artist".into()),
+                    comments: Some("Preserve metadata".into()),
+                    location: "file://localhost/test.mp3".into(),
+                    ..Default::default()
+                }],
+                roots: vec![if nested {
+                    oxidj_library::LibraryNode::Folder {
+                        name: "Folder".into(),
+                        children: vec![playlist],
+                    }
+                } else {
+                    playlist
+                }],
+            };
+            Catalog::open(&db)
+                .unwrap()
+                .import_library(&fixture)
+                .unwrap();
+            let mut shell = Shell::new(&db, 1440.0);
+            let row = text_rect(&mut shell, "♫ Mix");
+            let name = if nested && !replace_leaf {
+                "Folder"
+            } else {
+                "Mix"
+            };
+            let result = std::process::Command::new("python3")
+                .args(["-c", "import sqlite3,sys; c=sqlite3.connect(sys.argv[1]); q='SELECT hex(token) FROM library_node_identity WHERE node_id=(SELECT id FROM library_nodes WHERE name=?)'; old=c.execute(q,(sys.argv[2],)).fetchone(); c.execute('UPDATE library_node_identity SET token=randomblob(16) WHERE node_id=(SELECT id FROM library_nodes WHERE name=?)',(sys.argv[2],)); new=c.execute(q,(sys.argv[2],)).fetchone(); assert old and new and old != new; c.commit()"])
+                .arg(&db).arg(name).output().unwrap();
+            assert!(
+                result.status.success(),
+                "{}",
+                String::from_utf8_lossy(&result.stderr)
+            );
+            shell.click(row.center());
+            let row = text_rect(&mut shell, "1 · Track");
+            shell.click(row.center());
+            let out = shell.settle();
+            shell.click(find(&nodes(&out), "Add selected to playlist…").2.center());
+            let out = shell.settle();
+            shell.click(find(&nodes(&out), "Confirm addition").2.center());
+            let reason = if nested {
+                "selected nested playlist is stale"
+            } else {
+                "selected root playlist is stale"
+            };
+            assert!(shell.app.notice.contains(reason), "{}", shell.app.notice);
+            assert_eq!(
+                Catalog::open_read_only(&db)
+                    .unwrap()
+                    .library_snapshot()
+                    .unwrap(),
+                fixture
+            );
+            drop(shell);
+            std::fs::remove_dir_all(root).unwrap();
+        }
+    }
+}
+
+#[test]
 fn nested_append_ui_rejects_changed_ancestor_and_track_identity() {
     for case in ["ancestor", "track"] {
         let (root, db) = catalog_root(&format!("nested-append-stale-{case}"));

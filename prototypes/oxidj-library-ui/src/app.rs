@@ -158,6 +158,7 @@ pub(crate) struct LibraryApp {
     pub(crate) imported_playlist: Option<Vec<usize>>,
     pub(crate) imported_root_guard: Option<oxidj_library::RootPlaylistGuard>,
     pub(crate) imported_nested_guard: Option<oxidj_library::NestedRenameGuard>,
+    pub(crate) navigation_playlist_guards: Vec<(Vec<usize>, oxidj_library::NestedRenameGuard)>,
     pub(crate) catalog_rename_open: bool,
     pub(crate) catalog_rename_name: String,
     pub(crate) catalog_remove_pending: Option<(
@@ -197,7 +198,6 @@ pub(crate) struct LibraryApp {
 
 #[derive(Clone, Debug)]
 pub(crate) enum AppendTarget {
-    Root(oxidj_library::RootPlaylistGuard),
     Nested(oxidj_library::NestedRenameGuard),
 }
 
@@ -409,6 +409,7 @@ impl LibraryApp {
             imported_root_guard: None,
             catalog_rename_open: false,
             imported_nested_guard: None,
+            navigation_playlist_guards: Vec::new(),
             catalog_rename_name: String::new(),
             catalog_remove_pending: None,
             selected_imported_guard: None,
@@ -638,13 +639,17 @@ impl LibraryApp {
 
     pub(crate) fn reload(&mut self) {
         self.tracks.clear();
+        self.navigation_playlist_guards.clear();
         self.load_error = None;
         self.track_waveform.invalidate();
         match &self.catalog {
             Ok(db) => {
                 self.imported_navigation = db
-                    .library_navigation()
-                    .map(std::sync::Arc::new)
+                    .guarded_library_navigation()
+                    .map(|(nav, guards)| {
+                        self.navigation_playlist_guards = guards;
+                        std::sync::Arc::new(nav)
+                    })
                     .map_err(|error| error.to_string());
                 match db.list_track_details() {
                     Ok(rows) => self.tracks = rows,
