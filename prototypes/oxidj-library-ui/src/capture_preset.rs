@@ -6,11 +6,9 @@ use crate::{app::LibraryApp, decks::DeckAudio};
 pub(crate) fn cli(
     args: &[std::ffi::OsString],
 ) -> Result<Option<(std::path::PathBuf, Preset)>, String> {
-    if args.is_empty()
-        || (args.len() == 2
-            && args[0] == "--db"
-            && !args[1].is_empty()
-            && !args[1].to_string_lossy().starts_with("--"))
+    if !args
+        .iter()
+        .any(|arg| arg == "--capture-preset" || arg == "--capture-disposable-db")
     {
         return Ok(None);
     }

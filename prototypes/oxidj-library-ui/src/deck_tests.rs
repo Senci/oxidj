@@ -5856,11 +5856,24 @@ fn capture_preset_rejects_invalid_values_and_malformed_cli() {
     ] {
         assert!(crate::capture_preset::Preset::parse(&bad).is_err(), "{bad}");
     }
-    let args: Vec<std::ffi::OsString> = ["--captur-preset", "foo"]
+    let args: Vec<std::ffi::OsString> = ["--capture-preset", "foo"]
         .into_iter()
         .map(Into::into)
         .collect();
     assert!(crate::capture_preset::cli(&args).is_err());
+}
+
+#[test]
+fn capture_cli_preserves_normal_arguments() {
+    for args in [
+        vec!["--db", "library.sqlite", "extra"],
+        vec!["--unknown", "value"],
+        vec!["--db"],
+        vec!["--captur-preset", "foo"],
+    ] {
+        let args: Vec<std::ffi::OsString> = args.into_iter().map(Into::into).collect();
+        assert!(matches!(crate::capture_preset::cli(&args), Ok(None)));
+    }
 }
 
 #[test]
