@@ -1,0 +1,11 @@
+# Allow the approved OxiDJ synthetic review checks without headless prompts.
+# These rules permit matching commands outside the Codex sandbox, including
+# extra arguments and any project code those commands execute.
+prefix_rule(
+    pattern = ["cargo", "test", "-p", "oxidj-application", "import_"],
+    decision = "allow",
+)
+prefix_rule(
+    pattern = ["cargo", "xtask", "ci-full"],
+    decision = "allow",
+)
