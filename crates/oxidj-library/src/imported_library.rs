@@ -457,6 +457,76 @@ impl Catalog {
         Ok(updated)
     }
 
+    /// Move one nested membership after transactional identity and order validation.
+    pub fn move_guarded_nested_playlist_member(
+        &mut self,
+        guard: &NestedRenameGuard,
+        track: &ImportedTrackGuard,
+        index: usize,
+        destination: usize,
+    ) -> Result<NestedRenameGuard, CatalogError> {
+        use rusqlite::OptionalExtension;
+        let tx = self
+            .connection
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let path: Vec<_> = guard.chain.iter().map(|n| n.2).collect();
+        let names: Vec<_> = guard.chain.iter().map(|n| n.3.clone()).collect();
+        let chain = nested_chain(&tx, &path, &names)?;
+        let id = chain
+            .last()
+            .ok_or(CatalogError::InvalidRecord("invalid nested playlist path"))?
+            .0;
+        if chain != guard.chain || nested_members(&tx, id)? != guard.members {
+            return Err(CatalogError::InvalidRecord(
+                "selected nested playlist is stale",
+            ));
+        }
+        if index.abs_diff(destination) != 1
+            || index >= guard.members.len()
+            || destination >= guard.members.len()
+        {
+            return Err(CatalogError::InvalidRecord(
+                "playlist member move is out of range",
+            ));
+        }
+        if guard.members[index] != track.position {
+            return Err(CatalogError::InvalidRecord(
+                "playlist member ID does not match",
+            ));
+        }
+        let row: Option<ImportedTrackRow> = tx.query_row(
+            "SELECT i.token,t.title,t.location,t.artist,t.album,t.tempo_hundredths_bpm,t.duration_seconds,t.musical_key FROM library_tracks t JOIN library_track_identity i ON i.track_position=t.position WHERE t.position=?1",
+            [to_i64(track.position)?], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?,r.get(5)?,r.get(6)?,r.get(7)?)),
+        ).optional()?;
+        let v = &track.visible;
+        if row
+            != Some((
+                track.token.clone(),
+                v.title.clone(),
+                v.location.clone(),
+                v.artist.clone(),
+                v.album.clone(),
+                i64::from(v.tempo_hundredths_bpm),
+                i64::from(v.duration_seconds),
+                v.key.clone(),
+            ))
+        {
+            return Err(CatalogError::InvalidRecord(
+                "selected imported track is stale",
+            ));
+        }
+        for (at, value) in [
+            (index, guard.members[destination]),
+            (destination, guard.members[index]),
+        ] {
+            tx.execute("UPDATE library_members SET track_position=?1 WHERE node_id=?2 AND position=(SELECT position FROM library_members WHERE node_id=?2 ORDER BY position LIMIT 1 OFFSET ?3)", rusqlite::params![to_i64(value)?, id, to_i64(at)?])?;
+        }
+        tx.commit()?;
+        let mut updated = guard.clone();
+        updated.members.swap(index, destination);
+        Ok(updated)
+    }
+
     /// Remove one nested membership after revalidating ancestry, membership and track identity.
     pub fn remove_guarded_nested_playlist_member(
         &mut self,
