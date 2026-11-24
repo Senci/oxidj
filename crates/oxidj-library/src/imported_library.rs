@@ -102,6 +102,17 @@ pub struct LibraryNavigationTrack {
 pub struct LibraryNavigation {
     pub tracks: Vec<LibraryNavigationTrack>,
     pub roots: Vec<LibraryNode>,
+    folder_guards: Vec<(Vec<usize>, FolderCreateGuard)>,
+}
+
+impl LibraryNavigation {
+    /// Destination identity as it was captured with this displayed navigation snapshot.
+    pub fn folder_guard(&self, path: &[usize]) -> Option<&FolderCreateGuard> {
+        self.folder_guards
+            .iter()
+            .find(|(p, _)| p == path)
+            .map(|(_, guard)| guard)
+    }
 }
 
 /// Opaque identity and visible state captured when a root playlist is selected.
@@ -123,6 +134,12 @@ pub struct NestedRenameGuard {
 
 /// Navigation snapshot paired with the displayed identity chains of all playlists.
 pub type GuardedLibraryNavigation = (LibraryNavigation, Vec<(Vec<usize>, NestedRenameGuard)>);
+/// Captured folder ancestry and ordered immediate child identities.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FolderCreateGuard {
+    chain: Vec<NestedIdentity>,
+    children: Vec<FolderChildIdentity>,
+}
 
 /// Aggregate counts of a snapshot (folders exclude the implicit root).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -205,6 +222,7 @@ pub struct ImportedTrackGuard {
 }
 
 type NestedIdentity = (i64, Vec<u8>, usize, String);
+type FolderChildIdentity = (i64, Vec<u8>, String, i64);
 
 fn nested_chain(
     tx: &rusqlite::Transaction<'_>,
@@ -241,6 +259,42 @@ fn nested_members(tx: &rusqlite::Transaction<'_>, id: i64) -> Result<Vec<usize>,
             usize::try_from(v).map_err(|_| rusqlite::Error::IntegralValueOutOfRange(0, v))
         })
     })?;
+    Ok(rows.collect::<Result<_, _>>()?)
+}
+
+fn folder_chain(
+    tx: &rusqlite::Transaction<'_>,
+    path: &[usize],
+    names: &[String],
+) -> Result<Vec<NestedIdentity>, CatalogError> {
+    use rusqlite::OptionalExtension;
+    if path.is_empty() || path.len() != names.len() {
+        return Err(CatalogError::InvalidRecord("invalid folder path"));
+    }
+    let mut parent = None;
+    let mut chain = Vec::new();
+    for (&index, name) in path.iter().zip(names) {
+        let row: Option<(i64, Vec<u8>, String, i64)> = tx.query_row(
+            "SELECT n.id,i.token,n.name,n.is_folder FROM library_nodes n JOIN library_node_identity i ON i.node_id=n.id WHERE n.parent_id IS ?1 ORDER BY n.sibling_order,n.id LIMIT 1 OFFSET ?2",
+            rusqlite::params![parent, to_i64(index)?], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?))
+        ).optional()?;
+        let (id, token, actual, folder) =
+            row.ok_or(CatalogError::InvalidRecord("selected folder is stale"))?;
+        if actual != *name || folder != 1 {
+            return Err(CatalogError::InvalidRecord("selected folder is stale"));
+        }
+        parent = Some(id);
+        chain.push((id, token, index, actual));
+    }
+    Ok(chain)
+}
+
+fn folder_children(
+    tx: &rusqlite::Transaction<'_>,
+    id: i64,
+) -> Result<Vec<FolderChildIdentity>, CatalogError> {
+    let mut stmt = tx.prepare("SELECT n.id,i.token,n.name,n.is_folder FROM library_nodes n JOIN library_node_identity i ON i.node_id=n.id WHERE n.parent_id=?1 ORDER BY n.sibling_order,n.id")?;
+    let rows = stmt.query_map([id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))?;
     Ok(rows.collect::<Result<_, _>>()?)
 }
 
@@ -285,7 +339,7 @@ impl Catalog {
             Ok(())
         }
         let tx = self.connection.unchecked_transaction()?;
-        let navigation = self.library_navigation()?;
+        let navigation = self.library_navigation_in_transaction(&tx)?;
         let mut guards = Vec::new();
         collect(
             &tx,
@@ -299,6 +353,32 @@ impl Catalog {
     }
 
     /// Append a selected track to a root or nested playlist after transactional revalidation.
+    /// Capture a folder from the visible navigation tree.
+    pub fn folder_create_guard(
+        &self,
+        path: &[usize],
+        names: &[String],
+        expected: &[LibraryNode],
+    ) -> Result<FolderCreateGuard, CatalogError> {
+        let tx = self.connection.unchecked_transaction()?;
+        let chain = folder_chain(&tx, path, names)?;
+        let children = folder_children(&tx, chain.last().unwrap().0)?;
+        if children.len() != expected.len()
+            || children
+                .iter()
+                .zip(expected)
+                .any(|(actual, node)| match node {
+                    LibraryNode::Folder { name, .. } => actual.2 != *name || actual.3 != 1,
+                    LibraryNode::Playlist { name, .. } => actual.2 != *name || actual.3 != 0,
+                })
+        {
+            return Err(CatalogError::InvalidRecord("selected folder is stale"));
+        }
+        tx.commit()?;
+        Ok(FolderCreateGuard { chain, children })
+    }
+
+    /// Append a selected track to a nested playlist after transactional revalidation.
     pub fn append_guarded_nested_playlist_member(
         &mut self,
         guard: &NestedRenameGuard,
@@ -537,11 +617,33 @@ impl Catalog {
         name: &str,
         guard: &ImportedTrackGuard,
     ) -> Result<(), CatalogError> {
+        self.create_guarded_playlist(name, guard, None)
+    }
+
+    /// Create in a folder, revalidating folder and track under the write lock.
+    pub fn create_guarded_playlist(
+        &mut self,
+        name: &str,
+        guard: &ImportedTrackGuard,
+        folder: Option<&FolderCreateGuard>,
+    ) -> Result<(), CatalogError> {
         use rusqlite::OptionalExtension;
         validate_library_playlist_name(name)?;
         let tx = self
             .connection
             .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let parent = if let Some(folder) = folder {
+            let path: Vec<_> = folder.chain.iter().map(|n| n.2).collect();
+            let names: Vec<_> = folder.chain.iter().map(|n| n.3.clone()).collect();
+            let chain = folder_chain(&tx, &path, &names)?;
+            let id = chain.last().unwrap().0;
+            if chain != folder.chain || folder_children(&tx, id)? != folder.children {
+                return Err(CatalogError::InvalidRecord("selected folder is stale"));
+            }
+            Some(id)
+        } else {
+            None
+        };
         let row: Option<ImportedTrackRow> = tx.query_row(
             "SELECT i.token,t.title,t.location,t.artist,t.album,t.tempo_hundredths_bpm,t.duration_seconds,t.musical_key FROM library_tracks t JOIN library_track_identity i ON i.track_position=t.position WHERE t.position=?1",
             [to_i64(guard.position)?], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?,r.get(5)?,r.get(6)?,r.get(7)?)),
@@ -564,24 +666,26 @@ impl Catalog {
             ));
         }
         let duplicate: bool = tx.query_row(
-            "SELECT EXISTS(SELECT 1 FROM library_nodes WHERE parent_id IS NULL AND name=?1)",
-            [name],
+            "SELECT EXISTS(SELECT 1 FROM library_nodes WHERE parent_id IS ?1 AND name=?2)",
+            rusqlite::params![parent, name],
             |r| r.get(0),
         )?;
         if duplicate {
-            return Err(CatalogError::InvalidRecord(
-                "a root node with this name already exists",
-            ));
+            return Err(CatalogError::InvalidRecord(if parent.is_some() {
+                "a node with this name already exists in the selected folder"
+            } else {
+                "a root node with this name already exists"
+            }));
         }
         let id: i64 = tx.query_row("SELECT COALESCE(MAX(id),0)+1 FROM library_nodes", [], |r| {
             r.get(0)
         })?;
         let order: i64 = tx.query_row(
-            "SELECT COALESCE(MAX(sibling_order),-1)+1 FROM library_nodes WHERE parent_id IS NULL",
-            [],
+            "SELECT COALESCE(MAX(sibling_order),-1)+1 FROM library_nodes WHERE parent_id IS ?1",
+            [parent],
             |r| r.get(0),
         )?;
-        tx.execute("INSERT INTO library_nodes(id,parent_id,sibling_order,name,is_folder) VALUES(?1,NULL,?2,?3,0)", rusqlite::params![id, order, name])?;
+        tx.execute("INSERT INTO library_nodes(id,parent_id,sibling_order,name,is_folder) VALUES(?1,?2,?3,?4,0)", rusqlite::params![id, parent, order, name])?;
         tx.execute(
             "INSERT INTO library_members(node_id,position,track_position) VALUES(?1,0,?2)",
             rusqlite::params![id, to_i64(guard.position)?],
@@ -1397,6 +1501,16 @@ impl Catalog {
     /// Read only the fields needed to render imported-library navigation.
     /// This does not load beat grids, cues, or vendor waveform payloads.
     pub fn library_navigation(&self) -> Result<LibraryNavigation, CatalogError> {
+        let tx = self.connection.unchecked_transaction()?;
+        let navigation = self.library_navigation_in_transaction(&tx)?;
+        tx.commit()?;
+        Ok(navigation)
+    }
+
+    fn library_navigation_in_transaction(
+        &self,
+        tx: &rusqlite::Transaction<'_>,
+    ) -> Result<LibraryNavigation, CatalogError> {
         let mut statement = self
             .connection
             .prepare("SELECT position,title,location,artist,album,tempo_hundredths_bpm,duration_seconds,musical_key,genre FROM library_tracks ORDER BY position")?;
@@ -1470,7 +1584,46 @@ impl Catalog {
             Ok(out)
         }
         let roots = build(&nodes, None, &mut members, tracks.len(), 0)?;
-        Ok(LibraryNavigation { tracks, roots })
+        fn guards(
+            tx: &rusqlite::Transaction<'_>,
+            nodes: &[LibraryNode],
+            path: &mut Vec<usize>,
+            names: &mut Vec<String>,
+            out: &mut Vec<(Vec<usize>, FolderCreateGuard)>,
+        ) -> Result<(), CatalogError> {
+            for (i, node) in nodes.iter().enumerate() {
+                if let LibraryNode::Folder { name, children } = node {
+                    path.push(i);
+                    names.push(name.clone());
+                    let chain = folder_chain(tx, path, names)?;
+                    let children_guard = folder_children(tx, chain.last().unwrap().0)?;
+                    out.push((
+                        path.clone(),
+                        FolderCreateGuard {
+                            chain,
+                            children: children_guard,
+                        },
+                    ));
+                    guards(tx, children, path, names, out)?;
+                    path.pop();
+                    names.pop();
+                }
+            }
+            Ok(())
+        }
+        let mut folder_guards = Vec::new();
+        guards(
+            tx,
+            &roots,
+            &mut Vec::new(),
+            &mut Vec::new(),
+            &mut folder_guards,
+        )?;
+        Ok(LibraryNavigation {
+            tracks,
+            roots,
+            folder_guards,
+        })
     }
 
     /// Read the stored imported library back in stored order.
@@ -1944,7 +2097,7 @@ mod tests {
         let mut catalog = Catalog::open(path()).unwrap();
         let mut before = snapshot();
         catalog.import_library(&before).unwrap();
-        let nav = catalog.library_navigation().unwrap();
+        let (nav, _) = catalog.guarded_library_navigation().unwrap();
         let track = catalog.imported_track_guard(1, &nav.tracks[1]).unwrap();
         let names = vec!["Folder".to_owned(), "Inner".to_owned()];
         let guard = catalog.nested_rename_guard(&[1, 0], &names, &[1]).unwrap();

@@ -175,7 +175,11 @@ pub(crate) struct LibraryApp {
         oxidj_library::ImportedTrackGuard,
         Option<(Vec<usize>, AppendTarget)>,
     )>,
-    pub(crate) catalog_create_pending: Option<(usize, oxidj_library::ImportedTrackGuard)>,
+    pub(crate) catalog_create_pending: Option<(
+        usize,
+        oxidj_library::ImportedTrackGuard,
+        Option<(Vec<usize>, oxidj_library::FolderCreateGuard)>,
+    )>,
     pub(crate) catalog_create_name: String,
     pub(crate) imported_member: Option<usize>,
     pub(crate) selected_imported: Option<usize>,
