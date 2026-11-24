@@ -823,28 +823,114 @@ impl LibraryApp {
         }
         let mut open = true;
         let mut done = false;
-        egui::Window::new("Create root playlist")
+        egui::Window::new("Create playlist")
             .open(&mut open)
             .show(ctx, |ui| {
+                ui.label("Choose destination:");
+                if ui
+                    .selectable_label(
+                        self.catalog_create_pending.as_ref().unwrap().2.is_none(),
+                        "Root",
+                    )
+                    .clicked()
+                {
+                    self.catalog_create_pending.as_mut().unwrap().2 = None;
+                }
+                if let Ok(nav) = &self.imported_navigation {
+                    fn collect(
+                        nodes: &[oxidj_library::LibraryNode],
+                        path: &mut Vec<usize>,
+                        names: &mut Vec<String>,
+                        out: &mut Vec<(Vec<usize>, Vec<String>, Vec<oxidj_library::LibraryNode>)>,
+                    ) {
+                        for (i, node) in nodes.iter().enumerate() {
+                            if let oxidj_library::LibraryNode::Folder { name, children } = node {
+                                path.push(i);
+                                names.push(name.clone());
+                                out.push((path.clone(), names.clone(), children.clone()));
+                                collect(children, path, names, out);
+                                path.pop();
+                                names.pop();
+                            }
+                        }
+                    }
+                    let mut choices = Vec::new();
+                    collect(&nav.roots, &mut Vec::new(), &mut Vec::new(), &mut choices);
+                    egui::ScrollArea::vertical()
+                        .max_height(200.0)
+                        .show(ui, |ui| {
+                            for (path, names, children) in choices {
+                                let selected = self
+                                    .catalog_create_pending
+                                    .as_ref()
+                                    .unwrap()
+                                    .2
+                                    .as_ref()
+                                    .is_some_and(|p| p.0 == path);
+                                if ui
+                                    .selectable_label(
+                                        selected,
+                                        format!("Folder: {:?} {:?}", path, names),
+                                    )
+                                    .clicked()
+                                {
+                                    match self
+                                        .catalog
+                                        .as_ref()
+                                        .map_err(|_| "catalog unavailable".to_owned())
+                                        .and_then(|db| {
+                                            let displayed =
+                                                nav.folder_guard(&path).ok_or_else(|| {
+                                                    "selected folder is stale".to_owned()
+                                                })?;
+                                            let current = db
+                                                .folder_create_guard(&path, &names, &children)
+                                                .map_err(|e| e.to_string())?;
+                                            if &current != displayed {
+                                                return Err("selected folder is stale".to_owned());
+                                            }
+                                            Ok(displayed.clone())
+                                        }) {
+                                        Ok(guard) => {
+                                            self.catalog_create_pending.as_mut().unwrap().2 =
+                                                Some((path, guard))
+                                        }
+                                        Err(error) => {
+                                            self.catalog_create_pending = None;
+                                            self.notice =
+                                                format!("Folder selection refused: {error}");
+                                            return;
+                                        }
+                                    }
+                                }
+                            }
+                        });
+                }
+                if self.catalog_create_pending.is_none() {
+                    return;
+                }
                 ui.horizontal(|ui| {
                     ui.label("Playlist name");
                     ui.text_edit_singleline(&mut self.catalog_create_name);
                 });
                 ui.horizontal(|ui| {
                     if ui.button("Confirm creation").clicked() {
-                        let (member, guard) = self.catalog_create_pending.as_ref().unwrap();
-                        let result = if self.selected_imported != Some(*member)
-                            || !self.db_path.is_file()
-                        {
-                            Err("selection or catalog is no longer available".to_owned())
-                        } else {
-                            match &mut self.catalog {
-                                Ok(db) => db
-                                    .create_guarded_root_playlist(&self.catalog_create_name, guard)
-                                    .map_err(|e| e.to_string()),
-                                Err(_) => Err("catalog unavailable".to_owned()),
-                            }
-                        };
+                        let (member, guard, folder) = self.catalog_create_pending.as_ref().unwrap();
+                        let result =
+                            if self.selected_imported != Some(*member) || !self.db_path.is_file() {
+                                Err("selection or catalog is no longer available".to_owned())
+                            } else {
+                                match &mut self.catalog {
+                                    Ok(db) => db
+                                        .create_guarded_playlist(
+                                            &self.catalog_create_name,
+                                            guard,
+                                            folder.as_ref().map(|p| &p.1),
+                                        )
+                                        .map_err(|e| e.to_string()),
+                                    Err(_) => Err("catalog unavailable".to_owned()),
+                                }
+                            };
                         match result {
                             Ok(()) => {
                                 self.reload();
@@ -1728,7 +1814,7 @@ impl LibraryApp {
                 }
                 if ui.button("Create playlist from selected…").clicked() {
                     self.catalog_create_name.clear();
-                    self.catalog_create_pending = Some((member, guard.clone()));
+                    self.catalog_create_pending = Some((member, guard.clone(), None));
                 }
             }
             if (self.imported_root_guard.is_some() || self.imported_nested_guard.is_some())

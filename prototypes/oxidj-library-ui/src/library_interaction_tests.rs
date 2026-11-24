@@ -256,6 +256,232 @@ fn selected_imported_track_can_create_a_root_playlist() {
 }
 
 #[test]
+fn selected_track_creates_playlist_in_chosen_folder() {
+    let (root, db) = catalog_root("create-folder");
+    imported(&db, &root);
+    let status = std::process::Command::new("python3")
+        .args(["-c", "import sqlite3,sys; c=sqlite3.connect(sys.argv[1]); c.execute(\"INSERT INTO library_nodes(id,parent_id,sibling_order,name,is_folder) VALUES(999,NULL,1,'Sets',1)\"); c.commit()"])
+        .arg(&db).status().unwrap();
+    assert!(status.success());
+    let mut shell = Shell::new(&db, 1440.0);
+    let row = text_rect(&mut shell, "♫ Browse");
+    shell.click(row.center());
+    let row = text_rect(&mut shell, "1 · Imported title");
+    shell.click(row.center());
+    let out = shell.settle();
+    let out = shell.click(
+        find(&nodes(&out), "Create playlist from selected…")
+            .2
+            .center(),
+    );
+    shell.click(find(&nodes(&out), "Folder: [1] [\"Sets\"]").2.center());
+    shell.app.catalog_create_name = "New set".into();
+    let out = shell.settle();
+    shell.click(find(&nodes(&out), "Confirm creation").2.center());
+    let snapshot = Catalog::open_read_only(&db)
+        .unwrap()
+        .library_snapshot()
+        .unwrap();
+    assert!(
+        matches!(&snapshot.roots[1], oxidj_library::LibraryNode::Folder { children, .. } if matches!(&children[0], oxidj_library::LibraryNode::Playlist { name, members } if name == "New set" && members == &[0]))
+    );
+    drop(shell);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn folder_create_disambiguates_paths_and_refuses_stale_state() {
+    for case in [
+        "cancel",
+        "invalid",
+        "collision",
+        "ancestor",
+        "folder",
+        "moved",
+        "children",
+        "pre-ancestor",
+        "pre-folder",
+        "pre-child",
+        "track",
+        "success",
+    ] {
+        let (root, db) = catalog_root(&format!("folder-create-{case}"));
+        let folder = || oxidj_library::LibraryNode::Folder {
+            name: "Same".into(),
+            children: vec![oxidj_library::LibraryNode::Folder {
+                name: "Nested".into(),
+                children: vec![oxidj_library::LibraryNode::Playlist {
+                    name: "Mix".into(),
+                    members: vec![0],
+                }],
+            }],
+        };
+        let fixture = LibrarySnapshot {
+            tracks: vec![LibraryTrack {
+                title: "Track".into(),
+                location: "file://localhost/test.mp3".into(),
+                ..Default::default()
+            }],
+            roots: vec![folder(), folder()],
+        };
+        Catalog::open(&db)
+            .unwrap()
+            .import_library(&fixture)
+            .unwrap();
+        let mut shell = Shell::new(&db, 1440.0);
+        let rows: Vec<_> = texts(&shell.settle())
+            .into_iter()
+            .filter(|(s, _)| s == "♫ Mix")
+            .collect();
+        shell.click(rows[0].1.center());
+        let row = text_rect(&mut shell, "1 · Track");
+        shell.click(row.center());
+        let out = shell.settle();
+        let out = shell.click(
+            find(&nodes(&out), "Create playlist from selected…")
+                .2
+                .center(),
+        );
+        if case.starts_with("pre-") {
+            let script = r#"import sqlite3,sys
+c=sqlite3.connect(sys.argv[1]); c.execute('pragma defer_foreign_keys=on')
+a=c.execute('select id from library_nodes where parent_id is null order by sibling_order,id limit 1 offset 1').fetchone()[0]
+f=c.execute('select id from library_nodes where parent_id=?',(a,)).fetchone()[0]
+i={'pre-ancestor':a,'pre-folder':f,'pre-child':c.execute('select id from library_nodes where parent_id=?',(f,)).fetchone()[0]}[sys.argv[2]]
+row=c.execute('select * from library_nodes where id=?',(i,)).fetchone(); c.execute('delete from library_nodes where id=?',(i,)); c.execute('insert into library_nodes values(?,?,?,?,?)',row); c.commit()"#;
+            let result = std::process::Command::new("python3")
+                .args(["-c", script])
+                .arg(&db)
+                .arg(case)
+                .output()
+                .unwrap();
+            assert!(
+                result.status.success(),
+                "{}",
+                String::from_utf8_lossy(&result.stderr)
+            );
+            let before = Catalog::open_read_only(&db)
+                .unwrap()
+                .library_snapshot()
+                .unwrap();
+            shell.click(
+                find(&nodes(&out), "Folder: [1, 0] [\"Same\", \"Nested\"]")
+                    .2
+                    .center(),
+            );
+            assert!(
+                shell.app.notice.contains("refused"),
+                "{}: {}",
+                case,
+                shell.app.notice
+            );
+            assert_eq!(
+                Catalog::open_read_only(&db)
+                    .unwrap()
+                    .library_snapshot()
+                    .unwrap(),
+                before
+            );
+            drop(shell);
+            std::fs::remove_dir_all(root).unwrap();
+            continue;
+        }
+        let out = shell.click(
+            find(&nodes(&out), "Folder: [1, 0] [\"Same\", \"Nested\"]")
+                .2
+                .center(),
+        );
+        shell.app.catalog_create_name = match case {
+            "invalid" => " ",
+            "collision" => "Mix",
+            _ => "New",
+        }
+        .into();
+        if case == "cancel" {
+            shell.click(find(&nodes(&out), "Cancel").2.center());
+            assert_eq!(
+                Catalog::open_read_only(&db)
+                    .unwrap()
+                    .library_snapshot()
+                    .unwrap(),
+                fixture
+            );
+        } else {
+            let script = r#"import sqlite3,sys
+c=sqlite3.connect(sys.argv[1]); case=sys.argv[2]
+a=c.execute("select id from library_nodes where parent_id is null order by sibling_order,id limit 1 offset 1").fetchone()[0]
+f=c.execute("select id from library_nodes where parent_id=?",(a,)).fetchone()[0]
+if case in ('ancestor','folder'):
+ c.execute('pragma defer_foreign_keys=on'); i=a if case=='ancestor' else f
+ row=c.execute('select * from library_nodes where id=?',(i,)).fetchone(); c.execute('delete from library_nodes where id=?',(i,)); c.execute('insert into library_nodes values(?,?,?,?,?)',row)
+elif case=='moved': c.execute('update library_nodes set parent_id=(select id from library_nodes where parent_id is null order by sibling_order limit 1), sibling_order=1 where id=?',(f,))
+elif case=='children': c.execute("insert into library_nodes(parent_id,sibling_order,name,is_folder) values(?,1,'Other',0)",(f,))
+elif case=='track':
+ c.executescript('CREATE TEMP TABLE saved AS SELECT * FROM library_tracks WHERE position=0; DELETE FROM library_tracks WHERE position=0; INSERT INTO library_tracks SELECT * FROM saved;')
+c.commit()"#;
+            let output = std::process::Command::new("python3")
+                .args(["-c", script])
+                .arg(&db)
+                .arg(case)
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            let before = Catalog::open_read_only(&db)
+                .unwrap()
+                .library_snapshot()
+                .unwrap();
+            shell.click(find(&nodes(&out), "Confirm creation").2.center());
+            if case == "success" {
+                let mut expected = fixture;
+                let oxidj_library::LibraryNode::Folder { children, .. } = &mut expected.roots[1]
+                else {
+                    panic!()
+                };
+                let oxidj_library::LibraryNode::Folder { children, .. } = &mut children[0] else {
+                    panic!()
+                };
+                children.push(oxidj_library::LibraryNode::Playlist {
+                    name: "New".into(),
+                    members: vec![0],
+                });
+                assert_eq!(
+                    Catalog::open_read_only(&db)
+                        .unwrap()
+                        .library_snapshot()
+                        .unwrap(),
+                    expected
+                );
+            } else {
+                let reason = match case {
+                    "invalid" => "name",
+                    "collision" => "a node with this name already exists in the selected folder",
+                    "track" => "selected imported track is stale",
+                    _ => "folder is stale",
+                };
+                assert!(
+                    shell.app.notice.contains(reason),
+                    "{case}: {}",
+                    shell.app.notice
+                );
+                assert_eq!(
+                    Catalog::open_read_only(&db)
+                        .unwrap()
+                        .library_snapshot()
+                        .unwrap(),
+                    before
+                );
+            }
+        }
+        drop(shell);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+}
+
+#[test]
 fn creation_refuses_missing_catalog_without_recreating_it() {
     let (root, db) = catalog_root("create-missing");
     imported(&db, &root);
@@ -1468,6 +1694,117 @@ c.commit()"#;
         drop(shell);
         std::fs::remove_dir_all(root).unwrap();
     }
+}
+
+#[test]
+fn pdb_folder_create_ui_export_matches_independent_oracle() {
+    let (root, _) = catalog_root("folder-create-oracle");
+    let (pdb, source, analysis) = m7_fixture::write(&root.join("device"));
+    let db = root.join("imported.sqlite");
+    oxidj_application::import_library_from_pdb(&pdb, &db, None).unwrap();
+    let before = Catalog::open_read_only(&db)
+        .unwrap()
+        .library_snapshot()
+        .unwrap();
+    let index = before
+        .roots
+        .iter()
+        .position(
+            |n| matches!(n, oxidj_library::LibraryNode::Folder { name, .. } if name == "Folder A"),
+        )
+        .unwrap();
+    let mut shell = Shell::new(&db, 1440.0);
+    shell.screen.max.y = 1800.0;
+    let row = text_rect(&mut shell, "♫ Playlist 19");
+    shell.click(row.center());
+    let row = text_rect(&mut shell, "2 · Track 812");
+    shell.click(row.center());
+    let out = shell.settle();
+    let out = shell.click(
+        find(&nodes(&out), "Create playlist from selected…")
+            .2
+            .center(),
+    );
+    let label = format!("Folder: [{index}] [\"Folder A\"]");
+    let out = shell.click(find(&nodes(&out), &label).2.center());
+    shell.app.catalog_create_name = "Created set".into();
+    shell.click(find(&nodes(&out), "Confirm creation").2.center());
+    assert!(
+        shell.app.notice.starts_with("Playlist created"),
+        "{}",
+        shell.app.notice
+    );
+    let mut expected = before;
+    let oxidj_library::LibraryNode::Folder { children, .. } = &mut expected.roots[index] else {
+        panic!("folder")
+    };
+    children.push(oxidj_library::LibraryNode::Playlist {
+        name: "Created set".into(),
+        members: vec![811],
+    });
+    assert_eq!(
+        Catalog::open_read_only(&db)
+            .unwrap()
+            .library_snapshot()
+            .unwrap(),
+        expected
+    );
+    let output = root.join("created.xml");
+    let menu = shell.click(shell.app.shell.more.unwrap().center());
+    let out = shell.click(find(&nodes(&menu), "Export catalog XML…").2.center());
+    shell.app.catalog_export_path = output.display().to_string();
+    shell.click(find(&nodes(&out), "Export catalog XML").2.center());
+    assert!(
+        shell.app.notice.starts_with("Catalog exported"),
+        "{}",
+        shell.app.notice
+    );
+    let oracle = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../scripts/verify_m7_export.py");
+    let check = |xml: &Path| {
+        std::process::Command::new("python3")
+            .arg("-B")
+            .arg(&oracle)
+            .arg(&pdb)
+            .arg(xml)
+            .args([
+                "--create-playlist",
+                "Created set",
+                "812",
+                "--create-folder-id",
+                "200",
+            ])
+            .output()
+            .unwrap()
+    };
+    let result = check(&output);
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let wrong = root.join("wrong.xml");
+    let mutate = "import sys,xml.etree.ElementTree as E; t=E.parse(sys.argv[1]); n=next(x for x in t.iter('NODE') if x.get('Name')=='Created set'); n[0].set('Key','1'); t.write(sys.argv[2])";
+    assert!(
+        std::process::Command::new("python3")
+            .args(["-c", mutate])
+            .arg(&output)
+            .arg(&wrong)
+            .status()
+            .unwrap()
+            .success()
+    );
+    let rejected = check(&wrong);
+    assert!(!rejected.status.success());
+    assert!(
+        String::from_utf8_lossy(&rejected.stderr)
+            .contains("tree: complete ordered nodes/members differ")
+    );
+    assert_eq!(std::fs::read(&pdb).unwrap(), source);
+    for (path, bytes) in analysis {
+        assert_eq!(std::fs::read(path).unwrap(), bytes);
+    }
+    drop(shell);
+    std::fs::remove_dir_all(root).unwrap();
 }
 
 #[test]
