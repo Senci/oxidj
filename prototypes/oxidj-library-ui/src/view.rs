@@ -1755,16 +1755,10 @@ impl LibraryApp {
                             {
                                 app.imported_playlist = Some(path.clone());
                                 app.imported_nested_guard = if path.len() > 1 {
-                                    app.catalog.as_ref().ok().and_then(|db| {
-                                        match db.nested_rename_guard(path, names, members) {
-                                            Ok(guard) => Some(guard),
-                                            Err(error) => {
-                                                app.notice =
-                                                    format!("Playlist selection is stale: {error}");
-                                                None
-                                            }
-                                        }
-                                    })
+                                    app.navigation_playlist_guards
+                                        .iter()
+                                        .find(|(guard_path, _)| guard_path == path)
+                                        .map(|(_, guard)| guard.clone())
                                 } else {
                                     None
                                 };
@@ -1839,6 +1833,96 @@ impl LibraryApp {
                     self.catalog_rename_open = true;
                 }
             }
+            if let (Some(index), Some(member)) = (self.imported_member, self.selected_imported) {
+                if self.imported_playlist.as_ref().is_some_and(|path| {
+                    if path.len() == 1 {
+                        self.imported_root_guard.is_some()
+                    } else {
+                        self.imported_nested_guard.is_some()
+                            && self.selected_imported_guard.is_some()
+                    }
+                }) && ui.button("Remove selected from playlist…").clicked()
+                {
+                    self.catalog_remove_pending = Some((
+                        self.imported_root_guard.clone(),
+                        self.imported_nested_guard.clone(),
+                        self.selected_imported_guard.clone(),
+                        self.imported_playlist.clone().unwrap(),
+                        index,
+                        member,
+                    ));
+                }
+            }
+            if let (Some(guard), Some(track), Some(index), Some(member), Some(path)) = (
+                self.imported_nested_guard.clone(),
+                self.selected_imported_guard.clone(),
+                self.imported_member,
+                self.selected_imported,
+                self.imported_playlist.clone(),
+            ) {
+                let mut nodes = snapshot.roots.as_slice();
+                let mut selected = None;
+                for (depth, &part) in path.iter().enumerate() {
+                    match nodes.get(part) {
+                        Some(oxidj_library::LibraryNode::Folder { children, .. })
+                            if depth + 1 < path.len() =>
+                        {
+                            nodes = children
+                        }
+                        Some(oxidj_library::LibraryNode::Playlist { members, .. })
+                            if depth + 1 == path.len() =>
+                        {
+                            selected = Some(members);
+                            break;
+                        }
+                        _ => break,
+                    }
+                }
+                if let Some(members) = selected {
+                    let up = ui
+                        .add_enabled(index > 0, egui::Button::new("Move selected up"))
+                        .clicked();
+                    let down = ui
+                        .add_enabled(
+                            index.checked_add(1).is_some_and(|i| i < members.len()),
+                            egui::Button::new("Move selected down"),
+                        )
+                        .clicked();
+                    let target = if up {
+                        index.checked_sub(1)
+                    } else if down {
+                        index.checked_add(1)
+                    } else {
+                        None
+                    };
+                    if let Some(target) = target {
+                        let result = if !self.db_path.is_file() {
+                            Err("catalog is no longer available".to_owned())
+                        } else {
+                            self.catalog
+                                .as_mut()
+                                .map_err(|_| "catalog unavailable".to_owned())
+                                .and_then(|db| {
+                                    db.move_guarded_nested_playlist_member(
+                                        &guard, &track, index, target,
+                                    )
+                                    .map_err(|e| e.to_string())
+                                })
+                        };
+                        match result {
+                            Ok(updated) => {
+                                self.reload();
+                                self.imported_member = Some(target);
+                                self.selected_imported = Some(member);
+                                self.selected_imported_guard = Some(track);
+                                self.imported_nested_guard = Some(updated);
+                                self.notice = "Playlist member moved".into();
+                            }
+                            Err(error) => self.notice = format!("Playlist move refused: {error}"),
+                        }
+                    }
+                }
+            }
             if let (Some(guard), Some(track), Some(index), Some(member), Some(path)) = (
                 self.imported_root_guard.clone(),
                 self.selected_imported_guard.clone(),
@@ -1908,26 +1992,6 @@ impl LibraryApp {
                             }
                         }
                     }
-                }
-            }
-            if let (Some(index), Some(member)) = (self.imported_member, self.selected_imported) {
-                if self.imported_playlist.as_ref().is_some_and(|path| {
-                    if path.len() == 1 {
-                        self.imported_root_guard.is_some()
-                    } else {
-                        self.imported_nested_guard.is_some()
-                            && self.selected_imported_guard.is_some()
-                    }
-                }) && ui.button("Remove selected from playlist…").clicked()
-                {
-                    self.catalog_remove_pending = Some((
-                        self.imported_root_guard.clone(),
-                        self.imported_nested_guard.clone(),
-                        self.selected_imported_guard.clone(),
-                        self.imported_playlist.clone().unwrap(),
-                        index,
-                        member,
-                    ));
                 }
             }
         } else if let Err(error) = snapshot {

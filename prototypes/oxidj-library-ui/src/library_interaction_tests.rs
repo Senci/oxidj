@@ -1327,6 +1327,79 @@ fn nested_append_ui_refuses_membership_reorder_without_further_changes() {
 }
 
 #[test]
+fn nested_selected_occurrence_moves_repeatedly_without_reselection() {
+    let (root, db) = catalog_root("nested-move");
+    let fixture = LibrarySnapshot {
+        tracks: vec![
+            LibraryTrack {
+                title: "First track".into(),
+                location: "file://localhost/first.mp3".into(),
+                ..Default::default()
+            },
+            LibraryTrack {
+                title: "Second track".into(),
+                location: "file://localhost/second.mp3".into(),
+                ..Default::default()
+            },
+        ],
+        roots: vec![oxidj_library::LibraryNode::Folder {
+            name: "Folder".into(),
+            children: vec![oxidj_library::LibraryNode::Playlist {
+                name: "Nested".into(),
+                members: vec![0, 1, 0],
+            }],
+        }],
+    };
+    Catalog::open(&db)
+        .unwrap()
+        .import_library(&fixture)
+        .unwrap();
+    let mut shell = Shell::new(&db, 1440.0);
+    let row = text_rect(&mut shell, "♫ Nested");
+    shell.click(row.center());
+    let row = text_rect(&mut shell, "3 · First track");
+    shell.click(row.center());
+    let out = shell.settle();
+    shell.click(find(&nodes(&out), "Move selected up").2.center());
+    assert_eq!(shell.app.imported_member, Some(1));
+    let out = shell.settle();
+    shell.click(find(&nodes(&out), "Move selected up").2.center());
+    assert_eq!(shell.app.imported_member, Some(0));
+    let out = shell.settle();
+    shell.click(find(&nodes(&out), "Move selected up").2.center());
+    assert_eq!(shell.app.imported_member, Some(0));
+    let out = shell.settle();
+    shell.click(find(&nodes(&out), "Move selected down").2.center());
+    assert_eq!(shell.app.imported_member, Some(1));
+    let out = shell.settle();
+    shell.click(find(&nodes(&out), "Move selected down").2.center());
+    assert_eq!(shell.app.imported_member, Some(2));
+    let out = shell.settle();
+    shell.click(find(&nodes(&out), "Move selected down").2.center());
+    assert_eq!(shell.app.imported_member, Some(2));
+    let out = shell.settle();
+    shell.click(find(&nodes(&out), "Move selected up").2.center());
+    assert_eq!(shell.app.imported_member, Some(1));
+    let mut expected = fixture;
+    let oxidj_library::LibraryNode::Folder { children, .. } = &mut expected.roots[0] else {
+        panic!("folder")
+    };
+    let oxidj_library::LibraryNode::Playlist { members, .. } = &mut children[0] else {
+        panic!("playlist")
+    };
+    *members = vec![0, 0, 1];
+    assert_eq!(
+        Catalog::open_read_only(&db)
+            .unwrap()
+            .library_snapshot()
+            .unwrap(),
+        expected
+    );
+    drop(shell);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn nested_remove_selected_occurrence_is_available() {
     let (root, db) = catalog_root("nested-remove-available");
     let fixture = LibrarySnapshot {
@@ -1808,6 +1881,70 @@ fn pdb_folder_create_ui_export_matches_independent_oracle() {
 }
 
 #[test]
+fn nested_move_refuses_stale_identity_and_membership() {
+    for case in ["parent", "playlist", "moved", "membership", "track"] {
+        let (root, _) = catalog_root("nested-move-stale");
+        let (pdb, _, _) = m7_fixture::write(&root.join("device"));
+        let db = root.join("imported.sqlite");
+        oxidj_application::import_library_from_pdb(&pdb, &db, None).unwrap();
+        let mut shell = Shell::new(&db, 1440.0);
+        shell.screen.max.y = 1800.0;
+        let row = text_rect(&mut shell, "♫ Playlist 19");
+        shell.click(row.center());
+        let row = text_rect(&mut shell, "2 · Track 812");
+        shell.click(row.center());
+        let out = shell.settle();
+        let script = r#"import sqlite3,sys
+c=sqlite3.connect(sys.argv[1]); case=sys.argv[2]
+p=c.execute("select id from library_nodes where name='Folder A'").fetchone()[0]
+n=c.execute("select id from library_nodes where parent_id=? and name='Playlist 19'",(p,)).fetchone()[0]
+if case in ('parent','playlist'):
+ c.execute('pragma defer_foreign_keys=on'); i=p if case=='parent' else n
+ row=c.execute('select * from library_nodes where id=?',(i,)).fetchone()
+ c.execute('delete from library_nodes where id=?',(i,)); c.execute('insert into library_nodes values(?,?,?,?,?)',row)
+elif case=='moved': c.execute("update library_nodes set parent_id=(select id from library_nodes where name='Folder B'),sibling_order=1 where id=?",(n,))
+elif case=='membership': c.execute('update library_members set track_position=0 where node_id=? and position=1',(n,))
+else: c.execute('update library_track_identity set token=randomblob(16) where track_position=811')
+c.commit()"#;
+        let result = std::process::Command::new("python3")
+            .args(["-c", script])
+            .arg(&db)
+            .arg(case)
+            .output()
+            .unwrap();
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        let before = Catalog::open_read_only(&db)
+            .unwrap()
+            .library_snapshot()
+            .unwrap();
+        shell.click(find(&nodes(&out), "Move selected up").2.center());
+        let reason = if case == "track" {
+            "selected imported track is stale"
+        } else {
+            "selected nested playlist is stale"
+        };
+        assert!(
+            shell.app.notice.contains(reason),
+            "{case}: {}",
+            shell.app.notice
+        );
+        assert_eq!(
+            Catalog::open_read_only(&db)
+                .unwrap()
+                .library_snapshot()
+                .unwrap(),
+            before
+        );
+        drop(shell);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+}
+
+#[test]
 fn pdb_nested_append_ui_export_matches_oracle_and_rejects_mutation() {
     let (root, _) = catalog_root("nested-append-oracle");
     let (pdb, source, analysis) = m7_fixture::write(&root.join("device"));
@@ -1845,6 +1982,77 @@ fn pdb_nested_append_ui_export_matches_oracle_and_rejects_mutation() {
             .arg(&pdb)
             .arg(xml)
             .args(["--append-member", "118", "812"])
+            .output()
+            .unwrap()
+    };
+    let result = check(&output);
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let wrong = root.join("wrong.xml");
+    let mutate = "import sys,xml.etree.ElementTree as E; t=E.parse(sys.argv[1]); n=next(x for x in t.iter('NODE') if x.get('Name')=='Playlist 19'); n[-1].set('Key','1'); t.write(sys.argv[2])";
+    assert!(
+        std::process::Command::new("python3")
+            .args(["-c", mutate])
+            .arg(&output)
+            .arg(&wrong)
+            .status()
+            .unwrap()
+            .success()
+    );
+    let rejected = check(&wrong);
+    assert!(!rejected.status.success());
+    assert!(
+        String::from_utf8_lossy(&rejected.stderr)
+            .contains("tree: complete ordered nodes/members differ")
+    );
+    assert_eq!(std::fs::read(&pdb).unwrap(), source);
+    for (path, bytes) in analysis {
+        assert_eq!(std::fs::read(path).unwrap(), bytes);
+    }
+    drop(shell);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn pdb_nested_move_ui_export_matches_oracle_and_rejects_mutation() {
+    let (root, _) = catalog_root("nested-move-oracle");
+    let (pdb, source, analysis) = m7_fixture::write(&root.join("device"));
+    let db = root.join("imported.sqlite");
+    oxidj_application::import_library_from_pdb(&pdb, &db, None).unwrap();
+    let mut shell = Shell::new(&db, 1440.0);
+    shell.screen.max.y = 1800.0;
+    let row = text_rect(&mut shell, "♫ Playlist 19");
+    shell.click(row.center());
+    let row = text_rect(&mut shell, "2 · Track 812");
+    shell.click(row.center());
+    let out = shell.settle();
+    shell.click(find(&nodes(&out), "Move selected up").2.center());
+    assert!(
+        shell.app.notice.starts_with("Playlist member moved"),
+        "{}",
+        shell.app.notice
+    );
+    let output = root.join("nested-moved.xml");
+    let menu = shell.click(shell.app.shell.more.unwrap().center());
+    let out = shell.click(find(&nodes(&menu), "Export catalog XML…").2.center());
+    shell.app.catalog_export_path = output.display().to_string();
+    shell.click(find(&nodes(&out), "Export catalog XML").2.center());
+    assert!(
+        shell.app.notice.starts_with("Catalog exported"),
+        "{}",
+        shell.app.notice
+    );
+    let oracle = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../scripts/verify_m7_export.py");
+    let check = |xml: &Path| {
+        std::process::Command::new("python3")
+            .arg("-B")
+            .arg(&oracle)
+            .arg(&pdb)
+            .arg(xml)
+            .args(["--move-member", "118", "1", "0", "812"])
             .output()
             .unwrap()
     };
@@ -3070,4 +3278,90 @@ fn unavailable_imported_drop_preserves_loaded_deck_and_plain_click_never_loads()
     );
     assert!(shell.app.decks.decks[1].track.is_none());
     std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn nested_move_rejects_replacement_before_playlist_selection() {
+    let mut failures = Vec::new();
+    for case in ["parent", "playlist"] {
+        let (root, db) = catalog_root("nested-preselection-replacement");
+        let fixture = LibrarySnapshot {
+            tracks: vec![
+                LibraryTrack {
+                    title: "First track".into(),
+                    location: "file://localhost/first.mp3".into(),
+                    ..Default::default()
+                },
+                LibraryTrack {
+                    title: "Second track".into(),
+                    location: "file://localhost/second.mp3".into(),
+                    ..Default::default()
+                },
+            ],
+            roots: vec![oxidj_library::LibraryNode::Folder {
+                name: "Folder".into(),
+                children: vec![oxidj_library::LibraryNode::Playlist {
+                    name: "Nested".into(),
+                    members: vec![0, 1],
+                }],
+            }],
+        };
+        Catalog::open(&db)
+            .unwrap()
+            .import_library(&fixture)
+            .unwrap();
+        let mut shell = Shell::new(&db, 1440.0);
+        let row = text_rect(&mut shell, "♫ Nested"); // cached row rendered, not selected
+        let script = r#"import sqlite3,sys
+c=sqlite3.connect(sys.argv[1]); name='Folder' if sys.argv[2]=='parent' else 'Nested'
+i=c.execute('select id from library_nodes where name=?',(name,)).fetchone()[0]
+old=c.execute('select token from library_node_identity where node_id=?',(i,)).fetchone()[0]
+row=c.execute('select * from library_nodes where id=?',(i,)).fetchone()
+c.execute('delete from library_nodes where id=?',(i,)); c.execute('insert into library_nodes values(?,?,?,?,?)',row)
+new=c.execute('select token from library_node_identity where node_id=?',(i,)).fetchone()[0]
+assert old != new
+c.commit()"#;
+        let result = std::process::Command::new("python3")
+            .args(["-c", script])
+            .arg(&db)
+            .arg(case)
+            .output()
+            .unwrap();
+        assert!(
+            result.status.success(),
+            "setup {case}: {}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        let before = Catalog::open_read_only(&db)
+            .unwrap()
+            .library_snapshot()
+            .unwrap();
+        assert_eq!(
+            before, fixture,
+            "setup must preserve visible tree and membership"
+        );
+        shell.click(row.center());
+        let track = text_rect(&mut shell, "2 · Second track");
+        shell.click(track.center());
+        let out = shell.settle();
+        shell.click(find(&nodes(&out), "Move selected up").2.center());
+        let after = Catalog::open_read_only(&db)
+            .unwrap()
+            .library_snapshot()
+            .unwrap();
+        assert!(
+            shell.app.notice.contains("selected nested playlist is stale"),
+            "{case}: {}",
+            shell.app.notice
+        );
+        if after != before {
+            failures.push(case);
+        }
+        drop(shell);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+    assert!(
+        failures.is_empty(),
+        "replacement modified for: {failures:?}"
+    );
 }
