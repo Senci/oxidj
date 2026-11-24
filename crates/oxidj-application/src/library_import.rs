@@ -614,7 +614,7 @@ fn import_library_checked(
     let before = read_source(pdb)?;
     let mut preview = oxidj_rekordbox::parse_pdb(&before)
         .map_err(|_| fail("PDB source was rejected by the read-only preview"))?;
-    oxidj_rekordbox::attach_analysis(&mut preview, device_root(pdb).as_deref());
+    oxidj_rekordbox::attach_analysis(&mut preview, device_root(&source).as_deref());
     let (snapshot, locations_uri_encoded) = library_from_pdb_preview(&preview)?;
     let unresolved = unresolved_counts(&preview);
     let counts = snapshot.counts();

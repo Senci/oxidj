@@ -951,6 +951,72 @@ fn pdb_library_imports_into_new_catalog_and_exports_verified_xml_without_touchin
     std::fs::remove_dir_all(dir).unwrap();
 }
 
+#[cfg(unix)]
+#[test]
+fn pdb_symlink_uses_canonical_analysis_not_alias_decoy() {
+    use std::os::unix::fs::symlink;
+    let dir = scratch();
+    let device = dir.join("device");
+    let pdb = device.join("PIONEER/rekordbox/export.pdb");
+    std::fs::create_dir_all(pdb.parent().unwrap()).unwrap();
+    let source = synthetic_pdb(None);
+    std::fs::write(&pdb, &source).unwrap();
+    let analysis = write_analysis(&device);
+    let decoy = dir.join("decoy");
+    let alias = decoy.join("PIONEER/rekordbox/export.pdb");
+    std::fs::create_dir_all(alias.parent().unwrap()).unwrap();
+    symlink(&pdb, &alias).unwrap();
+    let decoy_analysis = write_analysis(&decoy);
+    for (path, _) in &decoy_analysis {
+        std::fs::write(path, b"not the selected source analysis").unwrap();
+    }
+    let mut snapshots = Vec::new();
+    for (index, input) in [&pdb, &alias].into_iter().enumerate() {
+        let catalog = dir.join(format!("{index}.sqlite"));
+        stdout(&cli(&[
+            s("catalog"),
+            s("import-library"),
+            s("--pdb"),
+            input.as_os_str(),
+            s("--catalog"),
+            catalog.as_os_str(),
+        ]));
+        snapshots.push(
+            oxidj_library::Catalog::open_read_only(&catalog)
+                .unwrap()
+                .library_snapshot()
+                .unwrap(),
+        );
+    }
+    assert!(
+        snapshots[0]
+            .tracks
+            .iter()
+            .any(|track| !track.beat_grid.is_empty())
+    );
+    assert!(
+        snapshots[0]
+            .tracks
+            .iter()
+            .any(|track| !track.cues.is_empty())
+    );
+    assert_eq!(
+        snapshots[0], snapshots[1],
+        "alias must retain the selected source's metadata and analysis"
+    );
+    assert_eq!(std::fs::read(&pdb).unwrap(), source);
+    for (path, bytes) in &analysis {
+        assert_eq!(&std::fs::read(path).unwrap(), bytes);
+    }
+    for (path, _) in &decoy_analysis {
+        assert_eq!(
+            std::fs::read(path).unwrap(),
+            b"not the selected source analysis"
+        );
+    }
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
 #[test]
 fn catalog_playlist_creation_persists_order_and_preserves_the_exported_library() {
     let dir = scratch();
